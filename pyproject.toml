@@ -1,0 +1,33 @@
+[project]
+name = "tech-debt-scan-skill"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["pyyaml>=6.0"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.5",
+  "mypy>=1.10",
+  "types-PyYAML>=6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["skills/tech-debt-scan/tests"]
+markers = ["live: hits a real LLM (off by default)"]
+addopts = "-m 'not live'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["skills/tech-debt-scan/scripts"]
+# scripts/ are direct-path-invocable (no package), so sibling imports like
+# `from validation import ...` need the scripts dir on the mypy search path.
+mypy_path = "skills/tech-debt-scan/scripts"
