@@ -1,0 +1,191 @@
+"""Build the synthesis prompt and validate the synthesis LLM's output.
+
+Stage 3 of /tech-debt-scan. The six scouts each emit a JSON array of raw
+ScoutFindings (see categories.py for the shared shape). Those arrays are
+concatenated into one raw-findings list and handed here.
+
+`build_prompt` renders a single prompt that asks the synthesis model to pick
+the top 5 findings by impact x tractability and re-emit them in a stricter
+shape (adding `slug` and `reasoning`). `validate_synthesis_output` parses the
+model's reply and enforces that shape, raising SynthesisError with the
+offending field on any deviation.
+
+Direct-path invocable (no package imports): `python build_synthesis_prompt.py`.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any, Final
+
+from categories import CATEGORIES
+from validation import ValidationError, validate_slug
+
+# Cap the number of raw findings sent to synthesis so the prompt stays well
+# under the model's input window. Sort by severity DESC and keep the top N;
+# the dropped count is surfaced (stderr) by the CLI so SKILL.md can log it.
+MAX_FINDINGS: Final[int] = 30
+
+TOP5_COUNT: Final[int] = 5
+
+_REQUIRED_ITEM_FIELDS: Final[tuple[str, ...]] = (
+    "slug",
+    "title",
+    "severity",
+    "category",
+    "reasoning",
+    "evidence",
+    "suggested_fix",
+)
+
+_OUTPUT_SCHEMA: Final[str] = """
+Emit a single JSON object with exactly one key, "top5", whose value is an array
+of exactly 5 findings. Each finding has exactly these keys:
+
+  {
+    "slug": "kebab-case-id (lowercase letter start, [a-z0-9-], <=64 chars)",
+    "title": "<=80 chars, one-line summary",
+    "severity": 1-5 integer (5 = most damaging),
+    "category": "one of the scout category names",
+    "reasoning": "why this made the top 5 (impact x tractability)",
+    "evidence": [{"file": "relative/path", "line": 123, "note": "what is wrong"}],
+    "suggested_fix": "<=500 chars describing the remediation"
+  }
+
+Return valid JSON only; no prose before or after the object.
+"""
+
+
+class SynthesisError(Exception):
+    """Raised when the synthesis output fails the strict schema."""
+
+
+def build_prompt(raw_findings: list[dict[str, Any]]) -> str:
+    """Render the top-5 synthesis prompt from the raw scout findings.
+
+    Findings are sorted by severity (descending) and capped at MAX_FINDINGS so
+    the rendered prompt stays bounded. When findings are dropped, a warning is
+    written to stderr.
+    """
+    ranked = sorted(
+        raw_findings,
+        key=lambda f: f.get("severity", 0),
+        reverse=True,
+    )
+    truncated_from = 0
+    if len(ranked) > MAX_FINDINGS:
+        truncated_from = len(ranked)
+        ranked = ranked[:MAX_FINDINGS]
+        print(
+            f"warning: truncated {truncated_from} raw findings to top {MAX_FINDINGS} "
+            "by severity before synthesis",
+            file=sys.stderr,
+        )
+
+    findings_json = json.dumps(ranked, indent=2)
+    categories_line = ", ".join(CATEGORIES)
+    return (
+        "You are synthesising the raw tech-debt findings below into the five most "
+        "valuable items to fix. Each raw finding came from a read-only scout.\n\n"
+        "Pick exactly 5 by ranking on impact x tractability: prefer findings that "
+        "are both damaging if left (impact) and feasible to fix soon (tractability). "
+        "Merge near-duplicate findings into one. Do not invent findings.\n\n"
+        f"Valid category names: {categories_line}.\n\n"
+        "Raw findings:\n"
+        f"{findings_json}\n"
+        f"{_OUTPUT_SCHEMA}"
+    )
+
+
+def _require_field(item: dict[str, Any], field: str, index: int) -> Any:
+    if field not in item:
+        raise SynthesisError(f"finding {index}: missing field {field!r}")
+    return item[field]
+
+
+def validate_synthesis_output(text: str) -> dict[str, Any]:
+    """Parse + strictly validate the synthesis model's JSON reply.
+
+    Raises SynthesisError on: not-JSON, missing/!= 5 ``top5`` items, any item
+    missing a required field, invalid slug, bad severity, or unknown category.
+    """
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise SynthesisError(f"synthesis response is not valid JSON: {exc}") from exc
+
+    if not isinstance(data, dict) or "top5" not in data:
+        raise SynthesisError("synthesis response missing 'top5' key")
+
+    items = data["top5"]
+    if not isinstance(items, list):
+        raise SynthesisError("'top5' must be a JSON array")
+    if len(items) != TOP5_COUNT:
+        raise SynthesisError(f"expected 5 findings, got {len(items)}")
+
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise SynthesisError(f"finding {index}: not a JSON object")
+        for field in _REQUIRED_ITEM_FIELDS:
+            _require_field(item, field, index)
+
+        slug = item["slug"]
+        try:
+            validate_slug(slug)
+        except ValidationError as exc:
+            raise SynthesisError(f"finding {index}: {exc}") from exc
+
+        severity = item["severity"]
+        is_int = isinstance(severity, int) and not isinstance(severity, bool)
+        if not is_int or severity not in range(1, 6):
+            raise SynthesisError(
+                f"finding {index}: severity must be an integer 1-5, got {severity!r}"
+            )
+
+        category = item["category"]
+        if category not in CATEGORIES:
+            raise SynthesisError(
+                f"finding {index}: unknown category {category!r}; "
+                f"expected one of {list(CATEGORIES)}"
+            )
+
+    return data
+
+
+def _main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Render the top-5 synthesis prompt from raw scout findings"
+    )
+    parser.add_argument("raw_findings", help="path to raw-findings.json")
+    parser.add_argument(
+        "--out",
+        default=".tech-debt/synthesis-prompt.txt",
+        help="output path for the rendered prompt",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        raw = json.loads(Path(args.raw_findings).read_text(encoding="utf-8"))
+    except OSError as exc:
+        print(f"error: could not read {args.raw_findings}: {exc}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as exc:
+        print(f"error: {args.raw_findings} is not valid JSON: {exc}", file=sys.stderr)
+        return 2
+
+    if not isinstance(raw, list):
+        print("error: raw-findings.json must be a JSON array", file=sys.stderr)
+        return 2
+
+    prompt = build_prompt(raw)
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(prompt.encode("utf-8"))
+    print(f"wrote {out_path} ({len(raw)} raw findings)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

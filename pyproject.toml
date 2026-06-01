@@ -27,3 +27,6 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 python_version = "3.11"
 strict = true
 files = ["skills/tech-debt-scan/scripts"]
+# scripts/ are direct-path-invocable (no package), so sibling imports like
+# `from validation import ...` need the scripts dir on the mypy search path.
+mypy_path = "skills/tech-debt-scan/scripts"
