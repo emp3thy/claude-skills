@@ -19,4 +19,5 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: mypy
+      - run: python skills/tech-debt-scan/scripts/skill_check.py
       - run: pytest -v
