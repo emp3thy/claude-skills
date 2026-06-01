@@ -1,7 +1,7 @@
-# claude-skills
+# tech-debt-scan
 
-Standalone repository for Claude Code skills.
+Language-independent tech-debt scan skill for Claude Code. Scans any repo via LLM scouts, synthesises top-5 debt findings, emits ralph-friendly PBI bundles after human review.
 
-## Skills
+See `skills/tech-debt-scan/SKILL.md` for usage. See `docs/architecture.md` for the full design.
 
-- **tech-debt-scan** _(planned)_ — `/tech-debt-scan` + `/tech-debt-promote`. Language-independent tech-debt scanner that dispatches LLM scouts, renders findings to a single `design.md`, and promotes user-approved findings into ralph-ready PBI bundles.
+Status: Phase 1 (human-in-loop). Phase 2 ("mow the lawn" autonomy) is out of scope.
