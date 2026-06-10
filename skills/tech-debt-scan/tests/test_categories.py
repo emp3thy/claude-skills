@@ -1,12 +1,26 @@
 from __future__ import annotations
 
-from categories import CATEGORIES, get_prompt
+from categories import CATEGORIES, CORE_CATEGORIES, get_prompt
 
-EXPECTED = {"god-modules", "duplication", "dead-code", "test-gaps", "doc-drift", "half-finished"}
+EXPECTED = {
+    "god-modules",
+    "duplication",
+    "dead-code",
+    "test-gaps",
+    "doc-drift",
+    "half-finished",
+    "dependency-debt",
+    "architecture",
+}
 
 
-def test_six_categories():
+def test_eight_categories():
     assert set(CATEGORIES) == EXPECTED
+
+
+def test_core_categories_are_a_subset():
+    assert set(CORE_CATEGORIES) <= set(CATEGORIES)
+    assert len(CORE_CATEGORIES) >= 3
 
 
 def test_each_prompt_non_empty():
@@ -38,5 +52,15 @@ def test_each_prompt_specifies_json_schema():
         assert '"title"' in text
         assert '"severity"' in text
         assert '"category"' in text
+        assert '"debt_type"' in text
+        assert '"effort"' in text
+        assert '"confidence"' in text
         assert '"evidence"' in text
         assert '"suggested_fix"' in text
+
+
+def test_each_prompt_carries_hotspot_guidance_and_rubric():
+    for cat in EXPECTED:
+        text = get_prompt(cat)
+        assert "hotspot" in text.lower(), f"{cat}: missing hotspot guidance"
+        assert "Severity rubric" in text, f"{cat}: missing severity rubric"

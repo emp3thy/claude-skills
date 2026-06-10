@@ -1,6 +1,6 @@
 ---
 name: tech-debt-scan
-description: Scan a repo for top-5 tech-debt findings; emit a design doc the user reviews, then convert approved findings to ralph-friendly PBI bundles.
+description: Scan a repo for top-N tech-debt findings (hotspot-aware: churn x complexity); emit a design doc the user reviews, then convert approved findings to ralph-friendly PBI bundles.
 triggers:
   - /tech-debt-scan
   - /tech-debt-promote
@@ -9,15 +9,36 @@ triggers:
 # tech-debt-scan
 
 Language-independent, two-command tech-debt workflow. `/tech-debt-scan` walks a
-repo, dispatches read-only scout agents per debt category, synthesises the top-5
-findings, and renders a single `design.md`. The user edits `design.md` (flipping
-`status: pending` to `approved` or `rejected`). `/tech-debt-promote` then parses
-the edited file and emits a ralph-ready PBI bundle per approved finding.
+repo, mines git history for hotspots, dispatches read-only scout agents per
+debt category, synthesises the top-N findings (default 5), and renders a single
+`design.md`. The user edits `design.md` (flipping `status: pending` to
+`approved` or `rejected`). `/tech-debt-promote` then parses the edited file and
+emits a ralph-ready PBI bundle per approved finding.
 
-Deterministic work (file walk, prompt rendering, parsing, validation, bundle
-writing) lives in pure-Python scripts under `scripts/`. The LLM does only two
-things: dispatch scout agents and pick the top 5. Everything else is a script
-call with a pinned command and a pinned output file.
+Deterministic work (file walk, churn mining, prompt rendering, parsing,
+validation, bundle writing) lives in pure-Python scripts under `scripts/`. The
+LLM does only two things: dispatch scout agents and pick the top N. Everything
+else is a script call with a pinned command and a pinned output file.
+
+## Methodology
+
+The scan is grounded in three published ideas:
+
+- **Hotspot analysis** (Tornhill, *Your Code as a Crime Scene*): debt interest
+  is proportional to how often the code is touched. `inventory.py` mines
+  per-file **churn** (commits in a window, default 12 months) and a
+  language-agnostic **complexity** proxy (indentation units), then ranks files
+  by normalised churn x complexity. Debt in a hotspot is re-paid on every
+  change; debt in cold code can usually wait.
+- **Debt taxonomy** (SATD / Alves et al.): every finding carries a `debt_type`
+  (code, design, architecture, test, documentation, dependency, build,
+  requirement) on top of its scout category, so reports can be sliced by the
+  kind of liability, not just by which scout found it.
+- **Impact x interest x tractability ranking**: scouts emit `severity` (a fixed
+  rubric), `effort` (S/M/L), and `confidence` (low/medium/high). A
+  deterministic composite priority score (severity x effort weight x
+  confidence weight x hotspot boost) pre-ranks findings before synthesis, and
+  the synthesis model applies the same rubric when picking the final list.
 
 ## No improvisation
 
@@ -33,6 +54,21 @@ If any expected output file from a numbered step is missing, abort with exit 5. 
   can paste into a ralph queue.
 
 This is Phase 1 (human-in-the-loop). There is no autonomous "fix it" step.
+
+## Flexibility knobs
+
+All optional; defaults reproduce the standard scan.
+
+| Knob | Where | Effect |
+|------|-------|--------|
+| `--churn-months <n>` | `inventory.py` | Git-history window for churn (default 12). |
+| category subset | Step 2 | Dispatch fewer scouts. `categories.CORE_CATEGORIES` (god-modules, duplication, test-gaps, half-finished) is the recommended quick-scan set; the user can also name categories explicitly. |
+| `--top <n>` | `build_synthesis_prompt.py` | Ask synthesis for n findings instead of 5. Pass the same n when validating (`validate_synthesis_output(text, expected_count=n)`). |
+| `--inventory <path>` | `build_synthesis_prompt.py` | Enables hotspot-aware pre-ranking and injects the hotspot table into the synthesis prompt. Always pass it on a full scan. |
+
+If the user asks for a "quick scan", use `CORE_CATEGORIES` and `--top 3`. If
+they ask for a "deep scan" or "audit", dispatch all eight categories and
+consider `--top 10`.
 
 ## Conventions
 
@@ -56,59 +92,74 @@ This is Phase 1 (human-in-the-loop). There is no autonomous "fix it" step.
 python scripts/inventory.py <repo-path> --out .tech-debt/inventory.json
 ```
 
+- Add `--churn-months <n>` to widen or narrow the churn window.
 - Postcondition: `.tech-debt/inventory.json` exists (a JSON object with
-  `root`, `total_files`, `total_loc`, `languages`, `files`). If it is missing,
-  abort with exit 5.
+  `root`, `total_files`, `total_loc`, `languages`, `git_available`,
+  `churn_window_months`, `hotspots`, `files`; each file entry carries `loc`,
+  `complexity`, `max_indent`, `churn`). If it is missing, abort with exit 5.
+- When `git_available` is false (no git, or not a repository), churn is 0 and
+  `hotspots` is empty — the scan still works, it just loses the interest
+  signal. Mention this in the final report.
 
 ### Step 2 — Dispatch scout agents (one per category)
 
 - Prerequisite: `.tech-debt/inventory.json`.
-- There is no script here. The six categories are defined in
+- There is no script here. The eight categories are defined in
   `scripts/categories.py` (`CATEGORIES` + `get_prompt(name)`): `god-modules`,
-  `duplication`, `dead-code`, `test-gaps`, `doc-drift`, `half-finished`.
+  `duplication`, `dead-code`, `test-gaps`, `doc-drift`, `half-finished`,
+  `dependency-debt`, `architecture`. For a quick scan, dispatch only
+  `CORE_CATEGORIES`.
 - For each category, dispatch one **read-only** Agent (Explore semantics) whose
   prompt is `get_prompt(<category>)`. Pass the inventory as a file path
-  (`--inventory .tech-debt/inventory.json`) — never inline the JSON.
+  (`--inventory .tech-debt/inventory.json`) — never inline the JSON. The
+  prompts already tell the scout to use the inventory's `hotspots`, `churn`,
+  and `complexity` fields as a severity amplifier.
 - Each scout returns a JSON array of findings, each with
-  `title`, `severity` (1-5), `category`, `evidence` (`[{file,line,note}]`),
+  `title`, `severity` (1-5, fixed rubric), `category`, `debt_type`, `effort`
+  (S/M/L), `confidence` (low/medium/high), `evidence` (`[{file,line,note}]`),
   `suggested_fix`.
-- Postcondition: six in-memory finding lists. If a scout returns nothing, record
-  an empty list for that category and continue.
+- Postcondition: one in-memory finding list per dispatched category. If a scout
+  returns nothing, record an empty list for that category and continue.
 
 ### Step 3 — Persist raw findings
 
-- Prerequisite: the six scout result lists from Step 2.
+- Prerequisite: the scout result lists from Step 2.
 - Concatenate every scout's findings into one JSON array and write it:
 
 ```bash
 # Claude writes this file directly (no script):
-#   .tech-debt/raw-findings.json  ->  [ {title, severity, category, evidence, suggested_fix}, ... ]
+#   .tech-debt/raw-findings.json  ->  [ {title, severity, category, debt_type, effort, confidence, evidence, suggested_fix}, ... ]
 ```
 
 - Postcondition: `.tech-debt/raw-findings.json` exists. If it is missing, abort
   with exit 5.
 
-### Step 4 — Build the synthesis prompt and pick the top 5
+### Step 4 — Build the synthesis prompt and pick the top N
 
 - Prerequisite: `.tech-debt/raw-findings.json`.
 - Command:
 
 ```bash
-python scripts/build_synthesis_prompt.py .tech-debt/raw-findings.json --out .tech-debt/synthesis-prompt.txt
+python scripts/build_synthesis_prompt.py .tech-debt/raw-findings.json --inventory .tech-debt/inventory.json --out .tech-debt/synthesis-prompt.txt
 ```
 
+- Add `--top <n>` when the user asked for a different count (default 5).
+- The builder pre-ranks findings by the composite priority score (severity x
+  effort weight x confidence weight x hotspot boost) and truncates to the top
+  30 by that score, logging how many were dropped.
 - Send the rendered prompt to a synthesis Agent. It returns JSON with a `top5`
-  array (exactly 5 items: `slug`, `title`, `severity`, `category`, `reasoning`,
-  `evidence`, `suggested_fix`). Write that response to `.tech-debt/top5.json`.
-- On validation failure (the response is not valid JSON, not exactly 5 items, a
-  bad slug, or a severity/category out of range), write the raw response to
-  `.tech-debt/synthesis-failed-<timestamp>.json` and retry the synthesis prompt
-  once with an appended "previous response failed schema; re-emit valid JSON".
-  On a second failure, abort with exit 5.
+  array (exactly N items — the key is named `top5` regardless of N: `slug`,
+  `title`, `severity`, `category`, `debt_type`, `effort`, `confidence`,
+  `reasoning`, `evidence`, `suggested_fix`). Write that response to
+  `.tech-debt/top5.json`.
+- On validation failure (the response is not valid JSON, not exactly N items, a
+  bad slug, or a severity/category/debt_type/effort/confidence out of range),
+  write the raw response to `.tech-debt/synthesis-failed-<timestamp>.json` and
+  retry the synthesis prompt once with an appended "previous response failed
+  schema; re-emit valid JSON". On a second failure, abort with exit 5.
 - Postcondition: `.tech-debt/top5.json` exists and passes
-  `build_synthesis_prompt.validate_synthesis_output`. If `raw-findings.json` held
-  more than 30 findings, the builder logs how many were truncated (top-30 by
-  severity).
+  `build_synthesis_prompt.validate_synthesis_output` (pass `expected_count=n`
+  when `--top` was used).
 
 ### Step 5 — Render the design doc
 
@@ -119,15 +170,18 @@ python scripts/build_synthesis_prompt.py .tech-debt/raw-findings.json --out .tec
 python scripts/design_writer.py render --top5 .tech-debt/top5.json --inventory .tech-debt/inventory.json --scan-date <YYYY-MM-DD> --out .tech-debt/design.md
 ```
 
-- Postcondition: `.tech-debt/design.md` exists. The renderer re-parses its own
-  output as a self-check; if that fails the command exits non-zero — abort with
-  exit 5.
+- Postcondition: `.tech-debt/design.md` exists. Each finding's yaml anchor
+  carries `status`, `slug`, `severity`, `category`, and (when present)
+  `debt_type`, `effort`, `confidence`. The renderer re-parses its own output as
+  a self-check; if that fails the command exits non-zero — abort with exit 5.
 
 ### Step 6 — Report to the user
 
 - Tell the user where `design.md` is and what to do: review each finding, set
   each `status:` to `approved` or `rejected` (leave `pending` to skip), then run
   `/tech-debt-promote`. Do not promote on their behalf.
+- Include a one-line hotspot summary (top 3 hotspot files and whether any
+  finding sits in one), and note if `git_available` was false.
 
 ## `/tech-debt-promote` workflow
 
@@ -144,8 +198,9 @@ python scripts/design_writer.py render --top5 .tech-debt/top5.json --inventory .
 python scripts/design_parser.py .tech-debt/design.md
 ```
 
-- This prints the parsed findings as JSON to stdout. Use it to confirm statuses
-  before promoting. It mutates nothing.
+- This prints the parsed findings as JSON to stdout (including any
+  `debt_type`/`effort`/`confidence` carried in the anchors). Use it to confirm
+  statuses before promoting. It mutates nothing.
 
 ### Step 3 — Promote approved findings
 
@@ -158,7 +213,8 @@ python scripts/promote.py .tech-debt/design.md --out ./tech-debt-pbis
 
 - This parses the design, writes one PBI bundle per `approved` finding under
   `--out`, then flips those findings to `promoted` in `design.md` so a re-run is
-  a no-op. Add `--force` to overwrite an existing bundle directory.
+  a no-op. Add `--force` to overwrite an existing bundle directory. PBI
+  frontmatter carries `debt_type` and `effort` when the design has them.
 - Postcondition: a `chore-<slug>-<date>/` directory (with `PBI.md`, `PLAN.md`,
   `HISTORY.md`) under `./tech-debt-pbis` for each approved finding.
 
@@ -172,14 +228,18 @@ python scripts/promote.py .tech-debt/design.md --out ./tech-debt-pbis
 
 ## Token budget
 
-A full scan dispatches six scout agents plus one synthesis agent. Budget roughly
-60-80k output tokens per scan (scout findings dominate). The scripts themselves
+A full scan dispatches eight scout agents plus one synthesis agent. Budget
+roughly 80-110k output tokens per scan (scout findings dominate). A quick scan
+(`CORE_CATEGORIES`, four scouts) is roughly half that. The scripts themselves
 do no LLM work and are effectively free.
 
 ## Caveats
 
 - **No live LLM in CI.** Tests never call an Agent; they feed canned JSON to the
   scripts. The `live` pytest marker is off by default.
+- **Churn is best-effort.** `inventory.py` shells out to `git log`; if git is
+  missing, times out, or the path is not a repository, churn falls back to 0
+  and `hotspots` is empty. This is never a fatal error.
 - **Exit codes.** `inventory.py`: 2 on a bad path. `promote.py`: 0 success, 2 on
   a parse / mark-promoted error, 4 on a bundle-write failure after at least one
   bundle was written (roll-forward — the succeeded bundles persist).
@@ -187,3 +247,6 @@ do no LLM work and are effectively free.
   already-promoted (counted, not re-emitted) unless `--force` is given.
 - **Single-user.** Do not run two promotes against the same `design.md`
   concurrently; there is no file locking in Phase 1.
+- **Backwards compatibility.** Designs and top5 payloads produced by the
+  previous version (no `debt_type`/`effort`/`confidence`) still parse, render,
+  and promote; the new fields are validated only when present.

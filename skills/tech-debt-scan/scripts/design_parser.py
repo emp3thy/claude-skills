@@ -34,6 +34,11 @@ from validation import ValidationError, validate_slug, validate_status
 
 REQUIRED_KEYS: Final[tuple[str, ...]] = ("status", "slug", "severity", "category")
 
+# Classification axes carried through when the anchor has them (newer designs);
+# absent in older documents, never required. Values are passed through as-is —
+# promote must not die on a hand-edited effort/confidence.
+OPTIONAL_KEYS: Final[tuple[str, ...]] = ("debt_type", "effort", "confidence")
+
 _FRONTMATTER_FENCE: Final[str] = "---"
 _YAML_OPEN: Final[str] = "```yaml"
 _FENCE_CLOSE: Final[str] = "```"
@@ -141,7 +146,7 @@ def _build_finding(anchor: dict[str, Any], title: str, lineno: int) -> dict[str,
     except ValidationError as exc:
         raise DesignParseError(f"{exc} (line {lineno})") from exc
 
-    return {
+    finding: dict[str, Any] = {
         "title": title,
         "status": status,
         "slug": slug_str,
@@ -150,6 +155,10 @@ def _build_finding(anchor: dict[str, Any], title: str, lineno: int) -> dict[str,
         "body_md": anchor["__body_md__"],
         "line": lineno,
     }
+    for key in OPTIONAL_KEYS:
+        if key in anchor and anchor[key] is not None:
+            finding[key] = str(anchor[key])
+    return finding
 
 
 def parse_design(path: Path) -> dict[str, Any]:

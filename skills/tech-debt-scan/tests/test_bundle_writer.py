@@ -72,6 +72,16 @@ def test_written_files_byte_match_golden(tmp_path: Path):
         assert actual == golden, f"{name} drifted from golden"
 
 
+def test_pbi_includes_classification_fields_when_present(tmp_path: Path):
+    finding = _finding()
+    finding["debt_type"] = "design"
+    finding["effort"] = "M"
+    write_bundle(finding, out_root=tmp_path, source_design="d.md", date="2026-05-31")
+    pbi = (tmp_path / "chore-finding-0-2026-05-31" / "PBI.md").read_text()
+    assert "debt_type: design" in pbi
+    assert "effort: M" in pbi
+
+
 def test_written_files_are_lf_only(tmp_path: Path):
     bundle_dir = write_bundle(
         _finding(), out_root=tmp_path, source_design="d.md", date="2026-05-31"

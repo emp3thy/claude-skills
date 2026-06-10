@@ -71,3 +71,21 @@ def test_parse_invalid_slug(tmp_path: Path):
 def test_missing_file():
     with pytest.raises(DesignParseError, match="not found"):
         parse_design(Path("/nope/does-not-exist.md"))
+
+
+def test_parse_passes_through_classification_fields(tmp_path: Path):
+    src = tmp_path / "design.md"
+    text = GOLDEN.read_text()
+    text = text.replace(
+        "category: god-modules",
+        "category: god-modules\ndebt_type: design\neffort: M\nconfidence: high",
+        1,
+    )
+    src.write_text(text)
+    result = parse_design(src)
+    first, second = result["findings"][0], result["findings"][1]
+    assert first["debt_type"] == "design"
+    assert first["effort"] == "M"
+    assert first["confidence"] == "high"
+    # older-style findings without the fields simply omit them
+    assert "debt_type" not in second
