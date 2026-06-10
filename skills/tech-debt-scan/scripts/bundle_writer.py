@@ -61,7 +61,9 @@ def _severity_word(severity: Any) -> str:
         return _DEFAULT_SEVERITY_WORD
 
 
-def _render_pbi(finding: dict[str, Any], bundle_id: str, source_design: str) -> str:
+def _render_pbi(
+    finding: dict[str, Any], bundle_id: str, source_design: str, date: str
+) -> str:
     parts = [
         "---",
         f"id: {bundle_id}",
@@ -69,6 +71,8 @@ def _render_pbi(finding: dict[str, Any], bundle_id: str, source_design: str) -> 
         "status: inbox",
         f"severity: {_severity_word(finding['severity'])}",
         "attempts: 0",
+        f"created_at: {date}T00:00:00+00:00",
+        f"updated_at: {date}T00:00:00+00:00",
         "depends_on: []",
         "target_repo:",
         f"source_design: {source_design}",
@@ -136,7 +140,7 @@ def write_bundle(
         raise BundleWriteError(f"bundle already exists: {bundle_dir}")
 
     files = {
-        "PBI.md": _render_pbi(finding, bundle_id, source_design),
+        "PBI.md": _render_pbi(finding, bundle_id, source_design, date),
         "PLAN.md": _render_plan(finding),
         "HISTORY.md": _render_history(),
     }

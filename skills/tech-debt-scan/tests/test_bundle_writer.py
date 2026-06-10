@@ -36,6 +36,17 @@ def test_pbi_contains_target_repo_key(tmp_path: Path):
     assert "type: chore" in pbi
 
 
+def test_pbi_carries_created_and_updated_timestamps(tmp_path: Path):
+    # ralph filesystem queue parser requires both fields; bundle writer must emit them
+    # from the date arg so ralph can claim the PBI without further editing.
+    # Full ISO datetime — bare YYYY-MM-DD parses as a YAML `date` which the ralph queue
+    # parser rejects (it only accepts datetime or ISO-8601 string).
+    write_bundle(_finding(), out_root=tmp_path, source_design="d.md", date="2026-05-31")
+    pbi = (tmp_path / "chore-finding-0-2026-05-31" / "PBI.md").read_text()
+    assert "created_at: 2026-05-31T00:00:00+00:00" in pbi
+    assert "updated_at: 2026-05-31T00:00:00+00:00" in pbi
+
+
 def test_collision_without_force_raises(tmp_path: Path):
     write_bundle(_finding(), out_root=tmp_path, source_design="d.md", date="2026-05-31")
     with pytest.raises(BundleWriteError, match="already exists"):
