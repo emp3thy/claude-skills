@@ -33,7 +33,7 @@ def test_pbi_contains_target_repo_key(tmp_path: Path):
     write_bundle(_finding(), out_root=tmp_path, source_design="d.md", date="2026-05-31")
     pbi = (tmp_path / "chore-finding-0-2026-05-31" / "PBI.md").read_text()
     assert "target_repo:" in pbi  # per [[77c83c69-target-repo-required]]
-    assert "type: chore" in pbi
+    assert "type: feature" in pbi
 
 
 def test_pbi_carries_created_and_updated_timestamps(tmp_path: Path):

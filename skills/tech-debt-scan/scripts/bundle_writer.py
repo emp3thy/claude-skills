@@ -5,8 +5,9 @@ finding (as produced by design_parser.parse_design) to ``write_bundle``; this
 module materialises a self-contained PBI directory the user can paste straight
 into a ralph queue.
 
-Bundle layout (per [[cfa7e7f8-pbi-shape-type-aware]] — type=chore => PBI.md is
-the entry file):
+Bundle layout (per [[cfa7e7f8-pbi-shape-type-aware]] — type=feature => PBI.md
+is the entry file; ralph only recognises feature/bug/pr-feedback, so tech-debt
+findings ride as features even though the bundle id keeps a ``chore-`` slug):
 
   <out_root>/chore-<slug>-<date>/
     PBI.md       # frontmatter (incl. blank target_repo:) + the finding body
@@ -67,7 +68,7 @@ def _render_pbi(
     parts = [
         "---",
         f"id: {bundle_id}",
-        "type: chore",
+        "type: feature",
         "status: inbox",
         f"severity: {_severity_word(finding['severity'])}",
         "attempts: 0",

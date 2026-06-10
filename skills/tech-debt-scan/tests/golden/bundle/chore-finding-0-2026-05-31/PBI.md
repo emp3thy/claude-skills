@@ -1,6 +1,6 @@
 ---
 id: chore-finding-0-2026-05-31
-type: chore
+type: feature
 status: inbox
 severity: critical
 attempts: 0
