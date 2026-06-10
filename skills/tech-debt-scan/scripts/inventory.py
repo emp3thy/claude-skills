@@ -25,6 +25,7 @@ import argparse
 import json
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
@@ -100,7 +101,7 @@ def _is_ignored(rel_parts: tuple[str, ...], ignore: tuple[str, ...]) -> bool:
     return any(part in ignore for part in rel_parts)
 
 
-def _line_metrics(handle) -> tuple[int, int, int]:
+def _line_metrics(handle: Iterable[str]) -> tuple[int, int, int]:
     """Return (loc, indent_total, max_indent) for an open text file."""
     loc = 0
     indent_total = 0
@@ -165,21 +166,24 @@ def _build_hotspots(entries: list[FileEntry]) -> list[dict[str, object]]:
     max_cx = max((e.complexity for e in entries), default=0)
     if max_churn == 0 or max_cx == 0:
         return []
-    scored = []
+    scored: list[tuple[float, dict[str, object]]] = []
     for e in entries:
         score = round((e.churn / max_churn) * (e.complexity / max_cx) * 100, 1)
         if score > 0:
             scored.append(
-                {
-                    "path": e.path,
-                    "churn": e.churn,
-                    "complexity": e.complexity,
-                    "loc": e.loc,
-                    "score": score,
-                }
+                (
+                    score,
+                    {
+                        "path": e.path,
+                        "churn": e.churn,
+                        "complexity": e.complexity,
+                        "loc": e.loc,
+                        "score": score,
+                    },
+                )
             )
-    scored.sort(key=lambda h: h["score"], reverse=True)
-    return scored[:HOTSPOT_LIMIT]
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [hotspot for _, hotspot in scored[:HOTSPOT_LIMIT]]
 
 
 def walk_inventory(
