@@ -5,8 +5,9 @@ finding (as produced by design_parser.parse_design) to ``write_bundle``; this
 module materialises a self-contained PBI directory the user can paste straight
 into a ralph queue.
 
-Bundle layout (per [[cfa7e7f8-pbi-shape-type-aware]] — type=chore => PBI.md is
-the entry file):
+Bundle layout (per [[cfa7e7f8-pbi-shape-type-aware]] — type=feature => PBI.md
+is the entry file; ralph only recognises feature/bug/pr-feedback, so tech-debt
+findings ride as features even though the bundle id keeps a ``chore-`` slug):
 
   <out_root>/chore-<slug>-<date>/
     PBI.md       # frontmatter (incl. blank target_repo:) + the finding body
@@ -61,14 +62,18 @@ def _severity_word(severity: Any) -> str:
         return _DEFAULT_SEVERITY_WORD
 
 
-def _render_pbi(finding: dict[str, Any], bundle_id: str, source_design: str) -> str:
+def _render_pbi(
+    finding: dict[str, Any], bundle_id: str, source_design: str, date: str
+) -> str:
     parts = [
         "---",
         f"id: {bundle_id}",
-        "type: chore",
+        "type: feature",
         "status: inbox",
         f"severity: {_severity_word(finding['severity'])}",
         "attempts: 0",
+        f"created_at: {date}T00:00:00+00:00",
+        f"updated_at: {date}T00:00:00+00:00",
         "depends_on: []",
         "target_repo:",
         f"source_design: {source_design}",
@@ -136,7 +141,7 @@ def write_bundle(
         raise BundleWriteError(f"bundle already exists: {bundle_dir}")
 
     files = {
-        "PBI.md": _render_pbi(finding, bundle_id, source_design),
+        "PBI.md": _render_pbi(finding, bundle_id, source_design, date),
         "PLAN.md": _render_plan(finding),
         "HISTORY.md": _render_history(),
     }

@@ -76,7 +76,7 @@ def test_e2e_scan_then_promote(tmp_path: Path, fixture: str):
     pbi = out_root / "chore-finding-0-2026-05-31" / "PBI.md"
     assert pbi.exists()
     pbi_text = pbi.read_text(encoding="utf-8")
-    assert "type: chore" in pbi_text
+    assert "type: feature" in pbi_text
     assert "target_repo:" in pbi_text
     # design.md mutated to promoted for the emitted finding only
     assert "status: promoted" in design_path.read_text(encoding="utf-8")
