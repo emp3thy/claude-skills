@@ -72,15 +72,24 @@ def _render_evidence(evidence: list[dict[str, Any]]) -> list[str]:
 
 
 def _render_finding(finding: dict[str, Any]) -> list[str]:
+    anchor = [
+        "status: pending",
+        f"slug: {finding['slug']}",
+        f"severity: {finding['severity']}",
+        f"category: {finding['category']}",
+    ]
+    # Classification axes are rendered only when present so documents from
+    # older top5 payloads stay byte-identical.
+    for key in ("debt_type", "effort", "confidence"):
+        value = finding.get(key)
+        if value is not None:
+            anchor.append(f"{key}: {value}")
     lines = [
         "",
         f"## {finding['title']}",
         "",
         "```yaml",
-        "status: pending",
-        f"slug: {finding['slug']}",
-        f"severity: {finding['severity']}",
-        f"category: {finding['category']}",
+        *anchor,
         "```",
         "",
         "### Reasoning",

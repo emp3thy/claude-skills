@@ -73,6 +73,14 @@ def _render_pbi(finding: dict[str, Any], bundle_id: str, source_design: str) -> 
         "target_repo:",
         f"source_design: {source_design}",
         f"category: {finding['category']}",
+    ]
+    # Classification axes from newer designs; omitted when absent so bundles
+    # from older design.md files stay byte-identical.
+    for key in ("debt_type", "effort"):
+        value = finding.get(key)
+        if value is not None:
+            parts.append(f"{key}: {value}")
+    parts += [
         "---",
         "",
         f"# {finding['title']}",

@@ -61,6 +61,26 @@ def test_render_is_lf_only(tmp_path: Path):
     assert b"\r" not in out.read_bytes()
 
 
+def test_render_includes_classification_fields_when_present(tmp_path: Path):
+    payload = _top5_payload()
+    payload["top5"][0]["debt_type"] = "design"
+    payload["top5"][0]["effort"] = "M"
+    payload["top5"][0]["confidence"] = "high"
+    out = tmp_path / "design.md"
+    render_design_md(
+        top5=payload,
+        inventory=_inventory_payload(),
+        scan_date="2026-05-31",
+        out_path=out,
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "debt_type: design" in text
+    assert "effort: M" in text
+    assert "confidence: high" in text
+    # findings without the fields render no such lines
+    assert text.count("debt_type:") == 1
+
+
 def test_render_empty_findings_raises(tmp_path: Path):
     with pytest.raises(DesignWriteError, match="no findings"):
         render_design_md(
