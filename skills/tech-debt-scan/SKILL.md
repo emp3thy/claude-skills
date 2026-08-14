@@ -63,16 +63,17 @@ python scripts/inventory.py <repo-path> --out .tech-debt/inventory.json
 ### Step 2 — Dispatch scout agents (one per category)
 
 - Prerequisite: `.tech-debt/inventory.json`.
-- There is no script here. The six categories are defined in
+- There is no script here. The seven categories are defined in
   `scripts/categories.py` (`CATEGORIES` + `get_prompt(name)`): `god-modules`,
-  `duplication`, `dead-code`, `test-gaps`, `doc-drift`, `half-finished`.
+  `duplication`, `dead-code`, `test-gaps`, `doc-drift`, `half-finished`,
+  `infrastructure-debt`.
 - For each category, dispatch one **read-only** Agent (Explore semantics) whose
   prompt is `get_prompt(<category>)`. Pass the inventory as a file path
   (`--inventory .tech-debt/inventory.json`) — never inline the JSON.
 - Each scout returns a JSON array of findings, each with
   `title`, `severity` (1-5), `category`, `evidence` (`[{file,line,note}]`),
   `suggested_fix`.
-- Postcondition: six in-memory finding lists. If a scout returns nothing, record
+- Postcondition: seven in-memory finding lists. If a scout returns nothing, record
   an empty list for that category and continue.
 
 ### Step 3 — Persist raw findings
@@ -94,12 +95,15 @@ python scripts/inventory.py <repo-path> --out .tech-debt/inventory.json
 - Command:
 
 ```bash
-python scripts/build_synthesis_prompt.py .tech-debt/raw-findings.json --out .tech-debt/synthesis-prompt.txt
+python scripts/build_synthesis_prompt.py .tech-debt/raw-findings.json --inventory .tech-debt/inventory.json --out .tech-debt/synthesis-prompt.txt
 ```
 
 - Send the rendered prompt to a synthesis Agent. It returns JSON with a `top5`
   array (exactly 5 items: `slug`, `title`, `severity`, `category`, `reasoning`,
-  `evidence`, `suggested_fix`). Write that response to `.tech-debt/top5.json`.
+  `evidence`, `suggested_fix`, `confidence`, `change_size`, `change_risk`,
+  `disposition`, `why_now`, `scope_boundary`, `acceptance_criteria`). Write that
+  response to `.tech-debt/top5.json`.
+- When `.git` is present, findings are ranked by `severity × log1p(git_churn)`; otherwise by severity alone.
 - On validation failure (the response is not valid JSON, not exactly 5 items, a
   bad slug, or a severity/category out of range), write the raw response to
   `.tech-debt/synthesis-failed-<timestamp>.json` and retry the synthesis prompt
@@ -172,7 +176,7 @@ python scripts/promote.py .tech-debt/design.md --out ./tech-debt-pbis
 
 ## Token budget
 
-A full scan dispatches six scout agents plus one synthesis agent. Budget roughly
+A full scan dispatches seven scout agents plus one synthesis agent. Budget roughly
 60-80k output tokens per scan (scout findings dominate). The scripts themselves
 do no LLM work and are effectively free.
 
