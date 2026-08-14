@@ -7,6 +7,12 @@ from validation import (
     ValidationError,
     validate_slug,
     validate_status,
+    VALID_CHANGE_SIZES,
+    VALID_CHANGE_RISKS,
+    VALID_DISPOSITIONS,
+    validate_change_size,
+    validate_change_risk,
+    validate_disposition,
 )
 
 
@@ -40,3 +46,38 @@ def test_validate_status_rejects_empty_via_is_not_none():
 def test_validate_status_rejects_bad(bad: str):
     with pytest.raises(ValidationError):
         validate_status(bad)
+
+
+@pytest.mark.parametrize("good", ["S", "M", "L", "XL"])
+def test_validate_change_size_accepts(good: str):
+    validate_change_size(good)
+
+
+@pytest.mark.parametrize("bad", ["", "s", "XXL", "small", "1"])
+def test_validate_change_size_rejects(bad: str):
+    with pytest.raises(ValidationError):
+        validate_change_size(bad)
+
+
+@pytest.mark.parametrize("good", ["low", "med", "high"])
+def test_validate_change_risk_accepts(good: str):
+    validate_change_risk(good)
+
+
+@pytest.mark.parametrize("bad", ["", "medium", "LOW", "critical"])
+def test_validate_change_risk_rejects(bad: str):
+    with pytest.raises(ValidationError):
+        validate_change_risk(bad)
+
+
+@pytest.mark.parametrize(
+    "good", ["full-repayment", "debt-conversion", "interest-only"]
+)
+def test_validate_disposition_accepts(good: str):
+    validate_disposition(good)
+
+
+@pytest.mark.parametrize("bad", ["", "full", "rewrite", "interest_only"])
+def test_validate_disposition_rejects(bad: str):
+    with pytest.raises(ValidationError):
+        validate_disposition(bad)
