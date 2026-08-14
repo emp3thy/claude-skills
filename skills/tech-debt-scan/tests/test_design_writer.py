@@ -13,20 +13,9 @@ GOLDEN = Path(__file__).parent / "golden" / "design.md"
 
 
 def _top5_payload() -> dict:
-    return {
-        "top5": [
-            {
-                "slug": f"finding-{i}",
-                "title": f"Finding {i} title",
-                "severity": 5 - i % 5,
-                "category": "god-modules",
-                "reasoning": f"reasoning {i}",
-                "evidence": [{"file": "src/x.py", "line": 10, "note": "n"}],
-                "suggested_fix": f"fix {i}",
-            }
-            for i in range(5)
-        ]
-    }
+    import json
+    golden_top5 = Path(__file__).parent / "golden" / "top5.json"
+    return json.loads(golden_top5.read_text(encoding="utf-8"))
 
 
 def _inventory_payload() -> dict:
@@ -117,3 +106,21 @@ def test_mark_promoted_only_changes_approved(tmp_path: Path):
     src.write_text(GOLDEN.read_text(encoding="utf-8"), encoding="utf-8")  # all pending
     with pytest.raises(DesignWriteError, match="not approved"):
         mark_promoted(src, slugs=["finding-0"])
+
+
+def test_render_includes_new_anchor_and_sections(tmp_path: Path):
+    out = tmp_path / "design.md"
+    render_design_md(
+        top5=_top5_payload(),
+        inventory=_inventory_payload(),
+        scan_date="2026-05-31",
+        out_path=out,
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "change_size:" in text
+    assert "change_risk:" in text
+    assert "disposition:" in text
+    assert "confidence:" in text
+    assert "### Why now" in text
+    assert "### Scope boundary" in text
+    assert "### Acceptance criteria" in text
