@@ -90,8 +90,6 @@ def test_parse_rejects_missing_change_size(tmp_path: Path):
     )
     bad = tmp_path / "design.md"
     bad.write_text(text, encoding="utf-8")
-    import pytest
-
     with pytest.raises(DesignParseError, match="change_size"):
         parse_design(bad)
 
@@ -102,7 +100,5 @@ def test_parse_rejects_bad_disposition(tmp_path: Path):
     )
     bad = tmp_path / "design.md"
     bad.write_text(text, encoding="utf-8")
-    import pytest
-
     with pytest.raises(DesignParseError, match="disposition"):
         parse_design(bad)
