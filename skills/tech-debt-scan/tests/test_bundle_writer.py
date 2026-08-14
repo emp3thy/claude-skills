@@ -14,7 +14,15 @@ def _finding() -> dict:
         "title": "Finding 0 title",
         "severity": 5,
         "category": "god-modules",
-        "body_md": "### Evidence\n\n- foo\n\n### Suggested fix\n\nbar\n",
+        "confidence": 5,
+        "change_size": "L",
+        "change_risk": "med",
+        "disposition": "full-repayment",
+        "body_md": (
+            "### Evidence\n\n- foo\n\n### Suggested fix\n\nbar\n\n"
+            "### Why now\n\nhot\n\n### Scope boundary\n\nnarrow\n\n"
+            "### Acceptance criteria\n\ntests pass\n"
+        ),
         "status": "approved",
     }
 
@@ -70,6 +78,16 @@ def test_written_files_byte_match_golden(tmp_path: Path):
         golden = (GOLDEN_DIR / "chore-finding-0-2026-05-31" / name).read_text(encoding="utf-8")
         actual = (bundle_dir / name).read_text(encoding="utf-8")
         assert actual == golden, f"{name} drifted from golden"
+
+
+def test_pbi_contains_change_profile(tmp_path: Path):
+    write_bundle(_finding(), out_root=tmp_path, source_design="d.md", date="2026-05-31")
+    pbi = (tmp_path / "chore-finding-0-2026-05-31" / "PBI.md").read_text()
+    assert "change_size: L" in pbi
+    assert "change_risk: med" in pbi
+    assert "disposition: full-repayment" in pbi
+    assert "confidence: 5" in pbi
+    assert "### Acceptance criteria" in pbi  # rides body_md
 
 
 def test_written_files_are_lf_only(tmp_path: Path):
