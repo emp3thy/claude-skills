@@ -44,7 +44,9 @@ CATEGORY_PROMPTS: Final[dict[str, str]] = {
         "- Functions or methods with very high branching depth or many parameters.\n"
         "- A file imported or referenced by almost everything (a hub everything "
         "depends on).\n"
-        "Prefer the largest, most-coupled offenders; severity tracks size x reach."
+        "Prefer the largest, most-coupled offenders. Severity tracks the "
+        "underlying size/coupling/cohesion pressure (WMC, CBO, LCOM), not line "
+        "count alone."
         + _OUTPUT_SCHEMA
     ),
     "duplication": (
@@ -55,7 +57,8 @@ CATEGORY_PROMPTS: Final[dict[str, str]] = {
         "- Repeated literal values (paths, magic numbers, format strings) that "
         "should be a single shared constant.\n"
         "- Copies of the same validation, parsing, or formatting routine.\n"
-        "Severity tracks how many copies exist and how likely they are to drift."
+        "Rule of Three: two copies is severity <= 2; three or more occurrences "
+        "is actionable (severity scales with copy count and drift risk)."
         + _OUTPUT_SCHEMA
     ),
     "dead-code": (
@@ -101,6 +104,22 @@ CATEGORY_PROMPTS: Final[dict[str, str]] = {
         "wired up.\n"
         "- Partially migrated patterns (old and new approach coexisting).\n"
         "Severity tracks how much risk the unfinished state carries for users."
+        + _OUTPUT_SCHEMA
+    ),
+    "infrastructure-debt": (
+        "You are scanning for INFRASTRUCTURE DEBT visible in dependency "
+        "manifests. Read manifest files as PURE TEXT only "
+        "(package.json, pom.xml, requirements.txt, go.mod, *.csproj, "
+        "Cargo.toml, Gemfile, build.gradle) and flag:\n"
+        "- Dependencies pinned to obviously ancient versions relative to the "
+        "ecosystem's norms.\n"
+        "- Runtimes or frameworks past end-of-life (declared language/runtime "
+        "versions no longer supported).\n"
+        "- Deprecated packages or replaced-by successors named in the manifest.\n"
+        "You have NO internet access and NO vulnerability database. Judge only "
+        "from what the manifest text itself shows; do not guess at security "
+        "advisories. Severity tracks how far behind and how load-bearing the "
+        "dependency is."
         + _OUTPUT_SCHEMA
     ),
 }

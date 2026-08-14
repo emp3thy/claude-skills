@@ -2,11 +2,22 @@ from __future__ import annotations
 
 from categories import CATEGORIES, get_prompt
 
-EXPECTED = {"god-modules", "duplication", "dead-code", "test-gaps", "doc-drift", "half-finished"}
+EXPECTED = {
+    "god-modules", "duplication", "dead-code", "test-gaps",
+    "doc-drift", "half-finished", "infrastructure-debt",
+}
 
 
 def test_six_categories():
     assert set(CATEGORIES) == EXPECTED
+
+
+def test_infrastructure_debt_is_manifest_text_only():
+    text = get_prompt("infrastructure-debt").lower()
+    assert "manifest" in text
+    # Manifest-text-only invariant: no network / CVE database lookups.
+    assert "cve" not in text
+    assert "network" not in text
 
 
 def test_each_prompt_non_empty():
