@@ -8,9 +8,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+_SATD_RE = re.compile(r"\b(TODO|FIXME|HACK|XXX|WORKAROUND|KLUDGE)\b")
+_IMPORT_RE = re.compile(r"^\s*(import|from|using|require|include|use)\b")
 
 EXT_TO_LANG: dict[str, str] = {
     ".py": "python",
@@ -65,6 +69,8 @@ class FileEntry:
     ext: str
     loc: int
     mtime: float
+    satd_count: int
+    import_count: int
 
 
 def _is_ignored(rel_parts: tuple[str, ...], ignore: tuple[str, ...]) -> bool:
@@ -94,8 +100,15 @@ def walk_inventory(root: Path, ignore: tuple[str, ...] = DEFAULT_IGNORE) -> dict
         if lang is None:
             continue
         try:
+            loc = 0
+            satd_count = 0
+            import_count = 0
             with path.open(encoding="utf-8", errors="ignore") as handle:
-                loc = sum(1 for _ in handle)
+                for line in handle:
+                    loc += 1
+                    satd_count += len(_SATD_RE.findall(line))
+                    if _IMPORT_RE.match(line):
+                        import_count += 1
         except OSError as exc:
             raise InventoryError(f"could not read {path}: {exc}") from exc
         entries.append(
@@ -104,6 +117,8 @@ def walk_inventory(root: Path, ignore: tuple[str, ...] = DEFAULT_IGNORE) -> dict
                 ext=ext,
                 loc=loc,
                 mtime=path.stat().st_mtime,
+                satd_count=satd_count,
+                import_count=import_count,
             )
         )
         languages.add(lang)

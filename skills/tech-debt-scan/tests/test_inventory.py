@@ -51,3 +51,17 @@ def test_empty_dir_returns_zero(tmp_path: Path):
     result = walk_inventory(tmp_path)
     assert result["total_files"] == 0
     assert result["files"] == []
+
+
+def test_satd_and_import_counts():
+    result = walk_inventory(FIXTURES / "satd-repo")
+    entry = next(e for e in result["files"] if e["path"] == "dirty.py")
+    assert entry["satd_count"] == 2      # TODO + FIXME
+    assert entry["import_count"] == 2    # import os + from sys import argv
+
+
+def test_counts_present_on_every_entry():
+    result = walk_inventory(FIXTURES / "python-repo")
+    for entry in result["files"]:
+        assert "satd_count" in entry
+        assert "import_count" in entry
