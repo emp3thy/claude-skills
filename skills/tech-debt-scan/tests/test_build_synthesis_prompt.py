@@ -106,6 +106,16 @@ def test_validate_rejects_bad_confidence():
         validate_synthesis_output(out)
 
 
+def test_validate_rejects_bool_confidence():
+    import pytest
+
+    item = _valid_item(0)
+    item["confidence"] = True
+    out = json.dumps({"top5": [item] * 5})
+    with pytest.raises(SynthesisError, match="confidence"):
+        validate_synthesis_output(out)
+
+
 def test_validate_rejects_empty_prose_field():
     import pytest
 
