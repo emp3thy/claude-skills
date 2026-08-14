@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -71,6 +72,34 @@ class FileEntry:
     mtime: float
     satd_count: int
     import_count: int
+    git_churn: int | None
+
+
+def _git_churn(root: Path) -> dict[str, int]:
+    """Return {relpath: commit-touch count}. Empty dict when git is unavailable.
+
+    Git-optional invariant: a missing .git, a missing git binary, or a git
+    error all degrade to an empty map (churn omitted), never an abort.
+    """
+    if not (root / ".git").exists():
+        return {}
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "log", "--pretty=format:", "--name-only"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, ValueError):
+        return {}
+    if proc.returncode != 0:
+        return {}
+    counts: dict[str, int] = {}
+    for line in proc.stdout.splitlines():
+        rel = line.strip()
+        if rel:
+            counts[rel] = counts.get(rel, 0) + 1
+    return counts
 
 
 def _is_ignored(rel_parts: tuple[str, ...], ignore: tuple[str, ...]) -> bool:
@@ -84,6 +113,7 @@ def walk_inventory(root: Path, ignore: tuple[str, ...] = DEFAULT_IGNORE) -> dict
     if not root.is_dir():
         raise InventoryError(f"path is not a directory: {root}")
 
+    churn = _git_churn(root)
     entries: list[FileEntry] = []
     languages: set[str] = set()
 
@@ -111,14 +141,16 @@ def walk_inventory(root: Path, ignore: tuple[str, ...] = DEFAULT_IGNORE) -> dict
                         import_count += 1
         except OSError as exc:
             raise InventoryError(f"could not read {path}: {exc}") from exc
+        rel_path = str(rel).replace("\\", "/")
         entries.append(
             FileEntry(
-                path=str(rel).replace("\\", "/"),
+                path=rel_path,
                 ext=ext,
                 loc=loc,
                 mtime=path.stat().st_mtime,
                 satd_count=satd_count,
                 import_count=import_count,
+                git_churn=churn.get(rel_path) if churn else None,
             )
         )
         languages.add(lang)

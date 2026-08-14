@@ -65,3 +65,33 @@ def test_counts_present_on_every_entry():
     for entry in result["files"]:
         assert "satd_count" in entry
         assert "import_count" in entry
+
+
+def test_git_churn_none_when_no_git(tmp_path: Path):
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    result = walk_inventory(tmp_path)
+    entry = next(e for e in result["files"] if e["path"] == "a.py")
+    assert entry["git_churn"] is None  # no .git -> degrade, do not abort
+
+
+def test_git_churn_counts_commits(tmp_path: Path):
+    import subprocess
+
+    def _git(*args: str):
+        subprocess.run(
+            ["git", *args], cwd=tmp_path, check=True,
+            capture_output=True, text=True,
+        )
+
+    _git("init")
+    _git("config", "user.email", "t@e.st")
+    _git("config", "user.name", "t")
+    (tmp_path / "hot.py").write_text("v = 1\n", encoding="utf-8")
+    _git("add", "hot.py")
+    _git("commit", "-m", "one")
+    (tmp_path / "hot.py").write_text("v = 2\n", encoding="utf-8")
+    _git("commit", "-am", "two")
+
+    result = walk_inventory(tmp_path)
+    entry = next(e for e in result["files"] if e["path"] == "hot.py")
+    assert entry["git_churn"] == 2  # touched by two commits
