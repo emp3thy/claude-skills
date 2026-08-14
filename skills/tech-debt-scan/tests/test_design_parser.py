@@ -71,3 +71,38 @@ def test_parse_invalid_slug(tmp_path: Path):
 def test_missing_file():
     with pytest.raises(DesignParseError, match="not found"):
         parse_design(Path("/nope/does-not-exist.md"))
+
+
+def test_parse_carries_change_profile_fields():
+    result = parse_design(GOLDEN)
+    f0 = result["findings"][0]
+    assert f0["change_size"] in {"S", "M", "L", "XL"}
+    assert f0["change_risk"] in {"low", "med", "high"}
+    assert f0["disposition"] in {
+        "full-repayment", "debt-conversion", "interest-only"
+    }
+    assert isinstance(f0["confidence"], int)
+
+
+def test_parse_rejects_missing_change_size(tmp_path: Path):
+    text = GOLDEN.read_text(encoding="utf-8").replace(
+        "change_size: L\n", "", 1
+    )
+    bad = tmp_path / "design.md"
+    bad.write_text(text, encoding="utf-8")
+    import pytest
+
+    with pytest.raises(DesignParseError, match="change_size"):
+        parse_design(bad)
+
+
+def test_parse_rejects_bad_disposition(tmp_path: Path):
+    text = GOLDEN.read_text(encoding="utf-8").replace(
+        "disposition: full-repayment", "disposition: rewrite", 1
+    )
+    bad = tmp_path / "design.md"
+    bad.write_text(text, encoding="utf-8")
+    import pytest
+
+    with pytest.raises(DesignParseError, match="disposition"):
+        parse_design(bad)

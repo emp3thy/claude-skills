@@ -30,9 +30,19 @@ from pathlib import Path
 from typing import Any, Final
 
 import yaml
-from validation import ValidationError, validate_slug, validate_status
+from validation import (
+    ValidationError,
+    validate_slug,
+    validate_status,
+    validate_change_size,
+    validate_change_risk,
+    validate_disposition,
+)
 
-REQUIRED_KEYS: Final[tuple[str, ...]] = ("status", "slug", "severity", "category")
+REQUIRED_KEYS: Final[tuple[str, ...]] = (
+    "status", "slug", "severity", "category",
+    "confidence", "change_size", "change_risk", "disposition",
+)
 
 _FRONTMATTER_FENCE: Final[str] = "---"
 _YAML_OPEN: Final[str] = "```yaml"
@@ -141,12 +151,29 @@ def _build_finding(anchor: dict[str, Any], title: str, lineno: int) -> dict[str,
     except ValidationError as exc:
         raise DesignParseError(f"{exc} (line {lineno})") from exc
 
+    change_size = str(anchor["change_size"])
+    change_risk = str(anchor["change_risk"])
+    disposition = str(anchor["disposition"])
+    for value, validator in (
+        (change_size, validate_change_size),
+        (change_risk, validate_change_risk),
+        (disposition, validate_disposition),
+    ):
+        try:
+            validator(value)
+        except ValidationError as exc:
+            raise DesignParseError(f"{exc} (line {lineno})") from exc
+
     return {
         "title": title,
         "status": status,
         "slug": slug_str,
         "severity": anchor["severity"],
         "category": anchor["category"],
+        "confidence": anchor["confidence"],
+        "change_size": change_size,
+        "change_risk": change_risk,
+        "disposition": disposition,
         "body_md": anchor["__body_md__"],
         "line": lineno,
     }
