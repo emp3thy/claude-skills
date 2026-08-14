@@ -7,7 +7,14 @@
       "category": "god-modules",
       "reasoning": "Highest blast radius: login, tokens, and email share one module, so every auth change risks the others. Splitting is mechanical and well bounded.",
       "evidence": [{"file": "src/auth/service.py", "line": 1, "note": "single module owns login, tokens, and email"}],
-      "suggested_fix": "split into auth.session, auth.tokens, auth.notifications"
+      "suggested_fix": "split into auth.session, auth.tokens, auth.notifications",
+      "confidence": 5,
+      "change_size": "L",
+      "change_risk": "med",
+      "disposition": "full-repayment",
+      "why_now": "highest-churn module; every auth change pays the tax",
+      "scope_boundary": "split only; no behaviour change, no new features",
+      "acceptance_criteria": "module split into three units, all existing tests pass unchanged"
     },
     {
       "slug": "finding-1",
@@ -16,7 +23,14 @@
       "category": "test-gaps",
       "reasoning": "Refunds move money and have zero coverage; a regression is high-impact and the fix is purely additive tests.",
       "evidence": [{"file": "src/payments/refund.py", "line": 1, "note": "no test exercises partial refunds"}],
-      "suggested_fix": "add unit + integration tests for refund flows"
+      "suggested_fix": "add unit + integration tests for refund flows",
+      "confidence": 4,
+      "change_size": "M",
+      "change_risk": "low",
+      "disposition": "full-repayment",
+      "why_now": "next sprint adds new refund types; untested baseline blocks safe extension",
+      "scope_boundary": "tests only; no refund logic changes",
+      "acceptance_criteria": "partial and full refund paths covered by unit and integration tests, CI green"
     },
     {
       "slug": "finding-2",
@@ -25,7 +39,14 @@
       "category": "duplication",
       "evidence": [{"file": "src/clients/http.ts", "line": 88, "note": "exponential backoff duplicated verbatim"}],
       "reasoning": "Six verbatim copies of backoff logic drift independently; one shared helper removes a recurring source of bugs.",
-      "suggested_fix": "extract a shared withRetry helper"
+      "suggested_fix": "extract a shared withRetry helper",
+      "confidence": 4,
+      "change_size": "M",
+      "change_risk": "low",
+      "disposition": "debt-conversion",
+      "why_now": "two clients already diverged; consolidating now prevents a third divergence in the upcoming API migration",
+      "scope_boundary": "retry/backoff logic only; timeout values and error handling unchanged",
+      "acceptance_criteria": "single withRetry helper used by all six clients, existing retry behaviour preserved, tests pass"
     },
     {
       "slug": "finding-3",
@@ -34,7 +55,14 @@
       "category": "dead-code",
       "reasoning": "legacy_export is superseded and unreferenced; removing it shrinks the surface with no behavioural risk.",
       "evidence": [{"file": "src/export/legacy.py", "line": 1, "note": "no references; superseded by export.v2"}],
-      "suggested_fix": "delete legacy_export and its tests"
+      "suggested_fix": "delete legacy_export and its tests",
+      "confidence": 5,
+      "change_size": "S",
+      "change_risk": "low",
+      "disposition": "full-repayment",
+      "why_now": "dead code is indexed by tooling and misleads new contributors during onboarding",
+      "scope_boundary": "legacy_export module and its dedicated tests only; export.v2 untouched",
+      "acceptance_criteria": "legacy_export deleted, no references remain, full test suite passes"
     },
     {
       "slug": "finding-4",
@@ -43,7 +71,14 @@
       "category": "doc-drift",
       "reasoning": "New contributors follow install steps that reference a deleted setup.sh; a quick doc fix unblocks onboarding.",
       "evidence": [{"file": "README.md", "line": 22, "note": "points at setup.sh deleted last release"}],
-      "suggested_fix": "update install section to current bootstrap"
+      "suggested_fix": "update install section to current bootstrap",
+      "confidence": 4,
+      "change_size": "S",
+      "change_risk": "low",
+      "disposition": "interest-only",
+      "why_now": "new hire onboarding scheduled next week; stale steps will waste setup time",
+      "scope_boundary": "README install section only; no code changes",
+      "acceptance_criteria": "README install steps reference current bootstrap script and a fresh clone succeeds end-to-end"
     }
   ]
 }

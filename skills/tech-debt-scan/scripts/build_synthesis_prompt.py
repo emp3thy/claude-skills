@@ -5,10 +5,11 @@ ScoutFindings (see categories.py for the shared shape). Those arrays are
 concatenated into one raw-findings list and handed here.
 
 `build_prompt` renders a single prompt that asks the synthesis model to pick
-the top 5 findings by impact x tractability and re-emit them in a stricter
-shape (adding `slug` and `reasoning`). `validate_synthesis_output` parses the
-model's reply and enforces that shape, raising SynthesisError with the
-offending field on any deviation.
+the top 5 findings by RICE/WSJF and re-emit them in a stricter shape (adding
+`slug`, `reasoning`, `confidence`, `change_size`, `change_risk`, `disposition`,
+`why_now`, `scope_boundary`, and `acceptance_criteria`).
+`validate_synthesis_output` parses the model's reply and enforces that shape,
+raising SynthesisError with the offending field on any deviation.
 
 Direct-path invocable (no package imports): `python build_synthesis_prompt.py`.
 """
@@ -21,7 +22,13 @@ from pathlib import Path
 from typing import Any, Final
 
 from categories import CATEGORIES
-from validation import ValidationError, validate_slug
+from validation import (
+    ValidationError,
+    validate_slug,
+    validate_change_size,
+    validate_change_risk,
+    validate_disposition,
+)
 
 # Cap the number of raw findings sent to synthesis so the prompt stays well
 # under the model's input window. Sort by severity DESC and keep the top N;
@@ -38,6 +45,13 @@ _REQUIRED_ITEM_FIELDS: Final[tuple[str, ...]] = (
     "reasoning",
     "evidence",
     "suggested_fix",
+    "confidence",
+    "change_size",
+    "change_risk",
+    "disposition",
+    "why_now",
+    "scope_boundary",
+    "acceptance_criteria",
 )
 
 _OUTPUT_SCHEMA: Final[str] = """
@@ -49,12 +63,22 @@ of exactly 5 findings. Each finding has exactly these keys:
     "title": "<=80 chars, one-line summary",
     "severity": 1-5 integer (5 = most damaging),
     "category": "one of the scout category names",
-    "reasoning": "why this made the top 5 (impact x tractability)",
+    "reasoning": "why this made the top 5",
     "evidence": [{"file": "relative/path", "line": 123, "note": "what is wrong"}],
-    "suggested_fix": "<=500 chars describing the remediation"
+    "suggested_fix": "<=500 chars describing the remediation",
+    "confidence": 1-5 integer (5 = strongest evidence; penalise speculation),
+    "change_size": "S | M | L | XL (scope/complexity of the fix diff, NOT time)",
+    "change_risk": "low | med | high (chance the fix itself breaks behaviour)",
+    "disposition": "full-repayment | debt-conversion | interest-only",
+    "why_now": "the cost-of-delay signal (e.g. high-churn hotspot, blocks feature)",
+    "scope_boundary": "what is explicitly OUT of this fix",
+    "acceptance_criteria": "a verifiable done-signal for an autonomous coder"
   }
 
-Return valid JSON only; no prose before or after the object.
+Rank by RICE/WSJF intent: Impact (severity) x Confidence, divided by change_size
+(prefer smaller, higher-confidence, higher-impact items). change_risk is
+informational only and does not affect ranking. Return valid JSON only; no prose
+before or after the object.
 """
 
 
@@ -89,9 +113,10 @@ def build_prompt(raw_findings: list[dict[str, Any]]) -> str:
     return (
         "You are synthesising the raw tech-debt findings below into the five most "
         "valuable items to fix. Each raw finding came from a read-only scout.\n\n"
-        "Pick exactly 5 by ranking on impact x tractability: prefer findings that "
-        "are both damaging if left (impact) and feasible to fix soon (tractability). "
-        "Merge near-duplicate findings into one. Do not invent findings.\n\n"
+        "Pick exactly 5 by RICE/WSJF ranking: prefer findings that are high-severity "
+        "(Impact), high-confidence (evidence quality), and small change_size "
+        "(feasibility/Cost). Merge near-duplicate findings into one. Do not invent "
+        "findings.\n\n"
         f"Valid category names: {categories_line}.\n\n"
         "Raw findings:\n"
         f"{findings_json}\n"
@@ -109,7 +134,8 @@ def validate_synthesis_output(text: str) -> dict[str, Any]:
     """Parse + strictly validate the synthesis model's JSON reply.
 
     Raises SynthesisError on: not-JSON, missing/!= 5 ``top5`` items, any item
-    missing a required field, invalid slug, bad severity, or unknown category.
+    missing a required field, invalid slug, bad severity, unknown category,
+    bad confidence, bad change_size/change_risk/disposition, or empty prose.
     """
     try:
         data = json.loads(text)
@@ -150,6 +176,30 @@ def validate_synthesis_output(text: str) -> dict[str, Any]:
                 f"finding {index}: unknown category {category!r}; "
                 f"expected one of {list(CATEGORIES)}"
             )
+
+        confidence = item["confidence"]
+        conf_is_int = isinstance(confidence, int) and not isinstance(confidence, bool)
+        if not conf_is_int or confidence not in range(1, 6):
+            raise SynthesisError(
+                f"finding {index}: confidence must be an integer 1-5, got {confidence!r}"
+            )
+
+        for field_name, validator in (
+            ("change_size", validate_change_size),
+            ("change_risk", validate_change_risk),
+            ("disposition", validate_disposition),
+        ):
+            try:
+                validator(str(item[field_name]))
+            except ValidationError as exc:
+                raise SynthesisError(f"finding {index}: {exc}") from exc
+
+        for prose in ("why_now", "scope_boundary", "acceptance_criteria"):
+            value = item[prose]
+            if not isinstance(value, str) or not value.strip():
+                raise SynthesisError(
+                    f"finding {index}: {prose} must be a non-empty string"
+                )
 
     return data
 
