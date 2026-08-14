@@ -151,6 +151,12 @@ def _build_finding(anchor: dict[str, Any], title: str, lineno: int) -> dict[str,
     except ValidationError as exc:
         raise DesignParseError(f"{exc} (line {lineno})") from exc
 
+    raw_conf = anchor["confidence"]
+    if not (isinstance(raw_conf, int) and not isinstance(raw_conf, bool)) or raw_conf not in range(1, 6):
+        raise DesignParseError(
+            f"confidence must be an integer 1-5, got {raw_conf!r} (line {lineno})"
+        )
+
     change_size = str(anchor["change_size"])
     change_risk = str(anchor["change_risk"])
     disposition = str(anchor["disposition"])
@@ -170,7 +176,7 @@ def _build_finding(anchor: dict[str, Any], title: str, lineno: int) -> dict[str,
         "slug": slug_str,
         "severity": anchor["severity"],
         "category": anchor["category"],
-        "confidence": anchor["confidence"],
+        "confidence": raw_conf,
         "change_size": change_size,
         "change_risk": change_risk,
         "disposition": disposition,

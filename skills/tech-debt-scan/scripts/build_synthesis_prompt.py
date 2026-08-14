@@ -1,6 +1,6 @@
 """Build the synthesis prompt and validate the synthesis LLM's output.
 
-Stage 3 of /tech-debt-scan. The six scouts each emit a JSON array of raw
+Stage 3 of /tech-debt-scan. The seven scouts each emit a JSON array of raw
 ScoutFindings (see categories.py for the shared shape). Those arrays are
 concatenated into one raw-findings list and handed here.
 

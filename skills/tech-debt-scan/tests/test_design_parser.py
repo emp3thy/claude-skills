@@ -102,3 +102,23 @@ def test_parse_rejects_bad_disposition(tmp_path: Path):
     bad.write_text(text, encoding="utf-8")
     with pytest.raises(DesignParseError, match="disposition"):
         parse_design(bad)
+
+
+def test_parse_rejects_non_int_confidence(tmp_path: Path):
+    text = GOLDEN.read_text(encoding="utf-8").replace(
+        "confidence: 5\n", "confidence: high\n", 1
+    )
+    bad = tmp_path / "design.md"
+    bad.write_text(text, encoding="utf-8")
+    with pytest.raises(DesignParseError, match="confidence"):
+        parse_design(bad)
+
+
+def test_parse_rejects_out_of_range_confidence(tmp_path: Path):
+    text = GOLDEN.read_text(encoding="utf-8").replace(
+        "confidence: 5\n", "confidence: 7\n", 1
+    )
+    bad = tmp_path / "design.md"
+    bad.write_text(text, encoding="utf-8")
+    with pytest.raises(DesignParseError, match="confidence"):
+        parse_design(bad)
