@@ -78,7 +78,7 @@ python scripts/inventory.py <repo-path> --out .tech-debt/inventory.json
 
 ### Step 3 — Persist raw findings
 
-- Prerequisite: the six scout result lists from Step 2.
+- Prerequisite: the seven scout result lists from Step 2.
 - Concatenate every scout's findings into one JSON array and write it:
 
 ```bash
