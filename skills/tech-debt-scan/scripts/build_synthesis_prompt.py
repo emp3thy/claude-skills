@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any, Final
@@ -86,25 +87,46 @@ class SynthesisError(Exception):
     """Raised when the synthesis output fails the strict schema."""
 
 
-def build_prompt(raw_findings: list[dict[str, Any]]) -> str:
+def _finding_churn(finding: dict[str, Any], churn_by_file: dict[str, int]) -> int:
+    return max(
+        (churn_by_file.get(ev.get("file", ""), 0) for ev in finding.get("evidence", [])),
+        default=0,
+    )
+
+
+def build_prompt(
+    raw_findings: list[dict[str, Any]],
+    churn_by_file: dict[str, int] | None = None,
+) -> str:
     """Render the top-5 synthesis prompt from the raw scout findings.
 
-    Findings are sorted by severity (descending) and capped at MAX_FINDINGS so
-    the rendered prompt stays bounded. When findings are dropped, a warning is
-    written to stderr.
+    When ``churn_by_file`` is provided, findings are ranked by the git-hotspot
+    key ``severity * log1p(churn)`` with severity as a tiebreak; otherwise by
+    severity alone (git-optional fallback). Capped at MAX_FINDINGS.
     """
-    ranked = sorted(
-        raw_findings,
-        key=lambda f: f.get("severity", 0),
-        reverse=True,
-    )
+    if churn_by_file:
+        ranked = sorted(
+            raw_findings,
+            key=lambda f: (
+                f.get("severity", 0) * math.log1p(_finding_churn(f, churn_by_file)),
+                f.get("severity", 0),
+            ),
+            reverse=True,
+        )
+    else:
+        ranked = sorted(
+            raw_findings,
+            key=lambda f: f.get("severity", 0),
+            reverse=True,
+        )
+
     truncated_from = 0
     if len(ranked) > MAX_FINDINGS:
         truncated_from = len(ranked)
         ranked = ranked[:MAX_FINDINGS]
         print(
             f"warning: truncated {truncated_from} raw findings to top {MAX_FINDINGS} "
-            "by severity before synthesis",
+            "by hotspot rank before synthesis",
             file=sys.stderr,
         )
 
@@ -113,10 +135,9 @@ def build_prompt(raw_findings: list[dict[str, Any]]) -> str:
     return (
         "You are synthesising the raw tech-debt findings below into the five most "
         "valuable items to fix. Each raw finding came from a read-only scout.\n\n"
-        "Pick exactly 5 by RICE/WSJF ranking: prefer findings that are high-severity "
-        "(Impact), high-confidence (evidence quality), and small change_size "
-        "(feasibility/Cost). Merge near-duplicate findings into one. Do not invent "
-        "findings.\n\n"
+        "Pick exactly 5 by RICE/WSJF intent: Impact (severity) x Confidence divided "
+        "by change_size, favouring high-churn hotspots. Merge near-duplicate "
+        "findings into one. Do not invent findings.\n\n"
         f"Valid category names: {categories_line}.\n\n"
         "Raw findings:\n"
         f"{findings_json}\n"
@@ -214,6 +235,11 @@ def _main(argv: list[str] | None = None) -> int:
         default=".tech-debt/synthesis-prompt.txt",
         help="output path for the rendered prompt",
     )
+    parser.add_argument(
+        "--inventory",
+        default=None,
+        help="path to inventory.json (enables git-hotspot ranking)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -229,7 +255,20 @@ def _main(argv: list[str] | None = None) -> int:
         print("error: raw-findings.json must be a JSON array", file=sys.stderr)
         return 2
 
-    prompt = build_prompt(raw)
+    churn_by_file: dict[str, int] | None = None
+    if args.inventory:
+        try:
+            inv = json.loads(Path(args.inventory).read_text(encoding="utf-8"))
+            churn_by_file = {
+                e["path"]: e["git_churn"]
+                for e in inv.get("files", [])
+                if e.get("git_churn") is not None
+            }
+        except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+            print(f"warning: could not load churn from {args.inventory}: {exc}", file=sys.stderr)
+            churn_by_file = None
+
+    prompt = build_prompt(raw, churn_by_file=churn_by_file)
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(prompt.encode("utf-8"))

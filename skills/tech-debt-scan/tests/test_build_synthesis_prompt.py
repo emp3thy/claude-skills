@@ -124,3 +124,34 @@ def test_validate_rejects_empty_prose_field():
     out = json.dumps({"top5": [item] * 5})
     with pytest.raises(SynthesisError, match="why_now"):
         validate_synthesis_output(out)
+
+
+def test_churn_sort_reorders_by_hotspot():
+    # Two findings: low severity in a hot file, high severity in a cold file.
+    findings = [
+        {
+            "title": "cold-high", "severity": 5, "category": "god-modules",
+            "evidence": [{"file": "cold.py", "line": 1, "note": "n"}],
+            "suggested_fix": "x",
+        },
+        {
+            "title": "hot-low", "severity": 3, "category": "god-modules",
+            "evidence": [{"file": "hot.py", "line": 1, "note": "n"}],
+            "suggested_fix": "x",
+        },
+    ]
+    churn = {"cold.py": 0, "hot.py": 50}
+    prompt = build_prompt(findings, churn_by_file=churn)
+    # hot-low: 3 * log1p(50) ~= 11.7 ; cold-high: 5 * log1p(0) = 0 -> hot-low first
+    assert prompt.index("hot-low") < prompt.index("cold-high")
+
+
+def test_no_churn_falls_back_to_severity():
+    findings = [
+        {"title": "a", "severity": 2, "category": "god-modules",
+         "evidence": [], "suggested_fix": "x"},
+        {"title": "b", "severity": 5, "category": "god-modules",
+         "evidence": [], "suggested_fix": "x"},
+    ]
+    prompt = build_prompt(findings, churn_by_file=None)
+    assert prompt.index('"b"') < prompt.index('"a"')  # severity 5 before 2
