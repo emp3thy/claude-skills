@@ -15,9 +15,10 @@ to act on and tallies the outcome.
 
 Counters are kept separate (per [[852f5ae9]]): ``emitted_count`` (bundles
 written this run), ``already_promoted_count`` (findings already ``promoted`` on
-disk, i.e. a prior run handled them), ``rejected_count`` and ``pending_count``.
-"No-op because already promoted" is never conflated with "no-op because nothing
-was approved".
+disk, i.e. a prior run handled them), ``rejected_count``, ``accepted_count``
+(deliberate deferrals, spec 4.12; never reported as pending) and
+``pending_count``. "No-op because already promoted" is never conflated with
+"no-op because nothing was approved".
 
 Roll-forward on partial failure: if N of M approved findings have their bundles
 written and bundle N+1 fails, the N succeeded bundles persist and the design.md
@@ -50,6 +51,7 @@ class PromoteResult:
     emitted_count: int = 0
     already_promoted_count: int = 0
     rejected_count: int = 0
+    accepted_count: int = 0
     pending_count: int = 0
     dry_run_skipped: bool = False
     exit_code: int = 0
@@ -107,6 +109,8 @@ def run_promote(
             result.already_promoted_count += 1
         elif status == "rejected":
             result.rejected_count += 1
+        elif status == "accepted":
+            result.accepted_count += 1
         else:  # pending
             result.pending_count += 1
 
@@ -136,6 +140,7 @@ def _main(argv: list[str] | None = None) -> int:
         f"emitted: {result.emitted_count}, "
         f"already-promoted: {result.already_promoted_count}, "
         f"rejected: {result.rejected_count}, "
+        f"accepted: {result.accepted_count}, "
         f"pending: {result.pending_count}"
     )
     return result.exit_code
