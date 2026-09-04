@@ -37,6 +37,13 @@ files co-committed at least ``coupling.min_shared`` times with
 ``shared / mean(commits_a, commits_b) >= coupling.min_ratio``, bulk commits
 excluded, plus per-file ``coupling_degree``. ``build_all`` returns both
 documents; ``walk_inventory`` keeps the v1 signature and returns the first.
+
+Approximate fan-in and fan-out (``reference_graph.py``): identifier-stem
+matching over import-like lines by default, whole-file matching as the
+labelled ``anywhere`` fallback, mechanical ambiguity (shared, short, package,
+harness and stoplist stems give ``fan_in_approx`` null). Import-line SCCs of
+size 2 to 5 are the ``cycles`` leads in ``coupling.json``, with directory
+aggregates and ``unstable_edges``.
 """
 from __future__ import annotations
 
@@ -64,6 +71,7 @@ from git_history import (
     mailmap_present,
     repo_authors,
 )
+from reference_graph import GraphFile, build_reference_graph
 
 EXT_TO_LANG: dict[str, str] = {
     ".py": "python",
@@ -520,6 +528,7 @@ def build_all(
     extra_classes: dict[str, list[str]] = cfg.get("path_classes") or {}
 
     entries: list[FileEntry] = []
+    texts: dict[str, str] = {}
     languages: set[str] = set()
     artefact_candidates: list[tuple[Path, str]] = []
 
@@ -530,10 +539,13 @@ def build_all(
             artefact_candidates.append((path, rel_str))
             continue
         try:
-            with path.open(encoding="utf-8", errors="ignore") as handle:
-                loc, indent_total, max_indent, deep, longest = _line_metrics(handle)
+            text = path.read_bytes().decode("utf-8", errors="ignore")
         except OSError as exc:
             raise InventoryError(f"could not read {path}: {exc}") from exc
+        texts[rel_str] = text
+        loc, indent_total, max_indent, deep, longest = _line_metrics(
+            text.splitlines(keepends=True)
+        )
         entries.append(
             FileEntry(
                 path=rel_str,
@@ -576,6 +588,22 @@ def build_all(
     )
     for entry in entries:
         entry.coupling_degree = degree.get(entry.path, 0)
+    graph = build_reference_graph(
+        [
+            GraphFile(
+                path=e.path, language=e.language, path_class=e.path_class,
+                text=texts[e.path], loc=e.loc, churn=e.churn,
+            )
+            for e in entries
+            if e.path_class in ("source", "tests")
+        ],
+        cfg["fan_in"],
+    )
+    for entry in entries:
+        if entry.path_class == "source":
+            entry.fan_in_approx = graph.fan_in.get(entry.path)
+            entry.fan_out_approx = graph.fan_out.get(entry.path)
+            entry.fan_in_mode = graph.mode.get(entry.path, "import-lines")
     signal_sources: dict[str, str] = {}
     if git_available:
         signal_sources["git"] = datetime.now(UTC).isoformat(timespec="seconds")
@@ -602,9 +630,9 @@ def build_all(
         "fan_in_mode": str(cfg["fan_in"]["mode"]),
         "pairs": pairs,
         "degree": degree,
-        "cycles": [],
-        "directories": [],
-        "unstable_edges": [],
+        "cycles": graph.cycles,
+        "directories": graph.directories,
+        "unstable_edges": graph.unstable_edges,
     }
     return inventory, coupling
 

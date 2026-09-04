@@ -502,3 +502,209 @@ def test_coupling_empty_without_git(tmp_path: Path) -> None:
     assert coupling["pairs"] == []
     assert coupling["degree"] == {}
     assert coupling["cycles"] == []
+
+
+# --- Task 8: reference graph ----------------------------------------------------
+
+
+def test_fan_in_on_web_ts_matches_hand_count(web_ts_repo: Path) -> None:
+    from inventory import build_all
+
+    inventory, _ = build_all(web_ts_repo, churn_months=240)
+    files = {e["path"]: e for e in inventory["files"]}
+    expected = {
+        # stock (type import), checkout, index, cart.test, and pricing.spec's
+        # `from "../cart/pricing"` import line, whose "cart" path segment also
+        # matches the "cart" stem alongside "pricing" (see task-8-report.md)
+        "src/cart/cart.ts": 5,
+        "src/cart/pricing.ts": 3,  # cart, checkout, pricing.spec
+        "src/cart/stock.ts": 1,  # pricing
+        "src/checkout/checkout.ts": 1,  # index
+        "src/util/format-legacy.ts": 1,  # checkout: the deprecated helper still has a caller
+        "src/util/format.ts": 1,  # format-legacy
+        "src/flags.ts": 3,  # checkout, client, client-admin
+        "src/api/client.ts": 0,
+        "src/api/client-admin.ts": 0,
+    }
+    for path, fan_in in expected.items():
+        assert files[path]["fan_in_approx"] == fan_in, path
+        assert files[path]["fan_in_mode"] == "import-lines", path
+    assert files["src/index.ts"]["fan_in_approx"] is None  # package and stoplist name
+    assert files["src/index.ts"]["fan_out_approx"] == 2
+    assert files["src/checkout/checkout.ts"]["fan_out_approx"] == 4
+    assert files["src/__tests__/cart.test.ts"]["fan_in_approx"] is None
+    assert files["src/__tests__/cart.test.ts"]["fan_out_approx"] is None
+    assert files["vendor/tiny-emitter.js"]["fan_out_approx"] is None
+
+
+def test_three_file_cycle_found_in_web_ts(web_ts_repo: Path) -> None:
+    from inventory import build_all
+
+    _, coupling = build_all(web_ts_repo, churn_months=240)
+    assert coupling["cycles"] == [
+        {
+            "members": ["src/cart/cart.ts", "src/cart/pricing.ts", "src/cart/stock.ts"],
+            "approximate": True,
+            "source": "import-lines",
+            "lead_only": True,
+        }
+    ]
+
+
+def test_service_py_fan_in_ambiguity_and_no_cycle(service_py_repo: Path) -> None:
+    from inventory import build_all
+
+    inventory, coupling = build_all(service_py_repo, churn_months=240)
+    assert coupling["cycles"] == []
+    files = {e["path"]: e for e in inventory["files"]}
+    # tests/test_refund.py imports the module; tests/conftest.py's `Refund` class import also
+    # matches the stem, which is the documented imprecision of stem matching
+    assert files["src/pay/refund.py"]["fan_in_approx"] == 2
+    assert files["src/pay/ledger.py"]["fan_in_approx"] == 2  # refund, tests/test_ledger.py
+    assert files["src/pay/gateway.py"]["fan_in_approx"] == 1  # refund
+    assert files["src/pay/legacy_export.py"]["fan_in_approx"] == 0
+    assert files["src/pay/refund.py"]["fan_out_approx"] == 2  # ledger, gateway
+    for ambiguous in ("src/pay/__init__.py", "src/pay/models.py", "src/pay/utils.py", "setup.py"):
+        assert files[ambiguous]["fan_in_approx"] is None, ambiguous
+
+
+def test_go_import_block_continuation(mixed_decoys_repo: Path) -> None:
+    from inventory import build_all
+
+    inventory, coupling = build_all(mixed_decoys_repo, churn_months=240)
+    files = {e["path"]: e for e in inventory["files"]}
+    # lookup is referenced only inside store.go's multi-line `import (` block
+    assert files["internal/lookup/lookup.go"]["fan_in_approx"] == 1
+    # store.go: main.go's import block plus store_test.go's own `package store`
+    # line, since IMPORT_LINE_RE treats a package declaration as import-like
+    # and every file in the directory shares that declaration (see task-8-report.md)
+    assert files["internal/store/store.go"]["fan_in_approx"] == 2
+    assert files["internal/dispatch/dispatch.go"]["fan_in_approx"] == 1
+    assert files["internal/flags/flags.go"]["fan_in_approx"] == 1
+    # httpc.go: main.go's import block plus httpc_safe.go's own `package httpc`
+    # line, the same same-package-declaration effect as store.go above
+    assert files["internal/httpc/httpc.go"]["fan_in_approx"] == 2
+    assert files["internal/httpc/httpc_safe.go"]["fan_in_approx"] == 0
+    # internal/build/builder.go is a planted decoy (spec 4.2's "package directory
+    # `build` is never mapped to builder.go") but the mixed-decoys fixture's
+    # internal/build directory has no manifest of its own (only the repo-root
+    # go.mod), so Task 5's CONDITIONAL_IGNORE drops it before the reference
+    # graph ever sees it: it is absent from inventory["files"] entirely. This is
+    # a cross-task gap between the Task 4 corpus and the Task 5 ignore rule, not
+    # a reference-graph issue; see task-8-report.md for the discrepancy.
+    assert "internal/build/builder.go" not in files
+    assert files["cmd/app/main.go"]["fan_in_approx"] is None
+    assert files["cmd/app/main.go"]["fan_out_approx"] == 4
+    assert coupling["cycles"] == []
+
+
+def test_shared_and_short_stems_are_ambiguous(tmp_path: Path) -> None:
+    from inventory import build_all
+
+    for rel, content in {
+        "a/report.py": "x = 1\n",
+        "b/report.py": "y = 2\n",
+        "lib/db.py": "z = 3\n",
+        "runner.py": "from a import report\nfrom lib import db\n",
+    }.items():
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    inventory, _ = build_all(tmp_path)
+    files = {e["path"]: e for e in inventory["files"]}
+    assert files["a/report.py"]["fan_in_approx"] is None
+    assert files["b/report.py"]["fan_in_approx"] is None
+    assert files["lib/db.py"]["fan_in_approx"] is None  # stem shorter than 4
+    assert files["runner.py"]["fan_in_approx"] == 0
+    assert files["runner.py"]["fan_out_approx"] == 0
+
+
+def test_anywhere_fallback_is_labelled(tmp_path: Path) -> None:
+    from config import DEFAULTS, deep_merge
+    from inventory import build_all
+
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "renderer.php").write_text(
+        "<?php\nclass Renderer {\n    public function draw() {}\n}\n", encoding="utf-8"
+    )
+    (tmp_path / "webapp.php").write_text(
+        "<?php\n$r = new Renderer();\n$r->draw();\n", encoding="utf-8"
+    )
+    inventory, coupling = build_all(tmp_path)
+    files = {e["path"]: e for e in inventory["files"]}
+    assert files["lib/renderer.php"]["fan_in_approx"] == 1
+    assert files["lib/renderer.php"]["fan_in_mode"] == "anywhere"
+    assert files["webapp.php"]["fan_in_approx"] == 0
+    assert coupling["cycles"] == []
+    strict = deep_merge(DEFAULTS, {"fan_in": {"mode": "import-lines"}})
+    inventory, _ = build_all(tmp_path, config=strict)
+    files = {e["path"]: e for e in inventory["files"]}
+    assert files["lib/renderer.php"]["fan_in_approx"] == 0
+    assert files["lib/renderer.php"]["fan_in_mode"] == "import-lines"
+
+
+def test_directories_unstable_edges_and_scc_size_bounds(tmp_path: Path) -> None:
+    from inventory import build_all
+
+    for rel, content in {
+        "app/alpha.py": "from core import engine\n",
+        "app/bravo.py": "from core import engine\n",
+        "app/charlie.py": "from core import engine\n",
+        "core/engine.py": "from plugins import loader\n",
+        "plugins/loader.py": "from app import alpha, bravo, charlie\n",
+        "zeta/omega.py": "from core import engine\n",
+    }.items():
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    _, coupling = build_all(tmp_path)
+    dirs = {d["path"]: d for d in coupling["directories"]}
+    assert dirs["app"]["files"] == 3
+    assert (dirs["app"]["fan_in"], dirs["app"]["fan_out"]) == (3, 3)
+    assert dirs["app"]["instability"] == 0.5
+    assert (dirs["core"]["fan_in"], dirs["core"]["fan_out"]) == (4, 1)
+    assert dirs["core"]["instability"] == 0.2
+    assert (dirs["plugins"]["fan_in"], dirs["plugins"]["fan_out"]) == (1, 3)
+    assert dirs["plugins"]["instability"] == 0.75
+    assert dirs["zeta"]["instability"] == 1.0
+    assert coupling["unstable_edges"] == [
+        {"from": "core", "to": "plugins", "from_instability": 0.2, "to_instability": 0.75}
+    ]
+    assert [c["members"] for c in coupling["cycles"]] == [
+        ["app/alpha.py", "app/bravo.py", "app/charlie.py", "core/engine.py", "plugins/loader.py"]
+    ]
+
+
+def test_scc_larger_than_five_is_not_a_lead(tmp_path: Path) -> None:
+    from inventory import build_all
+
+    names = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"]
+    for index, name in enumerate(names):
+        nxt = names[(index + 1) % len(names)]
+        (tmp_path / f"{name}.py").write_text(f"import {nxt}\n", encoding="utf-8")
+    _, coupling = build_all(tmp_path)
+    assert coupling["cycles"] == []
+
+
+def test_tarjan_scc_unit() -> None:
+    from reference_graph import tarjan_scc
+
+    adjacency = {"a": {"b"}, "b": {"c"}, "c": {"a"}, "d": {"a"}, "e": set()}
+    components = tarjan_scc(adjacency)
+    assert ["a", "b", "c"] in components
+    assert ["d"] in components
+    assert ["e"] in components
+    assert len(components) == 3
+
+
+def test_logical_lines_and_import_lines_unit() -> None:
+    from reference_graph import import_lines, logical_lines
+
+    go = 'package x\n\nimport (\n\t"fmt"\n\n\t"example.com/app/internal/store"\n)\n\nfunc f() {}\n'
+    joined = logical_lines(go)
+    assert any(line.startswith("import (") and "store" in line for line in joined)
+    py = "from pay import (\n    ledger,\n    gateway,\n)\nx = call(a,\n    b)\n"
+    assert import_lines(py) == ["from pay import ( ledger, gateway, )"]
+    ts = 'const m = await import("./lazy");\nconst r = require("./req");\nlet x = 1;\n'
+    assert len(import_lines(ts)) == 2
+    assert import_lines("x = 1\ny = 2\n") == []
