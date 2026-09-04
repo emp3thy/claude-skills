@@ -27,10 +27,14 @@ having to change. Scouts and the synthesis step use this list to prioritise.
 v2 (spec 4.2) adds path classes on every entry (tests, generated, vendored,
 docs, source), an ``artefacts`` block for the files the extension map skips
 (manifests, lockfiles, CI, containers, IaC, SQL, notebooks, model binaries,
-config, governance), and a conditional ignore: ``bin/`` and ``build/`` are
-skipped unless they hold a manifest. ``.tech-debt.yaml`` at the root is never
-an artefact. ``LANG_COMMENT`` is the comment-syntax half of the extension map
-that ``patterns.py`` reads; nothing else in the skill is language-aware.
+config, governance), and a conditional ignore: a ``bin/`` or ``build/``
+directory is skipped only when it holds no manifest of its own *and* its
+parent directory is the repository root or itself holds a manifest — a
+nested package directory that merely happens to be named ``build`` (a
+package name in Go's own standard library) is walked. ``.tech-debt.yaml`` at
+the root is never an artefact. ``LANG_COMMENT`` is the comment-syntax half
+of the extension map that ``patterns.py`` reads; nothing else in the skill
+is language-aware.
 
 ``coupling.json`` (spec 4.2) comes from the same pass: pairs of source-class
 files co-committed at least ``coupling.min_shared`` times with
@@ -201,8 +205,11 @@ DEFAULT_IGNORE: tuple[str, ...] = (
     ".tech-debt",
 )
 
-# Skipped unless the directory itself holds a manifest (spec 4.2): a `bin/`
-# that is a CLI package or a `build/` that is a Gradle module is real source.
+# Skipped only when the directory itself holds no manifest *and* its parent is
+# the repository root or itself holds a manifest (spec 4.2, amended): a `bin/`
+# that is a CLI package or a `build/` that is a Gradle module is real source,
+# and so is a `build/` nested arbitrarily deep under an ordinary source
+# directory (e.g. a Go `internal/build` package, `build` being a stdlib name).
 CONDITIONAL_IGNORE: tuple[str, ...] = ("bin", "build")
 
 # Indent thresholds behind the complex-units leads (spec 2.3, 4.2). The spec
@@ -307,7 +314,13 @@ def _is_ignored(
             if directory not in manifest_dirs:
                 manifest_dirs[directory] = _has_manifest(directory)
             if not manifest_dirs[directory]:
-                return True
+                if index == 0:
+                    return True  # the directory's parent is the repository root
+                parent = root.joinpath(*parts[:index])
+                if parent not in manifest_dirs:
+                    manifest_dirs[parent] = _has_manifest(parent)
+                if manifest_dirs[parent]:
+                    return True
     return any(
         fnmatchcase(rel, glob) or any(fnmatchcase(part, glob) for part in parts)
         for glob in globs

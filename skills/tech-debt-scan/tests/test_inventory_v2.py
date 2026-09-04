@@ -180,6 +180,21 @@ def test_bin_and_build_walked_only_with_a_manifest(tmp_path: Path) -> None:
     assert [e["path"] for e in result["artefacts"]["manifest"]] == ["bin/package.json"]
 
 
+def test_build_dir_under_ordinary_source_dir_is_walked(tmp_path: Path) -> None:
+    # internal/build is a real Go package directory (build being a stdlib package
+    # name), not build output: its parent "internal" is neither the repository
+    # root nor holding a manifest of its own, so it is not conditionally ignored
+    # even though "internal/build" has no manifest either.
+    (tmp_path / "go.mod").write_text("module example.com/app\n\ngo 1.22\n", encoding="utf-8")
+    (tmp_path / "internal" / "build").mkdir(parents=True)
+    (tmp_path / "internal" / "build" / "builder.go").write_text(
+        "package build\n", encoding="utf-8"
+    )
+    result = walk_inventory(tmp_path)
+    paths = {e["path"] for e in result["files"]}
+    assert "internal/build/builder.go" in paths
+
+
 def test_config_ignore_names_and_globs(tmp_path: Path) -> None:
     for rel in ("legacy_v1/a.py", "tmp/b.py", "src/c.py"):
         target = tmp_path / rel
@@ -513,9 +528,7 @@ def test_fan_in_on_web_ts_matches_hand_count(web_ts_repo: Path) -> None:
     inventory, _ = build_all(web_ts_repo, churn_months=240)
     files = {e["path"]: e for e in inventory["files"]}
     expected = {
-        # stock (type import), checkout, index, cart.test, and pricing.spec's
-        # `from "../cart/pricing"` import line, whose "cart" path segment also
-        # matches the "cart" stem alongside "pricing" (see task-8-report.md)
+        # stock, checkout, index, cart.test, plus pricing.spec (its "../cart/..." path matches too)
         "src/cart/cart.ts": 5,
         "src/cart/pricing.ts": 3,  # cart, checkout, pricing.spec
         "src/cart/stock.ts": 1,  # pricing
@@ -575,24 +588,24 @@ def test_go_import_block_continuation(mixed_decoys_repo: Path) -> None:
     files = {e["path"]: e for e in inventory["files"]}
     # lookup is referenced only inside store.go's multi-line `import (` block
     assert files["internal/lookup/lookup.go"]["fan_in_approx"] == 1
-    # store.go: main.go's import block plus store_test.go's own `package store`
-    # line, since IMPORT_LINE_RE treats a package declaration as import-like
-    # and every file in the directory shares that declaration (see task-8-report.md)
-    assert files["internal/store/store.go"]["fan_in_approx"] == 2
+    # store.go: main.go's import block only. `package` was removed from
+    # IMPORT_LINE_RE (spec amendment; a package declaration never references
+    # another file), so store_test.go's own `package store` line no longer
+    # counts as an edge into store.go. See task-8-report.md fix round 1.
+    assert files["internal/store/store.go"]["fan_in_approx"] == 1
     assert files["internal/dispatch/dispatch.go"]["fan_in_approx"] == 1
     assert files["internal/flags/flags.go"]["fan_in_approx"] == 1
-    # httpc.go: main.go's import block plus httpc_safe.go's own `package httpc`
-    # line, the same same-package-declaration effect as store.go above
-    assert files["internal/httpc/httpc.go"]["fan_in_approx"] == 2
+    # httpc.go: main.go's import block only, for the same reason as store.go above
+    assert files["internal/httpc/httpc.go"]["fan_in_approx"] == 1
     assert files["internal/httpc/httpc_safe.go"]["fan_in_approx"] == 0
-    # internal/build/builder.go is a planted decoy (spec 4.2's "package directory
-    # `build` is never mapped to builder.go") but the mixed-decoys fixture's
-    # internal/build directory has no manifest of its own (only the repo-root
-    # go.mod), so Task 5's CONDITIONAL_IGNORE drops it before the reference
-    # graph ever sees it: it is absent from inventory["files"] entirely. This is
-    # a cross-task gap between the Task 4 corpus and the Task 5 ignore rule, not
-    # a reference-graph issue; see task-8-report.md for the discrepancy.
-    assert "internal/build/builder.go" not in files
+    # internal/build/builder.go is a planted god-classes decoy; CONDITIONAL_IGNORE
+    # was amended (spec 4.2, fix round 1) so a nested build/ under an ordinary
+    # source directory without its own manifest is still walked. main.go's import
+    # of "example.com/app/internal/build" tokenizes to "build", which is the
+    # package directory name, not the "builder" stem, so it still is never mapped
+    # to builder.go (spec 4.2) and fan_in_approx stays 0.
+    assert files["internal/build/builder.go"]["fan_in_approx"] == 0
+    assert files["internal/build/builder.go"]["fan_out_approx"] == 0
     assert files["cmd/app/main.go"]["fan_in_approx"] is None
     assert files["cmd/app/main.go"]["fan_out_approx"] == 4
     assert coupling["cycles"] == []

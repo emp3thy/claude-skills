@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 IMPORT_LINE_RE = re.compile(
-    r"^\s*(import|from|using|use|require|include|#include|load|open|extern crate|package|"
+    r"^\s*(import|from|using|use|require|include|#include|load|open|extern crate|"
     r"require_relative|@import|@use)\b"
 )
 IMPORT_CALL_RE = re.compile(r"require\(|import\(|from \"|from '")
