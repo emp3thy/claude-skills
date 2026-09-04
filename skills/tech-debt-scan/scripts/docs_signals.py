@@ -1,0 +1,158 @@
+"""Docs-block signals for ``inventory.py`` (spec 4.2 "Docs block").
+
+``docs_block`` is the sole public entry point, called once per scan from
+``inventory.build_all``: README/CONTRIBUTING/ADR/CHANGELOG presence, the
+latest git tag, dangling references in docs-class files, and doc staleness
+versus the newest source file's ``last_touched``.
+
+A doc reference is a backtick-quoted or path-like token that either carries a
+known code or config extension or starts with an existing top-level
+directory; it is dangling when no walked path equals it, ends with it, or
+lives under it and its stem is not a source stem (capped at
+``MAX_DANGLING_REFS``). Staleness is a whole calendar-day distance
+(time-of-day ignored).
+
+Extracted out of ``inventory.py`` (which stays under the plan's ~700-line
+split guidance) since these helpers have exactly one caller, ``build_all``,
+via ``docs_block``. ``read_head`` is kept public because ``inventory.py``'s
+own ``_tests_block``/``_tooling_blocks`` reuse the same small file-head
+reader; everything else here is private. ``_DOC_REF_EXTS`` mirrors
+``inventory.EXT_TO_LANG``'s keys but is duplicated rather than imported, to
+avoid an ``inventory`` <-> ``docs_signals`` import cycle (``inventory.py``
+imports ``docs_block`` at module load time, before ``EXT_TO_LANG`` — or any
+other inventory.py name — would be defined if the import ran the other way).
+For the same reason, ``FileEntry`` is only imported under
+``TYPE_CHECKING``: these functions never construct or isinstance-check it,
+only read attributes duck-typed at runtime.
+"""
+from __future__ import annotations
+
+import re
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
+
+from reference_graph import file_stem
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from inventory import FileEntry
+
+_README_NAMES = ("readme.md", "readme.rst", "readme.adoc", "readme.txt", "readme")
+_CONTRIBUTING_NAMES = ("contributing.md", "contributing.rst", "docs/contributing.md")
+_CHANGELOG_NAMES = ("changelog.md", "changes.md", "history.md", "changelog.rst", "changelog")
+_BACKTICK_RE = re.compile(r"`([^`\n]+)`")
+_PATHLIKE_RE = re.compile(r"(?<![\w./-])[\w.-]+(?:/[\w.-]+)+")
+
+# Mirrors inventory.EXT_TO_LANG's keys (spec 0(d) extension map); duplicated,
+# not imported, to avoid the import cycle described above. Keep in sync if
+# EXT_TO_LANG's key set changes.
+_CODE_EXTS = frozenset(
+    {
+        ".py", ".cs", ".java", ".kt", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs",
+        ".rb", ".php", ".swift", ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp", ".md",
+    }
+)
+_DOC_REF_EXTS = _CODE_EXTS | {
+    ".yml", ".yaml", ".json", ".toml", ".ini", ".cfg", ".sh", ".ps1", ".sql", ".txt",
+}
+MAX_DANGLING_REFS = 200
+
+
+def read_head(path: Path, limit: int = 65536) -> str:
+    """Decode up to ``limit`` bytes of ``path`` as UTF-8 (best-effort, never raises)."""
+    try:
+        with path.open("rb") as handle:
+            return handle.read(limit).decode("utf-8", errors="ignore")
+    except OSError:
+        return ""
+
+
+def _days_between(first: str | None, second: str | None) -> int | None:
+    """Whole calendar-day distance between two ISO timestamps (time-of-day ignored)."""
+    if not first or not second:
+        return None
+    try:
+        a = datetime.fromisoformat(first)
+        b = datetime.fromisoformat(second)
+    except ValueError:
+        return None
+    return abs((b.date() - a.date()).days)
+
+
+def _looks_like_ref(token: str, top_level: set[str]) -> bool:
+    if "://" in token or token.startswith(("http:", "https:")):
+        return False
+    lowered = token.lower()
+    if lowered.endswith(tuple(_DOC_REF_EXTS)):
+        return True
+    return "/" in token and token.split("/", 1)[0] in top_level
+
+
+def _ref_exists(token: str, all_paths: set[str], source_stems: set[str]) -> bool:
+    clean = token.removeprefix("./").rstrip("/")
+    if clean in all_paths or file_stem(clean) in source_stems:
+        return True
+    return any(p.endswith("/" + clean) or p.startswith(clean + "/") for p in all_paths)
+
+
+def docs_block(
+    entries: list[FileEntry],
+    artefacts: dict[str, list[dict[str, Any]]],
+    texts: dict[str, str],
+    git_block: dict[str, Any],
+    git_available: bool,
+) -> dict[str, Any]:
+    root_files = {e.path.lower(): e for e in entries if "/" not in e.path}
+    lowered = {e.path.lower(): e for e in entries}
+    readme = next((root_files[n] for n in _README_NAMES if n in root_files), None)
+    changelog = next((root_files[n] for n in _CHANGELOG_NAMES if n in root_files), None)
+    contributing = any(n in lowered for n in _CONTRIBUTING_NAMES)
+    all_paths = {e.path for e in entries}
+    for items in artefacts.values():
+        all_paths.update(str(a["path"]) for a in items)
+    adr_present = any("adr" in p.lower().split("/")[:-1] for p in all_paths)
+    top_level = {p.split("/", 1)[0] for p in all_paths if "/" in p}
+    source_stems = {file_stem(e.path) for e in entries if e.path_class == "source"}
+    tags = git_block.get("tags") or []
+    latest = tags[-1] if tags else None
+
+    dangling: list[dict[str, Any]] = []
+    for entry in entries:
+        if entry.path_class != "docs":
+            continue
+        for lineno, line in enumerate(texts.get(entry.path, "").splitlines(), start=1):
+            tokens = set(_BACKTICK_RE.findall(line)) | set(_PATHLIKE_RE.findall(line))
+            for raw in sorted(tokens):
+                token = raw.strip().strip("`'\"()<>,;:")
+                if not token or not _looks_like_ref(token, top_level):
+                    continue
+                if _ref_exists(token, all_paths, source_stems):
+                    continue
+                dangling.append({"file": entry.path, "line": lineno, "token": token})
+                if len(dangling) >= MAX_DANGLING_REFS:
+                    break
+            if len(dangling) >= MAX_DANGLING_REFS:
+                break
+    newest_source = max(
+        (e.last_touched for e in entries if e.path_class == "source" and e.last_touched),
+        default=None,
+    )
+    stale: dict[str, int | None] = {}
+    for entry in entries:
+        if entry.path_class == "docs":
+            stale[entry.path] = (
+                _days_between(entry.last_touched, newest_source) if git_available else None
+            )
+    return {
+        "readme_present": readme is not None,
+        "readme_loc": readme.loc if readme else 0,
+        "contributing_present": contributing,
+        "adr_dir_present": adr_present,
+        "changelog_present": changelog is not None,
+        "changelog_last_commit": changelog.last_touched if changelog else None,
+        "latest_tag": latest["name"] if latest else None,
+        "latest_tag_date": latest["date"] if latest else None,
+        "dangling_refs": dangling,
+        "stale_vs_code_days": stale,
+    }

@@ -82,6 +82,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from config import CONFIG_FILENAME, DEFAULTS, ConfigError, load_config
+from docs_signals import docs_block, read_head
 from git_history import (
     Commit,
     FileHistory,
@@ -258,16 +259,6 @@ TEST_NAME_GLOBS: tuple[str, ...] = (
 _COVERAGE_GATE_RE = re.compile(r"fail_under|coverageThreshold|check-coverage")
 _COVERAGE_GATE_NAMES = ("codecov.yml", ".codecov.yml")
 _CI_RETRY_RE = re.compile(r"retry|rerun|retries|max_attempts", re.IGNORECASE)
-
-_README_NAMES = ("readme.md", "readme.rst", "readme.adoc", "readme.txt", "readme")
-_CONTRIBUTING_NAMES = ("contributing.md", "contributing.rst", "docs/contributing.md")
-_CHANGELOG_NAMES = ("changelog.md", "changes.md", "history.md", "changelog.rst", "changelog")
-_BACKTICK_RE = re.compile(r"`([^`\n]+)`")
-_PATHLIKE_RE = re.compile(r"(?<![\w./-])[\w.-]+(?:/[\w.-]+)+")
-_DOC_REF_EXTS = frozenset(EXT_TO_LANG) | {
-    ".yml", ".yaml", ".json", ".toml", ".ini", ".cfg", ".sh", ".ps1", ".sql", ".txt",
-}
-MAX_DANGLING_REFS = 200
 
 _BOUNDARY_TOOLING_NAMES = (
     ".importlinter", ".dependency-cruiser.js", ".dependency-cruiser.cjs",
@@ -633,14 +624,6 @@ def _map_tests(entries: list[FileEntry]) -> None:
             entry.mapped_tests = sorted(by_key.get(file_stem(entry.path), []))
 
 
-def _read_head(path: Path, limit: int = 65536) -> str:
-    try:
-        with path.open("rb") as handle:
-            return handle.read(limit).decode("utf-8", errors="ignore")
-    except OSError:
-        return ""
-
-
 def _tests_block(
     entries: list[FileEntry], artefacts: dict[str, list[dict[str, Any]]], root: Path
 ) -> dict[str, Any]:
@@ -652,7 +635,7 @@ def _tests_block(
         for artefact in artefacts.get(cls, []):
             rel = str(artefact["path"])
             name = rel.rsplit("/", 1)[-1]
-            text = _read_head(root / rel)
+            text = read_head(root / rel)
             if name in _COVERAGE_GATE_NAMES or _COVERAGE_GATE_RE.search(text):
                 gate.add(rel)
             if cls == "ci" and _CI_RETRY_RE.search(text):
@@ -664,103 +647,13 @@ def _tests_block(
     }
 
 
-def _days_between(first: str | None, second: str | None) -> int | None:
-    """Whole calendar-day distance between two ISO timestamps (time-of-day ignored)."""
-    if not first or not second:
-        return None
-    try:
-        a = datetime.fromisoformat(first)
-        b = datetime.fromisoformat(second)
-    except ValueError:
-        return None
-    return abs((b.date() - a.date()).days)
-
-
-def _looks_like_ref(token: str, top_level: set[str]) -> bool:
-    if "://" in token or token.startswith(("http:", "https:")):
-        return False
-    lowered = token.lower()
-    if lowered.endswith(tuple(_DOC_REF_EXTS)):
-        return True
-    return "/" in token and token.split("/", 1)[0] in top_level
-
-
-def _ref_exists(token: str, all_paths: set[str], source_stems: set[str]) -> bool:
-    clean = token.removeprefix("./").rstrip("/")
-    if clean in all_paths or file_stem(clean) in source_stems:
-        return True
-    return any(p.endswith("/" + clean) or p.startswith(clean + "/") for p in all_paths)
-
-
-def _docs_block(
-    entries: list[FileEntry],
-    artefacts: dict[str, list[dict[str, Any]]],
-    texts: dict[str, str],
-    git_block: dict[str, Any],
-    git_available: bool,
-) -> dict[str, Any]:
-    root_files = {e.path.lower(): e for e in entries if "/" not in e.path}
-    lowered = {e.path.lower(): e for e in entries}
-    readme = next((root_files[n] for n in _README_NAMES if n in root_files), None)
-    changelog = next((root_files[n] for n in _CHANGELOG_NAMES if n in root_files), None)
-    contributing = any(n in lowered for n in _CONTRIBUTING_NAMES)
-    all_paths = {e.path for e in entries}
-    for items in artefacts.values():
-        all_paths.update(str(a["path"]) for a in items)
-    adr_present = any("adr" in p.lower().split("/")[:-1] for p in all_paths)
-    top_level = {p.split("/", 1)[0] for p in all_paths if "/" in p}
-    source_stems = {file_stem(e.path) for e in entries if e.path_class == "source"}
-    tags = git_block.get("tags") or []
-    latest = tags[-1] if tags else None
-
-    dangling: list[dict[str, Any]] = []
-    for entry in entries:
-        if entry.path_class != "docs":
-            continue
-        for lineno, line in enumerate(texts.get(entry.path, "").splitlines(), start=1):
-            tokens = set(_BACKTICK_RE.findall(line)) | set(_PATHLIKE_RE.findall(line))
-            for raw in sorted(tokens):
-                token = raw.strip().strip("`'\"()<>,;:")
-                if not token or not _looks_like_ref(token, top_level):
-                    continue
-                if _ref_exists(token, all_paths, source_stems):
-                    continue
-                dangling.append({"file": entry.path, "line": lineno, "token": token})
-                if len(dangling) >= MAX_DANGLING_REFS:
-                    break
-            if len(dangling) >= MAX_DANGLING_REFS:
-                break
-    newest_source = max(
-        (e.last_touched for e in entries if e.path_class == "source" and e.last_touched),
-        default=None,
-    )
-    stale: dict[str, int | None] = {}
-    for entry in entries:
-        if entry.path_class == "docs":
-            stale[entry.path] = (
-                _days_between(entry.last_touched, newest_source) if git_available else None
-            )
-    return {
-        "readme_present": readme is not None,
-        "readme_loc": readme.loc if readme else 0,
-        "contributing_present": contributing,
-        "adr_dir_present": adr_present,
-        "changelog_present": changelog is not None,
-        "changelog_last_commit": changelog.last_touched if changelog else None,
-        "latest_tag": latest["name"] if latest else None,
-        "latest_tag_date": latest["date"] if latest else None,
-        "dangling_refs": dangling,
-        "stale_vs_code_days": stale,
-    }
-
-
 def _tooling_blocks(root: Path) -> tuple[list[str], list[str]]:
     """(boundary_tooling, lint_config) by root file names and pyproject tables."""
     boundary = [n for n in _BOUNDARY_TOOLING_NAMES if (root / n).is_file()]
     lint = [n for n in _LINT_CONFIG_NAMES if (root / n).is_file()]
     pyproject = root / "pyproject.toml"
     if pyproject.is_file():
-        text = _read_head(pyproject)
+        text = read_head(pyproject)
         if any(key in text for key in _PYPROJECT_BOUNDARY_KEYS):
             boundary.append("pyproject.toml")
         if any(key in text for key in _PYPROJECT_LINT_KEYS):
@@ -912,7 +805,7 @@ def build_all(
         "hotspot_band": band,
         "files": [asdict(e) for e in entries],
         "artefacts": artefacts,
-        "docs": _docs_block(entries, artefacts, texts, git_block, git_available),
+        "docs": docs_block(entries, artefacts, texts, git_block, git_available),
         "tests": _tests_block(entries, artefacts, root),
         "git": git_block,
         "boundary_tooling": boundary,
