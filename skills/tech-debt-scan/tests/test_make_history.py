@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -46,6 +47,15 @@ def _write_history(tmp_path: Path) -> tuple[Path, Path]:
     history = tmp_path / "history.yaml"
     history.write_text(HISTORY, encoding="utf-8")
     return history, files_root
+
+
+def test_scripts_dir_precedes_helpers_dir_on_syspath() -> None:
+    """conftest.py must put scripts/ ahead of tests/helpers so a helper never shadows
+    a module of the same name under scripts/ (spec 3.3)."""
+    tests_dir = Path(__file__).resolve().parent
+    scripts_dir = str(tests_dir.parent / "scripts")
+    helpers_dir = str(tests_dir / "helpers")
+    assert sys.path.index(scripts_dir) < sys.path.index(helpers_dir)
 
 
 def test_replay_authors_dates_and_subjects_on_main(tmp_path: Path) -> None:
