@@ -665,6 +665,7 @@ def _tests_block(
 
 
 def _days_between(first: str | None, second: str | None) -> int | None:
+    """Whole calendar-day distance between two ISO timestamps (time-of-day ignored)."""
     if not first or not second:
         return None
     try:
@@ -672,7 +673,7 @@ def _days_between(first: str | None, second: str | None) -> int | None:
         b = datetime.fromisoformat(second)
     except ValueError:
         return None
-    return abs((b - a).days)
+    return abs((b.date() - a.date()).days)
 
 
 def _looks_like_ref(token: str, top_level: set[str]) -> bool:
