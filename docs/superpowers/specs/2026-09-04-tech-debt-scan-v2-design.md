@@ -291,7 +291,8 @@ inventory.json
                "last_touched": null, "authors": 0, "top_author": null, "top_author_share": null, "top_author_line_share": null,
                "bugfix_share": 0.0, "migration_commits": 0, "flaky_commits": 0, "untested_change_share": null,
                "mapped_tests": [], "fan_in_approx": null, "fan_out_approx": null, "fan_in_mode": "import-lines", "coupling_degree": 0 } ],
-  "artefacts": { "<class>": [ {"path": "", "loc": 0, "churn": 0, "last_touched": null, "size_bytes": 0} ] },
+  "artefacts": { "<class>": [ {"path": "", "path_class": "source", "loc": 0, "churn": 0, "last_touched": null, "size_bytes": 0, "skipped_large": false} ] },
+  "skipped_large_files": 0,
   "docs": { ... }, "tests": { ... },
   "git": { "authors": [], "branches": [], "tags": [], "commits_in_window": 0, "bulk_commits_excluded": 0, "mailmap_present": false },
   "boundary_tooling": [], "lint_config": [], "signal_sources": { "git": "<timestamp>" } }
@@ -305,7 +306,7 @@ coupling.json
   "unstable_edges": [ {"from": "", "to": "", "from_instability": 0.0, "to_instability": 0.0} ] }
 ```
 
-`inline_disables` is emitted as 0 by `inventory.py` and filled in place by the lint group of `patterns.py`.
+`inline_disables` is emitted as 0 by `inventory.py` and filled in place by the lint group of `patterns.py`. Every artefact entry carries `path_class` (the same classifier as code files) so later stages can apply path-class disables to workflows, Dockerfiles and configs that live under a tests or fixtures tree. Files larger than 2 MB or with a NUL byte in their first 1 KB are never read: their entry keeps `loc` 0 and `complexity` 0 with `skipped_large: true`, and the top-level `skipped_large_files` counts them. Rule findings copy the artefact's `path_class` into `signals.path_class`.
 
 **No git:** `churn` stays 0 and `hotspots` is empty; only the new history fields (`last_touched`, `authors`, `top_author_share`, `top_author_line_share`, `untested_change_share`) are null; `coupling.json` has empty lists; `design.md` says so.
 
@@ -313,7 +314,7 @@ coupling.json
 
 ### 4.3 `patterns.py`
 
-One regex lead table keyed by family. Each row has `family`, `rule`, regex, path-class scope and a blame flag. Every regex is a union of idioms across languages; the extension map only says which comment markers to strip. Leads feed scouts and corroborate the merge; counts go to report statistics, never to a finding. Blame runs only for the `satd` group, on at most 200 files; `--no-blame` skips it.
+One regex lead table keyed by family. Each row has `family`, `rule`, regex, path-class scope and a blame flag. Every regex is a union of idioms across languages; the extension map only says which comment markers to strip. Leads feed scouts and corroborate the merge; counts go to report statistics, never to a finding. Blame runs only for the `satd` group, on at most 200 files; `--no-blame` skips it. `commits_since` comes from one `git log --format=%H -- <path>` per blamed file (the position of the blamed commit in that list), never from one `rev-list` per marker. Redaction lives in one shared module, `redaction.py`, used by every script that writes a quote (`patterns.py` and `rules.py`).
 
 | Group (family) | Rules | Scope |
 |---|---|---|
@@ -349,7 +350,7 @@ Deterministic findings for the pipeline-infra and ownership families. Each is a 
 | iac | Kubernetes `resources.limits` absent, `image:` with `latest`, `privileged: true` | infrastructure |
 | manifest | no lockfile beside a manifest, two lockfile kinds for one ecosystem; `setup.py` beside `pyproject.toml` and `tslint` beside `eslint` are emitted as migration leads into the leads block, not findings | dependency |
 | release | tag cadence when `min_tags` (5) or more tags exist and the maximum gap exceeds `gap_multiple` (4) times the median; `hotfix/*`, `release/*`, `prod`, `staging` branches unmerged for `stale_branch_days` (90); refs/heads only | build |
-| ownership | knowledge island (`top_author_line_share >= island_share` 0.8 and `authors <= island_max_authors` 2 on a hotspot-band file; severity 3, or 4 on a top-5 hotspot); former-contributor hotspot (top author's last commit older than `inactive_days` 180); unowned hotspot (CODEOWNERS exists, no rule matches); no CODEOWNERS with `min_human_authors` (3) or more; more than `max_stale_branches` (10) unmerged branches over 90 days; no ADR directory and no PR template as one severity-1 note. The group is suppressed below three human authors | knowledge-process |
+| ownership | knowledge island (`top_author_line_share >= island_share` 0.8 and `authors <= island_max_authors` 2 on a hotspot-band file; severity 3, or 4 on a top-5 hotspot); former-contributor hotspot (top author's last commit older than `inactive_days` 180); unowned hotspot (CODEOWNERS exists, no rule matches); no CODEOWNERS with `min_human_authors` (3) or more; more than `max_stale_branches` (10) unmerged branches over 90 days; no ADR directory and no PR template as one severity-1 note. The group is suppressed below three human authors. Open for phase 2: the island rule has no churn floor, so on a small corpus every hotspot-band file with one author is flagged (service-py ownership precision 0.20); phase 2 decides whether an island needs a minimum churn or a minimum band rank | knowledge-process |
 
 Every threshold is overridable under `rules` in `.tech-debt.yaml`. Output `rule-findings.json` is an object `{ "schema_version": 2, "findings": [...], "leads": {"migration": [...]} }`: `findings` holds candidates in the 4.7 schema with `source: "rule"`, `tier: "A"` and `confirmed_by: ["rule:<rule_id>"]`; `leads` holds the manifest group's migration leads so `plan_scan.py` can add them to the migration leads block without a second cross-script write. Repository-level facts (release cadence, stale environment branches, missing CODEOWNERS) have no file: their single evidence item carries `file: null`, `line_start: null`, `line_end: null`, `quote: ""` and `quote_verified: true`, the same shape as manifest-level osv facts in 4.5. Rule date arithmetic takes an injectable `now` (default today) so fixture tests pin a date.
 
