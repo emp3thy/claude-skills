@@ -12,7 +12,7 @@ Fixed constraints: Claude Code skill; SKILL.md orchestration with pinned command
 - **(d) Language-agnostic principle.** The only language-aware code is the inventory's extension map (which also supplies comment syntax) and the tool normalisers in `tools_probe.py`. Any per-language code path anywhere else is a defect.
 - **(e) No live LLM in tests.** Tests feed canned JSON to scripts; the `live` pytest marker never runs in CI.
 - **(f) Verify before commit.** When a task says "follows existing pattern X", the implementer reads X before writing.
-- **(g) One branch and PR per phase.** Each phase is its own feature branch `feat/tech-debt-scan-v2-phase-<n>`, with the PR created at task start.
+- **(g) One branch and PR per phase.** Each phase is its own feature branch `feat/tech-debt-scan-v2-phase-<n>`, created before the first task; the PR opens in the phase's final gate task.
 
 ## 1. Goal, non-goals, success criteria
 
@@ -258,7 +258,7 @@ git -C <root> -c core.quotePath=false log --since="<n> months ago" --name-only -
 
 Stdout is decoded as UTF-8 with replacement; the header line is split with `maxsplit=4` because subjects contain tabs. Each record gives hash, author name, author email, date, subject and file list. Authors are keyed by email; names matching `bot_authors` are dropped; `git.mailmap_present` records whether `.mailmap` exists, and when it does not the report states that authorship is by name, not by person. Churn and coupling are joined against the files present at HEAD, so a deleted file never becomes a lead.
 
-Per file: `churn`, `last_touched`, `authors` (distinct humans), `top_author_share`, `bugfix_share` (subject matches `fix|bug|hotfix|regress`; recorded, not scored), `migration_commits` (`migrat|legacy|deprecat|port(ed|ing)|codemod|upgrade`), `flaky_commits` (`flak`), `untested_change_share` (share of commits touching the file with no `tests`-class file alongside). Repo-wide: authors with last-active dates, commit count, bulk commits excluded.
+Per file: `churn`, `last_touched`, `authors` (distinct humans), `top_author` (the email key of the author with the most commits, needed by the former-contributor rule), `top_author_share`, `bugfix_share` (subject matches `fix|bug|hotfix|regress`; recorded, not scored), `migration_commits` (`migrat|legacy|deprecat|port(ed|ing)|codemod|upgrade`), `flaky_commits` (`flak`), `untested_change_share` (share of commits touching the file with no `tests`-class file alongside). Repo-wide: authors with last-active dates, commit count, bulk commits excluded.
 
 Two further fixed-argv commands give branches (`git for-each-ref` on `refs/heads` and `refs/remotes` with `%(symref)` in the format so `origin/HEAD` is skipped; merged state via `git merge-base --is-ancestor`, exit 128 recorded as null) and tags (`git tag --sort=creatordate`). `git blame -w --line-porcelain <path>` runs only for hotspot-band files (cap 50) to derive `top_author_line_share`. Measured: 0.06 to 0.74 s for 5 to 604 commits; blame 4.4 s for 50 files.
 
@@ -288,7 +288,7 @@ inventory.json
   "files": [ { "path": "", "ext": "", "loc": 0, "mtime": 0.0, "complexity": 0, "max_indent": 0, "churn": 0,
                "language": "", "path_class": "source", "hotspot_score": 0.0,
                "deep_indent_lines": 0, "longest_indented_run": 0, "inline_disables": 0,
-               "last_touched": null, "authors": 0, "top_author_share": null, "top_author_line_share": null,
+               "last_touched": null, "authors": 0, "top_author": null, "top_author_share": null, "top_author_line_share": null,
                "bugfix_share": 0.0, "migration_commits": 0, "flaky_commits": 0, "untested_change_share": null,
                "mapped_tests": [], "fan_in_approx": null, "fan_out_approx": null, "fan_in_mode": "import-lines", "coupling_degree": 0 } ],
   "artefacts": { "<class>": [ {"path": "", "loc": 0, "churn": 0, "last_touched": null, "size_bytes": 0} ] },
@@ -351,7 +351,7 @@ Deterministic findings for the pipeline-infra and ownership families. Each is a 
 | release | tag cadence when `min_tags` (5) or more tags exist and the maximum gap exceeds `gap_multiple` (4) times the median; `hotfix/*`, `release/*`, `prod`, `staging` branches unmerged for `stale_branch_days` (90); refs/heads only | build |
 | ownership | knowledge island (`top_author_line_share >= island_share` 0.8 and `authors <= island_max_authors` 2 on a hotspot-band file; severity 3, or 4 on a top-5 hotspot); former-contributor hotspot (top author's last commit older than `inactive_days` 180); unowned hotspot (CODEOWNERS exists, no rule matches); no CODEOWNERS with `min_human_authors` (3) or more; more than `max_stale_branches` (10) unmerged branches over 90 days; no ADR directory and no PR template as one severity-1 note. The group is suppressed below three human authors | knowledge-process |
 
-Every threshold is overridable under `rules` in `.tech-debt.yaml`. Output `rule-findings.json` is a list in the 4.7 candidate schema with `source: "rule"`, `tier: "A"` and `confirmed_by: ["rule:<rule_id>"]`.
+Every threshold is overridable under `rules` in `.tech-debt.yaml`. Output `rule-findings.json` is an object `{ "schema_version": 2, "findings": [...], "leads": {"migration": [...]} }`: `findings` holds candidates in the 4.7 schema with `source: "rule"`, `tier: "A"` and `confirmed_by: ["rule:<rule_id>"]`; `leads` holds the manifest group's migration leads so `plan_scan.py` can add them to the migration leads block without a second cross-script write. Repository-level facts (release cadence, stale environment branches, missing CODEOWNERS) have no file: their single evidence item carries `file: null`, `line_start: null`, `line_end: null`, `quote: ""` and `quote_verified: true`, the same shape as manifest-level osv facts in 4.5. Rule date arithmetic takes an injectable `now` (default today) so fixture tests pin a date.
 
 **Tests:** each rule with a positive fixture and a decoy (a dev-only compose file with `latest` drops one severity; a release workflow without `permissions` is severity 3, an ordinary one 2); ownership suppressed on a two-author history; the island severity bump on a top-5 hotspot; migration leads land in the leads block; threshold overrides from config.
 
