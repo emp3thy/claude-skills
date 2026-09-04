@@ -98,8 +98,11 @@ Markdown.
 
 Files in common build/dependency directories (`node_modules`, `obj`, `target`,
 `.venv`, `venv`, `__pycache__`, `dist`, `.git`, IDE and tool caches, and
-`.tech-debt`) are skipped; `bin` and `build` are skipped unless they contain a
-package manifest. Manifests, lockfiles, CI, container, IaC, SQL, notebook,
+`.tech-debt`) are skipped. A directory named `bin` or `build` is skipped when
+it holds no package manifest and its parent is the repository root or holds a
+manifest itself, which covers build output sitting beside the manifest that
+produced it; a `bin` or `build` package nested under an ordinary source
+directory is walked. Manifests, lockfiles, CI, container, IaC, SQL, notebook,
 model-binary, config and governance files are inventoried as artefacts rather
 than as code.
 
