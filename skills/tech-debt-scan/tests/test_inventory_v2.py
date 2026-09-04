@@ -227,3 +227,186 @@ def test_file_entries_carry_every_v2_key(service_py_repo: Path) -> None:
         "untested_change_share", "mapped_tests", "fan_in_approx", "fan_out_approx",
         "fan_in_mode", "coupling_degree",
     ]
+
+
+# --- Task 6: git pass ------------------------------------------------------------
+
+
+def test_git_pass_per_file_history_fields(service_py_repo: Path) -> None:
+    result = walk_inventory(service_py_repo, churn_months=240)
+    assert result["git_available"] is True
+    files = {e["path"]: e for e in result["files"]}
+    refund = files["src/pay/refund.py"]
+    assert refund["churn"] == 7
+    assert refund["authors"] == 1
+    assert refund["top_author"] == "ada@example.com"
+    assert refund["top_author_share"] == 1.0
+    assert refund["bugfix_share"] == pytest.approx(2 / 7, abs=0.001)
+    assert refund["untested_change_share"] == pytest.approx(4 / 7, abs=0.001)
+    assert refund["last_touched"].startswith("2026-06-22")
+    ledger = files["src/pay/ledger.py"]
+    assert ledger["churn"] == 7
+    assert ledger["authors"] == 3
+    assert ledger["top_author"] == "ada@example.com"
+    assert ledger["top_author_share"] == pytest.approx(5 / 7, abs=0.001)
+    gateway = files["src/pay/gateway.py"]
+    assert gateway["churn"] == 2
+    assert gateway["authors"] == 1
+    assert gateway["migration_commits"] == 1
+    assert gateway["mapped_tests"] == []
+    assert files["tests/test_ledger.py"]["flaky_commits"] == 1
+    assert files["src/pay/legacy_export.py"]["churn"] == 1
+
+
+def test_git_pass_authors_keyed_by_email_and_bots_dropped(service_py_repo: Path) -> None:
+    result = walk_inventory(service_py_repo, churn_months=240)
+    git = result["git"]
+    assert [a["email"] for a in git["authors"]] == [
+        "ada@example.com", "linus@example.com", "grace@example.com",
+    ]
+    assert [a["commits"] for a in git["authors"]] == [7, 5, 3]
+    assert git["authors"][0]["name"] == "Ada Lovelace"
+    assert git["authors"][0]["last_active"].startswith("2026-06-22")
+    assert git["commits_in_window"] == 16
+    assert git["bulk_commits_excluded"] == 0
+    assert git["mailmap_present"] is False
+    req = next(e for e in result["artefacts"]["manifest"] if e["path"] == "requirements.txt")
+    assert req["churn"] == 2  # the bot commit still counts as churn
+    assert req["last_touched"].startswith("2026-01-15")
+    assert "git" in result["signal_sources"]
+
+
+def test_git_pass_head_join_drops_deleted_file(service_py_repo: Path) -> None:
+    result = walk_inventory(service_py_repo, churn_months=240)
+    assert "src/pay/old_helper.py" not in {e["path"] for e in result["files"]}
+    assert result["git"]["commits_in_window"] == 16  # the deletion commit is still counted
+
+
+def test_git_pass_non_ascii_path(service_py_repo: Path) -> None:
+    files = {e["path"]: e for e in walk_inventory(service_py_repo, churn_months=240)["files"]}
+    assert files["docs/übersicht.md"]["churn"] == 1
+    assert files["docs/übersicht.md"]["last_touched"].startswith("2024-10-05")
+
+
+def test_git_pass_window_excludes_old_commits(service_py_repo: Path) -> None:
+    result = walk_inventory(service_py_repo, churn_months=1)
+    assert result["git_available"] is True
+    assert all(e["churn"] == 0 for e in result["files"])
+    assert result["git"]["commits_in_window"] == 0
+    assert result["hotspots"] == []
+
+
+def test_branches_and_tags(service_py_repo: Path) -> None:
+    git = walk_inventory(service_py_repo, churn_months=240)["git"]
+    branches = {b["name"]: b for b in git["branches"]}
+    hotfix = branches["hotfix/ledger-rounding"]
+    assert hotfix["merged"] is False
+    assert hotfix["ref"] == "refs/heads/hotfix/ledger-rounding"
+    assert hotfix["last_commit"].startswith("2026-04-10")
+    assert branches["main"]["merged"] is True
+    assert [t["name"] for t in git["tags"]] == ["v0.1.0", "v0.2.0"]
+    assert git["tags"][0]["date"].startswith("2024-10-05")
+    assert git["tags"][1]["date"].startswith("2026-02-20")
+
+
+def test_parse_branch_refs_skips_symref() -> None:
+    from git_history import parse_branch_refs
+
+    stdout = (
+        "refs/heads/main\tmain\t\t2026-01-01T09:00:00Z\taaa\n"
+        "refs/remotes/origin/HEAD\torigin/HEAD\trefs/remotes/origin/main"
+        "\t2026-01-01T09:00:00Z\taaa\n"
+        "refs/remotes/origin/main\torigin/main\t\t2026-01-01T09:00:00Z\taaa\n"
+    )
+    refs = parse_branch_refs(stdout)
+    assert [r["name"] for r in refs] == ["main", "origin/main"]
+    assert refs[1]["ref"] == "refs/remotes/origin/main"
+    assert refs[0]["sha"] == "aaa"
+
+
+def test_parse_log_tab_in_subject_and_non_ascii_path() -> None:
+    from git_history import parse_log
+
+    stdout = (
+        "\x1eabc\tAda\tada@example.com\t2024-09-10T10:00:00Z\tfeat: a\tb\n"
+        "\nsrc/app.py\nsrc/naïve.py\n"
+        "\x1edef\tGrace\tgrace@example.com\t2025-03-01T09:00:00Z\tfix: r\n\nsrc/app.py\n"
+    )
+    commits = parse_log(stdout)
+    assert [c.sha for c in commits] == ["abc", "def"]
+    assert commits[0].subject == "feat: a\tb"
+    assert commits[0].files == ["src/app.py", "src/naïve.py"]
+    assert commits[1].author_email == "grace@example.com"
+
+
+def test_is_bot_matches_default_list() -> None:
+    from config import DEFAULTS
+    from git_history import is_bot
+
+    bots = DEFAULTS["bot_authors"]
+    assert is_bot("dependabot[bot]", bots)
+    assert is_bot("github-actions", bots)
+    assert is_bot("Claude", bots)
+    assert not is_bot("Ada Lovelace", bots)
+
+
+def test_bulk_commits_excluded_from_churn(tmp_path: Path) -> None:
+    from make_history import replay_history
+
+    files_root = tmp_path / "files"
+    files_root.mkdir()
+    bulk = "\n".join(f"      f{i}.py: 'x = {i}'" for i in range(60))
+    history = tmp_path / "history.yaml"
+    history.write_text(
+        "commits:\n"
+        "  - author: 'Bulk Bob <bob@example.com>'\n"
+        "    date: '2026-01-01T09:00:00+00:00'\n"
+        "    subject: 'chore: reformat everything'\n"
+        f"    files:\n{bulk}\n"
+        "  - author: 'Ada Lovelace <ada@example.com>'\n"
+        "    date: '2026-02-01T09:00:00+00:00'\n"
+        "    subject: 'feat: touch one'\n"
+        "    files:\n      f0.py: 'x = 100'\n",
+        encoding="utf-8",
+    )
+    for i in range(60):
+        (files_root / f"f{i}.py").write_text(f"x = {i}" if i else "x = 100", encoding="utf-8")
+    repo = replay_history(history, files_root, tmp_path / "repo")
+    result = walk_inventory(repo, churn_months=240)
+    files = {e["path"]: e for e in result["files"]}
+    assert files["f0.py"]["churn"] == 1
+    assert files["f1.py"]["churn"] == 0
+    assert result["git"]["bulk_commits_excluded"] == 1
+    assert result["git"]["commits_in_window"] == 2
+    assert [a["email"] for a in result["git"]["authors"]] == ["ada@example.com"]
+
+
+def test_no_git_shape(tmp_path: Path) -> None:
+    (tmp_path / "main.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    result = walk_inventory(tmp_path)
+    assert result["git_available"] is False
+    entry = result["files"][0]
+    assert entry["churn"] == 0
+    assert entry["last_touched"] is None
+    assert entry["authors"] is None
+    assert entry["top_author_share"] is None
+    assert entry["top_author_line_share"] is None
+    assert entry["untested_change_share"] is None
+    assert result["hotspots"] == []
+    assert result["git"] == {
+        "authors": [], "branches": [], "tags": [], "commits_in_window": 0,
+        "bulk_commits_excluded": 0, "mailmap_present": False,
+    }
+    assert result["signal_sources"] == {}
+
+
+def test_blame_top_share_on_corpus(service_py_repo: Path) -> None:
+    from config import DEFAULTS
+    from git_history import blame_top_share
+
+    share, email = blame_top_share(service_py_repo, "src/pay/refund.py", DEFAULTS["bot_authors"])
+    assert share == 1.0
+    assert email == "ada@example.com"
+    share, _ = blame_top_share(service_py_repo, "src/pay/ledger.py", DEFAULTS["bot_authors"])
+    assert share is not None and share < 1.0
+    assert blame_top_share(service_py_repo, "does/not/exist.py", []) == (None, None)

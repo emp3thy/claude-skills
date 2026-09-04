@@ -11,9 +11,14 @@ hotspot analysis (Tornhill, "Your Code as a Crime Scene"):
     indent units across the file, tab = one unit, 4 spaces = one unit). It is
     language-agnostic and correlates well with cyclomatic complexity without
     needing a parser per language.
-  - ``churn``: how many commits touched the file inside the churn window
-    (default 12 months), mined from ``git log``. Zero when git is unavailable
-    or the tree is not a repository (``git_available`` records which).
+  - ``churn`` and the history fields (``last_touched``, ``authors``,
+    ``top_author``, ``top_author_share``, ``bugfix_share``,
+    ``migration_commits``, ``flaky_commits``, ``untested_change_share``)
+    come from one ``git log`` pass in ``git_history.py`` over the churn window
+    (default 12 months), joined against the files present at HEAD. Without
+    git ``churn`` is 0 and the history fields are null (``git_available``
+    records which). The top-level ``git`` block carries authors, branches,
+    tags and the window counts; ``signal_sources.git`` is the pass timestamp.
 
 ``hotspots`` ranks files by normalised churn x complexity (0-100). Hotspots
 are where debt accrues the highest interest: complex code the team keeps
@@ -33,15 +38,25 @@ import argparse
 import copy
 import json
 import re
-import subprocess
 import sys
 from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, cast
 
 from config import CONFIG_FILENAME, DEFAULTS
+from git_history import (
+    Commit,
+    FileHistory,
+    derive_file_history,
+    git_log_pass,
+    list_branches,
+    list_tags,
+    mailmap_present,
+    repo_authors,
+)
 
 EXT_TO_LANG: dict[str, str] = {
     ".py": "python",
@@ -328,47 +343,6 @@ def _line_metrics(handle: Iterable[str]) -> tuple[int, int, int, int, int]:
     return loc, indent_total, max_indent, deep_lines, longest_run
 
 
-def _git_churn(root: Path, months: int) -> dict[str, int] | None:
-    """Mine per-file commit counts from git history inside the window.
-
-    Returns None when git is missing, the tree is not a repository, or the
-    command fails for any other reason — churn is best-effort, never fatal.
-    Paths in the result are relative to ``root`` (forward-slash), matching
-    FileEntry.path, even when ``root`` is a subdirectory of the repository.
-    """
-    cmd = [
-        "git",
-        "-C",
-        str(root),
-        "log",
-        f"--since={months} months ago",
-        "--name-only",
-        "--relative",
-        "--pretty=format:",
-        "--",
-        ".",
-    ]
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            timeout=120,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if proc.returncode != 0:
-        return None
-    counts: dict[str, int] = {}
-    for raw in proc.stdout.splitlines():
-        path = raw.strip()
-        if path:
-            counts[path] = counts.get(path, 0) + 1
-    return counts
-
-
 def _build_hotspots(entries: list[FileEntry]) -> list[dict[str, object]]:
     """Rank files by normalised churn x complexity (score 0-100, top N only)."""
     max_churn = max((e.churn for e in entries), default=0)
@@ -444,12 +418,12 @@ def _notebook_facts(text: str) -> tuple[int, bool | None]:
     return len(cells), monotonic
 
 
-def _artefact_entry(path: Path, rel: str, cls: str, churn: int) -> dict[str, Any]:
+def _artefact_entry(path: Path, rel: str, cls: str, history: FileHistory | None) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "path": rel,
         "loc": 0,
-        "churn": churn,
-        "last_touched": None,
+        "churn": history.churn if history else 0,
+        "last_touched": history.last_touched if history else None,
         "size_bytes": path.stat().st_size,
     }
     if cls == "model_binary":  # size and LFS pointer only; never opened further
@@ -470,7 +444,7 @@ def _artefact_entry(path: Path, rel: str, cls: str, churn: int) -> dict[str, Any
 
 
 def _walk_artefacts(
-    root: Path, candidates: list[tuple[Path, str]], churn_map: dict[str, int]
+    root: Path, candidates: list[tuple[Path, str]], histories: dict[str, FileHistory]
 ) -> dict[str, list[dict[str, Any]]]:
     """Classify the files the extension map skipped (spec 4.2 artefact classes)."""
     out: dict[str, list[dict[str, Any]]] = {cls: [] for cls, _ in ARTEFACT_CLASSES}
@@ -478,8 +452,46 @@ def _walk_artefacts(
         cls = _artefact_class(path, rel)
         if cls is None:
             continue
-        out[cls].append(_artefact_entry(path, rel, cls, churn_map.get(rel, 0)))
+        out[cls].append(_artefact_entry(path, rel, cls, histories.get(rel)))
     return out
+
+
+_EMPTY_GIT_BLOCK: dict[str, Any] = {
+    "authors": [],
+    "branches": [],
+    "tags": [],
+    "commits_in_window": 0,
+    "bulk_commits_excluded": 0,
+    "mailmap_present": False,
+}
+
+
+def _apply_history(entry: FileEntry, history: FileHistory) -> None:
+    entry.churn = history.churn
+    entry.last_touched = history.last_touched
+    entry.authors = history.authors
+    entry.top_author = history.top_author
+    entry.top_author_share = history.top_author_share
+    entry.bugfix_share = history.bugfix_share
+    entry.migration_commits = history.migration_commits
+    entry.flaky_commits = history.flaky_commits
+    entry.untested_change_share = history.untested_change_share
+
+
+def _git_block(
+    root: Path, commits: list[Commit] | None, bulk_excluded: int, cfg: dict[str, Any]
+) -> dict[str, Any]:
+    if commits is None:
+        return dict(_EMPTY_GIT_BLOCK)
+    bots = [str(b) for b in cfg["bot_authors"]]
+    return {
+        "authors": repo_authors(commits, bots, int(cfg["coupling"]["bulk_threshold"])),
+        "branches": list_branches(root) or [],
+        "tags": list_tags(root) or [],
+        "commits_in_window": len(commits),
+        "bulk_commits_excluded": bulk_excluded,
+        "mailmap_present": mailmap_present(root),
+    }
 
 
 def walk_inventory(
@@ -496,10 +508,6 @@ def walk_inventory(
     cfg = config if config is not None else copy.deepcopy(DEFAULTS)
     names, globs = _ignore_sets(ignore, cfg)
     extra_classes: dict[str, list[str]] = cfg.get("path_classes") or {}
-
-    churn = _git_churn(root, churn_months)
-    git_available = churn is not None
-    churn_map = churn or {}
 
     entries: list[FileEntry] = []
     languages: set[str] = set()
@@ -524,7 +532,7 @@ def walk_inventory(
                 mtime=path.stat().st_mtime,
                 complexity=indent_total,
                 max_indent=max_indent,
-                churn=churn_map.get(rel_str, 0),
+                churn=0,
                 language=lang,
                 path_class=_classify_path(rel_str, extra_classes),
                 deep_indent_lines=deep,
@@ -532,6 +540,24 @@ def walk_inventory(
             )
         )
         languages.add(lang)
+
+    commits = git_log_pass(root, churn_months)
+    git_available = commits is not None
+    present = {e.path for e in entries} | {rel for _, rel in artefact_candidates}
+    histories, bulk_excluded = derive_file_history(
+        commits or [],
+        present,
+        is_test=lambda rel: _classify_path(rel, extra_classes) == "tests",
+        bot_authors=[str(b) for b in cfg["bot_authors"]],
+        bulk_threshold=int(cfg["coupling"]["bulk_threshold"]),
+    )
+    if git_available:
+        for entry in entries:
+            _apply_history(entry, histories[entry.path])
+    artefacts = _walk_artefacts(root, artefact_candidates, histories if git_available else {})
+    signal_sources: dict[str, str] = {}
+    if git_available:
+        signal_sources["git"] = datetime.now(UTC).isoformat(timespec="seconds")
 
     return {
         "schema_version": 2,
@@ -543,7 +569,9 @@ def walk_inventory(
         "churn_window_months": churn_months,
         "hotspots": _build_hotspots(entries),
         "files": [asdict(e) for e in entries],
-        "artefacts": _walk_artefacts(root, artefact_candidates, churn_map),
+        "artefacts": artefacts,
+        "git": _git_block(root, commits, bulk_excluded, cfg),
+        "signal_sources": signal_sources,
     }
 
 
