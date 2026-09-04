@@ -154,3 +154,42 @@ def test_cli_missing_inputs_exit_2(tmp_path: Path) -> None:
     assert _main(["--planted", str(planted_path), "--workdir", str(tmp_path)]) == 2
     write_json(tmp_path / "verified.json", {"candidates": []})
     assert _main(["--planted", str(tmp_path / "none.json"), "--workdir", str(tmp_path)]) == 2
+
+
+def test_multiple_reported_findings_on_same_planted_item(
+    planted: dict[str, Any],
+) -> None:
+    # Two reported findings both hit the same planted item: item found once, both count precision.
+    findings = [
+        _finding("error-masking", "src/pay/refund.py", 31, 34, "A", "f01"),
+        _finding("error-masking", "src/pay/refund.py", 32, 33, "B", "f02"),
+    ]
+    report = evaluate(findings, planted, set(), top=5)
+    p1 = next(item for item in report["planted"] if item["id"] == "p1")
+    assert p1["found"] is True
+    assert p1["tiers"] == ["A", "B"]
+    fam = report["families"]["error-masking"]
+    assert fam["found"] == 1  # planted item p1 found once
+    assert fam["reported"] == 2  # two findings reported
+    assert fam["precise"] == 2  # both count toward precision
+
+
+def test_finding_with_multiple_evidence_items_second_matches(
+    planted: dict[str, Any],
+) -> None:
+    # Finding with multiple evidence items: first non-matching, second matches planted item.
+    finding = {
+        "fingerprint": "f_test",
+        "family": "error-masking",
+        "tier": "A",
+        "evidence": [
+            {"file": "wrong/path.py", "line_start": 1, "line_end": 1,
+             "quote": "q", "quote_verified": True},
+            {"file": "src/pay/refund.py", "line_start": 31, "line_end": 34,
+             "quote": "q", "quote_verified": True},
+        ],
+    }
+    report = evaluate([finding], planted, set(), top=5)
+    p1 = next(item for item in report["planted"] if item["id"] == "p1")
+    assert p1["found"] is True
+    assert "A" in p1["tiers"]
