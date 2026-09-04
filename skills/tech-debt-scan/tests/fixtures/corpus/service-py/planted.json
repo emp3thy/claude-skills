@@ -15,9 +15,9 @@
     {"id": "p13", "family": "security", "type_id": "TD-03", "path": "src/pay/legacy_export.py", "lines": [13, 13], "expect_tier": "B"},
     {"id": "p14", "family": "dead-code", "type_id": "TD-09", "path": "src/pay/legacy_export.py", "lines": [1, 19], "expect_tier": "B"},
     {"id": "p15", "family": "dead-code", "type_id": "TD-30", "path": "src/pay/legacy_export.py", "lines": [17, 19], "expect_tier": "B"},
-    {"id": "p16", "family": "security", "type_id": "TD-03", "path": "src/pay/utils.py", "lines": [11, 11], "expect_tier": "B"},
-    {"id": "p17", "family": "test-quality", "type_id": "TD-12", "path": "tests/test_ledger.py", "lines": [13, 13], "expect_tier": "B"},
-    {"id": "p18", "family": "test-quality", "type_id": "TD-18", "path": "tests/test_ledger.py", "lines": [17, 18], "expect_tier": "B"},
+    {"id": "p16", "family": "security", "type_id": "TD-03", "path": "src/pay/utils.py", "lines": [12, 12], "expect_tier": "B"},
+    {"id": "p17", "family": "test-quality", "type_id": "TD-12", "path": "tests/test_ledger.py", "lines": [14, 14], "expect_tier": "B"},
+    {"id": "p18", "family": "test-quality", "type_id": "TD-18", "path": "tests/test_ledger.py", "lines": [18, 19], "expect_tier": "B"},
     {"id": "p19", "family": "pipeline-infra", "type_id": "TD-27", "path": null, "lines": [0, 0], "expect_tier": "A"},
     {"id": "p20", "family": "doc-drift", "type_id": "TD-08", "path": "README.md", "lines": [10, 10], "expect_tier": "B"}
   ],
