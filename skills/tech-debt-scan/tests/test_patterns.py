@@ -1,14 +1,15 @@
 """patterns.py: regex leads, SATD table, redaction, inline disables (spec 4.3)."""
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 from config import DEFAULTS
-from inventory import build_all
-from patterns import RULES, Lead, capped_leads, run_patterns
+from inventory import build_all, write_json
+from patterns import RULES, Lead, capped_leads, redact, run_patterns
 
 SCRIPTS = Path(__file__).parent.parent / "scripts"
 
@@ -302,3 +303,269 @@ def test_flag_sdk_two_languages(
     assert ("src/checkout/checkout.ts", 7) in ts
     go = _leads(_run(mixed, blame=False), "dead-code", "flag-sdk")
     assert ("cmd/app/main.go", 22) in go
+
+
+# --- C: stubs, security, test-quality, no-timeout, stdout, lint, CLI, grep -------
+
+LANGUAGE_BRANCH_RE = re.compile(
+    r"^\s*(?:if|elif)\b.*(?:\b(?:language|lang)\b\s*(?:==|!=|\bin\b)"
+    r"|[\"'](?:python|typescript|javascript|go|csharp|java|rust|ruby|php|kotlin|swift|cpp|c"
+    r"|markdown)[\"'])"
+)
+
+
+def test_rule_table_covers_every_group() -> None:
+    names = {r.rule for r in RULES}
+    assert names >= {
+        "satd-marker", "stub", "skip-marker", "no-timeout", "swallowed-catch",
+        "assertions-disabled", "commented-out-code", "legacy-name", "deprecation", "flag-sdk",
+        "credential", "string-sql", "dynamic-eval", "tls-disabled", "weak-hash",
+        "permissive-cors", "security-suppression", "sleep", "retry-marker", "wall-clock",
+        "unseeded-random", "try-in-test", "conditional-in-test", "numeric-assert",
+        "assert-free", "stdout-write", "inline-disable",
+    }
+    assert len(RULES) >= 27
+
+
+def test_stub_and_skip_leads_in_two_languages(
+    service_py: tuple[Path, dict[str, Any]],
+    web_ts: tuple[Path, dict[str, Any]],
+    mixed: tuple[Path, dict[str, Any]],
+) -> None:
+    py = _run(service_py, blame=False)
+    assert ("tests/test_refund.py", 21) in _leads(py, "half-finished", "stub")
+    assert ("tests/test_refund.py", 19) in _leads(py, "half-finished", "skip-marker")
+    go = _run(mixed, blame=False)
+    assert ("internal/dispatch/dispatch.go", 31) in _leads(go, "half-finished", "stub")
+    ts = _run(web_ts, blame=False)
+    assert ("src/__tests__/pricing.spec.ts", 7) in _leads(ts, "half-finished", "skip-marker")
+
+
+def test_credential_detected_and_redacted_in_two_languages(
+    service_py: tuple[Path, dict[str, Any]], mixed: tuple[Path, dict[str, Any]]
+) -> None:
+    py = _leads(_run(service_py, blame=False), "security", "credential")
+    lead = py[("src/pay/gateway.py", 11)]
+    assert "sk_l***" in lead["quote"]
+    assert "sk_live_51H8" not in lead["quote"]
+    assert lead["extra"] == {"redacted": True}
+    go = _leads(_run(mixed, blame=False), "security", "credential")
+    assert "tok_***" in go[("internal/httpc/httpc.go", 9)]["quote"]
+    assert redact('api_key = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"') == 'api_key = "sk_l***"'
+
+
+def test_credential_exclusions(service_py: tuple[Path, dict[str, Any]], tmp_path: Path) -> None:
+    py = _leads(_run(service_py, blame=False), "security", "credential")
+    assert not any(path == "tests/fixtures/seed.py" for path, _ in py)
+    repo = _synthetic(
+        tmp_path,
+        {
+            "app.yml": (
+                'password: "${DB_PASSWORD}"\n'
+                'token: "{{ secrets.token }}"\n'
+                'secret: "changeme-please-now"\n'
+                'api_key: "<your-key-here>"\n'
+                'password: "example_password_1"\n'
+                'admin_password: "hunter2hunter2hunter2"\n'
+                'short: "abc"\n'
+            ),
+            "src/x.py": "x = 1\n",
+        },
+    )
+    leads = _leads(_run(repo, blame=False), "security", "credential")
+    assert list(leads) == [("app.yml", 6)]
+    assert leads[("app.yml", 6)]["quote"] == 'admin_password: "hunt***"'
+
+
+def test_string_sql_two_languages_and_decoy(
+    service_py: tuple[Path, dict[str, Any]], mixed: tuple[Path, dict[str, Any]], tmp_path: Path
+) -> None:
+    py = _leads(_run(service_py, blame=False), "security", "string-sql")
+    assert ("src/pay/legacy_export.py", 11) in py
+    go = _leads(_run(mixed, blame=False), "security", "string-sql")
+    assert ("internal/store/store.go", 38) in go
+    repo = _synthetic(
+        tmp_path,
+        {
+            "db.py": (
+                'cur.execute("SELECT 1 WHERE id = ?", (rid,))\n'
+                'cur.execute("SELECT 1 WHERE id = %s", (rid,))\n'
+            )
+        },
+    )
+    assert _leads(_run(repo, blame=False), "security", "string-sql") == {}
+
+
+def test_eval_tls_hash_cors_and_suppression_in_two_languages(
+    service_py: tuple[Path, dict[str, Any]], mixed: tuple[Path, dict[str, Any]], tmp_path: Path
+) -> None:
+    py = _run(service_py, blame=False)
+    go = _run(mixed, blame=False)
+    assert ("src/pay/legacy_export.py", 13) in _leads(py, "security", "dynamic-eval")
+    assert ("internal/shell/run.go", 7) in _leads(go, "security", "dynamic-eval")
+    assert ("src/pay/gateway.py", 24) in _leads(py, "security", "tls-disabled")
+    assert ("internal/httpc/httpc.go", 13) in _leads(go, "security", "tls-disabled")
+    assert ("src/pay/utils.py", 12) in _leads(py, "security", "weak-hash")
+    assert ("internal/crypto/hash.go", 9) in _leads(go, "security", "weak-hash")
+    assert ("src/pay/gateway.py", 12) in _leads(py, "security", "permissive-cors")
+    assert ("src/pay/legacy_export.py", 11) in _leads(py, "security", "security-suppression")
+    assert ("internal/shell/run.go", 7) in _leads(go, "security", "security-suppression")
+    repo = _synthetic(
+        tmp_path,
+        {
+            "srv.go": (
+                "package srv\n\nfunc h(w http.ResponseWriter) {\n"
+                '\tw.Header().Set("Access-Control-Allow-Origin", "*")\n}\n'
+            )
+        },
+    )
+    assert ("srv.go", 4) in _leads(_run(repo, blame=False), "security", "permissive-cors")
+
+
+def test_test_quality_signals_in_two_languages(
+    service_py: tuple[Path, dict[str, Any]], mixed: tuple[Path, dict[str, Any]], tmp_path: Path
+) -> None:
+    py = _run(service_py, blame=False)
+    go = _run(mixed, blame=False)
+    assert ("tests/test_ledger.py", 14) in _leads(py, "test-quality", "sleep")
+    assert ("internal/store/store_test.go", 15) in _leads(go, "test-quality", "sleep")
+    py_free = _leads(py, "test-quality", "assert-free")
+    go_free = _leads(go, "test-quality", "assert-free")
+    assert py_free[("tests/test_ledger.py", 18)]["extra"] == {"test": "test_reverse_smoke"}
+    assert go_free[("internal/store/store_test.go", 14)]["extra"] == {"test": "TestLoadSmoke"}
+    assert ("tests/test_ledger.py", 11) not in py_free
+    assert ("internal/store/store_test.go", 8) not in go_free
+    assert ("tests/test_ledger.py", 15) in _leads(py, "test-quality", "numeric-assert")
+    assert not any(p.startswith("src/") for p, _ in _leads(py, "test-quality", "sleep"))
+    repo = _synthetic(
+        tmp_path,
+        {
+            "tests/test_time.py": (
+                "import random\nimport pytest\nfrom datetime import datetime\n\n"
+                "@pytest.mark.flaky(reruns=3)\n"
+                "def test_clock():\n"
+                "    stamp = datetime.now()\n"
+                "    pick = random.choice([1, 2])\n"
+                "    try:\n"
+                "        run(stamp, pick)\n"
+                "    except ValueError:\n"
+                "        pass\n"
+                "    if pick == 1:\n"
+                "        assert stamp\n"
+            ),
+            "src/__tests__/clock.test.ts": (
+                "jest.retryTimes(3);\n"
+                'test("clock", () => {\n'
+                "  const stamp = Date.now();\n"
+                "  const pick = Math.random();\n"
+                "  try {\n"
+                "    run(stamp, pick);\n"
+                "  } catch (e) {}\n"
+                "  if (pick > 0.5) {\n"
+                "    expect(stamp).toBeGreaterThan(1700000000000);\n"
+                "  }\n"
+                "});\n"
+            ),
+        },
+    )
+    doc = _run(repo, blame=False)
+    ts = "src/__tests__/clock.test.ts"
+    expected = {
+        "retry-marker": {("tests/test_time.py", 5), (ts, 1)},
+        "wall-clock": {("tests/test_time.py", 7), (ts, 3)},
+        "unseeded-random": {("tests/test_time.py", 8), (ts, 4)},
+        "try-in-test": {("tests/test_time.py", 9), (ts, 5), (ts, 7)},
+        "conditional-in-test": {("tests/test_time.py", 13), (ts, 8)},
+        "numeric-assert": {(ts, 9)},
+        "assert-free": set(),
+    }
+    for rule, hits in expected.items():
+        assert set(_leads(doc, "test-quality", rule)) == hits, rule
+    assert doc["leads"]["error-masking"] == []  # the catch in a test is not the catch rule's job
+
+
+def test_no_timeout_in_three_languages_with_decoys(
+    service_py: tuple[Path, dict[str, Any]],
+    web_ts: tuple[Path, dict[str, Any]],
+    mixed: tuple[Path, dict[str, Any]],
+) -> None:
+    py = _leads(_run(service_py, blame=False), "half-finished", "no-timeout")
+    assert py[("src/pay/gateway.py", 20)]["extra"] == {"client": "requests/httpx"}
+    assert ("src/pay/legacy_export.py", 18) not in py  # commented-out fetch( is skipped
+    ts = _leads(_run(web_ts, blame=False), "half-finished", "no-timeout")
+    assert ts[("src/api/client.ts", 9)]["extra"] == {"client": "fetch"}
+    assert not any(path == "src/api/client-admin.ts" for path, _ in ts)
+    go = _leads(_run(mixed, blame=False), "half-finished", "no-timeout")
+    assert go[("internal/httpc/httpc.go", 14)]["extra"] == {"client": "net/http"}
+    assert not any(path == "internal/httpc/httpc_safe.go" for path, _ in go)
+
+
+def test_stdout_writes_need_a_logger_and_skip_cli(
+    service_py: tuple[Path, dict[str, Any]],
+    web_ts: tuple[Path, dict[str, Any]],
+    mixed: tuple[Path, dict[str, Any]],
+    tmp_path: Path,
+) -> None:
+    py = _leads(_run(service_py, blame=False), "pipeline-infra", "stdout-write")
+    assert py[("src/pay/refund.py", 41)]["extra"] == {"count": 1}
+    go = _leads(_run(mixed, blame=False), "pipeline-infra", "stdout-write")
+    assert ("internal/store/store.go", 32) in go
+    assert not any(path == "cmd/app/main.go" for path, _ in go)
+    assert _run(web_ts, blame=False)["leads"]["pipeline-infra"] == []  # no logger library
+    repo = _synthetic(
+        tmp_path,
+        {
+            "cmd/tool/main.go": (
+                'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println("x") }\n'
+            ),
+            "internal/work.go": 'package work\n\nimport "log"\n\nfunc W() { fmt.Println("y") }\n',
+            "server.py": 'import logging\n\ndef serve():\n    print("up")\n    print("ready")\n',
+        },
+    )
+    leads = _leads(_run(repo, blame=False), "pipeline-infra", "stdout-write")
+    assert set(leads) == {("internal/work.go", 5), ("server.py", 4)}
+    assert leads[("server.py", 4)]["extra"] == {"count": 2}
+
+
+def test_inline_disables_counted_and_written_back(
+    service_py: tuple[Path, dict[str, Any]], mixed: tuple[Path, dict[str, Any]], tmp_path: Path
+) -> None:
+    from patterns import _main
+
+    _, inline = run_patterns(service_py[0], service_py[1], DEFAULTS, blame=False)
+    assert inline["src/pay/legacy_export.py"] == 2
+    assert inline["src/pay/refund.py"] == 0
+    assert "tests/test_refund.py" not in inline  # source files only
+    _, inline_go = run_patterns(mixed[0], mixed[1], DEFAULTS, blame=False)
+    assert inline_go["internal/shell/run.go"] == 1
+    workdir = tmp_path / "wd"
+    write_json(workdir / "inventory.json", service_py[1])
+    assert _main([str(service_py[0]), "--workdir", str(workdir), "--no-blame"]) == 0
+    inventory = json.loads((workdir / "inventory.json").read_bytes())
+    counts = {e["path"]: e["inline_disables"] for e in inventory["files"]}
+    assert counts["src/pay/legacy_export.py"] == 2
+    assert counts["tests/test_refund.py"] == 0
+    raw = (workdir / "patterns.json").read_bytes()
+    assert b"\r\n" not in raw
+    patterns = json.loads(raw)
+    assert patterns["schema_version"] == 2
+    assert all(s["age_days"] is None for s in patterns["satd"])
+    assert "sk_live_51H8" not in raw.decode("utf-8")
+
+
+def test_cli_missing_inventory_exits_2(tmp_path: Path) -> None:
+    from patterns import _main
+
+    assert _main([str(tmp_path), "--workdir", str(tmp_path / "none")]) == 2
+
+
+def test_no_script_branches_on_a_language_name() -> None:
+    allowed = {"tools_probe.py"}  # the spec's tool normalisers are the one exception (0(d))
+    offenders: list[str] = []
+    for script in sorted(SCRIPTS.glob("*.py")):
+        if script.name in allowed:
+            continue
+        for lineno, line in enumerate(script.read_text(encoding="utf-8").splitlines(), start=1):
+            if LANGUAGE_BRANCH_RE.search(line):
+                offenders.append(f"{script.name}:{lineno}: {line.strip()}")
+    assert offenders == []

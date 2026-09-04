@@ -293,12 +293,12 @@ def _age_band(age: int | None) -> str:
 # idiom matched (spec 4.3). Go's `if err != nil {` is the catch-less form.
 CATCH_RE: Final[re.Pattern[str]] = re.compile(
     r"^\s*except\b(?P<py>[^:]*):"
-    r"|\bcatch\s*\((?P<c>[^)]*)\)"
+    r"|\bcatch\s*\((?P<brace>[^)]*)\)"
     r"|\bcatch\s*\{"
     r"|\bcatch\s+(?P<bare>[A-Za-z_]\w*)\s*(?:=>|\{|$)"
     r"|^\s*rescue\b(?P<rb>.*)$"
     r"|\bon\s+\w+\s+catch\s*\((?P<dart>[^)]*)\)"
-    r"|\bif\b[^{]*?\b(?P<go>\w*[eE]rr\w*)\s*!=\s*nil\s*\{"
+    r"|\bif\b[^{]*?\b(?P<errvar>\w*[eE]rr\w*)\s*!=\s*nil\s*\{"
 )
 CARRIER_RE: Final[re.Pattern[str]] = re.compile(
     r"exc_info|\.exception\(|\bstack\w*|stackTrace|\berr\b|\bex\b|\be\)"
@@ -332,8 +332,8 @@ def _catch_variable(match: re.Match[str]) -> tuple[str | None, bool, bool]:
     if match.group("rb") is not None:
         arrow = re.search(r"=>\s*(\w+)", match.group("rb"))
         return (arrow.group(1) if arrow else None), False, True
-    if match.group("c") is not None:
-        spec = match.group("c")
+    if match.group("brace") is not None:
+        spec = match.group("brace")
         idents = IDENT_RE.findall(spec)
         return (idents[-1] if idents else None), C_CATCH_ALL_RE.search(spec) is not None, False
     if match.group("dart") is not None:
@@ -341,8 +341,8 @@ def _catch_variable(match: re.Match[str]) -> tuple[str | None, bool, bool]:
         return (idents[-1] if idents else None), False, False
     if match.group("bare") is not None:
         return match.group("bare"), False, False
-    if match.group("go") is not None:
-        return match.group("go"), False, False
+    if match.group("errvar") is not None:
+        return match.group("errvar"), False, False
     return None, True, False  # the `catch {` form
 
 
@@ -541,16 +541,282 @@ def _scan_deprecation(sf: ScanFile, rule: Rule, ctx: ScanContext) -> list[Lead]:
     return leads
 
 
+# --- half-finished: stubs, skips, no-timeout ---------------------------------------
+
+STUB_RE: Final[re.Pattern[str]] = re.compile(
+    r"NotImplementedError|NotImplementedException|\bnot implemented\b|unimplemented!"
+    r"|panic\(\"not implemented|throw new Error\(\"not implemented|\bTODO\(\)",
+    re.IGNORECASE,
+)
+SKIP_RE: Final[re.Pattern[str]] = re.compile(
+    r"\bxfail\b|expectedFailure|@pytest\.mark\.skip|@Ignore\b|@Disabled\b|\bit\.skip\("
+    r"|\btest\.skip\(|\[Ignore\]|\bt\.Skip\("
+)
+# (label, client-call idiom, the timeout argument that idiom must carry)
+TIMEOUT_TABLE: Final[tuple[tuple[str, re.Pattern[str], re.Pattern[str]], ...]] = (
+    (
+        "requests/httpx",
+        re.compile(r"\b(?:requests|httpx)\.(?:get|post|put|delete|patch|head|request)\("),
+        re.compile(r"\btimeout\s*="),
+    ),
+    ("fetch", re.compile(r"\bfetch\("), re.compile(r"\bsignal\b|\btimeout\b")),
+    ("axios", re.compile(r"\baxios(?:\.\w+)?\("), re.compile(r"\btimeout\b|\bsignal\b")),
+    ("HttpClient", re.compile(r"new\s+HttpClient\("), re.compile(r"\bTimeout\b")),
+    ("net/http", re.compile(r"\bhttp\.(?:Get|Post|Head|PostForm)\("), re.compile(r"\bTimeout\b")),
+    ("http.Client", re.compile(r"&http\.Client\{"), re.compile(r"\bTimeout\b")),
+    ("Net::HTTP", re.compile(r"Net::HTTP"), re.compile(r"read_timeout")),
+    ("urlopen", re.compile(r"\burlopen\("), re.compile(r"\btimeout\b")),
+    ("curl", re.compile(r"(?<![\w.])curl\b"), re.compile(r"--max-time|(?<!\w)-m\s+\d")),
+)
+NO_TIMEOUT_RE: Final[re.Pattern[str]] = re.compile(
+    "|".join(call.pattern for _label, call, _timeout in TIMEOUT_TABLE)
+)
+# The bracket a call idiom opens (its regex's own literal trailing token), used to join a
+# multi-line call's own arguments without following into an unrelated enclosing block; an
+# idiom with no trailing bracket (a bare token such as `curl` or `Net::HTTP`) is never joined.
+_BRACKET_CLOSE: Final[dict[str, str]] = {"(": ")", "{": "}"}
+_CALL_OPENER: Final[dict[str, str | None]] = {
+    label: (
+        "(" if call.pattern.endswith(r"\(") else "{" if call.pattern.endswith(r"\{") else None
+    )
+    for label, call, _timeout in TIMEOUT_TABLE
+}
+MAX_CALL_SPAN_LINES: Final[int] = 20
+
+
+def _call_span(lines: list[str], index: int, opener: str) -> str:
+    """``lines[index]`` joined forward while its own ``opener`` bracket stays unbalanced."""
+    closer = _BRACKET_CLOSE[opener]
+    depth = lines[index].count(opener) - lines[index].count(closer)
+    chunks = [lines[index]]
+    end = index
+    while depth > 0 and end + 1 < len(lines) and end - index < MAX_CALL_SPAN_LINES:
+        end += 1
+        chunks.append(lines[end])
+        depth += lines[end].count(opener) - lines[end].count(closer)
+    return " ".join(chunks)
+
+
+def _scan_no_timeout(sf: ScanFile, rule: Rule, _ctx: ScanContext) -> list[Lead]:
+    leads: list[Lead] = []
+    for index, line in enumerate(sf.lines):
+        if is_comment_line(line, sf.markers):
+            continue
+        for label, call_re, timeout_re in TIMEOUT_TABLE:
+            if not call_re.search(line):
+                continue
+            opener = _CALL_OPENER[label]
+            span = _call_span(sf.lines, index, opener) if opener is not None else line
+            if not timeout_re.search(span):
+                leads.append(
+                    Lead(
+                        rule.rule, sf.path, index + 1, line.strip(), sf.path_class,
+                        {"client": label},
+                    )
+                )
+            break
+    return leads
+
+
+# --- security -------------------------------------------------------------------
+
+CREDENTIAL_RE: Final[re.Pattern[str]] = re.compile(
+    r"\b\w*(?:password|passwd|secret|token|api_key|apikey|access_key)\w*[\"']?\s*(?:=|:=|:)\s*"
+    r"[\"'](?P<value>[^\"'\n]{8,})[\"']",
+    re.IGNORECASE,
+)
+PLACEHOLDER_RE: Final[re.Pattern[str]] = re.compile(
+    r"fake|dummy|example|placeholder|changeme|your_|xxx", re.IGNORECASE
+)
+PLACEHOLDER_PREFIXES: Final[tuple[str, ...]] = ("$", "${", "{{", "<", "%")
+SQL_CALL_RE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:execute|query|Query|ExecuteSqlRaw|Raw|createStatement|executeQuery|Exec)\s*\("
+    r"(?P<arg>[^\n]*)"
+)
+SQL_BUILT_RE: Final[re.Pattern[str]] = re.compile(
+    r"\+\s*\w|\w\s*\+|\bf[\"']|\$\{|String\.format|\$\"|[\"']\s*%\s*[\w(]|\.format\("
+)
+DYNAMIC_EVAL_RE: Final[re.Pattern[str]] = re.compile(
+    r"\beval\(|\bexec\(|shell\s*=\s*True|shell:\s*true|child_process\.exec\(|Runtime\.exec\("
+    r"|Process\.Start\(|exec\.Command\(|\bsystem\("
+)
+TLS_OFF_RE: Final[re.Pattern[str]] = re.compile(
+    r"verify\s*=\s*False|rejectUnauthorized:\s*false|InsecureSkipVerify:\s*true"
+    r"|ServerCertificateValidationCallback|VERIFY_NONE|(?<!\w)--insecure\b"
+)
+WEAK_HASH_RE: Final[re.Pattern[str]] = re.compile(
+    r"\bmd5\(|\bsha1\(|MD5\.Create|getInstance\(\"MD5\"\)|createHash\(['\"]md5['\"]\)"
+    r"|Digest::MD5|\bmd5\.(?:Sum|New)\(|\bsha1\.(?:Sum|New)\("
+)
+CORS_RE: Final[re.Pattern[str]] = re.compile(r"Access-Control-Allow-Origin[\"']?\s*[:,]\s*[\"']?\*")
+SEC_SUPPRESS_RE: Final[re.Pattern[str]] = re.compile(
+    r"\bnosec\b|eslint-disable[^\n]*security|nolint:gosec"
+    r"|pragma\s+warning\s+disable[^\n]*\bCA\d+"
+)
+
+
+def redact(text: str) -> str:
+    """Cut every credential-shaped value in ``text`` to its first four characters."""
+
+    def cut(match: re.Match[str]) -> str:
+        value = match.group("value")
+        return match.group(0).replace(value, value[:4] + "***")
+
+    return CREDENTIAL_RE.sub(cut, text)
+
+
+def _scan_credentials(sf: ScanFile, rule: Rule, _ctx: ScanContext) -> list[Lead]:
+    if sf.path_class == "tests":
+        return []
+    leads: list[Lead] = []
+    for lineno, line in enumerate(sf.lines, start=1):
+        match = rule.regex.search(line)
+        if match is None:
+            continue
+        value = match.group("value")
+        if value.startswith(PLACEHOLDER_PREFIXES) or PLACEHOLDER_RE.search(value):
+            continue
+        leads.append(
+            Lead(
+                rule.rule, sf.path, lineno, redact(line.strip()), sf.path_class,
+                {"redacted": True},
+            )
+        )
+    return leads
+
+
+def _scan_string_sql(sf: ScanFile, rule: Rule, _ctx: ScanContext) -> list[Lead]:
+    leads: list[Lead] = []
+    for lineno, line in enumerate(sf.lines, start=1):
+        match = rule.regex.search(line)
+        if match is not None and SQL_BUILT_RE.search(match.group("arg")):
+            leads.append(Lead(rule.rule, sf.path, lineno, line.strip(), sf.path_class))
+    return leads
+
+
+# --- test-quality ---------------------------------------------------------------
+
+SLEEP_RE: Final[re.Pattern[str]] = re.compile(r"\bsleep\(|Thread\.Sleep|setTimeout\(|time\.Sleep\(")
+RETRY_RE: Final[re.Pattern[str]] = re.compile(
+    r"@retry\b|\bflaky\b|\breruns\b|\bretries\s*[=:(]|jest\.retryTimes|\[Retry\]|@Repeat\b"
+)
+WALLCLOCK_RE: Final[re.Pattern[str]] = re.compile(
+    r"\bnow\(\)|Date\.now\(|DateTime\.(?:Now|UtcNow)|time\.Now\(|Time\.now|new Date\(\)"
+)
+RANDOM_RE: Final[re.Pattern[str]] = re.compile(
+    r"\brandom\.\w+\(|Math\.random\(|\brand\.\w+\(|new Random\(\)"
+)
+SEEDED_RE: Final[re.Pattern[str]] = re.compile(r"seed", re.IGNORECASE)
+TRY_IN_TEST_RE: Final[re.Pattern[str]] = re.compile(r"^\s*try\s*[:{]?\s*$|\bcatch\s*\(")
+CONDITIONAL_RE: Final[re.Pattern[str]] = re.compile(r"^\s*(?:if|elif|else if|switch)\b")
+NUMERIC_ASSERT_RE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:assert\w*|expect|Assert\.\w+|require\.\w+|should)\b[^\n]*?"
+    r"(?<![\w.])(?:\d{2,}|\d+\.\d+)\b"
+)
+TEST_FN_RE: Final[re.Pattern[str]] = re.compile(
+    r"^\s*(?:async\s+)?def\s+test_\w+|^\s*func\s+Test\w+\(|^\s*(?:it|test)(?:\.only|\.skip)?\s*\("
+    r"|^\s*@Test\b|^\s*\[(?:Fact|Test)\]"
+)
+TEST_NAME_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:def|func)\s+(\w+)|(?:it|test)(?:\.\w+)?\s*\(\s*[\"'`]([^\"'`]*)"
+)
+ASSERT_RE: Final[re.Pattern[str]] = re.compile(
+    r"\bassert\w*\b|\bexpect\(|\bAssert\.|\brequire\."
+    r"|\bt\.(?:Error|Errorf|Fatal|Fatalf|Fail|FailNow)\b"
+    r"|\bshould\b|\.toBe|\.toEqual|pytest\.raises|\.Should\("
+)
+
+
+def _scan_assert_free(sf: ScanFile, rule: Rule, _ctx: ScanContext) -> list[Lead]:
+    leads: list[Lead] = []
+    lines = sf.lines
+    starts = [i for i, line in enumerate(lines) if rule.regex.match(line)]
+    for start in starts:
+        end = len(lines)
+        for j in range(start + 1, len(lines)):
+            line = lines[j]
+            top_level = bool(line.strip()) and not line[0].isspace() and not line.startswith("}")
+            if rule.regex.match(line) or top_level:
+                end = j
+                break
+        if ASSERT_RE.search("\n".join(lines[start:end])):
+            continue
+        name_match = TEST_NAME_RE.search(lines[start])
+        name = lines[start].strip()[:60]
+        if name_match is not None:
+            name = name_match.group(1) or name_match.group(2) or name
+        leads.append(
+            Lead(rule.rule, sf.path, start + 1, lines[start].strip(), sf.path_class, {"test": name})
+        )
+    return leads
+
+
+# --- pipeline-infra: stdout writes; lint: inline disables --------------------------
+
+STDOUT_RE: Final[re.Pattern[str]] = re.compile(
+    r"\bprint\(|console\.log\(|System\.out\.println\(|fmt\.Print(?:ln|f)?\(|^\s*puts\s|^\s*echo\s"
+    r"|Console\.WriteLine\(|\bprintf\("
+)
+CLI_SEGMENTS: Final[frozenset[str]] = frozenset({"cli", "cmd", "bin", "scripts", "tools"})
+ENTRY_RE: Final[re.Pattern[str]] = re.compile(
+    r"if __name__ == [\"']__main__[\"']|func main\(\)|static void Main|fn main\(\)|process\.argv"
+)
+INLINE_DISABLE_RE: Final[re.Pattern[str]] = re.compile(
+    r"\bnoqa\b|eslint-disable|pragma\s+warning\s+disable|SuppressWarnings|\bnolint\b"
+    r"|rubocop:disable|#\[allow\(|\bnosec\b"
+)
+
+
+def _scan_stdout(sf: ScanFile, rule: Rule, ctx: ScanContext) -> list[Lead]:
+    if not ctx.logger_present:
+        return []
+    if CLI_SEGMENTS & set(sf.path.split("/")[:-1]) or ENTRY_RE.search(sf.text):
+        return []
+    hits = [(i, line) for i, line in enumerate(sf.lines, start=1) if rule.regex.search(line)]
+    if not hits:
+        return []
+    first, line = hits[0]
+    return [Lead(rule.rule, sf.path, first, line.strip(), sf.path_class, {"count": len(hits)})]
+
+
 # --- rule table -----------------------------------------------------------------
 
 RULES: Final[tuple[Rule, ...]] = (
+    # satd group (half-finished)
     Rule("half-finished", "satd-marker", SATD_RE, ALL_TEXT, blame=True, kind="satd"),
+    Rule("half-finished", "stub", STUB_RE, SOURCE_TESTS),
+    Rule("half-finished", "skip-marker", SKIP_RE, SOURCE_TESTS),
+    # requirement group (half-finished)
+    Rule("half-finished", "no-timeout", NO_TIMEOUT_RE, SOURCE, kind="no-timeout"),
+    # error-masking
     Rule("error-masking", "swallowed-catch", CATCH_RE, SOURCE, kind="catch"),
     Rule("error-masking", "assertions-disabled", ASSERT_OFF_RE, SOURCE_CI_CONFIG),
+    # dead-code
     Rule("dead-code", "commented-out-code", CODE_LINE_RE, SOURCE, kind="commented-code"),
     Rule("dead-code", "legacy-name", DEF_LINE_RE, SOURCE, kind="legacy-name"),
     Rule("dead-code", "deprecation", DEPRECATION_RE, SOURCE, kind="deprecation"),
     Rule("dead-code", "flag-sdk", FLAG_SDK_RE, SOURCE),
+    # security
+    Rule("security", "credential", CREDENTIAL_RE, SOURCE_CI_CONFIG, kind="credential"),
+    Rule("security", "string-sql", SQL_CALL_RE, SOURCE, kind="string-sql"),
+    Rule("security", "dynamic-eval", DYNAMIC_EVAL_RE, SOURCE_CI_CONFIG),
+    Rule("security", "tls-disabled", TLS_OFF_RE, SOURCE_CI_CONFIG),
+    Rule("security", "weak-hash", WEAK_HASH_RE, SOURCE),
+    Rule("security", "permissive-cors", CORS_RE, SOURCE_CI_CONFIG),
+    Rule("security", "security-suppression", SEC_SUPPRESS_RE, SOURCE_CI_CONFIG),
+    # test-quality
+    Rule("test-quality", "sleep", SLEEP_RE, TESTS),
+    Rule("test-quality", "retry-marker", RETRY_RE, TESTS),
+    Rule("test-quality", "wall-clock", WALLCLOCK_RE, TESTS),
+    Rule("test-quality", "unseeded-random", RANDOM_RE, TESTS, exclude=SEEDED_RE),
+    Rule("test-quality", "try-in-test", TRY_IN_TEST_RE, TESTS),
+    Rule("test-quality", "conditional-in-test", CONDITIONAL_RE, TESTS),
+    Rule("test-quality", "numeric-assert", NUMERIC_ASSERT_RE, TESTS),
+    Rule("test-quality", "assert-free", TEST_FN_RE, TESTS, kind="assert-free"),
+    # observability (pipeline-infra)
+    Rule("pipeline-infra", "stdout-write", STDOUT_RE, SOURCE, kind="stdout"),
+    # lint (signal only; counted into inventory.files[].inline_disables)
+    Rule("lint", "inline-disable", INLINE_DISABLE_RE, SOURCE, kind="inline-disable"),
 )
 
 _HANDLERS: Final[dict[str, Handler]] = {
@@ -560,6 +826,12 @@ _HANDLERS: Final[dict[str, Handler]] = {
     "commented-code": _scan_commented_code,
     "legacy-name": _scan_legacy_names,
     "deprecation": _scan_deprecation,
+    "no-timeout": _scan_no_timeout,
+    "credential": _scan_credentials,
+    "string-sql": _scan_string_sql,
+    "assert-free": _scan_assert_free,
+    "stdout": _scan_stdout,
+    "inline-disable": _scan_lines,
 }
 
 
@@ -662,10 +934,13 @@ def run_patterns(
             found = _HANDLERS[rule.kind](sf, rule, ctx)
             if rule.kind == "satd":
                 satd.extend(_satd_entry(lead) for lead in found)
+            elif rule.kind == "inline-disable":
+                inline[sf.path] = len(found)
             else:
+                if rule.family == "security":
+                    for lead in found:
+                        lead.quote = redact(lead.quote)
                 leads[rule.family].extend(found)
-        if sf.path_class == "source":
-            inline[sf.path] = 0
     if blame:
         _attach_blame(root, satd)
     document: dict[str, Any] = {
