@@ -1,3 +1,8 @@
 # Golden fixtures are byte-compared in tests; pin them to LF so the
 # renderer's LF-only output matches on checkout regardless of core.autocrlf.
 skills/tech-debt-scan/tests/golden/** text eol=lf
+
+# Corpus fixtures are replayed into git and byte-compared against files/ in
+# tests/test_corpus.py; pin them to LF (the Go fixtures also rely on real
+# tabs, which eol=lf does not disturb) regardless of core.autocrlf.
+skills/tech-debt-scan/tests/fixtures/corpus/** text eol=lf
