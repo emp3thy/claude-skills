@@ -721,3 +721,191 @@ def test_logical_lines_and_import_lines_unit() -> None:
     ts = 'const m = await import("./lazy");\nconst r = require("./req");\nlet x = 1;\n'
     assert len(import_lines(ts)) == 2
     assert import_lines("x = 1\ny = 2\n") == []
+
+
+# --- Task 9: band, score, blame, mapping, docs, tests block, CLI -------------------
+
+
+def test_hotspot_score_band_and_blame_on_service_py(service_py_repo: Path) -> None:
+    result = walk_inventory(service_py_repo, churn_months=240)
+    files = {e["path"]: e for e in result["files"]}
+    assert result["hotspots"][0]["path"] == "src/pay/refund.py"
+    assert set(result["hotspots"][0]) == {"path", "churn", "complexity", "loc", "score"}
+    assert files["src/pay/refund.py"]["hotspot_score"] == result["hotspots"][0]["score"]
+    assert files["src/pay/refund.py"]["hotspot_score"] == 100.0
+    assert files["setup.py"]["hotspot_score"] == 0.0
+    band = result["hotspot_band"]
+    assert band[0] == "src/pay/refund.py"
+    assert "src/pay/ledger.py" in band
+    assert len(band) == 5  # 8 source files: ceil(0.8) = 1, floored to min 5
+    assert all(files[p]["path_class"] == "source" for p in band)
+    assert "setup.py" not in band  # score 0 never enters the band
+    assert files["src/pay/refund.py"]["top_author_line_share"] == 1.0
+    ledger_share = files["src/pay/ledger.py"]["top_author_line_share"]
+    assert ledger_share is not None and ledger_share < 1.0
+    assert files["tests/test_refund.py"]["top_author_line_share"] is None
+
+
+def test_hotspot_band_bounds() -> None:
+    from inventory import FileEntry, _hotspot_band
+
+    def entries(count: int) -> list[FileEntry]:
+        out: list[FileEntry] = []
+        for index in range(count):
+            entry = FileEntry(f"f{index}.py", ".py", 1, 0.0, 1, 1, 1, language="python")
+            entry.hotspot_score = float(count - index)
+            out.append(entry)
+        return out
+
+    band_cfg = {"fraction": 0.10, "min": 5, "max": 50}
+    assert len(_hotspot_band(entries(600), band_cfg)) == 50
+    assert len(_hotspot_band(entries(200), band_cfg)) == 20
+    assert len(_hotspot_band(entries(30), band_cfg)) == 5
+    assert _hotspot_band(entries(3), band_cfg) == ["f0.py", "f1.py", "f2.py"]
+    zero = entries(10)
+    for entry in zero:
+        entry.hotspot_score = 0.0
+    assert _hotspot_band(zero, band_cfg) == []
+    tests_only = entries(10)
+    for entry in tests_only:
+        entry.path_class = "tests"
+    assert _hotspot_band(tests_only, band_cfg) == []
+
+
+def test_test_mapping_across_seven_conventions(tmp_path: Path) -> None:
+    pairs = {
+        "src/alpha.py": "tests/test_alpha.py",
+        "src/bravo.go": "src/bravo_test.go",
+        "src/charlie.ts": "src/__tests__/charlie.test.ts",
+        "src/delta.ts": "spec/delta.spec.ts",
+        "lib/echo.rb": "spec/echo_spec.rb",
+        "src/Foxtrot.java": "test/FoxtrotTest.java",
+        "src/Golf.cs": "tests/GolfTests.cs",
+    }
+    for rel in [*pairs, *pairs.values(), "src/hotel.py"]:
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("x = 1\n", encoding="utf-8")
+    files = {e["path"]: e for e in walk_inventory(tmp_path)["files"]}
+    for source, test in pairs.items():
+        assert files[source]["mapped_tests"] == [test], source
+        assert files[test]["mapped_tests"] == []
+    assert files["src/hotel.py"]["mapped_tests"] == []
+
+
+def test_tests_block_on_corpus(service_py_repo: Path, web_ts_repo: Path) -> None:
+    service = walk_inventory(service_py_repo, churn_months=240)["tests"]
+    assert service == {
+        "test_to_source_ratio": 0.5,
+        "coverage_gate": ["pyproject.toml"],
+        "ci_retry_config": [],
+    }
+    web = walk_inventory(web_ts_repo, churn_months=240)["tests"]
+    assert web["test_to_source_ratio"] == 0.2
+    assert web["coverage_gate"] == ["package.json"]
+    assert web["ci_retry_config"] == [".github/workflows/ci.yml"]
+
+
+def test_docs_block_on_service_py(service_py_repo: Path) -> None:
+    docs = walk_inventory(service_py_repo, churn_months=240)["docs"]
+    assert docs["readme_present"] is True
+    assert docs["readme_loc"] == 10
+    assert docs["contributing_present"] is False
+    assert docs["adr_dir_present"] is True
+    assert docs["changelog_present"] is True
+    assert docs["changelog_last_commit"].startswith("2024-10-05")
+    assert docs["latest_tag"] == "v0.2.0"
+    assert docs["latest_tag_date"].startswith("2026-02-20")
+    assert docs["dangling_refs"] == [
+        {"file": "README.md", "line": 10, "token": "src/pay/exporter.py"}
+    ]
+    # README last touched 2024-08-15, newest source (refund.py) 2026-06-22
+    assert docs["stale_vs_code_days"]["README.md"] == 676
+    assert docs["stale_vs_code_days"]["docs/adr/0001-ledger.md"] == 625
+
+
+def test_docs_block_on_web_ts_and_mixed(web_ts_repo: Path, mixed_decoys_repo: Path) -> None:
+    web = walk_inventory(web_ts_repo, churn_months=240)["docs"]
+    assert web["dangling_refs"] == []  # `src/cart` and `src/checkout` resolve as directories
+    assert web["adr_dir_present"] is False
+    mixed = walk_inventory(mixed_decoys_repo, churn_months=240)["docs"]
+    assert mixed["dangling_refs"] == []  # `payments.killswitch` is not path-like
+    assert mixed["changelog_present"] is False
+
+
+def test_docs_block_without_git(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("# x\n\nSee `lib/gone.py`.\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    docs = walk_inventory(tmp_path)["docs"]
+    assert docs["readme_present"] is True
+    assert docs["readme_loc"] == 3
+    assert docs["changelog_last_commit"] is None
+    assert docs["latest_tag"] is None
+    assert docs["latest_tag_date"] is None
+    assert docs["dangling_refs"] == [{"file": "README.md", "line": 3, "token": "lib/gone.py"}]
+    assert docs["stale_vs_code_days"] == {"README.md": None}
+
+
+def test_tooling_blocks(tmp_path: Path, web_ts_repo: Path) -> None:
+    web = walk_inventory(web_ts_repo, churn_months=240)
+    assert web["lint_config"] == [".eslintrc.json", "tslint.json"]
+    assert web["boundary_tooling"] == []
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.ruff]\nline-length = 100\n\n[tool.importlinter]\nroot_package = 'x'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".importlinter").write_text("[importlinter]\n", encoding="utf-8")
+    (tmp_path / "x.py").write_text("x = 1\n", encoding="utf-8")
+    result = walk_inventory(tmp_path)
+    assert result["boundary_tooling"] == [".importlinter", "pyproject.toml"]
+    assert result["lint_config"] == ["pyproject.toml"]
+
+
+def test_top_level_key_order_and_inline_disables(service_py_repo: Path) -> None:
+    result = walk_inventory(service_py_repo, churn_months=240)
+    assert list(result) == [
+        "schema_version", "root", "total_files", "total_loc", "languages", "git_available",
+        "churn_window_months", "hotspots", "hotspot_band", "files", "artefacts", "docs",
+        "tests", "git", "boundary_tooling", "lint_config", "signal_sources",
+    ]
+    assert all(e["inline_disables"] == 0 for e in result["files"])
+
+
+def test_cli_writes_both_files_under_workdir(service_py_repo: Path, tmp_path: Path) -> None:
+    from inventory import _main
+
+    workdir = tmp_path / "wd"
+    assert _main([str(service_py_repo), "--workdir", str(workdir), "--churn-months", "240"]) == 0
+    inv_bytes = (workdir / "inventory.json").read_bytes()
+    cpl_bytes = (workdir / "coupling.json").read_bytes()
+    assert b"\r\n" not in inv_bytes and b"\r\n" not in cpl_bytes
+    inventory = json.loads(inv_bytes)
+    coupling = json.loads(cpl_bytes)
+    assert inventory["schema_version"] == 2 and coupling["schema_version"] == 2
+    assert inventory["churn_window_months"] == 240
+    assert len(coupling["pairs"]) == 1
+
+
+def test_cli_out_flag_keeps_v1_behaviour(service_py_repo: Path, tmp_path: Path) -> None:
+    from inventory import _main
+
+    out = tmp_path / "v1" / "inv.json"
+    assert _main([str(service_py_repo), "--out", str(out)]) == 0
+    assert out.is_file()
+    assert not (tmp_path / "v1" / "coupling.json").exists()
+    assert json.loads(out.read_bytes())["total_files"] == 16
+
+
+def test_cli_reads_config_from_root(service_py_repo: Path, tmp_path: Path) -> None:
+    import shutil
+
+    from inventory import _main
+
+    repo = tmp_path / "copy"
+    shutil.copytree(service_py_repo, repo)
+    (repo / ".tech-debt.yaml").write_text("churn_months: 240\n", encoding="utf-8")
+    workdir = tmp_path / "wd"
+    assert _main([str(repo), "--workdir", str(workdir)]) == 0
+    inventory = json.loads((workdir / "inventory.json").read_bytes())
+    assert inventory["churn_window_months"] == 240
+    assert inventory["total_files"] == 16  # .tech-debt.yaml is neither a file nor an artefact
