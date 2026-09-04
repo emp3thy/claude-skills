@@ -20,6 +20,12 @@ coupling ``bulk_threshold`` are excluded from churn, authorship and coupling
 and counted in ``bulk_commits_excluded``; ``commits_in_window`` counts every
 commit. Git emits newest first, so the first date seen per file or author is
 its last touch.
+
+``change_coupling`` mines the same commit list for co-change pairs among
+source-class files (spec 4.2): a pair is emitted when the files were touched
+together in at least ``min_shared`` non-bulk commits and
+``shared / mean(commits_a, commits_b) >= min_ratio``, giving both the ordered
+pair list and each file's coupling degree (count of pairs it appears in).
 """
 from __future__ import annotations
 
@@ -279,3 +285,56 @@ def blame_top_share(
         return None, None
     email, count = counter.most_common(1)[0]
     return round(count / sum(counter.values()), 3), email
+
+
+def _dirname(path: str) -> str:
+    return path.rsplit("/", 1)[0] if "/" in path else ""
+
+
+def change_coupling(
+    commits: Sequence[Commit],
+    present_source: set[str],
+    *,
+    min_shared: int,
+    min_ratio: float,
+    bulk_threshold: int,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Co-change pairs of source-class files (spec 4.2) and per-file degree.
+
+    Bulk commits (more than ``bulk_threshold`` files) are skipped. A pair is
+    emitted when ``shared >= min_shared`` and
+    ``shared / mean(commits_a, commits_b) >= min_ratio``.
+    """
+    per_file: Counter[str] = Counter()
+    pair_counts: Counter[tuple[str, str]] = Counter()
+    for commit in commits:
+        if len(commit.files) > bulk_threshold:
+            continue
+        files = sorted({path for path in commit.files if path in present_source})
+        for path in files:
+            per_file[path] += 1
+        for index, first in enumerate(files):
+            for second in files[index + 1 :]:
+                pair_counts[(first, second)] += 1
+    pairs: list[dict[str, Any]] = []
+    degree: dict[str, int] = {}
+    for (first, second), shared in pair_counts.items():
+        if shared < min_shared:
+            continue
+        mean = (per_file[first] + per_file[second]) / 2
+        ratio = shared / mean if mean else 0.0
+        if ratio < min_ratio:
+            continue
+        pairs.append(
+            {
+                "a": first,
+                "b": second,
+                "shared_commits": shared,
+                "ratio": round(ratio, 3),
+                "cross_directory": _dirname(first) != _dirname(second),
+            }
+        )
+        degree[first] = degree.get(first, 0) + 1
+        degree[second] = degree.get(second, 0) + 1
+    pairs.sort(key=lambda p: (-int(p["shared_commits"]), -float(p["ratio"]), p["a"], p["b"]))
+    return pairs, dict(sorted(degree.items()))

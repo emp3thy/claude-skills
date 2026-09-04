@@ -410,3 +410,95 @@ def test_blame_top_share_on_corpus(service_py_repo: Path) -> None:
     share, _ = blame_top_share(service_py_repo, "src/pay/ledger.py", DEFAULTS["bot_authors"])
     assert share is not None and share < 1.0
     assert blame_top_share(service_py_repo, "does/not/exist.py", []) == (None, None)
+
+
+# --- Task 7: change coupling -----------------------------------------------------
+
+
+def test_coupling_pairs_on_service_py(service_py_repo: Path) -> None:
+    from inventory import build_all
+
+    inventory, coupling = build_all(service_py_repo, churn_months=240)
+    pairs = {(p["a"], p["b"]): p for p in coupling["pairs"]}
+    key = ("src/pay/ledger.py", "src/pay/refund.py")
+    assert key in pairs
+    assert pairs[key]["shared_commits"] == 5
+    assert pairs[key]["ratio"] == pytest.approx(5 / 7, abs=0.001)
+    assert pairs[key]["cross_directory"] is False
+    assert ("src/pay/ledger.py", "src/pay/models.py") not in pairs  # shared 2 < min_shared 3
+    assert not any("tests/" in p["a"] or "tests/" in p["b"] for p in coupling["pairs"])
+    assert coupling["degree"] == {"src/pay/ledger.py": 1, "src/pay/refund.py": 1}
+    files = {e["path"]: e for e in inventory["files"]}
+    assert files["src/pay/refund.py"]["coupling_degree"] == 1
+    assert files["src/pay/gateway.py"]["coupling_degree"] == 0
+    assert coupling["schema_version"] == 2
+    assert (coupling["min_shared"], coupling["min_ratio"], coupling["bulk_threshold"]) == (
+        3, 0.3, 50,
+    )
+    assert coupling["fan_in_mode"] == "auto"
+    assert list(coupling) == [
+        "schema_version", "min_shared", "min_ratio", "bulk_threshold", "fan_in_mode",
+        "pairs", "degree", "cycles", "directories", "unstable_edges",
+    ]
+
+
+def test_coupling_pair_on_web_ts(web_ts_repo: Path) -> None:
+    from inventory import build_all
+
+    _, coupling = build_all(web_ts_repo, churn_months=240)
+    pairs = {(p["a"], p["b"]): p for p in coupling["pairs"]}
+    key = ("src/api/client-admin.ts", "src/api/client.ts")
+    assert pairs[key]["shared_commits"] == 4
+    assert pairs[key]["ratio"] == pytest.approx(4 / 4.5, abs=0.001)
+    assert len(coupling["pairs"]) == 1
+
+
+def test_coupling_thresholds_come_from_config(service_py_repo: Path) -> None:
+    from config import DEFAULTS, deep_merge
+    from inventory import build_all
+
+    cfg = deep_merge(DEFAULTS, {"coupling": {"min_shared": 6}})
+    _, coupling = build_all(service_py_repo, churn_months=240, config=cfg)
+    assert coupling["pairs"] == []
+    assert coupling["degree"] == {}
+    assert coupling["min_shared"] == 6
+
+
+def test_change_coupling_unit_ratio_bulk_and_cross_directory() -> None:
+    from git_history import Commit, change_coupling
+
+    def commit(sha: str, files: list[str]) -> Commit:
+        return Commit(sha, "A", "a@example.com", "2026-01-01T00:00:00Z", "s", files)
+
+    # threshold is 3 so only the 4-file "bulk" commit below is excluded; commit
+    # "3" (3 files) stays under it and is counted.
+    commits = [
+        commit("1", ["x/a.py", "y/b.py"]),
+        commit("2", ["x/a.py", "y/b.py"]),
+        commit("3", ["x/a.py", "y/b.py", "x/c.py"]),
+        commit("4", ["x/a.py", "x/c.py"]),
+        commit("5", ["x/a.py", "x/c.py"]),
+        *[commit(str(n), ["x/c.py"]) for n in range(10, 30)],
+        commit("bulk", ["x/a.py", "y/b.py", "x/d.py", "x/e.py"]),
+    ]
+    present = {"x/a.py", "y/b.py", "x/c.py", "x/d.py", "x/e.py"}
+    pairs, degree = change_coupling(
+        commits, present, min_shared=3, min_ratio=0.30, bulk_threshold=3
+    )
+    assert [(p["a"], p["b"]) for p in pairs] == [("x/a.py", "y/b.py")]
+    assert pairs[0]["shared_commits"] == 3
+    assert pairs[0]["ratio"] == pytest.approx(3 / 4, abs=0.001)  # a 5 commits, b 3
+    assert pairs[0]["cross_directory"] is True
+    # a and c share 3 commits but c has 23, so ratio 3 / 14 is below 0.30
+    assert degree == {"x/a.py": 1, "y/b.py": 1}
+
+
+def test_coupling_empty_without_git(tmp_path: Path) -> None:
+    from inventory import build_all
+
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    inventory, coupling = build_all(tmp_path)
+    assert inventory["git_available"] is False
+    assert coupling["pairs"] == []
+    assert coupling["degree"] == {}
+    assert coupling["cycles"] == []

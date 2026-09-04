@@ -31,6 +31,12 @@ config, governance), and a conditional ignore: ``bin/`` and ``build/`` are
 skipped unless they hold a manifest. ``.tech-debt.yaml`` at the root is never
 an artefact. ``LANG_COMMENT`` is the comment-syntax half of the extension map
 that ``patterns.py`` reads; nothing else in the skill is language-aware.
+
+``coupling.json`` (spec 4.2) comes from the same pass: pairs of source-class
+files co-committed at least ``coupling.min_shared`` times with
+``shared / mean(commits_a, commits_b) >= coupling.min_ratio``, bulk commits
+excluded, plus per-file ``coupling_degree``. ``build_all`` returns both
+documents; ``walk_inventory`` keeps the v1 signature and returns the first.
 """
 from __future__ import annotations
 
@@ -50,6 +56,7 @@ from config import CONFIG_FILENAME, DEFAULTS
 from git_history import (
     Commit,
     FileHistory,
+    change_coupling,
     derive_file_history,
     git_log_pass,
     list_branches,
@@ -494,18 +501,21 @@ def _git_block(
     }
 
 
-def walk_inventory(
+def build_all(
     root: Path,
+    *,
     ignore: tuple[str, ...] = DEFAULT_IGNORE,
-    churn_months: int = DEFAULT_CHURN_MONTHS,
+    churn_months: int | None = None,
     config: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Walk ``root`` once and mine git once; return (inventory, coupling) documents."""
     root = root.resolve()
     if not root.exists():
         raise InventoryError(f"path not found: {root}")
     if not root.is_dir():
         raise InventoryError(f"path is not a directory: {root}")
     cfg = config if config is not None else copy.deepcopy(DEFAULTS)
+    window = int(cfg["churn_months"]) if churn_months is None else churn_months
     names, globs = _ignore_sets(ignore, cfg)
     extra_classes: dict[str, list[str]] = cfg.get("path_classes") or {}
 
@@ -541,7 +551,7 @@ def walk_inventory(
         )
         languages.add(lang)
 
-    commits = git_log_pass(root, churn_months)
+    commits = git_log_pass(root, window)
     git_available = commits is not None
     present = {e.path for e in entries} | {rel for _, rel in artefact_candidates}
     histories, bulk_excluded = derive_file_history(
@@ -555,24 +565,59 @@ def walk_inventory(
         for entry in entries:
             _apply_history(entry, histories[entry.path])
     artefacts = _walk_artefacts(root, artefact_candidates, histories if git_available else {})
+    coupling_cfg = cfg["coupling"]
+    present_source = {e.path for e in entries if e.path_class == "source"}
+    pairs, degree = change_coupling(
+        commits or [],
+        present_source,
+        min_shared=int(coupling_cfg["min_shared"]),
+        min_ratio=float(coupling_cfg["min_ratio"]),
+        bulk_threshold=int(coupling_cfg["bulk_threshold"]),
+    )
+    for entry in entries:
+        entry.coupling_degree = degree.get(entry.path, 0)
     signal_sources: dict[str, str] = {}
     if git_available:
         signal_sources["git"] = datetime.now(UTC).isoformat(timespec="seconds")
 
-    return {
+    inventory: dict[str, Any] = {
         "schema_version": 2,
         "root": str(root),
         "total_files": len(entries),
         "total_loc": sum(e.loc for e in entries),
         "languages": sorted(languages),
         "git_available": git_available,
-        "churn_window_months": churn_months,
+        "churn_window_months": window,
         "hotspots": _build_hotspots(entries),
         "files": [asdict(e) for e in entries],
         "artefacts": artefacts,
         "git": _git_block(root, commits, bulk_excluded, cfg),
         "signal_sources": signal_sources,
     }
+    coupling: dict[str, Any] = {
+        "schema_version": 2,
+        "min_shared": int(coupling_cfg["min_shared"]),
+        "min_ratio": float(coupling_cfg["min_ratio"]),
+        "bulk_threshold": int(coupling_cfg["bulk_threshold"]),
+        "fan_in_mode": str(cfg["fan_in"]["mode"]),
+        "pairs": pairs,
+        "degree": degree,
+        "cycles": [],
+        "directories": [],
+        "unstable_edges": [],
+    }
+    return inventory, coupling
+
+
+def walk_inventory(
+    root: Path,
+    ignore: tuple[str, ...] = DEFAULT_IGNORE,
+    churn_months: int = DEFAULT_CHURN_MONTHS,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """v1 entry point: the inventory document only (see ``build_all``)."""
+    inventory, _coupling = build_all(root, ignore=ignore, churn_months=churn_months, config=config)
+    return inventory
 
 
 def _main(argv: list[str] | None = None) -> int:
