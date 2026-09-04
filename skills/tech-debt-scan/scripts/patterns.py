@@ -287,15 +287,279 @@ def _age_band(age: int | None) -> str:
     return ">365d"
 
 
+# --- error-masking --------------------------------------------------------------
+
+# One union of catch idioms with the caught variable captured from whichever
+# idiom matched (spec 4.3). Go's `if err != nil {` is the catch-less form.
+CATCH_RE: Final[re.Pattern[str]] = re.compile(
+    r"^\s*except\b(?P<py>[^:]*):"
+    r"|\bcatch\s*\((?P<c>[^)]*)\)"
+    r"|\bcatch\s*\{"
+    r"|\bcatch\s+(?P<bare>[A-Za-z_]\w*)\s*(?:=>|\{|$)"
+    r"|^\s*rescue\b(?P<rb>.*)$"
+    r"|\bon\s+\w+\s+catch\s*\((?P<dart>[^)]*)\)"
+    r"|\bif\b[^{]*?\b(?P<go>\w*[eE]rr\w*)\s*!=\s*nil\s*\{"
+)
+CARRIER_RE: Final[re.Pattern[str]] = re.compile(
+    r"exc_info|\.exception\(|\bstack\w*|stackTrace|\berr\b|\bex\b|\be\)"
+)
+LOG_CALL_RE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:log|logger|logging|console|Log|fmt\.Print\w*|print|puts|warn|warning|error|info|"
+    r"debug|trace|Console\.WriteLine|System\.out)\b"
+)
+SWALLOW_RE: Final[re.Pattern[str]] = re.compile(
+    r"^(?:pass|return(?:\s+(?:None|null|nil))?;?|\.\.\.|;)$"
+)
+ANNOTATION_RE: Final[re.Pattern[str]] = re.compile(
+    r"\bnoqa\b|\bnolint\b|eslint-disable|\bpragma\b"
+)
+PY_CATCH_ALL_RE: Final[re.Pattern[str]] = re.compile(r"^\s*$|\bBaseException\b")
+C_CATCH_ALL_RE: Final[re.Pattern[str]] = re.compile(r"\bThrowable\b|^\s*\.\.\.\s*$")
+IDENT_RE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z_]\w*")
+ASSERT_OFF_RE: Final[re.Pattern[str]] = re.compile(
+    r"\bNDEBUG\b|\bpython[\d.]*\s+-OO?\b|(?<![\w-])-da\b|enableassertions\s*=\s*false"
+    r"|\bassert(?:ions)?[\"']?\s*:\s*false|^\s*(?:#|//)\s*assert\b"
+)
+
+
+def _catch_variable(match: re.Match[str]) -> tuple[str | None, bool, bool]:
+    """(caught variable, catches everything, body delimited by indentation)."""
+    if match.group("py") is not None:
+        spec = match.group("py")
+        as_match = re.search(r"\bas\s+(\w+)", spec)
+        variable = as_match.group(1) if as_match else None
+        return variable, PY_CATCH_ALL_RE.search(spec) is not None, True
+    if match.group("rb") is not None:
+        arrow = re.search(r"=>\s*(\w+)", match.group("rb"))
+        return (arrow.group(1) if arrow else None), False, True
+    if match.group("c") is not None:
+        spec = match.group("c")
+        idents = IDENT_RE.findall(spec)
+        return (idents[-1] if idents else None), C_CATCH_ALL_RE.search(spec) is not None, False
+    if match.group("dart") is not None:
+        idents = IDENT_RE.findall(match.group("dart"))
+        return (idents[-1] if idents else None), False, False
+    if match.group("bare") is not None:
+        return match.group("bare"), False, False
+    if match.group("go") is not None:
+        return match.group("go"), False, False
+    return None, True, False  # the `catch {` form
+
+
+def _indented_body(lines: list[str], index: int) -> tuple[list[str], int]:
+    """Stripped lines indented deeper than ``lines[index]``, and the last line's index."""
+    start = lines[index]
+    indent = len(start) - len(start.lstrip())
+    body: list[str] = []
+    end = index
+    for j in range(index + 1, len(lines)):
+        raw = lines[j]
+        if not raw.strip():
+            continue
+        if len(raw) - len(raw.lstrip()) <= indent:
+            break
+        body.append(raw.strip())
+        end = j
+    return body, end
+
+
+def _brace_body(lines: list[str], index: int, from_col: int) -> tuple[list[str], int]:
+    """Stripped text chunks between the first `{` at or after ``from_col`` and its `}`."""
+    depth = 0
+    started = False
+    chunks: list[str] = []
+    current = ""
+    for j in range(index, len(lines)):
+        raw = lines[j]
+        start = from_col if j == index else 0
+        for char in raw[start:]:
+            if char == "{":
+                depth += 1
+                if depth == 1:
+                    started = True
+                    continue
+            elif char == "}":
+                depth -= 1
+                if started and depth == 0:
+                    chunks.append(current)
+                    return [c.strip() for c in chunks if c.strip()], j
+            if started:
+                current += char
+        if started:
+            chunks.append(current)
+            current = ""
+    return [c.strip() for c in chunks if c.strip()], len(lines) - 1
+
+
+def _classify_body(body: list[str], variable: str | None, markers: Markers) -> str | None:
+    """empty | pass | return | log-only, or None when the catch handles the error."""
+    code = [b for b in body if not is_comment_line(b, markers)]
+    if not code:
+        return "empty"
+    if all(SWALLOW_RE.match(b) for b in code):
+        return "return" if any(b.startswith("return") for b in code) else "pass"
+    if all(LOG_CALL_RE.search(b) for b in code):
+        text = " ".join(code)
+        if variable and re.search(rf"\b{re.escape(variable)}\b", text):
+            return None
+        if CARRIER_RE.search(text):
+            return None
+        return "log-only"
+    return None
+
+
+def _scan_catches(sf: ScanFile, rule: Rule, _ctx: ScanContext) -> list[Lead]:
+    leads: list[Lead] = []
+    for index, line in enumerate(sf.lines):
+        match = rule.regex.search(line)
+        if match is None:
+            continue
+        variable, catch_all, indented = _catch_variable(match)
+        if indented:
+            body, end = _indented_body(sf.lines, index)
+        else:
+            brace = line.find("{", match.start())
+            if brace != -1:
+                body, end = _brace_body(sf.lines, index, brace)
+            elif index + 1 < len(sf.lines):
+                body, end = _brace_body(sf.lines, index + 1, 0)
+            else:
+                body, end = [], index
+        kind = _classify_body(body, variable, sf.markers)
+        if kind is None:
+            continue
+        tail = line[match.end() :]
+        annotated = bool(ANNOTATION_RE.search(line)) or "#" in tail or "//" in tail
+        leads.append(
+            Lead(
+                rule.rule, sf.path, index + 1, line.strip(), sf.path_class,
+                {
+                    "variable": variable,
+                    "body": kind,
+                    "catch_all": catch_all,
+                    "annotated": annotated,
+                    "line_end": end + 1,
+                },
+            )
+        )
+    return leads
+
+
+# --- dead-code ------------------------------------------------------------------
+
+STATEMENT_KEYWORDS: Final[tuple[str, ...]] = (
+    "if", "for", "while", "return", "def", "function", "class", "var", "let", "const", "int",
+    "string", "public", "private", "static", "fn", "func", "import", "using", "switch", "case",
+    "try", "catch", "elif", "else", "foreach",
+)
+CODE_LINE_RE: Final[re.Pattern[str]] = re.compile(
+    r"^(?:" + "|".join(STATEMENT_KEYWORDS) + r")\b|^[A-Za-z_][\w.]*\s*(?:=[^=]|\()|[;{]$"
+)
+LEGACY_TOKENS: Final[frozenset[str]] = frozenset({"old", "bak", "v1", "legacy"})
+DEF_LINE_RE: Final[re.Pattern[str]] = re.compile(
+    r"^\s*(?:export\s+)?(?:async\s+)?(?:def|function|func|class|fn|struct|interface|type|"
+    r"public|private|protected|internal|static|const|let|var)\b"
+)
+DEPRECATION_RE: Final[re.Pattern[str]] = re.compile(
+    r"@deprecated\b|\[Obsolete\]|@Deprecated\b|DeprecationWarning|#\[deprecated\]"
+    r"|^\s*(?://|#|\*|///)\s*Deprecated:|@available\(\*,\s*deprecated"
+)
+FLAG_SDK_RE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:bool)?[vV]ariation\(|\bisEnabled\(|\bIsEnabled\(|\bis_active\(|\bgetFeatureFlag\("
+    r"|\bgetBooleanValue\(|\bFEATURE_[A-Z0-9_]+\b"
+)
+
+
+def _balanced(text: str) -> bool:
+    return all(text.count(o) == text.count(c) for o, c in (("(", ")"), ("[", "]"), ("{", "}")))
+
+
+def _scan_commented_code(sf: ScanFile, rule: Rule, _ctx: ScanContext) -> list[Lead]:
+    leads: list[Lead] = []
+    run: list[tuple[int, str]] = []
+
+    def flush() -> None:
+        if len(run) < 3:
+            return
+        bodies = [body for _, body in run]
+        code_like = sum(1 for body in bodies if rule.regex.match(body))
+        if code_like * 2 > len(bodies) and _balanced("\n".join(bodies)):
+            first = run[0][0]
+            leads.append(
+                Lead(
+                    rule.rule, sf.path, first, sf.lines[first - 1].strip(), sf.path_class,
+                    {"line_end": run[-1][0], "code_like": code_like, "total": len(bodies)},
+                )
+            )
+
+    for lineno, line in enumerate(sf.lines, start=1):
+        if is_comment_line(line, sf.markers):
+            run.append((lineno, strip_markers(line, sf.markers)))
+        else:
+            flush()
+            run.clear()
+    flush()
+    return leads
+
+
+def _identifier_words(identifier: str) -> list[str]:
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", identifier)
+    return [word.lower() for word in re.split(r"[_\s-]+", spaced) if word]
+
+
+def _scan_legacy_names(sf: ScanFile, rule: Rule, _ctx: ScanContext) -> list[Lead]:
+    leads: list[Lead] = []
+    path_words = [w for part in re.split(r"[/._-]+", sf.path) for w in _identifier_words(part)]
+    hit = next((w for w in path_words if w in LEGACY_TOKENS), None)
+    if hit and sf.lines:
+        leads.append(
+            Lead(
+                rule.rule, sf.path, 1, sf.lines[0].strip(), sf.path_class,
+                {"where": "path", "token": hit},
+            )
+        )
+    for lineno, line in enumerate(sf.lines, start=1):
+        if not rule.regex.match(line):
+            continue
+        for ident in IDENT_RE.findall(line):
+            token = next((w for w in _identifier_words(ident) if w in LEGACY_TOKENS), None)
+            if token:
+                leads.append(
+                    Lead(
+                        rule.rule, sf.path, lineno, line.strip(), sf.path_class,
+                        {"where": "symbol", "token": token},
+                    )
+                )
+                break
+    return leads
+
+
+def _scan_deprecation(sf: ScanFile, rule: Rule, ctx: ScanContext) -> list[Lead]:
+    leads = _scan_lines(sf, rule, ctx)
+    for lead in leads:
+        lead.extra = {"callers_approx": ctx.fan_in.get(sf.path)}
+    return leads
+
+
 # --- rule table -----------------------------------------------------------------
 
 RULES: Final[tuple[Rule, ...]] = (
     Rule("half-finished", "satd-marker", SATD_RE, ALL_TEXT, blame=True, kind="satd"),
+    Rule("error-masking", "swallowed-catch", CATCH_RE, SOURCE, kind="catch"),
+    Rule("error-masking", "assertions-disabled", ASSERT_OFF_RE, SOURCE_CI_CONFIG),
+    Rule("dead-code", "commented-out-code", CODE_LINE_RE, SOURCE, kind="commented-code"),
+    Rule("dead-code", "legacy-name", DEF_LINE_RE, SOURCE, kind="legacy-name"),
+    Rule("dead-code", "deprecation", DEPRECATION_RE, SOURCE, kind="deprecation"),
+    Rule("dead-code", "flag-sdk", FLAG_SDK_RE, SOURCE),
 )
 
 _HANDLERS: Final[dict[str, Handler]] = {
     "line": _scan_lines,
     "satd": _scan_satd,
+    "catch": _scan_catches,
+    "commented-code": _scan_commented_code,
+    "legacy-name": _scan_legacy_names,
+    "deprecation": _scan_deprecation,
 }
 
 
