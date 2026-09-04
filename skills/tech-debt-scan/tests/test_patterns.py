@@ -377,6 +377,32 @@ def test_credential_exclusions(service_py: tuple[Path, dict[str, Any]], tmp_path
     assert leads[("app.yml", 6)]["quote"] == 'admin_password: "hunt***"'
 
 
+def test_credential_redacted_on_satd_and_non_security_lines(tmp_path: Path) -> None:
+    """A credential-shaped value must never survive unredacted, on any family's quote."""
+    from patterns import _main
+
+    secret = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"
+    repo = _synthetic(
+        tmp_path / "repo",
+        {"app.py": f'token = "{secret}"  # not implemented yet\n'},
+    )
+    doc = _run(repo, blame=False)
+    satd_quotes = [s["quote"] for s in doc["satd"]]
+    assert satd_quotes and all(secret not in q for q in satd_quotes)
+    assert any("sk_l***" in q for q in satd_quotes)
+    stub = _leads(doc, "half-finished", "stub")
+    stub_quotes = [item["quote"] for item in stub.values()]
+    assert stub_quotes and all(secret not in q for q in stub_quotes)
+    assert any("sk_l***" in q for q in stub_quotes)
+
+    workdir = tmp_path / "wd"
+    write_json(workdir / "inventory.json", repo[1])
+    assert _main([str(repo[0]), "--workdir", str(workdir), "--no-blame"]) == 0
+    raw = (workdir / "patterns.json").read_bytes()
+    assert secret.encode("utf-8") not in raw
+    assert raw.count(b"sk_l***") >= 2  # the satd entry and the stub lead, at least
+
+
 def test_string_sql_two_languages_and_decoy(
     service_py: tuple[Path, dict[str, Any]], mixed: tuple[Path, dict[str, Any]], tmp_path: Path
 ) -> None:

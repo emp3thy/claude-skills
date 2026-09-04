@@ -13,10 +13,12 @@ it.
 Leads feed scouts and corroborate the merge; counts go to report statistics,
 never to a finding. Blame runs only for the SATD markers, on at most
 ``BLAME_FILE_CAP`` files; ``--no-blame`` skips it and leaves ``age_days`` and
-``commits_since`` null. Credential values are redacted to their first four
-characters before anything is written. ``inline_disables`` per source file
-is written back into ``inventory.json`` in place, the only cross-script
-in-place edit in the pipeline (spec 9).
+``commits_since`` null. Every quote is passed through ``redact`` before it
+is written, whatever rule or family it came from, so a credential-shaped
+value on a SATD-marker line or any other non-security lead never reaches
+``patterns.json`` unredacted, cut to its first four characters.
+``inline_disables`` per source file is written back into ``inventory.json``
+in place, the only cross-script in-place edit in the pipeline (spec 9).
 
 ``python scripts/patterns.py <repo> --workdir .tech-debt [--no-blame]``
 reads ``<workdir>/inventory.json`` and writes ``<workdir>/patterns.json``.
@@ -896,7 +898,7 @@ def _satd_entry(lead: Lead) -> dict[str, Any]:
         "marker": lead.extra["marker"],
         "file": lead.file,
         "line": lead.line,
-        "quote": lead.quote,
+        "quote": redact(lead.quote),
         "ticket_ref": lead.extra["ticket_ref"],
         "age_days": None,
         "commits_since": None,
@@ -937,9 +939,8 @@ def run_patterns(
             elif rule.kind == "inline-disable":
                 inline[sf.path] = len(found)
             else:
-                if rule.family == "security":
-                    for lead in found:
-                        lead.quote = redact(lead.quote)
+                for lead in found:
+                    lead.quote = redact(lead.quote)
                 leads[rule.family].extend(found)
     if blame:
         _attach_blame(root, satd)
