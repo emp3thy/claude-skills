@@ -1,7 +1,7 @@
 {
   "planted": [
     {"id": "p1", "family": "architecture", "type_id": "TD-07", "path": "src/cart/stock.ts", "lines": [1, 1], "expect_tier": "B"},
-    {"id": "p2", "family": "duplication", "type_id": "TD-05", "path": "src/api/client-admin.ts", "lines": [1, 21], "expect_tier": "A"},
+    {"id": "p2", "family": "duplication", "type_id": "TD-05", "path": "src/api/client-admin.ts", "lines": [1, 18], "expect_tier": "A"},
     {"id": "p3", "family": "dead-code", "type_id": "TD-17", "path": "src/util/format-legacy.ts", "lines": [3, 6], "expect_tier": "B"},
     {"id": "p4", "family": "dead-code", "type_id": "TD-09", "path": "src/checkout/checkout.ts", "lines": [7, 9], "expect_tier": "B"},
     {"id": "p5", "family": "error-masking", "type_id": "TD-13", "path": "src/api/client.ts", "lines": [11, 11], "expect_tier": "A"},
