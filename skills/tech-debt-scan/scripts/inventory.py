@@ -805,7 +805,10 @@ def build_all(
         "hotspot_band": band,
         "files": [asdict(e) for e in entries],
         "artefacts": artefacts,
-        "docs": docs_block(entries, artefacts, texts, git_block, git_available),
+        "docs": docs_block(
+            entries, artefacts, texts, git_block, git_available,
+            code_exts=frozenset(EXT_TO_LANG),
+        ),
         "tests": _tests_block(entries, artefacts, root),
         "git": git_block,
         "boundary_tooling": boundary,

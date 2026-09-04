@@ -16,13 +16,15 @@ Extracted out of ``inventory.py`` (which stays under the plan's ~700-line
 split guidance) since these helpers have exactly one caller, ``build_all``,
 via ``docs_block``. ``read_head`` is kept public because ``inventory.py``'s
 own ``_tests_block``/``_tooling_blocks`` reuse the same small file-head
-reader; everything else here is private. ``_DOC_REF_EXTS`` mirrors
-``inventory.EXT_TO_LANG``'s keys but is duplicated rather than imported, to
-avoid an ``inventory`` <-> ``docs_signals`` import cycle (``inventory.py``
-imports ``docs_block`` at module load time, before ``EXT_TO_LANG`` — or any
-other inventory.py name — would be defined if the import ran the other way).
-For the same reason, ``FileEntry`` is only imported under
-``TYPE_CHECKING``: these functions never construct or isinstance-check it,
+reader; everything else here is private. ``inventory.EXT_TO_LANG`` is the
+skill's one language-aware table (spec 0(d)), so its key set is never
+duplicated here: ``docs_block`` takes the code-extension set as the
+keyword-only ``code_exts`` parameter, and ``inventory.build_all`` passes
+``frozenset(EXT_TO_LANG)`` at its single call site. ``FileEntry`` is only
+imported under ``TYPE_CHECKING`` (to avoid an ``inventory`` <->
+``docs_signals`` import cycle: ``inventory.py`` imports ``docs_block`` at
+module load time, before ``FileEntry`` would be defined if the import ran
+the other way): these functions never construct or isinstance-check it,
 only read attributes duck-typed at runtime.
 """
 from __future__ import annotations
@@ -44,18 +46,11 @@ _CHANGELOG_NAMES = ("changelog.md", "changes.md", "history.md", "changelog.rst",
 _BACKTICK_RE = re.compile(r"`([^`\n]+)`")
 _PATHLIKE_RE = re.compile(r"(?<![\w./-])[\w.-]+(?:/[\w.-]+)+")
 
-# Mirrors inventory.EXT_TO_LANG's keys (spec 0(d) extension map); duplicated,
-# not imported, to avoid the import cycle described above. Keep in sync if
-# EXT_TO_LANG's key set changes.
-_CODE_EXTS = frozenset(
-    {
-        ".py", ".cs", ".java", ".kt", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs",
-        ".rb", ".php", ".swift", ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp", ".md",
-    }
+# Non-code extensions a doc reference may also carry, added to the caller's
+# ``code_exts`` (inventory.EXT_TO_LANG's keys) to build the full set.
+_EXTRA_DOC_REF_EXTS = frozenset(
+    {".yml", ".yaml", ".json", ".toml", ".ini", ".cfg", ".sh", ".ps1", ".sql", ".txt"}
 )
-_DOC_REF_EXTS = _CODE_EXTS | {
-    ".yml", ".yaml", ".json", ".toml", ".ini", ".cfg", ".sh", ".ps1", ".sql", ".txt",
-}
 MAX_DANGLING_REFS = 200
 
 
@@ -80,11 +75,11 @@ def _days_between(first: str | None, second: str | None) -> int | None:
     return abs((b.date() - a.date()).days)
 
 
-def _looks_like_ref(token: str, top_level: set[str]) -> bool:
+def _looks_like_ref(token: str, top_level: set[str], doc_ref_exts: frozenset[str]) -> bool:
     if "://" in token or token.startswith(("http:", "https:")):
         return False
     lowered = token.lower()
-    if lowered.endswith(tuple(_DOC_REF_EXTS)):
+    if lowered.endswith(tuple(doc_ref_exts)):
         return True
     return "/" in token and token.split("/", 1)[0] in top_level
 
@@ -102,7 +97,10 @@ def docs_block(
     texts: dict[str, str],
     git_block: dict[str, Any],
     git_available: bool,
+    *,
+    code_exts: frozenset[str],
 ) -> dict[str, Any]:
+    doc_ref_exts = code_exts | _EXTRA_DOC_REF_EXTS
     root_files = {e.path.lower(): e for e in entries if "/" not in e.path}
     lowered = {e.path.lower(): e for e in entries}
     readme = next((root_files[n] for n in _README_NAMES if n in root_files), None)
@@ -125,7 +123,7 @@ def docs_block(
             tokens = set(_BACKTICK_RE.findall(line)) | set(_PATHLIKE_RE.findall(line))
             for raw in sorted(tokens):
                 token = raw.strip().strip("`'\"()<>,;:")
-                if not token or not _looks_like_ref(token, top_level):
+                if not token or not _looks_like_ref(token, top_level, doc_ref_exts):
                     continue
                 if _ref_exists(token, all_paths, source_stems):
                     continue
