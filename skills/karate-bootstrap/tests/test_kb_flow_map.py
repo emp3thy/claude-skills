@@ -154,6 +154,29 @@ def test_merge_entry_validates_exit_shape(spring_ledger: tuple[Path, dict[str, A
         merge_entry(ledger, traced)
 
 
+def test_merge_entry_validates_read_kinds(spring_ledger: tuple[Path, dict[str, Any]]) -> None:
+    _, ledger = spring_ledger
+    traced = post_trace()
+    traced["reads"] = [{"kind": "db-slurp", "table": "shipments"}]
+    with pytest.raises(KbError, match="read kind"):
+        merge_entry(ledger, traced)
+    traced["reads"] = [{"kind": "db-read", "table": "shipments"}]
+    assert merge_entry(ledger, traced) == 0
+
+
+def test_merge_entry_normalises_windows_via_separators(
+    spring_ledger: tuple[Path, dict[str, Any]],
+) -> None:
+    _, ledger = spring_ledger
+    traced = post_trace()
+    line = line_of(SPRING / SERVICE, "repository.save")
+    traced["exits"] = [{"kind": "db-write", "table": "shipments", "op": "insert",
+                        "via": f"{SERVICE.replace('/', chr(92))}:{line}"}]
+    assert merge_entry(ledger, traced) == 0
+    assert find_entry(ledger, "POST /api/shipments")["exits"][0]["via"] == f"{SERVICE}:{line}"
+    assert verify_refs(ledger, SPRING) == []
+
+
 def test_merge_entry_unknown_id(spring_ledger: tuple[Path, dict[str, Any]]) -> None:
     _, ledger = spring_ledger
     with pytest.raises(KbError, match="unknown entry"):
@@ -261,6 +284,33 @@ def test_validate_traced_flags_unknown_host_key_and_unscanned_rules(
     entry["rules"]["sources"][0]["scanned"] = False
     gaps = validate(ledger, "traced", SPRING, env_map, None, None, None)
     assert gaps == []  # scanned is a Phase 3 concern, checked in the generated gate
+
+
+def test_validate_traced_flags_an_unconfirmed_auth_switch(
+    spring_ledger: tuple[Path, dict[str, Any]],
+) -> None:
+    path, ledger = spring_ledger
+    env_map = read_json(path.parent / "env-map.json")
+    _trace_all(ledger)
+    assert validate(ledger, "traced", SPRING, env_map, None, None, None) == []
+    ledger["app"]["auth"] = {"mode": "disabled", "key": "AUTH_MODE", "value": "disabled",
+                             "confirmed": False}
+    assert validate(ledger, "traced", SPRING, env_map, None, None, None) == [
+        "app.auth: switch AUTH_MODE is unconfirmed; confirm or set the real value"
+    ]
+
+
+def test_cli_validate_and_verify_refs_accept_service_dir(
+    spring_ledger: tuple[Path, dict[str, Any]],
+) -> None:
+    path, ledger = spring_ledger
+    env = path.parent / "env-map.json"
+    _trace_all(ledger)
+    save_ledger(path, ledger)
+    assert main(["validate", "--phase", "traced", "--ledger", str(path), "--repo", str(FIXTURES),
+                 "--service-dir", "spring-mini", "--env", str(env)]) == 0
+    assert main(["verify-refs", "--ledger", str(path), "--repo", str(FIXTURES),
+                 "--service-dir", "spring-mini"]) == 0
 
 
 def _fake_generated(tmp_path: Path, ledger: dict[str, Any], feature_text: str) -> Path:

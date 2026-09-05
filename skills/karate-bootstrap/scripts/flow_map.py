@@ -8,9 +8,10 @@ Subcommands:
                 merges one trace subagent result into its entry
     mark        --entry ID (--generated|--tested|--passing|--failing) --ledger PATH
     validate    --phase traced|generated|green --ledger PATH --repo ROOT
-                [--env PATH] [--tests-dir PATH] [--report PATH] [--defects PATH]
+                [--service-dir SUB] [--env PATH] [--tests-dir PATH] [--report PATH]
+                [--defects PATH]
                 exit 0 when the phase gate passes, 2 with the gap list otherwise
-    verify-refs --ledger PATH --repo ROOT
+    verify-refs --ledger PATH --repo ROOT [--service-dir SUB]
                 exit 2 when any exit ``via`` does not point at a matching marker
 
 Status flags: traced (trace merged, no unresolved), stubbed (features, stubs
@@ -100,6 +101,13 @@ def _check_via(owner: str, item: dict[str, Any]) -> None:
         raise KbError(f"{owner}: every exit needs 'via' as file:line, got {via!r}")
 
 
+def _validate_reads(entry_id: str, reads: list[dict[str, Any]]) -> None:
+    for item in reads:
+        kind = item.get("kind")
+        if kind not in READ_KINDS:
+            raise KbError(f"{entry_id}: read kind {kind!r} not one of {READ_KINDS}")
+
+
 def _validate_exits(entry_id: str, exits: list[dict[str, Any]]) -> None:
     for item in exits:
         kind = item.get("kind")
@@ -117,7 +125,12 @@ def merge_entry(ledger: dict[str, Any], traced: dict[str, Any]) -> int:
     entry_id = str(traced.get("id", ""))
     entry = find_entry(ledger, entry_id)
     exits = list(traced.get("exits", []))
+    for item in exits:
+        via = item.get("via")
+        if isinstance(via, str):
+            item["via"] = via.replace("\\", "/")  # a Windows trace still points at a posix path
     _validate_exits(entry_id, exits)
+    _validate_reads(entry_id, list(traced.get("reads", [])))
     for field in MERGE_FIELDS:
         if field in traced:
             entry[field] = traced[field]
@@ -244,6 +257,12 @@ def _validate_traced(ledger: dict[str, Any], env_map: dict[str, Any] | None) -> 
         gaps.append(
             f"{item.get('entry')}: unresolved hop at {item.get('at')}: {item.get('reason')}"
         )
+    auth = ledger.get("app", {}).get("auth") or {}
+    if auth.get("mode") == "disabled" and auth.get("confirmed") is False:
+        gaps.append(
+            f"app.auth: switch {auth.get('key')} is unconfirmed; "
+            "confirm or set the real value"
+        )
     return gaps
 
 
@@ -356,12 +375,18 @@ def validate(ledger: dict[str, Any], phase: str, repo_root: Path,
     raise KbError(f"unknown phase {phase!r}")
 
 
+def _repo_root(args: argparse.Namespace) -> Path:
+    root: Path = args.repo / args.service_dir if args.service_dir else args.repo
+    return root
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     ledger = load_ledger(args.ledger)
     env_map = read_json(args.env) if args.env else None
     report = read_json(args.report) if args.report else None
     defects_text = read_text(args.defects) if args.defects and args.defects.is_file() else None
-    gaps = validate(ledger, args.phase, args.repo, env_map, args.tests_dir, report, defects_text)
+    gaps = validate(ledger, args.phase, _repo_root(args), env_map, args.tests_dir, report,
+                    defects_text)
     save_ledger(args.ledger, ledger)  # verify-refs may have reset traced flags
     if gaps:
         print("\n".join(gaps))
@@ -373,7 +398,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
 def _cmd_verify_refs(args: argparse.Namespace) -> int:
     ledger = load_ledger(args.ledger)
-    gaps = verify_refs(ledger, args.repo)
+    gaps = verify_refs(ledger, _repo_root(args))
     save_ledger(args.ledger, ledger)
     if gaps:
         print("\n".join(gaps))
@@ -409,6 +434,7 @@ def build_parser() -> argparse.ArgumentParser:
     val.add_argument("--phase", choices=("traced", "generated", "green"), required=True)
     val.add_argument("--ledger", type=Path, required=True)
     val.add_argument("--repo", type=Path, required=True, help="service root")
+    val.add_argument("--service-dir", default=None, help="Sub-directory holding the service")
     val.add_argument("--env", type=Path, default=None, help="env-map.json (traced phase)")
     val.add_argument("--tests-dir", type=Path, default=None, help="karate-tests dir (generated)")
     val.add_argument("--report", type=Path, default=None, help="parsed report JSON (green)")
@@ -418,6 +444,7 @@ def build_parser() -> argparse.ArgumentParser:
     refs = sub.add_parser("verify-refs", help="Check every exit via points at a marker")
     refs.add_argument("--ledger", type=Path, required=True)
     refs.add_argument("--repo", type=Path, required=True)
+    refs.add_argument("--service-dir", default=None, help="Sub-directory holding the service")
     refs.set_defaults(func=_cmd_verify_refs)
     return parser
 
