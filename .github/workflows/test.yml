@@ -21,3 +21,19 @@ jobs:
       - run: mypy
       - run: python skills/tech-debt-scan/scripts/skill_check.py
       - run: pytest -v
+
+  karate-templates:
+    name: Karate template compiles and smoke-runs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - run: pip install -e ".[dev]"
+      - run: KB_MAVEN=1 pytest -m maven -v

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "repo": "template",
+  "stack": "template",
+  "app": { "repoRootRel": "..", "dockerfileRel": "Dockerfile", "port": 8080,
+           "readinessPath": null, "serverless": false, "startupTimeoutSeconds": 120 },
+  "env": [],
+  "db": { "name": "app", "user": "app", "password": "app" },
+  "migrations": { "strategy": "migration-container", "image": null, "env": {} },
+  "amq": { "user": "artemis", "password": "artemis", "queues": [], "topics": [] },
+  "downstreams": [],
+  "auth": { "mode": "none" }
+}
