@@ -9,7 +9,7 @@ from detect import main as detect_main
 from discover import main as discover_main
 from flow_map import find_entry, load_ledger, merge_entry, save_ledger
 from kb_common import KbError
-from rules import (
+from kb_rules import (
     CSV_HEADER,
     add_rows,
     extract_bean_validation,

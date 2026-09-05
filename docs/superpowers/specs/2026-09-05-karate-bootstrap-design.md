@@ -53,7 +53,7 @@ flowchart TD
   P1 --> P2["2 Trace - subagent per entry point - flow_map.py merge"]
   P2 --> V2{"flow_map.py validate --phase traced"}
   V2 -- gaps --> P2
-  V2 -- pass --> P3["3 Rules - rules.py extract, subagent per validator - rules/*.csv"]
+  V2 -- pass --> P3["3 Rules - kb_rules.py extract, subagent per validator - rules/*.csv"]
   P3 --> P4["4 Scaffold - scaffold.py - karate-tests/ module"]
   P4 --> P5["5 Generate - subagent per entry point - features, stubs, seeds"]
   P5 --> V5{"flow_map.py validate --phase generated"}
@@ -196,20 +196,20 @@ Unresolved hops are allowed in subagent output, not in the ledger. The main agen
 
 `--double-trace` (off by default): each entry is traced twice by independent subagents and the ledger takes the union, with disagreements listed for a third narrow trace.
 
-### 5.4 Phase 3 — Rules, `rules.py`
+### 5.4 Phase 3 — Rules, `kb_rules.py`
 
 ```
-python scripts/rules.py extract <repo> --ledger karate-tests/flow-map.yaml --out-dir karate-tests
+python scripts/kb_rules.py extract <repo> --ledger karate-tests/flow-map.yaml --out-dir karate-tests
 (dispatch one rules subagent per unscanned rules source, prompts/rules.md)
-python scripts/rules.py add <entry-id> <rows.csv>
-python scripts/rules.py mark-scanned <entry-id> <source-file>
+python scripts/kb_rules.py add <entry-id> <rows.csv>
+python scripts/kb_rules.py mark-scanned <entry-id> <source-file>
 ```
 
 `--out-dir` is the `karate-tests` root; the script appends `rules/` itself.
 
 `extract` handles declarative validators: Bean Validation and Hibernate Validator annotations, FluentValidation `RuleFor` chains, .NET data annotations, Pydantic `Field` constraints and validators. It emits candidate rows with `source`.
 
-The subagent handles imperative branches (if/throw chains, service-layer checks, cross-field rules), confirms or drops candidates, and fills expected message text. It appends via `rules.py add` and never writes CSV by hand.
+The subagent handles imperative branches (if/throw chains, service-layer checks, cross-field rules), confirms or drops candidates, and fills expected message text. It appends via `kb_rules.py add` and never writes CSV by hand.
 
 CSV schema:
 
@@ -479,7 +479,7 @@ Hibernate specifics in the JVM sheets: `hibernate.cfg.xml`, `persistence.xml`, `
 skills/karate-bootstrap/
   SKILL.md
   scripts/
-    detect.py discover.py flow_map.py rules.py scaffold.py report.py iterate.py skill_check.py
+    detect.py discover.py flow_map.py kb_rules.py scaffold.py report.py iterate.py skill_check.py
   templates/karate-tests/
     pom.xml mvnw mvnw.cmd .mvn/wrapper/
     azure-pipelines.karate.yml karate-config.js

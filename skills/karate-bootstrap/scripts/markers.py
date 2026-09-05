@@ -1,4 +1,4 @@
-"""Per-stack source markers shared by discover.py, flow_map.py and rules.py.
+"""Per-stack source markers shared by discover.py, flow_map.py and kb_rules.py.
 
 Each stack has one or more ``Marker`` per kind:
 
