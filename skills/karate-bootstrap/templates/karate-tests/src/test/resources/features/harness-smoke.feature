@@ -26,3 +26,9 @@ Scenario Outline: dynamic outline from csv works: <rule_id>
 
   Examples:
     | read('classpath:rules/harness-smoke.csv') |
+
+Scenario: reset feature accepts empty arguments without containers
+  * def bare = call read('classpath:common/reset.feature')
+  * match bare.watch == []
+  * def empty = call read('classpath:common/reset.feature') { watch: [], stubs: [] }
+  * match empty.stubs == []

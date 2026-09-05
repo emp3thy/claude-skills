@@ -27,6 +27,16 @@ REQUIRED_FILES = [
     "seed/.gitkeep",
     "src/test/java/kb/harness/KbRuntime.java",
     "src/test/java/kb/harness/KarateRunner.java",
+    "src/test/java/kb/harness/Containers.java",
+    "src/test/java/kb/harness/Db.java",
+    "src/test/java/kb/harness/Jms.java",
+    "src/test/java/kb/harness/Stubs.java",
+    "src/test/java/kb/harness/Jwt.java",
+    "src/test/java/kb/harness/ContainersTest.java",
+    "src/test/java/kb/harness/JmsTest.java",
+    "src/test/java/kb/harness/JwtTest.java",
+    "src/test/java/kb/harness/StubsTest.java",
+    "src/test/resources/common/reset.feature",
     "src/test/resources/karate-config.js",
     "src/test/resources/kb-runtime.json",
     "src/test/resources/logback-test.xml",
@@ -123,5 +133,5 @@ def test_template_compiles_and_smoke_runs(tmp_path: Path) -> None:
     assert (reports / "features.harness-smoke.json").is_file()
     summary = json.loads((reports / "karate-summary-json.txt").read_text(encoding="utf-8"))
     assert summary["scenariosfailed"] == 0
-    assert summary["scenariosPassed"] >= 5
+    assert summary["scenariosPassed"] >= 6
     assert (module / "target" / "surefire-reports" / "TEST-kb.harness.KarateRunner.xml").is_file()
