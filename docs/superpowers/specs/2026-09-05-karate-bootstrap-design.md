@@ -481,7 +481,7 @@ entry_points:
         - { file: src/Validators/DealValidator.cs, scanned: true }
         - { file: src/Services/DealService.cs, scanned: true }
     features: [ features/post-api-deals.feature ]
-    stubs: [ stubs/post-api-deals/pricing.json ]
+    stubs: [ stubs/pricing/default.json ]
     seeds: [ seed/post-api-deals.sql ]
     observed_overrides: []
     status: { traced: true, stubbed: true, tested: true, passing: true }
