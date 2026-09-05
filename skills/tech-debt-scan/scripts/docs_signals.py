@@ -9,8 +9,9 @@ A doc reference is a backtick-quoted or path-like token that either carries a
 known code or config extension or starts with an existing top-level
 directory; it is dangling when no walked path equals it, ends with it, or
 lives under it and its stem is not a source stem (capped at
-``MAX_DANGLING_REFS``). Staleness is a whole calendar-day distance
-(time-of-day ignored).
+``MAX_DANGLING_REFS``). Staleness is how many whole calendar days a doc lags
+the newest source file (time-of-day ignored), and 0 when the doc is the newer
+of the two: a document written after the last code change is not stale.
 
 Extracted out of ``inventory.py`` (which stays under the plan's ~700-line
 split guidance) since these helpers have exactly one caller, ``build_all``,
@@ -63,16 +64,16 @@ def read_head(path: Path, limit: int = 65536) -> str:
         return ""
 
 
-def _days_between(first: str | None, second: str | None) -> int | None:
-    """Whole calendar-day distance between two ISO timestamps (time-of-day ignored)."""
-    if not first or not second:
+def _doc_lag_days(doc: str | None, newest_source: str | None) -> int | None:
+    """Whole calendar days ``doc`` lags ``newest_source``; 0 when the doc is the newer."""
+    if not doc or not newest_source:
         return None
     try:
-        a = datetime.fromisoformat(first)
-        b = datetime.fromisoformat(second)
+        doc_at = datetime.fromisoformat(doc)
+        source_at = datetime.fromisoformat(newest_source)
     except ValueError:
         return None
-    return abs((b.date() - a.date()).days)
+    return max(0, (source_at.date() - doc_at.date()).days)
 
 
 def _looks_like_ref(token: str, top_level: set[str], doc_ref_exts: frozenset[str]) -> bool:
@@ -140,7 +141,7 @@ def docs_block(
     for entry in entries:
         if entry.path_class == "docs":
             stale[entry.path] = (
-                _days_between(entry.last_touched, newest_source) if git_available else None
+                _doc_lag_days(entry.last_touched, newest_source) if git_available else None
             )
     return {
         "readme_present": readme is not None,

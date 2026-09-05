@@ -6,8 +6,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
+import yaml
 from config import load_config
 from inventory import _classify_path, _line_metrics, walk_inventory
+from make_history import replay_history
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -854,6 +856,27 @@ def test_docs_block_on_service_py(service_py_repo: Path) -> None:
     # README last touched 2024-08-15, newest source (refund.py) 2026-06-22
     assert docs["stale_vs_code_days"]["README.md"] == 676
     assert docs["stale_vs_code_days"]["docs/adr/0001-ledger.md"] == 625
+
+
+def test_doc_newer_than_the_code_is_zero_days_stale(tmp_path: Path) -> None:
+    """stale_vs_code_days is how far a doc lags the code, never the distance either way."""
+    history = tmp_path / "history.yaml"
+    history.write_text(
+        yaml.safe_dump({
+            "commits": [
+                {"author": "Ada Lovelace <ada@example.com>",
+                 "date": "2026-01-05T09:00:00+00:00", "subject": "add the module",
+                 "files": {"src/app.py": "def go():\n    return 1\n", "README.md": "# app\n"}},
+                {"author": "Ada Lovelace <ada@example.com>",
+                 "date": "2026-03-20T09:00:00+00:00", "subject": "document the module",
+                 "files": {"README.md": "# app\n\nIt returns one.\n"}},
+            ]
+        }),
+        encoding="utf-8",
+    )
+    repo = replay_history(history, tmp_path, tmp_path / "repo")
+    docs = walk_inventory(repo, churn_months=240)["docs"]
+    assert docs["stale_vs_code_days"] == {"README.md": 0}
 
 
 def test_docs_block_on_web_ts_and_mixed(web_ts_repo: Path, mixed_decoys_repo: Path) -> None:
