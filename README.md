@@ -111,6 +111,20 @@ directory is walked. Manifests, lockfiles, CI, container, IaC, SQL, notebook,
 model-binary, config and governance files are inventoried as artefacts rather
 than as code.
 
+## Live evaluation
+
+`live_run.py` runs the whole scan chain against a corpus fixture with real
+Claude scouts and verifiers, scores the result against the fixture's planted
+debt and decoys, and appends a row to
+[`docs/evaluation-log.md`](docs/evaluation-log.md):
+
+```
+python scripts/live_run.py service-py --model sonnet --max-budget-usd 1.00
+```
+
+This costs real tokens and never runs in CI; the test suite drives the same
+code path with a fake `claude` executable passed through `--claude`.
+
 ## Status
 
 Phase 1 (human-in-the-loop) only. Phase 2 ("mow the lawn" autonomy — apply fixes

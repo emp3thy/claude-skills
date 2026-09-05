@@ -78,6 +78,36 @@ commit history in `history.yaml` and its planted debt and decoys in
 temporary git repository at test time, so churn, coupling, blame and branches
 are exercised without committing a `.git` directory.
 
+### Live harness
+
+`live_run.py <fixture-or-repo>` drives the whole chain with real agents. It is
+manual only and never runs in CI. Given a corpus fixture name it replays the
+fixture through `tests/helpers/make_history.py` into a temporary directory
+(any other argument is taken as a repository path), then runs the deterministic
+signals, `plan_scan.py`, one `claude -p` call per scout prompt,
+`merge_findings.py`, `verify_prompts.py`, one call per verifier batch,
+`apply_verdicts.py` and `rank.py`; when a `planted.json` is present it scores
+the run with `evaluate.py`, prints the table and appends one row to
+`docs/evaluation-log.md`. The history window is the fixture's
+`planted.json` `churn_months` unless `--churn-months` overrides it.
+
+Every agent call is a list argv (never a shell string) in print mode:
+`--setting-sources project --strict-mcp-config --disable-slash-commands` keep
+the user's settings, MCP servers and slash commands out of the run,
+`--output-format json --json-schema <the contract>` pins the reply shape to
+`SCOUT_OUTPUT_SCHEMA` or `VERDICT_SCHEMA`, `--tools Read,Grep,Glob
+--allowedTools Read,Grep,Glob` keep the agent read-only, `--max-budget-usd`
+caps each call and `cwd` is the repository so the read tools see the tree. The
+reply is the envelope's `structured_output` when it carries one and otherwise
+`result` with Markdown fences stripped; a payload that fails the contract is
+retried once with an appended re-emit instruction, and a second failure ends
+the run. `--skip-agents` reuses the scout and verdict files already in the
+workdir instead of calling out. Flags: `--workdir`, `--families`, `--top`,
+`--preset`, `--churn-months`, `--model`, `--max-budget-usd`, `--claude`,
+`--timeout`, `--log`, `--skip-agents`; exit 2 on a bad target or malformed
+input, 3 when `claude` is not on PATH (and `--skip-agents` is absent), 4 when
+an agent call fails after its retry or `--skip-agents` finds no cached reply.
+
 ## Scout categories
 
 Six language-agnostic debt categories, defined in `scripts/categories.py`
