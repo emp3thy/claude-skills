@@ -64,6 +64,12 @@ configuration; the ``docs`` block reports README, CONTRIBUTING, ADR and
 CHANGELOG presence, the latest tag, dangling references in docs and doc
 staleness versus code. ``inline_disables`` is emitted as 0 and filled in
 place by ``patterns.py``.
+
+A file over ``MAX_SCAN_BYTES`` (2 MB), or with a NUL byte in its first
+``NUL_SNIFF_BYTES``, is never read: its entry keeps ``loc`` 0 and
+``complexity`` 0 with ``skipped_large`` true, the reference graph and the docs
+block see it as empty text, and the top-level ``skipped_large_files`` counts
+it. ``patterns.py`` imports the same limit so both walks skip the same files.
 """
 from __future__ import annotations
 
@@ -232,6 +238,16 @@ DEFAULT_IGNORE: tuple[str, ...] = (
 # directory (e.g. a Go `internal/build` package, `build` being a stdlib name).
 CONDITIONAL_IGNORE: tuple[str, ...] = ("bin", "build")
 
+# Size guard (spec 4.2). A file over MAX_SCAN_BYTES, or with a NUL byte in its
+# first NUL_SNIFF_BYTES, is never read: its entry keeps loc 0 and complexity 0
+# with `skipped_large` true and the top-level `skipped_large_files` counts it.
+# `patterns.py` imports MAX_SCAN_BYTES from here so both walks skip the same
+# files. Text artefacts are counted a chunk at a time so a file just under the
+# limit is never decoded whole.
+MAX_SCAN_BYTES = 2_000_000
+NUL_SNIFF_BYTES = 1024
+_LOC_CHUNK_BYTES = 1024 * 1024
+
 # Indent thresholds behind the complex-units leads (spec 2.3, 4.2). The spec
 # names the fields; these values are the calibration point.
 DEEP_INDENT_UNITS = 3
@@ -309,6 +325,32 @@ class FileEntry:
     fan_out_approx: int | None = None
     fan_in_mode: str = "import-lines"
     coupling_degree: int = 0
+    skipped_large: bool = False  # the size guard tripped; the file was never read
+
+
+def _skips_read(path: Path, size: int) -> bool:
+    """True when the size guard forbids reading ``path`` at all (spec 4.2)."""
+    if size > MAX_SCAN_BYTES:
+        return True
+    try:
+        with path.open("rb") as handle:
+            return b"\x00" in handle.read(NUL_SNIFF_BYTES)
+    except OSError:
+        return False  # let the caller's own read report the failure
+
+
+def _count_newlines(path: Path) -> int:
+    """LOC of a text file, counted in chunks so it is never decoded whole."""
+    total = 0
+    tail = b""
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(_LOC_CHUNK_BYTES):
+                total += chunk.count(b"\n")
+                tail = chunk
+    except OSError:
+        return 0
+    return total + (1 if tail and not tail.endswith(b"\n") else 0)
 
 
 def _classify_path(rel: str, extra: dict[str, list[str]] | None = None) -> str:
@@ -494,12 +536,15 @@ def _notebook_facts(text: str) -> tuple[int, bool | None]:
 
 
 def _artefact_entry(path: Path, rel: str, cls: str, history: FileHistory | None) -> dict[str, Any]:
+    size = path.stat().st_size
+    skipped = _skips_read(path, size)
     entry: dict[str, Any] = {
         "path": rel,
         "loc": 0,
         "churn": history.churn if history else 0,
         "last_touched": history.last_touched if history else None,
-        "size_bytes": path.stat().st_size,
+        "size_bytes": size,
+        "skipped_large": skipped,
     }
     if cls == "model_binary":  # size and LFS pointer only; never opened further
         try:
@@ -508,12 +553,14 @@ def _artefact_entry(path: Path, rel: str, cls: str, history: FileHistory | None)
         except OSError:
             entry["lfs_pointer"] = False
         return entry
-    try:
-        text = path.read_bytes().decode("utf-8", errors="ignore")
-    except OSError:
+    if skipped:
         return entry
-    entry["loc"] = text.count("\n") + (1 if text and not text.endswith("\n") else 0)
-    if cls == "notebook":
+    entry["loc"] = _count_newlines(path)
+    if cls == "notebook":  # bounded by the guard, so the cell facts need the text
+        try:
+            text = path.read_bytes().decode("utf-8", errors="ignore")
+        except OSError:
+            return entry
         entry["cells"], entry["monotonic_execution"] = _notebook_facts(text)
     return entry
 
@@ -710,10 +757,15 @@ def build_all(
         if lang is None:
             artefact_candidates.append((path, rel_str))
             continue
-        try:
-            text = path.read_bytes().decode("utf-8", errors="ignore")
-        except OSError as exc:
-            raise InventoryError(f"could not read {path}: {exc}") from exc
+        stat = path.stat()
+        skipped = _skips_read(path, stat.st_size)
+        if skipped:
+            text = ""  # the graph and the docs block see an empty file, not a guess
+        else:
+            try:
+                text = path.read_bytes().decode("utf-8", errors="ignore")
+            except OSError as exc:
+                raise InventoryError(f"could not read {path}: {exc}") from exc
         texts[rel_str] = text
         loc, indent_total, max_indent, deep, longest = _line_metrics(
             text.splitlines(keepends=True)
@@ -723,7 +775,7 @@ def build_all(
                 path=rel_str,
                 ext=ext,
                 loc=loc,
-                mtime=path.stat().st_mtime,
+                mtime=stat.st_mtime,
                 complexity=indent_total,
                 max_indent=max_indent,
                 churn=0,
@@ -731,6 +783,7 @@ def build_all(
                 path_class=_classify_path(rel_str, extra_classes),
                 deep_indent_lines=deep,
                 longest_indented_run=longest,
+                skipped_large=skipped,
             )
         )
         languages.add(lang)
@@ -805,6 +858,9 @@ def build_all(
         "hotspot_band": band,
         "files": [asdict(e) for e in entries],
         "artefacts": artefacts,
+        "skipped_large_files": sum(e.skipped_large for e in entries) + sum(
+            bool(a["skipped_large"]) for items in artefacts.values() for a in items
+        ),
         "docs": docs_block(
             entries, artefacts, texts, git_block, git_available,
             code_exts=frozenset(EXT_TO_LANG),

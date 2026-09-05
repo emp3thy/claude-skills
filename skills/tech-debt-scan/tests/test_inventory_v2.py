@@ -106,9 +106,12 @@ def test_service_py_artefact_classes(service_py_repo: Path) -> None:
     assert paths["container"] == ["Dockerfile"]
     assert paths["lockfile"] == []
     entry = next(e for e in artefacts["manifest"] if e["path"] == "pyproject.toml")
-    assert set(entry) >= {"path", "loc", "churn", "last_touched", "size_bytes"}
+    assert list(entry) == [
+        "path", "loc", "churn", "last_touched", "size_bytes", "skipped_large",
+    ]
     assert entry["loc"] == 8
     assert entry["size_bytes"] > 0
+    assert entry["skipped_large"] is False
 
 
 def test_artefact_classes_synthetic(tmp_path: Path) -> None:
@@ -168,6 +171,32 @@ def test_artefact_classes_synthetic(tmp_path: Path) -> None:
     model = artefacts["model_binary"][0]
     assert model["lfs_pointer"] is False
     assert model["loc"] == 0
+
+
+def test_oversized_and_binary_files_are_never_read(tmp_path: Path) -> None:
+    """Spec 4.2: over 2 MB or a NUL in the first KB means loc 0, complexity 0, skipped."""
+    from inventory import MAX_SCAN_BYTES, _main
+
+    repo = tmp_path / "repo"
+    (repo / "data").mkdir(parents=True)
+    (repo / "data" / "export.json").write_bytes(b"{}" + b"\n" * (MAX_SCAN_BYTES - 1))
+    (repo / "blob.py").write_bytes(b"def go():\n" + b"\x00" * 8 + b"\n    return 1\n")
+    (repo / "app.py").write_text("def go():\n    return 1\n", encoding="utf-8")
+
+    result = walk_inventory(repo)
+    export = next(e for e in result["artefacts"]["config"] if e["path"] == "data/export.json")
+    assert export["size_bytes"] == MAX_SCAN_BYTES + 1
+    assert export["skipped_large"] is True
+    assert export["loc"] == 0
+    blob = next(e for e in result["files"] if e["path"] == "blob.py")
+    assert blob["skipped_large"] is True
+    assert (blob["loc"], blob["complexity"], blob["max_indent"]) == (0, 0, 0)
+    app = next(e for e in result["files"] if e["path"] == "app.py")
+    assert app["skipped_large"] is False
+    assert (app["loc"], app["complexity"]) == (2, 1)
+    assert result["skipped_large_files"] == 2
+
+    assert _main([str(repo), "--workdir", str(tmp_path / "wd")]) == 0
 
 
 def test_bin_and_build_walked_only_with_a_manifest(tmp_path: Path) -> None:
@@ -243,7 +272,7 @@ def test_file_entries_carry_every_v2_key(service_py_repo: Path) -> None:
         "inline_disables", "last_touched", "authors", "top_author", "top_author_share",
         "top_author_line_share", "bugfix_share", "migration_commits", "flaky_commits",
         "untested_change_share", "mapped_tests", "fan_in_approx", "fan_out_approx",
-        "fan_in_mode", "coupling_degree",
+        "fan_in_mode", "coupling_degree", "skipped_large",
     ]
 
 
@@ -920,9 +949,11 @@ def test_top_level_key_order_and_inline_disables(service_py_repo: Path) -> None:
     result = walk_inventory(service_py_repo, churn_months=240)
     assert list(result) == [
         "schema_version", "root", "total_files", "total_loc", "languages", "git_available",
-        "churn_window_months", "hotspots", "hotspot_band", "files", "artefacts", "docs",
-        "tests", "git", "boundary_tooling", "lint_config", "signal_sources",
+        "churn_window_months", "hotspots", "hotspot_band", "files", "artefacts",
+        "skipped_large_files", "docs", "tests", "git", "boundary_tooling", "lint_config",
+        "signal_sources",
     ]
+    assert result["skipped_large_files"] == 0
     assert all(e["inline_disables"] == 0 for e in result["files"])
 
 

@@ -42,14 +42,19 @@ from typing import Any, Final
 
 from config import ConfigError, load_config
 from git_history import run_git
-from inventory import DEFAULT_COMMENT, LANG_COMMENT, write_json
+from inventory import (
+    DEFAULT_COMMENT,
+    LANG_COMMENT,
+    MAX_SCAN_BYTES,
+    NUL_SNIFF_BYTES,
+    write_json,
+)
 from redaction import CREDENTIAL_RE, redact
 from reference_graph import import_lines
 
 SCHEMA_VERSION: Final[int] = 2
 BLAME_FILE_CAP: Final[int] = 200
 LEAD_PROMPT_CAP: Final[int] = 40
-MAX_SCAN_BYTES: Final[int] = 2_000_000
 
 Markers = tuple[tuple[str, ...], tuple[tuple[str, str], ...]]
 
@@ -835,7 +840,7 @@ def _read_text(path: Path) -> str | None:
         data = path.read_bytes()
     except OSError:
         return None
-    if b"\x00" in data[:1024]:
+    if b"\x00" in data[:NUL_SNIFF_BYTES]:
         return None
     return data.decode("utf-8", errors="replace")
 
