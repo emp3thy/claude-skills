@@ -320,11 +320,23 @@ def _validate_green(ledger: dict[str, Any], report: dict[str, Any] | None,
     gaps: list[str] = []
     quarantined_entries = set(_DEFECT_ENTRY_RE.findall(defects_text or ""))
     for failed in report.get("failed", []):
-        label = f"{failed.get('feature')}: {failed.get('scenario')!r}"
+        feature = str(failed.get("feature", ""))
+        label = f"{feature}: {failed.get('scenario')!r}"
         if "@known-defect" not in failed.get("tags", []):
             gaps.append(f"{label} failed and is not quarantined with @known-defect")
-        elif not quarantined_entries:
-            gaps.append(f"{label} is quarantined but defects.md has no matching entry")
+            continue
+        owners = {
+            str(entry["id"])
+            for entry in ledger["entry_points"]
+            if feature in entry.get("features", [])
+        }
+        if not owners:
+            gaps.append(f"{label} is quarantined but no ledger entry owns {feature}")
+        elif not owners & quarantined_entries:
+            gaps.append(
+                f"{label} is quarantined but defects.md has no entry for "
+                f"{', '.join(sorted(owners))}"
+            )
     for entry in ledger["entry_points"]:
         status = entry.get("status", {})
         if not status.get("passing") and entry["id"] not in quarantined_entries:

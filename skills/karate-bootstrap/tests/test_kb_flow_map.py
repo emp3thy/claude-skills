@@ -313,6 +313,7 @@ def test_validate_generated_flags_missing_assertions_and_count(
 def test_validate_green(spring_ledger: tuple[Path, dict[str, Any]]) -> None:
     _, ledger = spring_ledger
     _trace_all(ledger)
+    find_entry(ledger, "POST /api/shipments")["features"] = ["features/post-api-shipments.feature"]
     for entry in ledger["entry_points"]:
         entry["status"].update({"stubbed": True, "tested": True, "passing": True})
     report = {"passed": 10, "skipped": 1, "failed": []}
@@ -329,6 +330,68 @@ def test_validate_green(spring_ledger: tuple[Path, dict[str, Any]]) -> None:
     defects = "## DEF-001: over weight 500\nstatus: pending\nentry_point: POST /api/shipments\n"
     find_entry(ledger, "POST /api/shipments")["status"]["passing"] = False
     assert validate(ledger, "green", SPRING, None, None, report, defects) == []
+
+
+def test_validate_green_requires_the_owning_entry_in_defects(
+    spring_ledger: tuple[Path, dict[str, Any]],
+) -> None:
+    _, ledger = spring_ledger
+    _trace_all(ledger)
+    for entry in ledger["entry_points"]:
+        entry["features"] = [f"features/{slug}.feature" for slug in [entry["id"].lower()
+                             .replace(" ", "-").replace("/", "-").replace("{", "")
+                             .replace("}", "")]]
+        entry["status"].update({"stubbed": True, "tested": True, "passing": True})
+    post = find_entry(ledger, "POST /api/shipments")
+    post["features"] = ["features/post-api-shipments.feature"]
+    post["status"]["passing"] = False
+    report = {"passed": 5, "skipped": 0, "failed": [{
+        "feature": "features/post-api-shipments.feature", "scenario": "over weight",
+        "tags": ["@error", "@known-defect"], "step": "status 400", "error": "500"}]}
+    unrelated = "## DEF-001: x\nstatus: pending\nentry_point: GET /api/shipments/{id}\n"
+    gaps = validate(ledger, "green", SPRING, None, None, report, unrelated)
+    assert any("defects.md has no entry for POST /api/shipments" in g for g in gaps)
+    assert any("POST /api/shipments: not passing" in g for g in gaps)
+    matching = "## DEF-001: x\nstatus: pending\nentry_point: POST /api/shipments\n"
+    assert validate(ledger, "green", SPRING, None, None, report, matching) == []
+
+
+def test_validate_green_flags_unowned_feature(spring_ledger: tuple[Path, dict[str, Any]]) -> None:
+    _, ledger = spring_ledger
+    _trace_all(ledger)
+    for entry in ledger["entry_points"]:
+        entry["status"].update({"stubbed": True, "tested": True, "passing": True})
+    report = {"passed": 1, "skipped": 0, "failed": [{
+        "feature": "features/orphan.feature", "scenario": "x", "tags": ["@known-defect"],
+        "step": "s", "error": "e"}]}
+    defects_text = "entry_point: POST /api/shipments\n"
+    gaps = validate(ledger, "green", SPRING, None, None, report, defects_text)
+    assert gaps == ["features/orphan.feature: 'x' is quarantined but no ledger entry owns "
+                    "features/orphan.feature"]
+
+
+def test_validate_green_flags_not_passing_without_defect(
+    spring_ledger: tuple[Path, dict[str, Any]],
+) -> None:
+    _, ledger = spring_ledger
+    _trace_all(ledger)
+    for entry in ledger["entry_points"]:
+        entry["status"].update({"stubbed": True, "tested": True, "passing": True})
+    find_entry(ledger, "amq shipment.requested")["status"]["passing"] = False
+    report = {"passed": 9, "skipped": 0, "failed": []}
+    gaps = validate(ledger, "green", SPRING, None, None, report, "")
+    assert gaps == ["amq shipment.requested: not passing and not listed in defects.md"]
+
+
+def test_validate_generated_flags_unscanned_source(spring_ledger: tuple[Path, dict[str, Any]],
+                                                   tmp_path: Path) -> None:
+    _, ledger = spring_ledger
+    _trace_all(ledger)
+    tests_dir = _fake_generated(tmp_path, ledger, GOOD_FEATURE)
+    find_entry(ledger, "POST /api/shipments")["rules"]["sources"][0]["scanned"] = False
+    gaps = validate(ledger, "generated", SPRING, None, tests_dir, None, None)
+    assert gaps == ["POST /api/shipments: rules source "
+                    "src/main/java/com/acme/shipments/ShipmentRequest.java not scanned"]
 
 
 def test_cli_validate_and_verify_refs_exit_codes(spring_ledger: tuple[Path, dict[str, Any]],
