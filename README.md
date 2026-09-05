@@ -70,15 +70,22 @@ follows, including every pinned command and pre/post-condition.
 
 | Artefact | Written by | Shape |
 | --- | --- | --- |
-| `inventory.json` | `inventory.py` | `{root, total_files, total_loc, languages, files[]}` |
+| `inventory.json` | `inventory.py` | `{schema_version: 2, root, total_files, total_loc, languages, git_available, churn_window_months, hotspots[], hotspot_band[], files[], artefacts{}, skipped_large_files, docs{}, tests{}, git{}, boundary_tooling[], lint_config[], signal_sources{}}`; each `files[]` entry carries `path_class`, `hotspot_score`, `inline_disables`, the git history fields (`last_touched`, `authors`, `top_author`, `top_author_share`, `top_author_line_share`, `bugfix_share`, `migration_commits`, `flaky_commits`, `untested_change_share`), `mapped_tests`, `fan_in_approx`, `fan_out_approx`, `fan_in_mode`, `coupling_degree` and `skipped_large`; each `artefacts{}` entry carries `{path, path_class, loc, churn, last_touched, size_bytes, skipped_large}` |
+| `coupling.json` | `inventory.py` (with `--workdir`) | `{schema_version: 2, min_shared, min_ratio, bulk_threshold, fan_in_mode, pairs[], degree{}, cycles[], directories[], unstable_edges[]}` |
+| `patterns.json` | `patterns.py` | `{schema_version: 2, leads{<family>: [{rule, file, line, quote, path_class, extra}]}, satd[], stats{}}`; a lead or SATD entry on an artefact carries the artefact's real `path_class` (a workflow under a tests tree reports `tests`, not `ci`) while rule scope still keys on the artefact class, and artefacts classed `generated` or `vendored` or marked `skipped_large` are not scanned; also fills `files[].inline_disables` in `inventory.json` |
+| `rule-findings.json` | `rules.py` | `{schema_version: 2, findings[], leads{migration[]}}`; each finding is a candidate with `source: "rule"`, `tier: "A"`, `confirmed_by: ["rule:<id>"]` and the artefact's `path_class` in `signals`; artefacts under a tests, vendored or generated tree are skipped, and an artefact the inventory marked `skipped_large` is never read |
 | `raw-findings.json` | Claude (from scouts) | `[{title, severity, category, evidence, suggested_fix}]` |
 | `top5.json` | synthesis Agent | `{top5: [{slug, title, severity, category, reasoning, evidence, suggested_fix}]}` (exactly 5) |
 | `design.md` | `design_writer.py render` | frontmatter + one H2 section per finding, each with a `yaml` status anchor |
 | `chore-<slug>-<date>/` | `promote.py` | a PBI bundle: `PBI.md`, `PLAN.md`, `HISTORY.md` |
 
 All intermediate artefacts live under `.tech-debt/` in the scanned repo (gitignore
-it). See [`docs/architecture.md`](docs/architecture.md) for the full design,
-the six debt categories, and the validation rules.
+it). The v2 signal scripts (`inventory.py --workdir`, `patterns.py`, `rules.py`,
+`evaluate.py`) run by hand for now; `/tech-debt-scan` still follows the v1 steps
+until phase 3. Every threshold they use comes from an optional `.tech-debt.yaml`
+at the repository root; `python scripts/config.py <repo>` prints the effective
+values. See [`docs/architecture.md`](docs/architecture.md) for the full design,
+the debt categories, and the validation rules.
 
 ## Language support
 
@@ -89,9 +96,15 @@ Python, C#, Java, Kotlin, TypeScript (`.ts`/`.tsx`), JavaScript (`.js`/`.jsx`),
 Go, Rust, Ruby, PHP, Swift, C/C++ (`.c`/`.h`/`.cpp`/`.cc`/`.cxx`/`.hpp`), and
 Markdown.
 
-Files in common build/dependency directories (`node_modules`, `bin`, `obj`,
-`target`, `.venv`, `venv`, `__pycache__`, `dist`, `build`, `.git`, IDE and tool
-caches, and `.tech-debt`) are skipped.
+Files in common build/dependency directories (`node_modules`, `obj`, `target`,
+`.venv`, `venv`, `__pycache__`, `dist`, `.git`, IDE and tool caches, and
+`.tech-debt`) are skipped. A directory named `bin` or `build` is skipped when
+it holds no package manifest and its parent is the repository root or holds a
+manifest itself, which covers build output sitting beside the manifest that
+produced it; a `bin` or `build` package nested under an ordinary source
+directory is walked. Manifests, lockfiles, CI, container, IaC, SQL, notebook,
+model-binary, config and governance files are inventoried as artefacts rather
+than as code.
 
 ## Status
 

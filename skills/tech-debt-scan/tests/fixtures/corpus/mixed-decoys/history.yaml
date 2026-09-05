@@ -1,0 +1,135 @@
+commits:
+  - author: "Hal Finney <hal@example.com>"
+    date: "2024-11-03T09:00:00+00:00"
+    subject: "feat: initial service"
+    files:
+      README.md: "@final"
+      go.mod: "@final"
+      go.sum: |
+        github.com/example/dep v1.1.0 h1:abc=
+      Dockerfile: "@final"
+      docker-compose.yml: |
+        services:
+          db:
+            image: postgres:latest
+          cache:
+            image: redis:7.2
+      docker-compose.dev.yml: "@final"
+      k8s/deployment.yaml: "@final"
+      k8s/service.yaml: "@final"
+      .github/workflows/ci.yml: "@final"
+      docs/runbook.md: |
+        # Runbook
+      cmd/app/main.go: "@final"
+      internal/lookup/lookup.go: "@final"
+      internal/dispatch/dispatch.go: "@final"
+      internal/httpc/httpc.go: "@final"
+      internal/httpc/httpc_safe.go: "@final"
+      internal/crypto/hash.go: "@final"
+      internal/shell/run.go: "@final"
+      internal/store/store_test.go: "@final"
+      internal/flags/flags.go: |
+        package flags
+
+        var Flags = map[string]bool{
+        	"payments.killswitch": false,
+        }
+
+        func IsEnabled(name string) bool {
+        	return Flags[name]
+        }
+      internal/build/builder.go: |
+        package build
+
+        type Config struct {
+        	Name string
+        	Port int
+        }
+
+        type Builder struct {
+        	cfg Config
+        }
+
+        func NewConfig() *Builder { return &Builder{} }
+
+        func (b *Builder) WithName(name string) *Builder { b.cfg.Name = name; return b }
+        func (b *Builder) WithPort(port int) *Builder    { b.cfg.Port = port; return b }
+        func (b *Builder) Build() Config                 { return b.cfg }
+      internal/store/store.go: |
+        package store
+
+        import (
+        	"encoding/json"
+        	"fmt"
+        	"os"
+
+        	"example.com/app/internal/lookup"
+        )
+
+        type Store struct {
+        	path string
+        }
+
+        func Open(name string) (*Store, error) {
+        	path := lookup.PathFor(name)
+        	if _, err := os.Stat(path); err != nil {
+        		return nil, err
+        	}
+        	return &Store{path: path}, nil
+        }
+
+        func (s *Store) Load(key string) map[string]string {
+        	raw, err := os.ReadFile(s.path)
+        	if err != nil {
+        		return nil
+        	}
+        	out := map[string]string{}
+        	if err := json.Unmarshal(raw, &out); err != nil {
+        		fmt.Println("store: unmarshal failed")
+        	}
+        	return out
+        }
+
+        func (s *Store) Close() {}
+  - author: "Ivy Lee <ivy@example.com>"
+    date: "2025-03-14T09:00:00+00:00"
+    subject: "fix: store lookup query"
+    files:
+      internal/store/store.go: "@final"
+  - author: "Hal Finney <hal@example.com>"
+    date: "2025-07-22T09:00:00+00:00"
+    subject: "docs: document the payments kill switch"
+    files:
+      internal/flags/flags.go: "@final"
+      docs/runbook.md: "@final"
+    tag: v0.1.0
+  - author: "Ivy Lee <ivy@example.com>"
+    date: "2025-12-01T09:00:00+00:00"
+    subject: "chore: pin compose images"
+    files:
+      docker-compose.yml: "@final"
+  - author: "Hal Finney <hal@example.com>"
+    date: "2026-03-09T09:00:00+00:00"
+    subject: "chore: staging compose overrides"
+    branch: staging
+    files:
+      docker-compose.dev.yml: |
+        services:
+          db:
+            image: postgres:latest
+          mail:
+            image: mailhog/mailhog:latest
+          worker:
+            image: example/worker:latest
+  - author: "Ivy Lee <ivy@example.com>"
+    date: "2026-04-20T09:00:00+00:00"
+    subject: "feat: builder TLS option"
+    branch: main
+    files:
+      internal/build/builder.go: "@final"
+    tag: v0.2.0
+  - author: "renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>"
+    date: "2026-06-14T09:00:00+00:00"
+    subject: "chore(deps): update go.sum"
+    files:
+      go.sum: "@final"

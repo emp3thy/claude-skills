@@ -1,0 +1,36 @@
+{
+  "churn_months": 240,
+  "planted": [
+    {"id": "p1", "family": "error-masking", "type_id": "TD-13", "path": "internal/store/store.go", "lines": [27, 29], "expect_tier": "A"},
+    {"id": "p2", "family": "error-masking", "type_id": "TD-13", "path": "internal/store/store.go", "lines": [31, 33], "expect_tier": "B"},
+    {"id": "p3", "family": "security", "type_id": "TD-03", "path": "internal/store/store.go", "lines": [38, 38], "expect_tier": "B"},
+    {"id": "p4", "family": "security", "type_id": "TD-03", "path": "internal/httpc/httpc.go", "lines": [9, 9], "expect_tier": "B"},
+    {"id": "p5", "family": "security", "type_id": "TD-03", "path": "internal/httpc/httpc.go", "lines": [13, 13], "expect_tier": "B"},
+    {"id": "p6", "family": "half-finished", "type_id": "TD-34", "path": "internal/httpc/httpc.go", "lines": [14, 14], "expect_tier": "B"},
+    {"id": "p7", "family": "dead-code", "type_id": "TD-17", "path": "internal/httpc/httpc.go", "lines": [11, 12], "expect_tier": "B"},
+    {"id": "p8", "family": "security", "type_id": "TD-03", "path": "internal/crypto/hash.go", "lines": [9, 9], "expect_tier": "B"},
+    {"id": "p9", "family": "security", "type_id": "TD-03", "path": "internal/shell/run.go", "lines": [7, 7], "expect_tier": "B"},
+    {"id": "p10", "family": "half-finished", "type_id": "TD-28", "path": "internal/dispatch/dispatch.go", "lines": [30, 32], "expect_tier": "B"},
+    {"id": "p11", "family": "dead-code", "type_id": "TD-09", "path": "internal/dispatch/dispatch.go", "lines": [30, 32], "expect_tier": "C"},
+    {"id": "p12", "family": "pipeline-infra", "type_id": "TD-19", "path": "Dockerfile", "lines": [8, 8], "expect_tier": "A"},
+    {"id": "p13", "family": "pipeline-infra", "type_id": "TD-19", "path": "docker-compose.dev.yml", "lines": [3, 5], "expect_tier": "A"},
+    {"id": "p14", "family": "pipeline-infra", "type_id": "TD-19", "path": "k8s/deployment.yaml", "lines": [8, 12], "expect_tier": "A"},
+    {"id": "p15", "family": "pipeline-infra", "type_id": "TD-14", "path": ".github/workflows/ci.yml", "lines": [6, 20], "expect_tier": "A"},
+    {"id": "p16", "family": "test-quality", "type_id": "TD-12", "path": "internal/store/store_test.go", "lines": [15, 15], "expect_tier": "B"},
+    {"id": "p17", "family": "test-quality", "type_id": "TD-18", "path": "internal/store/store_test.go", "lines": [14, 17], "expect_tier": "B"},
+    {"id": "p18", "family": "pipeline-infra", "type_id": "TD-27", "path": null, "lines": [0, 0], "expect_tier": "A"}
+  ],
+  "decoys": [
+    {"id": "d1", "family": "complex-units", "path": "internal/lookup/lookup.go", "why": "300-line lookup table: large but cohesive data, not branching"},
+    {"id": "d2", "family": "dead-code", "path": "cmd/app/main.go", "why": "entry point with no importer; main is a stoplist name"},
+    {"id": "d3", "family": "dead-code", "path": "internal/dispatch/dispatch.go", "lines": [7, 12], "why": "handlers reached only through a string-dispatch map"},
+    {"id": "d4", "family": "god-classes", "path": "internal/build/builder.go", "why": "fluent builder: method chains are the idiom, not inappropriate intimacy"},
+    {"id": "d5", "family": "error-masking", "path": "cmd/app/main.go", "why": "main logs the error and exits non-zero: a process boundary"},
+    {"id": "d6", "family": "dead-code", "path": "internal/flags/flags.go", "why": "documented kill switch (docs/runbook.md), permanently false by design"},
+    {"id": "d7", "family": "pipeline-infra", "path": "docker-compose.yml", "why": "images pinned to tags"},
+    {"id": "d8", "family": "pipeline-infra", "path": "k8s/service.yaml", "why": "Service manifest has no containers; resource and privilege rules do not apply"},
+    {"id": "d9", "family": "half-finished", "path": "internal/httpc/httpc_safe.go", "why": "client carries a Timeout"},
+    {"id": "d10", "family": "error-masking", "path": "internal/store/store.go", "lines": [19, 21], "why": "return nil, err propagates the error"},
+    {"id": "d11", "family": "ownership", "path": "internal/store/store.go", "why": "two human authors in the repository: the ownership group is suppressed"}
+  ]
+}

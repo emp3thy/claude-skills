@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from promote import PromoteResult, run_promote
 
 GOLDEN = Path(__file__).parent / "golden" / "design.md"
@@ -74,3 +75,28 @@ def test_default_result_emitted_paths_is_list():
     a, b = PromoteResult(), PromoteResult()
     a.emitted_paths.append(Path("x"))
     assert b.emitted_paths == []
+
+
+def test_accepted_counted_separately_from_pending(tmp_path: Path) -> None:
+    src = tmp_path / "design.md"
+    src.write_text(GOLDEN.read_text().replace("status: pending", "status: accepted", 1))
+    result = run_promote(src, out_root=tmp_path / "out", date="2026-05-31")
+    assert result.exit_code == 0
+    assert result.emitted_count == 0
+    assert result.accepted_count == 1
+    assert result.pending_count == 4
+    assert result.rejected_count == 0
+    assert "status: accepted" in src.read_text()
+
+
+def test_summary_line_reports_accepted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from promote import _main
+
+    src = tmp_path / "design.md"
+    src.write_text(GOLDEN.read_text().replace("status: pending", "status: accepted", 2))
+    assert _main([str(src), "--out", str(tmp_path / "out")]) == 0
+    out = capsys.readouterr().out
+    assert "accepted: 2" in out
+    assert "pending: 3" in out

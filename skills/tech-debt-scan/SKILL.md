@@ -94,9 +94,13 @@ python scripts/inventory.py <repo-path> --out .tech-debt/inventory.json
 
 - Add `--churn-months <n>` to widen or narrow the churn window.
 - Postcondition: `.tech-debt/inventory.json` exists (a JSON object with
-  `root`, `total_files`, `total_loc`, `languages`, `git_available`,
-  `churn_window_months`, `hotspots`, `files`; each file entry carries `loc`,
-  `complexity`, `max_indent`, `churn`). If it is missing, abort with exit 5.
+  `schema_version`, `root`, `total_files`, `total_loc`, `languages`,
+  `git_available`, `churn_window_months`, `hotspots`, `hotspot_band`, `files`,
+  `artefacts`, `docs`, `tests`, `git`; each file entry carries `loc`,
+  `complexity`, `max_indent`, `churn`, `path_class`, `hotspot_score`). If it is
+  missing, abort with exit 5. When `inventory.py` is run with `--workdir
+  .tech-debt` instead of `--out`, it also writes `.tech-debt/coupling.json`; the
+  command above with `--out` is unchanged and writes only the inventory.
 - When `git_available` is false (no git, or not a repository), churn is 0 and
   `hotspots` is empty — the scan still works, it just loses the interest
   signal. Mention this in the final report.

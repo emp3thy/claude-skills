@@ -1,0 +1,540 @@
+commits:
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2024-08-15T10:00:00+00:00"
+    subject: "feat: initial payment service"
+    files:
+      README.md: "@final"
+      pyproject.toml: "@final"
+      requirements.txt: |
+        requests==2.31.0
+      setup.py: "@final"
+      .github/workflows/ci.yml: "@final"
+      src/pay/__init__.py: "@final"
+      src/pay/utils.py: "@final"
+      src/pay/legacy_export.py: "@final"
+      src/pay/old_helper.py: |
+        """Retired helper."""
+
+
+        def helper() -> int:
+            return 1
+      src/pay/models.py: |
+        """Ledger and refund records."""
+        from __future__ import annotations
+
+        from dataclasses import dataclass
+
+
+        @dataclass
+        class Entry:
+            account: str
+            amount_cents: int
+
+
+        @dataclass
+        class Refund:
+            order_id: str
+            amount_cents: int
+      src/pay/ledger.py: |
+        """Append-only ledger."""
+        from __future__ import annotations
+
+        import json
+        from pathlib import Path
+
+        from pay.models import Entry
+
+        LEDGER_PATH = Path("ledger.jsonl")
+
+
+        def post(entry: Entry, path: Path = LEDGER_PATH) -> None:
+            record = {"account": entry.account, "amount": entry.amount_cents}
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record) + "\n")
+      src/pay/refund.py: |
+        """Refund workflow."""
+        from __future__ import annotations
+
+        from pay import ledger
+        from pay.models import Entry, Refund
+
+
+        def validate(refund: Refund) -> None:
+            if refund.amount_cents <= 0:
+                raise ValueError("refund amount must be positive")
+
+
+        def issue(refund: Refund) -> None:
+            validate(refund)
+            entry = Entry(account=refund.order_id, amount_cents=-refund.amount_cents)
+            ledger.post(entry)
+            # FIXME: the gateway retries on our behalf, so a duplicate refund can post twice
+      tests/conftest.py: "@final"
+      tests/fixtures/seed.py: "@final"
+      tests/test_ledger.py: |
+        """Ledger tests."""
+        from __future__ import annotations
+
+        from pathlib import Path
+
+        from pay import ledger
+        from pay.models import Entry
+
+
+        def test_post_writes_a_line(tmp_path: Path) -> None:
+            path = tmp_path / "ledger.jsonl"
+            ledger.post(Entry(account="a", amount_cents=100), path)
+            assert path.read_text(encoding="utf-8").count("\n") == 1
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2024-09-01T09:00:00+00:00"
+    subject: "chore: add Dockerfile and release workflow"
+    files:
+      Dockerfile: "@final"
+      .github/workflows/release.yml: "@final"
+  - author: "Linus Torvalds <linus@example.com>"
+    date: "2024-10-05T09:00:00+00:00"
+    subject: "docs: changelog, ledger ADR and overview"
+    files:
+      CHANGELOG.md: "@final"
+      docs/adr/0001-ledger.md: "@final"
+      docs/übersicht.md: "@final"
+    tag: v0.1.0
+  - author: "Linus Torvalds <linus@example.com>"
+    date: "2025-01-20T09:00:00+00:00"
+    subject: "feat: gateway client"
+    files:
+      src/pay/gateway.py: |
+        """HTTP client for the payment gateway."""
+        from __future__ import annotations
+
+        import requests
+
+        API_BASE = "https://gateway.example.com/v1"
+
+
+        class Gateway:
+            def __init__(self, base: str = API_BASE) -> None:
+                self.base = base
+
+            def refund(self, order_id: str, amount_cents: int) -> bool:
+                response = requests.post(f"{self.base}/refunds", json={"order": order_id}, timeout=10)
+                return response.status_code == 200
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2025-03-10T09:00:00+00:00"
+    subject: "fix: ledger rounding bug"
+    files:
+      src/pay/ledger.py: |
+        """Append-only ledger."""
+        from __future__ import annotations
+
+        import json
+        from pathlib import Path
+
+        from pay.models import Entry
+
+        LEDGER_PATH = Path("ledger.jsonl")
+
+
+        def post(entry: Entry, path: Path = LEDGER_PATH) -> None:
+            record = {"account": entry.account, "amount": int(entry.amount_cents)}
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record) + "\n")
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2025-09-20T09:00:00+00:00"
+    subject: "feat: partial refunds"
+    files:
+      src/pay/refund.py: |
+        """Refund workflow."""
+        from __future__ import annotations
+
+        from pay import ledger
+        from pay.models import Entry, Refund
+        from pay.utils import cents
+
+
+        def validate(refund: Refund) -> None:
+            if refund.amount_cents <= 0:
+                raise ValueError("refund amount must be positive")
+
+
+        def issue(refund: Refund) -> None:
+            validate(refund)
+            entry = Entry(account=refund.order_id, amount_cents=-refund.amount_cents)
+            ledger.post(entry)
+            # FIXME: the gateway retries on our behalf, so a duplicate refund can post twice
+
+
+        def issue_partial(refund: Refund, fraction: float) -> None:
+            amount = cents(refund.amount_cents * fraction / 100)
+            issue(Refund(order_id=refund.order_id, amount_cents=amount))
+      src/pay/ledger.py: |
+        """Append-only ledger."""
+        from __future__ import annotations
+
+        import json
+        from pathlib import Path
+
+        from pay.models import Entry
+
+        LEDGER_PATH = Path("ledger.jsonl")
+
+
+        def post(entry: Entry, path: Path = LEDGER_PATH) -> None:
+            record = {"account": entry.account, "amount": int(entry.amount_cents)}
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record) + "\n")
+
+
+        def balance(account: str, path: Path = LEDGER_PATH) -> int:
+            total = 0
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                record = json.loads(raw)
+                if record["account"] == account:
+                    total += int(record["amount"])
+            return total
+      tests/test_refund.py: |
+        """Refund workflow tests."""
+        from __future__ import annotations
+
+        import pytest
+
+        from pay import refund as refund_mod
+        from pay.models import Refund
+
+
+        def test_validate_rejects_zero() -> None:
+            with pytest.raises(ValueError):
+                refund_mod.validate(Refund(order_id="o-1", amount_cents=0))
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2025-10-14T09:00:00+00:00"
+    subject: "fix: refund double-post regression"
+    files:
+      src/pay/refund.py: |
+        """Refund workflow."""
+        from __future__ import annotations
+
+        from pay import ledger
+        from pay.models import Entry, Refund
+        from pay.utils import cents
+
+        _seen: set[str] = set()
+
+
+        def validate(refund: Refund) -> None:
+            if refund.amount_cents <= 0:
+                raise ValueError("refund amount must be positive")
+
+
+        def issue(refund: Refund) -> bool:
+            validate(refund)
+            if refund.order_id in _seen:
+                return False
+            _seen.add(refund.order_id)
+            entry = Entry(account=refund.order_id, amount_cents=-refund.amount_cents)
+            ledger.post(entry)
+            # FIXME: the gateway retries on our behalf, so a duplicate refund can post twice
+            return True
+
+
+        def issue_partial(refund: Refund, fraction: float) -> bool:
+            amount = cents(refund.amount_cents * fraction / 100)
+            return issue(Refund(order_id=refund.order_id, amount_cents=amount))
+      src/pay/ledger.py: |
+        """Append-only ledger."""
+        from __future__ import annotations
+
+        import json
+        from pathlib import Path
+
+        from pay.models import Entry
+
+        LEDGER_PATH = Path("ledger.jsonl")
+
+
+        def post(entry: Entry, path: Path = LEDGER_PATH) -> None:
+            record = {"account": entry.account, "amount": int(entry.amount_cents)}
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record) + "\n")
+
+
+        def balance(account: str, path: Path = LEDGER_PATH) -> int:
+            total = 0
+            if not path.exists():
+                return total
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                record = json.loads(raw)
+                if record["account"] == account:
+                    total += int(record["amount"])
+            return total
+  - author: "Linus Torvalds <linus@example.com>"
+    date: "2025-11-02T09:00:00+00:00"
+    subject: "refactor: ledger entry model"
+    files:
+      src/pay/models.py: "@final"
+      src/pay/ledger.py: |
+        """Append-only ledger."""
+        from __future__ import annotations
+
+        import json
+        from pathlib import Path
+
+        from pay.models import Entry
+
+        LEDGER_PATH = Path("ledger.jsonl")
+
+
+        def post(entry: Entry, path: Path = LEDGER_PATH) -> None:
+            record = {"account": entry.account, "amount": int(entry.amount_cents), "reason": entry.reason}
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record) + "\n")
+
+
+        def balance(account: str, path: Path = LEDGER_PATH) -> int:
+            total = 0
+            if not path.exists():
+                return total
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                record = json.loads(raw)
+                if record["account"] == account:
+                    total += int(record["amount"])
+            return total
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2025-12-08T09:00:00+00:00"
+    subject: "feat: refund reason codes"
+    files:
+      src/pay/refund.py: |
+        """Refund workflow."""
+        from __future__ import annotations
+
+        from pay import ledger
+        from pay.models import Entry, Refund
+        from pay.utils import cents
+
+        REASON_CODES = ("other", "duplicate", "fraud", "requested")
+        _seen: set[str] = set()
+
+
+        def validate(refund: Refund) -> None:
+            if refund.amount_cents <= 0:
+                raise ValueError("refund amount must be positive")
+            if refund.reason_code not in REASON_CODES:
+                raise ValueError(f"unknown reason code: {refund.reason_code}")
+
+
+        def issue(refund: Refund) -> bool:
+            validate(refund)
+            if refund.order_id in _seen:
+                return False
+            _seen.add(refund.order_id)
+            entry = Entry(account=refund.order_id, amount_cents=-refund.amount_cents, reason=refund.reason_code)
+            ledger.post(entry)
+            # FIXME: the gateway retries on our behalf, so a duplicate refund can post twice
+            return True
+
+
+        def issue_partial(refund: Refund, fraction: float) -> bool:
+            amount = cents(refund.amount_cents * fraction / 100)
+            partial = Refund(order_id=refund.order_id, amount_cents=amount, reason_code=refund.reason_code)
+            return issue(partial)
+      src/pay/ledger.py: |
+        """Append-only ledger."""
+        from __future__ import annotations
+
+        import json
+        from pathlib import Path
+
+        from pay.models import Entry
+
+        LEDGER_PATH = Path("ledger.jsonl")
+
+
+        def post(entry: Entry, path: Path = LEDGER_PATH) -> None:
+            record = {"account": entry.account, "amount": int(entry.amount_cents), "reason": entry.reason}
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record) + "\n")
+
+
+        def balance(account: str, path: Path = LEDGER_PATH) -> int:
+            total = 0
+            if not path.exists():
+                return total
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                record = json.loads(raw)
+                if record["account"] == account:
+                    total += int(record["amount"])
+            return total
+
+
+        def reverse(entry: Entry) -> Entry:
+            return Entry(account=entry.account, amount_cents=-entry.amount_cents, reason="reversal")
+  - author: "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>"
+    date: "2026-01-15T09:00:00+00:00"
+    subject: "chore(deps): bump requests from 2.31.0 to 2.32.3"
+    files:
+      requirements.txt: "@final"
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2026-02-20T09:00:00+00:00"
+    subject: "fix: tolerate ledger write failures during refund"
+    files:
+      src/pay/refund.py: |
+        """Refund workflow."""
+        from __future__ import annotations
+
+        import logging
+
+        from pay import ledger
+        from pay.gateway import Gateway
+        from pay.models import Entry, Refund
+        from pay.utils import cents
+
+        log = logging.getLogger(__name__)
+
+        REASON_CODES = ("other", "duplicate", "fraud", "requested")
+        _seen: set[str] = set()
+
+
+        def validate(refund: Refund) -> None:
+            if refund.amount_cents <= 0:
+                raise ValueError("refund amount must be positive")
+            if refund.reason_code not in REASON_CODES:
+                raise ValueError(f"unknown reason code: {refund.reason_code}")
+
+
+        def issue(refund: Refund, gateway: Gateway) -> bool:
+            validate(refund)
+            if refund.order_id in _seen:
+                return False
+            _seen.add(refund.order_id)
+            entry = Entry(account=refund.order_id, amount_cents=-refund.amount_cents, reason=refund.reason_code)
+            try:
+                ledger.post(entry)
+            except Exception:
+                pass
+            # FIXME: the gateway retries on our behalf, so a duplicate refund can post twice
+            try:
+                accepted = gateway.refund(refund.order_id, refund.amount_cents)
+            except OSError as exc:
+                log.exception("gateway unreachable for %s", refund.order_id)
+                raise RuntimeError("gateway unreachable") from exc
+            return accepted
+
+
+        def issue_partial(refund: Refund, gateway: Gateway, fraction: float) -> bool:
+            amount = cents(refund.amount_cents * fraction / 100)
+            partial = Refund(order_id=refund.order_id, amount_cents=amount, reason_code=refund.reason_code)
+            return issue(partial, gateway)
+      src/pay/ledger.py: "@final"
+    tag: v0.2.0
+  - author: "Linus Torvalds <linus@example.com>"
+    date: "2026-03-30T09:00:00+00:00"
+    subject: "feat: migrate gateway to v2 API"
+    files:
+      src/pay/gateway.py: "@final"
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2026-04-10T09:00:00+00:00"
+    subject: "hotfix: ledger rounding for partial refunds"
+    branch: hotfix/ledger-rounding
+    files:
+      src/pay/ledger.py: |
+        """Append-only ledger stored as JSON lines."""
+        from __future__ import annotations
+
+        import json
+        from pathlib import Path
+
+        from pay.models import Entry
+
+        LEDGER_PATH = Path("ledger.jsonl")
+
+
+        def post(entry: Entry, path: Path = LEDGER_PATH) -> None:
+            record = {"account": entry.account, "amount": round(entry.amount_cents), "reason": entry.reason}
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record) + "\n")
+
+
+        def balance(account: str, path: Path = LEDGER_PATH) -> int:
+            total = 0
+            if not path.exists():
+                return total
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                record = json.loads(raw)
+                if record["account"] == account:
+                    total += int(record["amount"])
+            return total
+
+
+        def reverse(entry: Entry) -> Entry:
+            return Entry(account=entry.account, amount_cents=-entry.amount_cents, reason="reversal")
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2026-05-11T09:00:00+00:00"
+    subject: "feat: refund audit trail"
+    branch: main
+    files:
+      src/pay/refund.py: |
+        """Refund workflow."""
+        from __future__ import annotations
+
+        import logging
+
+        from pay import ledger
+        from pay.gateway import Gateway
+        from pay.models import Entry, Refund
+        from pay.utils import cents
+
+        log = logging.getLogger(__name__)
+
+        REASON_CODES = ("other", "duplicate", "fraud", "requested")
+        _seen: set[str] = set()
+
+
+        def validate(refund: Refund) -> None:
+            if refund.amount_cents <= 0:
+                raise ValueError("refund amount must be positive")
+            if refund.reason_code not in REASON_CODES:
+                raise ValueError(f"unknown reason code: {refund.reason_code}")
+
+
+        def issue(refund: Refund, gateway: Gateway) -> bool:
+            validate(refund)
+            if refund.order_id in _seen:
+                return False
+            _seen.add(refund.order_id)
+            entry = Entry(account=refund.order_id, amount_cents=-refund.amount_cents, reason=refund.reason_code)
+            try:
+                ledger.post(entry)
+            except Exception:
+                pass
+            # FIXME: the gateway retries on our behalf, so a duplicate refund can post twice
+            try:
+                accepted = gateway.refund(refund.order_id, refund.amount_cents)
+            except OSError as exc:
+                log.exception("gateway unreachable for %s", refund.order_id)
+                raise RuntimeError("gateway unreachable") from exc
+            print(f"refund {refund.order_id} accepted={accepted}")
+            return accepted
+
+
+        def issue_partial(refund: Refund, gateway: Gateway, fraction: float) -> bool:
+            amount = cents(refund.amount_cents * fraction / 100)
+            partial = Refund(order_id=refund.order_id, amount_cents=amount, reason_code=refund.reason_code)
+            return issue(partial, gateway)
+
+
+        def audit_trail(refund: Refund) -> list[str]:
+            return [f"{refund.order_id}:{refund.amount_cents}:{refund.reason_code}"]
+      tests/test_refund.py: "@final"
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2026-06-03T09:00:00+00:00"
+    subject: "test: retry flaky ledger test"
+    files:
+      tests/test_ledger.py: "@final"
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2026-06-22T09:00:00+00:00"
+    subject: "chore: tidy refund helpers"
+    files:
+      src/pay/refund.py: "@final"
+  - author: "Linus Torvalds <linus@example.com>"
+    date: "2026-07-01T09:00:00+00:00"
+    subject: "chore: remove old helper"
+    delete: [src/pay/old_helper.py]

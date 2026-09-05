@@ -10,8 +10,10 @@ they are the source of truth, and the test suite pins their behaviour.
 ## Design principles
 
 - **Language-independent.** The only language-aware code is the inventory's
-  extension→language map. Scout prompts and synthesis are language-neutral and
-  reason about the inventory + the repo's own files.
+  extension→language map, which also supplies each language's comment syntax
+  to `patterns.py`. Every rule in `inventory.py`, `patterns.py` and `rules.py`
+  is a union of idioms across languages; a test greps the scripts for any
+  branch on a language name. Scout prompts and synthesis are language-neutral.
 - **LLM does the judgement, scripts do the determinism.** The model dispatches
   scout agents and picks the top 5. File walking, prompt rendering, markdown
   rendering, parsing, validation, and bundle writing are all pure Python with
@@ -45,6 +47,31 @@ design_writer.py    → design.md                   └─ design_writer.mark_pr
 All intermediate artefacts default to `.tech-debt/` under the scanned repo (the
 directory is gitignored and is itself in the inventory ignore list). Bundles
 default to `./tech-debt-pbis`.
+
+## Deterministic signals (v2 phase 1)
+
+Phase 1 of the v2 design (`docs/superpowers/specs/2026-09-04-tech-debt-scan-v2-design.md`)
+adds four scripts that run by hand until phase 3 wires them into the workflow:
+
+| Script | Reads | Writes | What it computes |
+| --- | --- | --- | --- |
+| `inventory.py <repo> --workdir .tech-debt` | the tree, one `git log` pass, `.tech-debt.yaml` | `inventory.json`, `coupling.json` | path classes (tests, generated, vendored, docs, source) on code files and artefacts alike, artefact classes, per-file churn and authorship (authors keyed by email, bots dropped, joined against HEAD), `hotspot_score` and the `hotspot_band` (top 10 percent of source files, 5 to 50), blame line share on the band, change-coupling pairs (`shared >= 3`, `ratio >= 0.30`, bulk commits over 50 files excluded), approximate fan-in and fan-out by identifier stems over import-like lines with the mechanical ambiguity rule, import-line cycles of size 2 to 5 as leads, directory instability, test mapping across seven naming conventions, the docs and tests blocks, and the size guard that never reads a file over 2 MB or with a NUL byte in its first KB (`skipped_large` per entry, `skipped_large_files` at the top level) |
+| `patterns.py <repo> --workdir .tech-debt [--no-blame]` | `inventory.json`, the files | `patterns.json`; fills `files[].inline_disables` | regex leads per family (half-finished stubs and skips and no-timeout calls, error-masking catches with the caught variable and carrier exclusion, dead-code commented-out runs, legacy names, deprecations and flag SDK calls, security credentials with four-character redaction, string SQL, dynamic evaluation, TLS off, weak hashes, permissive CORS and suppressions, test-quality signals, stdout writes where a logger exists) and the SATD table with blame age and ticket flags; artefacts are scoped by their artefact class but every lead and SATD entry on one reports the artefact's real `path_class`, and an artefact classed `generated` or `vendored`, or marked `skipped_large`, is not scanned |
+| `rules.py <repo> --workdir .tech-debt` | `inventory.json`, the artefacts | `rule-findings.json` | tier-A findings for CI jobs, Dockerfiles and compose images, Kubernetes manifests, manifests without lockfiles, release cadence and stale environment branches, and ownership (knowledge islands, inactive top authors, CODEOWNERS coverage); migration leads for `setup.py` beside `pyproject.toml` and `tslint` beside `eslint`; an artefact under a tests, vendored or generated tree is skipped, an artefact the inventory marked `skipped_large` is never read, and every finding carries the artefact's `path_class` in `signals` |
+| `evaluate.py --planted <planted.json> --workdir <dir>` | `findings.json` or `verified.json`, `ranked.json` | stdout | per-family precision, recall and decoy hits by tier, and decoys in tier A or the top N, against a fixture's `planted.json` |
+
+`config.py` loads `.tech-debt.yaml` with the spec defaults; `git_history.py`
+and `reference_graph.py` hold the git pass and the stem graph that
+`inventory.py` uses. Without git, churn is 0, the history fields are null and
+`coupling.json` holds empty lists. The v1 command
+`inventory.py <repo> --out <path>` still writes only `inventory.json`.
+
+The fixture corpus under `skills/tech-debt-scan/tests/fixtures/corpus/`
+(`service-py`, `web-ts`, `mixed-decoys` in Go) keeps each tree in `files/`, its
+commit history in `history.yaml` and its planted debt and decoys in
+`planted.json`; `tests/helpers/make_history.py` replays a history into a
+temporary git repository at test time, so churn, coupling, blame and branches
+are exercised without committing a `.git` directory.
 
 ## Scout categories
 
@@ -140,6 +167,14 @@ succeeded bundles persist and their findings are still marked promoted).
   (`tests/test_e2e.py`) drives scan→promote against fixture repos with golden
   inputs. The `live` pytest marker is off by default.
 - The full suite must pass `ruff`, `mypy --strict`, and `pytest` in CI.
+- The corpus fixtures are replayed into temporary git repositories once per
+  test session (`conftest.py` session fixtures); tests that count churn pass an
+  explicit window (`churn_months=240` or `1`) because fixture dates are fixed
+  while the default 12-month window moves. Corpus scoring is only meaningful at
+  that window, so each `planted.json` records it as a top-level `churn_months`
+  (240) that `evaluate.py` reads back into its report and prints above the
+  table; scored under the moving default, service-py's ownership decoy reaches
+  tier A.
 
 ## Scope
 

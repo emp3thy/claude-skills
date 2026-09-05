@@ -16,11 +16,16 @@ dev = [
 testpaths = ["skills/tech-debt-scan/tests", "skills/karate-bootstrap/tests"]
 markers = ["live: hits a real LLM (off by default)"]
 addopts = "-m 'not live'"
+# The corpus fixture trees legitimately contain files named test_*.py (they
+# are fixture content, not tests of this project); keep pytest from trying
+# to collect and import them.
+norecursedirs = ["fixtures/corpus"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["skills/*/tests/fixtures"]
+# Fixture repos under every skill's tests/fixtures are data, not project code.
+extend-exclude = ["skills/tech-debt-scan/tests/fixtures/corpus", "skills/*/tests/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
