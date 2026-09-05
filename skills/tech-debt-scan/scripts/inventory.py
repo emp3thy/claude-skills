@@ -868,8 +868,8 @@ def build_all(
         "hotspot_band": band,
         "files": [asdict(e) for e in entries],
         "artefacts": artefacts,
-        "skipped_large_files": sum(e.skipped_large for e in entries) + sum(
-            bool(a["skipped_large"]) for items in artefacts.values() for a in items
+        "skipped_large_files": sum(1 for e in entries if e.skipped_large) + sum(
+            1 for items in artefacts.values() for a in items if a["skipped_large"]
         ),
         "docs": docs_block(
             entries, artefacts, texts, git_block, git_available,
