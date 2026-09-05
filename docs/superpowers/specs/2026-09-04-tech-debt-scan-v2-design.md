@@ -260,7 +260,7 @@ Stdout is decoded as UTF-8 with replacement; the header line is split with `maxs
 
 Per file: `churn`, `last_touched`, `authors` (distinct humans), `top_author` (the email key of the author with the most commits, needed by the former-contributor rule), `top_author_share`, `bugfix_share` (subject matches `fix|bug|hotfix|regress`; recorded, not scored), `migration_commits` (`migrat|legacy|deprecat|port(ed|ing)|codemod|upgrade`), `flaky_commits` (`flak`), `untested_change_share` (share of commits touching the file with no `tests`-class file alongside). Repo-wide: authors with last-active dates, commit count, bulk commits excluded.
 
-Two further fixed-argv commands give branches (`git for-each-ref` on `refs/heads` and `refs/remotes` with `%(symref)` in the format so `origin/HEAD` is skipped; merged state via `git merge-base --is-ancestor`, exit 128 recorded as null) and tags (`git tag --sort=creatordate`). `git blame -w --line-porcelain <path>` runs only for hotspot-band files (cap 50) to derive `top_author_line_share`. Measured: 0.06 to 0.74 s for 5 to 604 commits; blame 4.4 s for 50 files.
+Two further fixed-argv commands give branches (`git for-each-ref` on `refs/heads` and `refs/remotes` with `%(symref)` in the format so `origin/HEAD` is skipped; merged state from one `git for-each-ref --format=%(refname) --merged=HEAD refs/heads refs/remotes` pass, every branch `merged: null` when that call fails) and tags (`git tag --sort=creatordate`). `git blame -w --line-porcelain <path>` runs only for hotspot-band files (cap 50) to derive `top_author_line_share`. Measured: 0.06 to 0.74 s for 5 to 604 commits; blame 4.4 s for 50 files.
 
 **Change coupling.** Commits touching more than `bulk_threshold` (50) files are excluded. Pairs of `source`-class files are counted; a pair is emitted at `shared_commits >= 3` and `ratio >= 0.30` where `ratio = shared / mean(commits_a, commits_b)`; per-file `coupling_degree` is the count of emitted pairs. Measured: 49 pairs on ralph, 20 on better-memory, 0 on claude-skills.
 
@@ -290,7 +290,7 @@ inventory.json
                "deep_indent_lines": 0, "longest_indented_run": 0, "inline_disables": 0,
                "last_touched": null, "authors": 0, "top_author": null, "top_author_share": null, "top_author_line_share": null,
                "bugfix_share": 0.0, "migration_commits": 0, "flaky_commits": 0, "untested_change_share": null,
-               "mapped_tests": [], "fan_in_approx": null, "fan_out_approx": null, "fan_in_mode": "import-lines", "coupling_degree": 0 } ],
+               "mapped_tests": [], "fan_in_approx": null, "fan_out_approx": null, "fan_in_mode": "import-lines", "coupling_degree": 0, "skipped_large": false } ],
   "artefacts": { "<class>": [ {"path": "", "path_class": "source", "loc": 0, "churn": 0, "last_touched": null, "size_bytes": 0, "skipped_large": false} ] },
   "skipped_large_files": 0,
   "docs": { ... }, "tests": { ... },
