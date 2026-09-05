@@ -46,7 +46,7 @@ def test_begin_creates_the_branch_on_the_default_branch_only(tmp_path: Path) -> 
     assert begin(repo, "karate-bootstrap") == {"branch": "karate-bootstrap", "created": False,
                                                "switched": True}
     _git(repo, "checkout", "-q", "-b", "ralph/PBI-42")
-    assert begin(repo, "ralph/PBI-42") == {"branch": "ralph/PBI-42", "created": False,
+    assert begin(repo, "karate-bootstrap") == {"branch": "ralph/PBI-42", "created": False,
                                                "switched": False}
 
 
