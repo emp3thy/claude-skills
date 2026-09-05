@@ -6,6 +6,9 @@ A leaf module (standard library only, no sibling imports) so ``rules.py``,
 
 ``fingerprint`` is spec 4.7 step 4; ``find_quote`` is step 3 (cited range first,
 then anywhere in the file, whitespace-normalised); ``signals_for`` is step 6.
+``repo_maxima`` and ``priority_terms`` are the 4.9 priority formula, defined
+once here so ``verify_prompts.py`` (provisional ranking at tier B) and
+``rank.py`` (the real ranking) compute it the same way.
 """
 from __future__ import annotations
 
@@ -87,3 +90,59 @@ def signals_for(inventory: dict[str, Any], path: str | None) -> dict[str, Any]:
                 signals["path_class"] = artefact.get("path_class")
                 return signals
     return signals
+
+
+TIER_WEIGHT: dict[str | None, float] = {"A": 1.0, "B": 0.7, "C": 0.35, None: 0.7}
+
+
+def repo_maxima(inventory: dict[str, Any]) -> dict[str, float | int]:
+    """Repository maxima for the H, C and F terms; fan-in counts import-line entries only."""
+    files = [e for e in inventory.get("files", []) if isinstance(e, dict)]
+    hotspot = max((float(e.get("hotspot_score") or 0.0) for e in files), default=0.0)
+    coupling = max((int(e.get("coupling_degree") or 0) for e in files), default=0)
+    fan_in = max(
+        (
+            int(e["fan_in_approx"])
+            for e in files
+            if isinstance(e.get("fan_in_approx"), int)
+            and e.get("fan_in_mode", "import-lines") == "import-lines"
+        ),
+        default=0,
+    )
+    return {"hotspot": hotspot, "coupling": coupling, "fan_in": fan_in}
+
+
+def priority_terms(
+    candidate: dict[str, Any],
+    maxima: dict[str, float | int],
+    weights: dict[str, float],
+    tractability: dict[str, float],
+    *,
+    tier: str | None,
+    fan_in_mode: str,
+) -> dict[str, Any]:
+    """Every term of the 4.9 formula, rounded so a reader can recompute the priority."""
+    signals = candidate.get("signals") or {}
+
+    def ratio(value: Any, maximum: float | int) -> float:
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not maximum:
+            return 0.0
+        return round(float(value) / float(maximum), 4)
+
+    h = ratio(signals.get("hotspot_score"), maxima["hotspot"])
+    c = ratio(signals.get("coupling_degree"), maxima["coupling"])
+    # An ``anywhere`` fan-in is the labelled low-confidence fallback: it never scores.
+    f = (
+        ratio(signals.get("fan_in_approx"), maxima["fan_in"])
+        if fan_in_mode == "import-lines"
+        else 0.0
+    )
+    interest = round(1 + weights["wH"] * h + weights["wC"] * c + weights["wF"] * f, 4)
+    tier_weight = TIER_WEIGHT.get(tier, 0.7)
+    tract = float(tractability.get(str(candidate.get("effort")), tractability["M"]))
+    severity = int(candidate.get("severity") or 0)
+    return {
+        "severity": severity, "H": h, "C": c, "F": f, "interest": interest,
+        "tier_weight": tier_weight, "tractability": tract,
+        "priority": round(severity * interest * tier_weight * tract, 4),
+    }
