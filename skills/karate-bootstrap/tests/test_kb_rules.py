@@ -50,6 +50,9 @@ def test_extract_bean_validation_spring_request() -> None:
     assert got[("destination", "too_long")]["value"] == "121"
     assert all(r["expected_status"] == "400" for r in rows)
     assert all(r["source"].startswith(src + ":") for r in rows)
+    # reference: missing, empty, too_long (3); weightKg: missing, out_of_range (2);
+    # countryCode: missing, invalid_format (2); destination: too_short, too_long (2) = 9
+    assert len(rows) == 9
 
 
 def test_extract_bean_validation_decimal_min() -> None:
@@ -59,6 +62,18 @@ def test_extract_bean_validation_decimal_min() -> None:
     got = rows_by_field(rows)
     assert got[("amount", "out_of_range")]["value"] == "0"
     assert got[("currency", "too_long")]["value"] == "4"
+    # orderId: missing (1); amount: missing, out_of_range (2);
+    # currency: missing, empty, too_long (3) = 6
+    assert len(rows) == 6
+
+
+def test_extract_bean_validation_ignores_class_level_annotations() -> None:
+    text = (
+        "@Entity\n@NotNull\npublic class Req {\n"
+        "    private String reference;\n\n    @NotBlank\n    private String name;\n}\n"
+    )
+    rows = extract_bean_validation(text, "Req.java")
+    assert [(r["field"], r["mutation"]) for r in rows] == [("name", "missing"), ("name", "empty")]
 
 
 def test_extract_fluent_validation() -> None:
@@ -70,6 +85,9 @@ def test_extract_fluent_validation() -> None:
     assert got[("Volume", "out_of_range")]["value"] == "0"
     assert got[("Product", "too_long")]["value"] == "21"
     assert got[("ExternalId", "invalid_format")]["value"] == "!!"
+    # CounterpartyId: missing, empty (2); Volume: out_of_range (1);
+    # Product: missing, empty, too_long (3); ExternalId: invalid_format (1) = 7
+    assert len(rows) == 7
 
 
 def test_extract_data_annotations() -> None:
@@ -79,12 +97,26 @@ def test_extract_data_annotations() -> None:
         "    public int Stars { get; set; }\n"
         "    [EmailAddress]\n    public string Email { get; set; }\n}\n"
     )
-    got = rows_by_field(extract_data_annotations(text, "Req.cs"))
+    rows = extract_data_annotations(text, "Req.cs")
+    got = rows_by_field(rows)
     assert ("Name", "missing") in got
     assert got[("Name", "too_long")]["value"] == "11"
     assert got[("Name", "too_short")]["value"] == "1"
     assert got[("Stars", "out_of_range")]["value"] == "0"
     assert got[("Email", "invalid_format")]["value"] == "!!"
+    # Name: missing, too_long, too_short (3); Stars: out_of_range (1);
+    # Email: invalid_format (1) = 5
+    assert len(rows) == 5
+
+
+def test_extract_data_annotations_ignores_attributes_on_non_properties() -> None:
+    text = (
+        "public class Req\n{\n    [Required]\n    public Req() { }\n\n"
+        "    public string Sku { get; set; }\n    [Required]\n"
+        "    public string Name { get; set; }\n}\n"
+    )
+    rows = extract_data_annotations(text, "Req.cs")
+    assert [(r["field"], r["mutation"]) for r in rows] == [("Name", "missing")]
 
 
 def test_extract_pydantic() -> None:
@@ -99,6 +131,9 @@ def test_extract_pydantic() -> None:
     assert ("note", "missing") not in got  # optional with default
     assert all(r["expected_status"] == "422" for r in rows)
     assert all(r["field"] not in {"id", "status"} for r in rows)  # OrderOut is not a request
+    # sku: missing, too_short, too_long (3); quantity: missing, out_of_range (2);
+    # customer_email: missing, invalid_format (2) = 7
+    assert len(rows) == 7
 
 
 @pytest.fixture()

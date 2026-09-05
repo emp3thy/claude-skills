@@ -96,13 +96,20 @@ def extract_bean_validation(text: str, source_rel: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     pending: list[tuple[int, str, dict[str, str]]] = []
     for number, line in enumerate(text.splitlines(), start=1):
-        for match in _ANNOTATION_RE.finditer(line):
-            pending.append((number, match.group(1), _args(match.group(2))))
-        field_match = _JAVA_FIELD_RE.match(line)
-        if not field_match or not pending:
-            if field_match:
-                pending = []
+        stripped = line.strip()
+        if not stripped:
             continue
+        annotations = list(_ANNOTATION_RE.finditer(line))
+        field_match = _JAVA_FIELD_RE.match(line)
+        if annotations and not field_match:
+            for match in annotations:
+                pending.append((number, match.group(1), _args(match.group(2))))
+            continue
+        if not field_match:
+            pending = []
+            continue
+        for match in annotations:
+            pending.append((number, match.group(1), _args(match.group(2))))
         field = field_match.group(1)
         for ann_line, name, args in pending:
             src = f"{source_rel}:{ann_line}"
@@ -195,12 +202,16 @@ def extract_data_annotations(text: str, source_rel: str) -> list[dict[str, Any]]
     rows: list[dict[str, Any]] = []
     pending: list[tuple[int, str, str]] = []
     for number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
         attr = _CS_ATTR_RE.match(line)
         if attr:
             pending.append((number, attr.group(1), attr.group(2) or ""))
             continue
         prop = _CS_PROP_RE.match(line)
         if not prop:
+            pending = []
             continue
         field = prop.group(1)
         for attr_line, name, raw in pending:
