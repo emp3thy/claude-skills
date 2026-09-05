@@ -39,7 +39,6 @@ to weigh.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import statistics
@@ -52,6 +51,7 @@ from typing import Any, Final
 
 import yaml
 from config import ConfigError, load_config
+from evidence import fingerprint, signals_for
 from inventory import MAX_SCAN_BYTES, NUL_SNIFF_BYTES, write_json
 from redaction import redact
 
@@ -120,14 +120,6 @@ class Hit:
     quote: str
     note: str
     severity: int
-
-
-def fingerprint(family: str, path: str, quote: str) -> tuple[str, str]:
-    """Spec 4.7: sha1(family|path|sha1(normalised quote))[:16] and the inner hash."""
-    normalised = " ".join(quote.split())
-    quote_hash = hashlib.sha1(normalised.encode("utf-8")).hexdigest()
-    outer = hashlib.sha1(f"{family}|{path}|{quote_hash}".encode()).hexdigest()
-    return outer[:16], quote_hash
 
 
 def _parse_date(value: Any) -> datetime | None:
@@ -624,31 +616,6 @@ def _ownership_hits(
 # --- assembly -------------------------------------------------------------------
 
 
-def _signals(inventory: dict[str, Any], path: str | None) -> dict[str, Any]:
-    signals: dict[str, Any] = {
-        "hotspot_score": 0.0, "churn": 0, "coupling_degree": 0, "fan_in_approx": None,
-        "path_class": None, "in_hotspot_band": False,
-    }
-    if path is None:
-        return signals
-    for entry in inventory["files"]:
-        if entry["path"] == path:
-            signals["hotspot_score"] = entry["hotspot_score"]
-            signals["churn"] = entry["churn"]
-            signals["coupling_degree"] = entry["coupling_degree"]
-            signals["fan_in_approx"] = entry["fan_in_approx"]
-            signals["path_class"] = entry["path_class"]
-            signals["in_hotspot_band"] = path in inventory.get("hotspot_band", [])
-            return signals
-    for entries in (inventory.get("artefacts") or {}).values():
-        for artefact in entries:
-            if artefact["path"] == path:
-                signals["churn"] = artefact["churn"]
-                signals["path_class"] = artefact.get("path_class")
-                return signals
-    return signals
-
-
 def _candidate(
     group: str, path: str | None, hits: list[Hit], inventory: dict[str, Any]
 ) -> dict[str, Any]:
@@ -678,7 +645,7 @@ def _candidate(
         ],
         "confirmed_by": sorted({f"rule:{h.rule_id}" for h in hits}),
         "signals_cited": [],
-        "signals": _signals(inventory, path),
+        "signals": signals_for(inventory, path),
         "tier": "A",
     }
 
