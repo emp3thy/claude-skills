@@ -13,10 +13,12 @@ it.
 Leads feed scouts and corroborate the merge; counts go to report statistics,
 never to a finding. Blame runs only for the SATD markers, on at most
 ``BLAME_FILE_CAP`` files; ``--no-blame`` skips it and leaves ``age_days`` and
-``commits_since`` null. Every quote is passed through ``redact`` before it
-is written, whatever rule or family it came from, so a credential-shaped
-value on a SATD-marker line or any other non-security lead never reaches
-``patterns.json`` unredacted, cut to its first four characters.
+``commits_since`` null. Every quote is passed through ``redaction.redact``
+before it is written, whatever rule or family it came from, so a
+credential-shaped value on a SATD-marker line or any other non-security lead
+never reaches ``patterns.json`` unredacted, cut to its first four characters;
+``rules.py`` imports the same shared module so a credential in a Dockerfile
+or workflow quote is redacted too.
 ``inline_disables`` per source file is written back into ``inventory.json``
 in place, the only cross-script in-place edit in the pipeline (spec 9).
 
@@ -39,6 +41,7 @@ from typing import Any, Final
 from config import ConfigError, load_config
 from git_history import run_git
 from inventory import DEFAULT_COMMENT, LANG_COMMENT, write_json
+from redaction import CREDENTIAL_RE, redact
 from reference_graph import import_lines
 
 SCHEMA_VERSION: Final[int] = 2
@@ -622,11 +625,6 @@ def _scan_no_timeout(sf: ScanFile, rule: Rule, _ctx: ScanContext) -> list[Lead]:
 
 # --- security -------------------------------------------------------------------
 
-CREDENTIAL_RE: Final[re.Pattern[str]] = re.compile(
-    r"\b\w*(?:password|passwd|secret|token|api_key|apikey|access_key)\w*[\"']?\s*(?:=|:=|:)\s*"
-    r"[\"'](?P<value>[^\"'\n]{8,})[\"']",
-    re.IGNORECASE,
-)
 PLACEHOLDER_RE: Final[re.Pattern[str]] = re.compile(
     r"fake|dummy|example|placeholder|changeme|your_|xxx", re.IGNORECASE
 )
@@ -655,16 +653,6 @@ SEC_SUPPRESS_RE: Final[re.Pattern[str]] = re.compile(
     r"\bnosec\b|eslint-disable[^\n]*security|nolint:gosec"
     r"|pragma\s+warning\s+disable[^\n]*\bCA\d+"
 )
-
-
-def redact(text: str) -> str:
-    """Cut every credential-shaped value in ``text`` to its first four characters."""
-
-    def cut(match: re.Match[str]) -> str:
-        value = match.group("value")
-        return match.group(0).replace(value, value[:4] + "***")
-
-    return CREDENTIAL_RE.sub(cut, text)
 
 
 def _scan_credentials(sf: ScanFile, rule: Rule, _ctx: ScanContext) -> list[Lead]:

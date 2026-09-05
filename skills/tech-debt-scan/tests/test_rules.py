@@ -132,6 +132,35 @@ def test_container_rules_and_dev_only_drop(service_py: Repo, mixed: Repo) -> Non
     assert _at(mixed_findings, "pipeline-infra", "docker-compose.yml") is None
 
 
+def test_credential_in_a_dockerfile_quote_is_redacted(tmp_path: Path) -> None:
+    """A credential-shaped value must never survive unredacted in rule-findings.json."""
+    from rules import _main
+
+    secret = "abcdefghijkl0123"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Dockerfile").write_text(
+        "FROM python:3.11-slim\n"
+        f'RUN export API_TOKEN="{secret}" && pip install requests\n'
+        "USER app\n",
+        encoding="utf-8",
+    )
+    inventory, _ = build_all(repo)
+    findings, _leads = run_rules(repo, inventory, DEFAULTS, now=NOW)
+    docker = _at(findings, "pipeline-infra", "Dockerfile")
+    assert _rules(docker) == {"rule:container.unversioned-install"}
+    assert docker is not None
+    assert secret not in json.dumps(docker)
+    assert "abcd***" in docker["evidence"][0]["quote"]
+
+    workdir = tmp_path / "wd"
+    write_json(workdir / "inventory.json", inventory)
+    assert _main([str(repo), "--workdir", str(workdir)]) == 0
+    raw = (workdir / "rule-findings.json").read_bytes()
+    assert secret.encode("utf-8") not in raw
+    assert b"abcd***" in raw
+
+
 def test_iac_rules(mixed: Repo) -> None:
     findings = _run(mixed)
     deployment = _at(findings, "pipeline-infra", "k8s/deployment.yaml")

@@ -45,6 +45,7 @@ from typing import Any, Final
 import yaml
 from config import ConfigError, load_config
 from inventory import write_json
+from redaction import redact
 
 SCHEMA_VERSION: Final[int] = 2
 
@@ -400,7 +401,7 @@ def _manifest_hits(
         if setup in files:
             leads.append({
                 "rule": "dual-manifest", "file": setup, "line": 1,
-                "quote": _first_line(_read(root, setup)),
+                "quote": redact(_first_line(_read(root, setup))),
                 "path_class": str(files[setup]["path_class"]),
                 "extra": {"pair": [setup, rel]},
             })
@@ -624,14 +625,14 @@ def _candidate(
         "family": family,
         "debt_type": debt_type,
         "type_id": type_id,
-        "title": title[:80],
+        "title": redact(title)[:80],
         "severity": max(h.severity for h in hits),
         "effort": effort,
         "source": "rule",
         "rule_id": primary.rule_id,
-        "note": "; ".join(h.note for h in hits)[:300],
+        "note": redact("; ".join(h.note for h in hits))[:300],
         "evidence": [
-            {"file": h.file, "line_start": h.line, "line_end": h.line, "quote": h.quote,
+            {"file": h.file, "line_start": h.line, "line_end": h.line, "quote": redact(h.quote),
              "quote_verified": True}
             for h in hits
         ],
