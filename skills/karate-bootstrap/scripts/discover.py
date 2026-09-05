@@ -1,9 +1,9 @@
 """Phase 1 of karate-bootstrap: discover what the harness must know before tracing.
 
-Deterministic reads, in order: the OpenShift manifest (``deployment.yml`` then
-``deploymentserverless.yml``, generic Deployment as fallback), the Dockerfile,
-application config files, and route declarations from ``markers.py``. Writes
-``env-map.json`` (config keys with roles, port, readiness, auth mode) and a
+Deterministic reads, in order: the OpenShift manifest (``deploymentserverless.yml``
+takes precedence over ``deployment.yml``, generic Deployment as fallback), the
+Dockerfile, application config files, and route declarations from ``markers.py``.
+Writes ``env-map.json`` (config keys with roles, port, readiness, auth mode) and a
 seeded ``flow-map.yaml`` with one untraced entry per entry point.
 
 Usage:
@@ -11,8 +11,9 @@ Usage:
         --out-env karate-tests/env-map.json --out-ledger karate-tests/flow-map.yaml \
         [--service-dir SUB]
 
-Exit codes: 0 ok, 2 when no manifest, Dockerfile or entry point can be found,
-5 when stack.json is missing.
+Exit codes: 0 ok, 2 when no Dockerfile or no entry point can be found, 5 when
+stack.json is missing. A missing manifest is allowed: the port falls back to the
+Dockerfile ``EXPOSE`` and readiness to a port wait.
 """
 from __future__ import annotations
 
@@ -39,9 +40,11 @@ from kb_common import (
 )
 from markers import CHEAT_SHEET, SOURCE_SUFFIXES, markers_of_kind
 
+# Serverless first: when a repo ships both, the Knative manifest is the one that
+# describes how the service actually runs.
 MANIFEST_NAMES: tuple[tuple[str, bool], ...] = (
-    ("deployment.yml", False),
     ("deploymentserverless.yml", True),
+    ("deployment.yml", False),
 )
 DOCKERFILE_CANDIDATES = (
     "Dockerfile",
@@ -322,7 +325,7 @@ def assign_role(key: str, placeholder: str) -> str:
 
 
 def downstream_name(key: str) -> str:
-    parts = re.split(r"__|[._:/]|(?<=[a-z])(?=[A-Z])", key)
+    parts = re.split(r"__|[._:/-]|(?<=[a-z])(?=[A-Z])", key)
     words: list[str] = []
     for part in parts:
         for word in part.split("_"):
@@ -351,12 +354,12 @@ def detect_auth(keys: dict[str, dict[str, Any]], stack_auth: str | None) -> dict
     switch = detect_auth_switch(keys)
     if switch is not None:
         return switch
-    jwks_keys = sorted(
+    jwks_keys = sorted({
         str(info.get("env_var") or key)
         for key, info in keys.items()
         if info.get("role") == "auth"
         and re.search(r"jwks|issuer|authority|auth-server-url|oidc.*url", key.lower())
-    )
+    })
     if jwks_keys:
         return {"mode": "jwks", "keys": jwks_keys}
     if stack_auth is None:
@@ -370,7 +373,10 @@ _SPRING_CLASS_MAPPING_RE = re.compile(
     r'@RequestMapping\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?"([^"]*)"'
 )
 _JAXRS_PATH_RE = re.compile(r'@Path\s*\(\s*"([^"]*)"\s*\)')
-_CLASS_DECL_RE = re.compile(r"\b(?:class|interface|record)\s+(\w+)")
+_CLASS_DECL_RE = re.compile(
+    r"^\s*(?:(?:public|private|protected|final|abstract|static|sealed|partial|internal)\s+)*"
+    r"(?:class|interface|record)\s+(\w+)"
+)
 _ASPNET_ROUTE_RE = re.compile(r'\[Route\s*\(\s*"([^"]*)"\s*\)\]')
 _ASPNET_CLASS_RE = re.compile(r"\bclass\s+(\w+?)(Controller)?\b")
 _FASTAPI_PREFIX_RE = re.compile(r"APIRouter\s*\([^)]*prefix\s*=\s*[\"']([^\"']+)[\"']")
@@ -456,13 +462,16 @@ def find_entry_points(root: Path, stack: str,
                 destination = next((g for g in match.groups() if g), None)
                 if destination is None:
                     continue
-                entry: dict[str, Any] = {"kind": "amq-subscribe", "handler": handler}
-                if stack == "quarkus":
-                    entry["channel"] = destination
-                    destination = _resolve_channel(config, destination)
-                entry["destination"] = destination
-                entry["id"] = f"amq {destination}"
-                entries.setdefault(entry["id"], entry)
+                channel = destination if stack == "quarkus" else None
+                if channel is not None:
+                    destination = _resolve_channel(config, channel)
+                entry_id = f"amq {destination}"
+                entry: dict[str, Any] = {"id": entry_id, "kind": "amq-subscribe",
+                                         "destination": destination, "type": "queue"}
+                if channel is not None:
+                    entry["channel"] = channel
+                entry["handler"] = handler
+                entries.setdefault(entry_id, entry)
     return sorted(entries.values(), key=lambda e: (e["handler"].rsplit(":", 1)[0],
                                                    int(e["handler"].rsplit(":", 1)[1])))
 

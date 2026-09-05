@@ -33,6 +33,14 @@ def test_find_manifests_prefers_named_files() -> None:
     assert [(p.name, s) for p, s in quarkus] == [("deployment.yml", False)]
 
 
+def test_find_manifests_prefers_serverless_when_both_exist(tmp_path: Path) -> None:
+    body = ("apiVersion: apps/v1\nkind: Deployment\nspec:\n  template:\n    spec:\n"
+            "      containers:\n        - name: x\n")
+    (tmp_path / "deployment.yml").write_text(body, encoding="utf-8")
+    (tmp_path / "deploymentserverless.yml").write_text(body, encoding="utf-8")
+    assert find_manifests(tmp_path)[0] == (tmp_path / "deploymentserverless.yml", True)
+
+
 def test_find_manifests_generic_fallback(tmp_path: Path) -> None:
     k8s = tmp_path / "k8s"
     k8s.mkdir()
@@ -162,7 +170,8 @@ def test_assign_role_covers_each_role() -> None:
     assert assign_role("quarkus.oidc.auth-server-url", "") == "auth"
     assert assign_role("JWKS_URL", "") == "auth"
     assert assign_role("PRICING_BASE_URL", "http://pricing:8080") == "downstream:pricing"
-    assert assign_role("quarkus.rest-client.orders-api.url", "") == "downstream:orders-api"
+    assert assign_role("pricing.base-url", "") == "downstream:pricing"
+    assert assign_role("quarkus.rest-client.orders-api.url", "") == "downstream:orders"
     assert assign_role("INVENTORY_URL", "") == "downstream:inventory"
     assert assign_role("spring.jpa.hibernate.ddl-auto", "validate") == "passthrough"
     assert assign_role("JAVA_OPTS", "-Xmx512m") == "passthrough"
@@ -171,8 +180,13 @@ def test_assign_role_covers_each_role() -> None:
 def test_downstream_name_strips_noise() -> None:
     assert downstream_name("Pricing__BaseUrl") == "pricing"
     assert downstream_name("PRICING_BASE_URL") == "pricing"
-    assert downstream_name("quarkus.rest-client.orders-api.url") == "orders-api"
+    assert downstream_name("quarkus.rest-client.orders-api.url") == "orders"
     assert downstream_name("INVENTORY_URL") == "inventory"
+
+
+def test_downstream_name_matches_across_hyphen_and_underscore_spellings() -> None:
+    assert downstream_name("pricing.base-url") == "pricing"
+    assert downstream_name("pricing.base-url") == downstream_name("PRICING_BASE_URL")
 
 
 def _keys(*items: tuple[str, str, str | None]) -> dict[str, dict[str, object]]:
@@ -246,6 +260,25 @@ def test_spring_entry_points() -> None:
         f":{line_of(listener, '@JmsListener')}"
     )
     assert by_id["amq shipment.requested"]["kind"] == "amq-subscribe"
+
+
+def test_class_prefix_survives_a_javadoc_that_mentions_the_word_class(tmp_path: Path) -> None:
+    _write(tmp_path, "src/main/java/com/acme/ShipmentController.java",
+           "package com.acme;\n\n/** REST controller class for shipments. */\n"
+           '@RestController\n@RequestMapping("/api/shipments")\n'
+           'public class ShipmentController {\n    @GetMapping("/{id}")\n'
+           '    public String get() { return "x"; }\n}\n')
+    assert {e["id"] for e in find_entry_points(tmp_path, "spring", {})} == {
+        "GET /api/shipments/{id}"
+    }
+
+
+def test_amq_entry_points_are_id_first_and_queue_by_default() -> None:
+    root = FIXTURES / "spring-mini"
+    entries = find_entry_points(root, "spring", _config("spring-mini"))
+    entry = next(e for e in entries if e["id"] == "amq shipment.requested")
+    assert next(iter(entry)) == "id"
+    assert entry["type"] == "queue"
 
 
 def test_quarkus_entry_points_resolve_channel_address() -> None:
