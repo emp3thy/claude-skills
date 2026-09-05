@@ -23,7 +23,17 @@ if "--json-schema" not in sys.argv:
     raise SystemExit(9)
 if mode == "scout":
     family = prompt.split("debt family: ")[1].split(".")[0].strip()
-    payload = {"family": family, "module": None, "findings": [],
+    findings = []
+    if family == "half-finished":
+        # cwd is the replayed repository, so this quote verifies against disk and the
+        # candidate reaches the verifier pool -- the loop the chain test exercises.
+        quote = Path("README.md").read_text(encoding="utf-8").splitlines()[0]
+        findings = [{"title": "fake finding", "family": family, "debt_type": "code",
+                     "type_id": None, "severity": 3, "effort": "S",
+                     "signals_cited": [], "note": "fake",
+                     "evidence": [{"file": "README.md", "line_start": 1,
+                                   "line_end": 1, "quote": quote}]}]
+    payload = {"family": family, "module": None, "findings": findings,
                "open_questions": [], "looks_bad_but_fine": [],
                "not_assessed": ["coverage numbers"]}
 else:
@@ -44,9 +54,9 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": False,
 '''
 
 LOG_HEADER_TEXT = (
-    "| date | fixture | model | tier_a_precision | decoys_tier_a | decoys_top_n "
-    "| recall | scouts | verifiers | cost_usd |\n"
-    "|---|---|---|---|---|---|---|---|---|---|\n"
+    "| date | fixture | model | tier_a_precision | reported_precision | decoys_tier_a "
+    "| decoys_top_n | recall | scouts | verifiers | cost_usd |\n"
+    "|---|---|---|---|---|---|---|---|---|---|---|\n"
 )
 
 
@@ -128,14 +138,17 @@ def test_log_row_creates_the_header_and_appends_a_row(tmp_path: Path) -> None:
         "families": {"security": {"reported": 4, "precise": 3, "recall": 0.5},
                      "dead-code": {"reported": 0, "precise": 0, "recall": None}},
         "decoys_in_tier_a": 1, "decoys_in_top_n": 0,
+        "tier_a": {"reported": 2, "precise": 1, "precision": 0.5},
     }
     log_row(log, "service-py", "haiku", report, scouts=6, verifiers=2, cost=0.42)
     text = log.read_text(encoding="utf-8")
     assert "\r\n" not in text
-    assert text.startswith("| date | fixture | model |")
+    assert text.startswith("| date | fixture | model | tier_a_precision | reported_precision |")
     row = text.splitlines()[-1]
     assert row.startswith("| 20")
-    for token in ("service-py", "haiku", "0.75", "security=0.50", "| 6 |", "| 2 |", "0.42"):
+    # tier A precision (0.50) is the bar; the A+B reported precision (0.75) sits beside it.
+    assert "| 0.50 | 0.75 |" in row
+    for token in ("service-py", "haiku", "security=0.50", "| 6 |", "| 2 |", "0.42"):
         assert token in row, token
 
 
@@ -158,6 +171,11 @@ def test_run_chain_over_a_corpus_fixture_with_the_fake(
     for entry in plan["entries"]:
         assert (workdir / entry["output"]).is_file()
     assert summary["scout_calls"] == len(plan["entries"]) and summary["cost_usd"] > 0
+    assert summary["verifier_calls"] >= 1
+    verified = json.loads((workdir / "verified.json").read_bytes())
+    assert [f for f in verified["findings"]
+            if f["verdict"] == "confirm" and f["tier"] in ("A", "B")]
+    assert json.loads((workdir / "ranked.json").read_bytes())["top_n"]
     rows = log.read_text(encoding="utf-8").splitlines()
     assert rows[-1].startswith("| 20") and "service-py" in rows[-1] and "haiku" in rows[-1]
 

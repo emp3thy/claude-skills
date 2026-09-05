@@ -4,5 +4,9 @@ One row per live run of `scripts/live_run.py` over a corpus fixture (spec sectio
 precision is measured against the provisional 0.80 bar (reported at v2.0, hard at v2.1); zero
 decoys at tier A or in the top N is hard from v2.0. Recall is reported without a bar.
 
-| date | fixture | model | tier_a_precision | decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd |
-|---|---|---|---|---|---|---|---|---|---|
+`tier_a_precision` counts tier A findings alone, which is the figure the bar names.
+`reported_precision` is the same ratio over tiers A and B together (the per-family
+`reported`/`precise` counts `evaluate.py` publishes); it is reported without a bar.
+
+| date | fixture | model | tier_a_precision | reported_precision | decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd |
+|---|---|---|---|---|---|---|---|---|---|---|

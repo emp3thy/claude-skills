@@ -56,9 +56,9 @@ RETRY_SUFFIX: Final[str] = (
     "\n\nThe previous response failed the schema; re-emit valid JSON only.\n"
 )
 LOG_HEADER: Final[str] = (
-    "| date | fixture | model | tier_a_precision | decoys_tier_a | decoys_top_n "
-    "| recall | scouts | verifiers | cost_usd |\n"
-    "|---|---|---|---|---|---|---|---|---|---|\n"
+    "| date | fixture | model | tier_a_precision | reported_precision | decoys_tier_a "
+    "| decoys_top_n | recall | scouts | verifiers | cost_usd |\n"
+    "|---|---|---|---|---|---|---|---|---|---|---|\n"
 )
 
 
@@ -225,6 +225,11 @@ def dispatch(
     return result
 
 
+def _ratio_cell(value: float | None) -> str:
+    """A ratio as two decimals, or ``-`` when there was nothing to divide."""
+    return "-" if value is None else f"{value:.2f}"
+
+
 def log_row(
     log_path: Path,
     fixture: str,
@@ -237,16 +242,21 @@ def log_row(
 ) -> None:
     """Append one evaluation row (LF-only), creating the table header when absent."""
     families = report.get("families") or {}
+    # tier_a_precision is the release bar and counts tier A findings alone; the
+    # per-family reported and precise counts span tiers A and B, so their ratio is
+    # logged beside it as reported_precision rather than in its place.
+    tier_a = report.get("tier_a") or {}
     reported = sum(int(stats.get("reported", 0)) for stats in families.values())
     precise = sum(int(stats.get("precise", 0)) for stats in families.values())
-    precision = f"{precise / reported:.2f}" if reported else "-"
     recall = " ".join(
         f"{name}={stats['recall']:.2f}"
         for name, stats in sorted(families.items())
         if stats.get("recall") is not None
     )
     row = (
-        f"| {datetime.now(UTC).date().isoformat()} | {fixture} | {model} | {precision} "
+        f"| {datetime.now(UTC).date().isoformat()} | {fixture} | {model} "
+        f"| {_ratio_cell(tier_a.get('precision'))} "
+        f"| {_ratio_cell(precise / reported if reported else None)} "
         f"| {report.get('decoys_in_tier_a', 0)} | {report.get('decoys_in_top_n', 0)} "
         f"| {recall or '-'} | {scouts} | {verifiers} | {cost:.2f} |\n"
     )

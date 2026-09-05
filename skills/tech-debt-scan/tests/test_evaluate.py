@@ -106,6 +106,21 @@ def test_evaluate_per_family_precision_recall_and_decoys(planted: dict[str, Any]
     assert report["churn_months"] == 240  # the window service-py records
 
 
+def test_tier_a_precision_counts_only_tier_a_findings(planted: dict[str, Any]) -> None:
+    # The phase gate is tier A precision; the per-family "reported" figures span A and B.
+    findings = [
+        _finding("error-masking", "src/pay/refund.py", 31, 34, "A", "a1"),  # planted p1
+        _finding("security", "src/pay/gateway.py", 26, 26, "A", "a2"),  # unplanted
+        _finding("security", "src/pay/gateway.py", 11, 11, "B", "b1"),  # planted p3
+    ]
+    report = evaluate(findings, planted, set(), top=5)
+    assert report["tier_a"] == {"reported": 2, "precise": 1, "precision": 0.5}
+    keys = list(report)
+    assert keys[keys.index("decoys_in_top_n") + 1] == "tier_a"
+    assert keys[keys.index("tier_a") + 1] == "counts"
+    assert "tier A precision: 0.50 (1/2)" in render_table(report).splitlines()
+
+
 def test_churn_months_is_null_when_the_fixture_records_no_window() -> None:
     report = evaluate([], {"planted": [], "decoys": []}, set(), top=5)
     assert report["churn_months"] is None
@@ -155,7 +170,7 @@ def test_render_table_and_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]
     assert lines[0] == "scored at churn_months 240"
     assert lines[1].startswith("family")
     header_width = len(lines[1])
-    family_rows = lines[2:-3]  # 2 header lines, one row per family, 3 tail rows
+    family_rows = lines[2:-4]  # 2 header lines, one row per family, 4 tail rows
     assert len(family_rows) == len(report["families"])
     assert all(len(line) == header_width for line in family_rows)  # decoys pad as one column
     assert lines[1].endswith("decoy A/B/C")

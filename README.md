@@ -116,7 +116,10 @@ than as code.
 `live_run.py` runs the whole scan chain against a corpus fixture with real
 Claude scouts and verifiers, scores the result against the fixture's planted
 debt and decoys, and appends a row to
-[`docs/evaluation-log.md`](docs/evaluation-log.md):
+[`docs/evaluation-log.md`](docs/evaluation-log.md) — date, fixture, model,
+`tier_a_precision` (tier A findings alone, the release bar), `reported_precision`
+(the same ratio over tiers A and B), decoys at tier A, decoys in the top N,
+per-family recall, the scout and verifier call counts and the run's cost:
 
 ```
 python scripts/live_run.py service-py --model sonnet --max-budget-usd 1.00
