@@ -1964,8 +1964,8 @@ def test_secret_is_redacted_everywhere_and_rule_candidates_pass_through(tmp_path
     findings, leads = run_rules(repo, inventory, DEFAULTS)
     write_json(workdir / "rule-findings.json", {"schema_version": 2, "findings": findings, "leads": leads})
     _scout(workdir, "security", [
-        _finding("security", f"hard-coded {SECRET}", "src/pay.py", 12, 12, f'token = "{SECRET}"',
-                 note=f"value {SECRET}"),
+        _finding("security", f'hard-coded token = "{SECRET}"', "src/pay.py", 12, 12, f'token = "{SECRET}"',
+                 note=f'token = "{SECRET}" assigned in charge()'),
     ], looks_bad_but_fine=[{"file": "src/util.py", "line_start": 1, "why": "helper by design"}])
     _scout(workdir, "error-masking", [])
     doc = merge(workdir, repo, DEFAULTS)
@@ -2535,7 +2535,7 @@ def test_prompt_renders_context_coupling_questions_traps_and_contract(tmp_path: 
     text = render_verify_prompt([cand], root=repo, inventory=inventory, coupling=coupling, config=cfg)
     assert cand["fingerprint"] in text
     assert "    20 | line 20" in text and "    80 | line 80" in text and "    19 | " not in text
-    assert ">   50 | line 50" in text
+    assert ">    50 | line 50" in text
     assert "src/b.py" in text and "shared=4" in text
     assert "Which dynamic-reference patterns were checked" in text
     assert "entry points live here" in text and "never shown" not in text
@@ -3098,10 +3098,11 @@ def test_apply_joins_overrides_and_counts() -> None:
     assert by_fp[c["fingerprint"]]["verified"] is False
     assert by_fp[d["fingerprint"]]["tier"] == "A" and by_fp[d["fingerprint"]]["verified"] is True
     assert by_fp[e["fingerprint"]]["severity"] == 3, "test-quality severity capped at 3"
+    assert by_fp[e["fingerprint"]]["tier"] == "B", "test-quality capped at B without a tool"
     finding = by_fp[a["fingerprint"]]
     assert list(finding)[-6:] == ["verdict", "proof", "checked", "opened", "trap_matched", "verified"]
     assert doc["stats"] == {"selected": 4, "verdicts": 3, "unknown_fingerprint": 1, "missing_verdict": 1,
-                            "tier_a": 2, "tier_b": 1, "tier_c": 1, "rejected": 0}
+                            "tier_a": 2, "tier_b": 2, "tier_c": 1, "rejected": 0}
 
 
 def test_reject_and_trap_are_kept(tmp_path: Path) -> None:
