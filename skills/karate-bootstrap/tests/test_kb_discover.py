@@ -5,6 +5,7 @@ from pathlib import Path
 from detect import detect
 from detect import main as detect_main
 from discover import (
+    _CLASS_DECL_RE,
     _class_prefix,
     assign_role,
     build_env_map,
@@ -413,3 +414,12 @@ def test_detect_auth_jwks_dedupes_manifest_and_config_spellings() -> None:
          "AUTH_ISSUER_URI"),
     ), "spring-security")
     assert result == {"mode": "jwks", "keys": ["AUTH_ISSUER_URI"]}
+
+
+def test_class_decl_regex_is_linear_on_long_attribute_lines() -> None:
+    # A bracketed run that never reaches a class keyword must fail fast, not backtrack
+    # exponentially: discovery scans every line of every source file with this regex.
+    for length in (30, 200, 2000):
+        assert _CLASS_DECL_RE.search("[" + "a" * length + "] somethingElse") is None
+        assert _CLASS_DECL_RE.search("[" + "a" * length) is None
+        assert _CLASS_DECL_RE.search('[Route("' + "x" * length + '")] public class C {') is not None
