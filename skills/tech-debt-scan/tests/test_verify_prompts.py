@@ -13,6 +13,7 @@ from inventory import build_all, write_json, write_outputs
 from verify_prompts import (
     VERDICT_SCHEMA,
     _main,
+    _span,
     build_batches,
     build_verify_plan,
     render_verify_prompt,
@@ -108,33 +109,107 @@ def test_prompt_renders_context_coupling_questions_traps_and_contract(tmp_path: 
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
     body = "\n".join(f"line {i}" for i in range(1, 101)) + "\n"
-    (repo / "src" / "a.py").write_text(body, encoding="utf-8")
-    (repo / "src" / "b.py").write_text(
-        'token = "abcdefghijkl0123"\nfrom a import x\n', encoding="utf-8")
+    # Module stems of four or more characters: a one-character stem is below
+    # ``fan_in.min_stem_length`` and the graph would have no edges to render.
+    (repo / "src" / "payments.py").write_text(body, encoding="utf-8")
+    (repo / "src" / "caller.py").write_text(
+        'token = "abcdefghijkl0123"\nfrom payments import x\n', encoding="utf-8")
     inventory, coupling = build_all(repo, config=DEFAULTS)
-    coupling["pairs"] = [{"a": "src/a.py", "b": "src/b.py", "shared_commits": 4, "ratio": 0.8,
-                          "cross_directory": False}]
+    coupling["pairs"] = [{"a": "src/payments.py", "b": "src/caller.py", "shared_commits": 4,
+                          "ratio": 0.8, "cross_directory": False}]
     cfg = deepcopy(DEFAULTS)
     cfg["traps"] = [
         {"family": "dead-code", "path_glob": "src/*.py", "note": "entry points live here"},
         {"family": "security", "path_glob": "src/*.py", "note": "never shown"},
     ]
-    cand = _cand("dead-code", "src/a.py", 50, 3)
-    cand["evidence"].append({"file": "src/b.py", "line_start": 1, "line_end": 1,
+    cand = _cand("dead-code", "src/payments.py", 50, 3)
+    cand["evidence"].append({"file": "src/caller.py", "line_start": 1, "line_end": 1,
                              "quote": 'token = "abcdefghijkl0123"', "quote_verified": True})
     text = render_verify_prompt(
         [cand], root=repo, inventory=inventory, coupling=coupling, config=cfg)
     assert cand["fingerprint"] in text
     assert "    20 | line 20" in text and "    80 | line 80" in text and "    19 | " not in text
     assert ">    50 | line 50" in text
-    assert "src/b.py" in text and "shared=4" in text
+    assert "src/caller.py" in text and "shared=4" in text
     assert "Which dynamic-reference patterns were checked" in text
     assert "entry points live here" in text and "never shown" not in text
     assert "up to three further files" in text
     assert "abcdefghijkl0123" not in text and "abcd***" in text
     assert SEVERITY_RUBRIC not in text
     assert '"verdict"' in text and '"trap_matched"' in text and '"opened"' in text
-    assert "referrers" in text.lower()
+    assert "approximate referrers: src/caller.py" in text
+
+
+def test_span_clamps_at_file_boundaries(tmp_path: Path) -> None:
+    """Context never runs off either end of the file, and an empty file renders a header only."""
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "five.py").write_text(
+        "\n".join(f"line {i}" for i in range(1, 6)) + "\n", encoding="utf-8")
+    (repo / "src" / "empty.py").write_text("", encoding="utf-8")
+
+    at_start = _span(repo, {"file": "src/five.py", "line_start": 1, "line_end": 1}, 2)
+    assert at_start.splitlines() == [
+        "src/five.py:1-1", ">     1 | line 1", "      2 | line 2", "      3 | line 3"]
+
+    at_end = _span(repo, {"file": "src/five.py", "line_start": 5, "line_end": 5}, 2)
+    assert at_end.splitlines() == [
+        "src/five.py:5-5", "      3 | line 3", "      4 | line 4", ">     5 | line 5"]
+
+    whole = _span(repo, {"file": "src/five.py", "line_start": 1, "line_end": 5}, 30)
+    assert whole.splitlines()[1] == ">     1 | line 1"
+    assert whole.splitlines()[-1] == ">     5 | line 5"
+
+    empty = _span(repo, {"file": "src/empty.py", "line_start": 1, "line_end": 1}, 2)
+    assert empty.splitlines() == ["src/empty.py:1-1"]
+
+
+def test_the_reference_graph_never_reads_guarded_or_out_of_graph_files(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The referrer graph honours the size guard and reads only source and tests files.
+
+    ``build_reference_graph`` uses source files as targets and source or tests
+    files as referrers, so every other class is read for nothing; a file the
+    inventory marked ``skipped_large`` was never read by the inventory and must
+    not be read here either (the graph is rebuilt once per batch).
+    """
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "docs").mkdir(parents=True)
+    (repo / "src" / "payments.py").write_text(
+        "\n".join(f"line {i}" for i in range(1, 6)) + "\n", encoding="utf-8")
+    (repo / "src" / "caller.py").write_text("from payments import x\n", encoding="utf-8")
+    (repo / "src" / "huge.py").write_text("from payments import y\n", encoding="utf-8")
+    (repo / "docs" / "guide.md").write_text("from payments import z\n", encoding="utf-8")
+    inventory = {
+        "files": [
+            {"path": "src/payments.py", "path_class": "source", "language": "python",
+             "loc": 5, "churn": 0, "skipped_large": False},
+            {"path": "src/caller.py", "path_class": "source", "language": "python",
+             "loc": 1, "churn": 0, "skipped_large": False},
+            {"path": "src/huge.py", "path_class": "source", "language": "python",
+             "loc": 0, "churn": 0, "skipped_large": True},
+            {"path": "docs/guide.md", "path_class": "docs", "language": "markdown",
+             "loc": 1, "churn": 0, "skipped_large": False},
+        ]
+    }
+    reads: list[str] = []
+    original = Path.read_bytes
+
+    def _record(self: Path) -> bytes:
+        reads.append(self.as_posix())
+        return original(self)
+
+    monkeypatch.setattr(Path, "read_bytes", _record)
+    cand = _cand("dead-code", "src/payments.py", 1, 3)
+    text = render_verify_prompt(
+        [cand], root=repo, inventory=inventory, coupling={}, config=DEFAULTS)
+
+    assert not [p for p in reads if p.endswith("src/huge.py")], "the size guard was bypassed"
+    assert not [p for p in reads if p.endswith("docs/guide.md")], "a docs file was read"
+    assert [p for p in reads if p.endswith("src/caller.py")], "the referrer was not read"
+    assert "approximate referrers: src/caller.py" in text
 
 
 def test_a_reference_graph_failure_leaves_the_prompt_intact(tmp_path: Path) -> None:
@@ -178,6 +253,30 @@ def test_verify_plan_and_cli(tmp_path: Path) -> None:
     assert b"\r" not in raw
     assert json.loads((workdir / "verify-plan.json").read_bytes())["top"] == 5
     assert _main(["--workdir", str(tmp_path / "none")]) == 2
+
+
+def test_cli_reports_a_malformed_candidates_document_instead_of_a_traceback(
+    tmp_path: Path, capsys: Any
+) -> None:
+    """Bad JSON and a document without ``candidates`` both exit 2 with an ``error:`` line."""
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "a.py").write_text("line 1\n", encoding="utf-8")
+    inventory, coupling = build_all(repo, config=DEFAULTS)
+    workdir = tmp_path / "wd"
+    write_outputs(inventory, coupling, workdir)
+
+    (workdir / "candidates.json").write_bytes(b"{ not json")
+    assert _main(["--workdir", str(workdir)]) == 2
+    assert "error:" in capsys.readouterr().err
+
+    write_json(workdir / "candidates.json", {"schema_version": 2})
+    assert _main(["--workdir", str(workdir)]) == 2
+    assert "error:" in capsys.readouterr().err
+
+    (workdir / "inventory.json").write_bytes(b"[]")
+    assert _main(["--workdir", str(workdir)]) == 2
+    assert "error:" in capsys.readouterr().err
 
 
 def test_verdict_schema_shape() -> None:

@@ -189,13 +189,19 @@ def _reference_edges(
     """The stem graph's (referrer, referenced) edges, or None when it could not be built.
 
     Built once per prompt: the graph reads every inventory file, so computing it
-    per candidate would re-read the repository once for each one.
+    per candidate would re-read the repository once for each one. Only the
+    classes the graph uses are read — ``build_reference_graph`` takes source
+    files as targets and source or tests files as referrers — and a file the
+    inventory's size guard marked ``skipped_large`` is never read here either,
+    because the graph is rebuilt once per batch.
     """
     try:
         graph_files = []
         for entry in inventory.get("files", []):
             path = root / str(entry["path"])
-            if entry.get("path_class") in ("generated", "vendored") or not path.is_file():
+            if entry.get("skipped_large") or entry.get("path_class") not in ("source", "tests"):
+                continue
+            if not path.is_file():
                 continue
             graph_files.append(GraphFile(
                 str(entry["path"]), str(entry.get("language") or ""), str(entry.get("path_class")),
@@ -287,8 +293,16 @@ def render_verify_prompt(
 def build_verify_plan(
     workdir: Path, root: Path, config: dict[str, Any], top: int
 ) -> tuple[dict[str, Any], dict[str, str]]:
-    """The ``verify-plan.json`` document and the prompt text keyed by its relative path."""
+    """The ``verify-plan.json`` document and the prompt text keyed by its relative path.
+
+    Raises ``ValueError`` when ``candidates.json`` is not a document with a
+    ``candidates`` list, so the CLI reports it rather than raising a traceback.
+    """
     candidates_doc = json.loads((workdir / "candidates.json").read_bytes())
+    if not isinstance(candidates_doc, dict) or not isinstance(
+        candidates_doc.get("candidates"), list
+    ):
+        raise ValueError(f"candidates.json in {workdir} has no candidates list")
     inventory = json.loads((workdir / "inventory.json").read_bytes())
     coupling_path = workdir / "coupling.json"
     coupling = json.loads(coupling_path.read_bytes()) if coupling_path.is_file() else {}
@@ -326,15 +340,20 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"error: candidates.json and inventory.json are required in {workdir}",
               file=sys.stderr)
         return 2
-    inventory = json.loads((workdir / "inventory.json").read_bytes())
-    root = Path(str(inventory.get("root", ".")))
     try:
+        inventory = json.loads((workdir / "inventory.json").read_bytes())
+        if not isinstance(inventory, dict):
+            raise ValueError(f"inventory.json in {workdir} is not a JSON object")
+        root = Path(str(inventory.get("root", ".")))
         config = load_config(root)
-    except ConfigError as exc:
+        top = args.top if args.top is not None else int(config["top"])
+        plan, prompts = build_verify_plan(workdir, root, config, top)
+    # OSError covers an unreadable input; ValueError covers bad JSON and a
+    # candidates document without a candidates list; KeyError covers a
+    # candidate entry missing a field the budget rule reads.
+    except (ConfigError, OSError, ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    top = args.top if args.top is not None else int(config["top"])
-    plan, prompts = build_verify_plan(workdir, root, config, top)
     for rel, text in prompts.items():
         target = workdir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
