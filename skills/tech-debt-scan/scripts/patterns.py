@@ -20,7 +20,9 @@ the path-class disables to leads. Artefacts classed ``generated`` or
 ``vendored``, or whose inventory entry has ``skipped_large``, are not scanned,
 the same three skips the code-file loop applies; scanners that skip
 ``path_class == "tests"`` (the credential scanner) therefore skip tests-tree
-artefacts too.
+artefacts too, and ``_logger_present`` keys on ``ScanFile.scope == "source"``,
+not ``path_class``, so a root-level artefact (whose real path class is also
+``source``) never counts as a first-party logger import.
 
 Leads feed scouts and corroborate the merge; counts go to report statistics,
 never to a finding. Blame runs only for the SATD markers, on at most
@@ -901,7 +903,7 @@ LOGGER_RE: Final[re.Pattern[str]] = re.compile(
 
 def _logger_present(files: Sequence[ScanFile]) -> bool:
     for sf in files:
-        if sf.path_class == "source" and any(
+        if sf.scope == "source" and any(
             LOGGER_RE.search(line) for line in import_lines(sf.text)
         ):
             return True

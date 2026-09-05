@@ -11,7 +11,7 @@ import yaml
 from config import DEFAULTS
 from inventory import MAX_SCAN_BYTES, build_all, write_json
 from make_history import git_output, replay_history
-from patterns import RULES, Lead, _scan_files, capped_leads, redact, run_patterns
+from patterns import RULES, Lead, _logger_present, _scan_files, capped_leads, redact, run_patterns
 
 SCRIPTS = Path(__file__).parent.parent / "scripts"
 
@@ -229,6 +229,30 @@ def test_artefact_leads_carry_the_real_path_class_and_keep_rule_scope(tmp_path: 
     emitted = [*doc["satd"], *(lead for items in doc["leads"].values() for lead in items)]
     assert emitted
     assert not {item["path_class"] for item in emitted} & {"ci", "container", "config", "build"}
+
+
+def test_logger_present_keys_on_scan_scope_not_path_class(tmp_path: Path) -> None:
+    """``_logger_present`` must key on ``ScanFile.scope``, not the emitted ``path_class``.
+
+    A root-level artefact's ``path_class`` is ``source`` too (spec 4.3's split between
+    the artefact class that drives rule scope and the real path class the file reports),
+    so a logger-shaped import-like line inside a root ``.sql`` artefact must not flip the
+    repo-wide ``logger_present`` flag -- only an actual first-party source file's import
+    may. Before the fix, ``_logger_present`` checked ``sf.path_class == "source"``, which
+    this root artefact also satisfies, so the flag would wrongly come back True.
+    """
+    repo = _synthetic(
+        tmp_path,
+        {
+            "schema.sql": "use serilog;\nSELECT 1;\n",
+            "app.py": 'print("hi")\n',
+        },
+    )
+    files = _scan_files(repo[0], repo[1])
+    sql = next(sf for sf in files if sf.path == "schema.sql")
+    assert sql.path_class == "source"  # root artefact: the real path class is source
+    assert sql.scope == "sql"  # rule/logger scope stays the artefact class
+    assert _logger_present(files) is False
 
 
 def test_generated_vendored_and_skipped_large_artefacts_are_not_scanned(tmp_path: Path) -> None:
