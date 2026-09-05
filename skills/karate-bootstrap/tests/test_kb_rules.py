@@ -76,6 +76,12 @@ def test_extract_bean_validation_ignores_class_level_annotations() -> None:
     assert [(r["field"], r["mutation"]) for r in rows] == [("name", "missing"), ("name", "empty")]
 
 
+def test_extract_bean_validation_handles_same_line_annotation() -> None:
+    text = "public class Req {\n    @NotNull private String x;\n    private String y;\n}\n"
+    rows = extract_bean_validation(text, "Req.java")
+    assert [(r["field"], r["mutation"]) for r in rows] == [("x", "missing")]
+
+
 def test_extract_fluent_validation() -> None:
     src = "Validators/DealRequestValidator.cs"
     text = (FIXTURES / "dotnet-mini" / src).read_text(encoding="utf-8")
@@ -117,6 +123,15 @@ def test_extract_data_annotations_ignores_attributes_on_non_properties() -> None
     )
     rows = extract_data_annotations(text, "Req.cs")
     assert [(r["field"], r["mutation"]) for r in rows] == [("Name", "missing")]
+
+
+def test_extract_data_annotations_handles_same_line_attribute() -> None:
+    text = (
+        "public class Req\n{\n    [Required] public string X { get; set; }\n"
+        "    public string Y { get; set; }\n}\n"
+    )
+    rows = extract_data_annotations(text, "Req.cs")
+    assert [(r["field"], r["mutation"]) for r in rows] == [("X", "missing")]
 
 
 def test_extract_pydantic() -> None:

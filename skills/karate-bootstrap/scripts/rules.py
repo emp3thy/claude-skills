@@ -100,7 +100,7 @@ def extract_bean_validation(text: str, source_rel: str) -> list[dict[str, Any]]:
         if not stripped:
             continue
         annotations = list(_ANNOTATION_RE.finditer(line))
-        field_match = _JAVA_FIELD_RE.match(line)
+        field_match = _JAVA_FIELD_RE.match(_ANNOTATION_RE.sub("", line))
         if annotations and not field_match:
             for match in annotations:
                 pending.append((number, match.group(1), _args(match.group(2))))
@@ -194,7 +194,7 @@ def extract_fluent_validation(text: str, source_rel: str) -> list[dict[str, Any]
 
 # --- .NET data annotations ---------------------------------------------------
 
-_CS_ATTR_RE = re.compile(r"^\s*\[(\w+)(?:\(([^)]*)\))?\]")
+_CS_ATTR_RE = re.compile(r"(?<![\w)\]])\[(\w+)(?:\(([^)]*)\))?\]")
 _CS_PROP_RE = re.compile(r"^\s*public\s+[\w<>\[\]?]+\s+(\w+)\s*\{")
 
 
@@ -205,14 +205,17 @@ def extract_data_annotations(text: str, source_rel: str) -> list[dict[str, Any]]
         stripped = line.strip()
         if not stripped:
             continue
-        attr = _CS_ATTR_RE.match(line)
-        if attr:
-            pending.append((number, attr.group(1), attr.group(2) or ""))
+        attributes = list(_CS_ATTR_RE.finditer(line))
+        prop = _CS_PROP_RE.match(_CS_ATTR_RE.sub("", line))
+        if attributes and not prop:
+            for attr in attributes:
+                pending.append((number, attr.group(1), attr.group(2) or ""))
             continue
-        prop = _CS_PROP_RE.match(line)
         if not prop:
             pending = []
             continue
+        for attr in attributes:
+            pending.append((number, attr.group(1), attr.group(2) or ""))
         field = prop.group(1)
         for attr_line, name, raw in pending:
             src = f"{source_rel}:{attr_line}"
