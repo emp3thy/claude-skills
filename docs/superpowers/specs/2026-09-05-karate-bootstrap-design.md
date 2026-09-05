@@ -149,7 +149,7 @@ Command: `python scripts/discover.py <repo> --stack karate-tests/stack.json --ou
 
 Deterministic reads, in this order:
 
-1. **Deployment manifests.** `deployment.yml` first, then `deploymentserverless.yml`. Presence of `deploymentserverless.yml` sets `app.serverless: true`, and the container spec is read from the Knative `spec.template.spec.containers` path. Extracts `readinessProbe` path and port, container port, `env`, `envFrom` configMap and secret refs. Fallback: any Kubernetes `Deployment`, Helm values, Kustomize overlays.
+1. **Deployment manifests.** `deploymentserverless.yml` takes precedence when both exist, otherwise `deployment.yml`. Presence of `deploymentserverless.yml` sets `app.serverless: true`, and the container spec is read from the Knative `spec.template.spec.containers` path. Extracts `readinessProbe` path and port, container port, `env`, `envFrom` configMap and secret refs. Fallback: any Kubernetes `Deployment`, Helm values, Kustomize overlays.
 2. **Dockerfile.** `EXPOSE`, `ENV` defaults, entrypoint.
 3. **App config.** `application*.yml|properties`, `appsettings*.json`, `settings.py`, `.env.example`. Also `hibernate.cfg.xml` and `META-INF/persistence.xml`. Extracts config keys and their placeholder values.
 4. **Routes.** Cheat-sheet regexes per stack produce entry-point candidates: HTTP method, path, handler file and line, and AMQ listener destinations. The model confirms the list in one pass and adds anything the regexes missed.
@@ -162,6 +162,8 @@ Auth detection, in preference order:
 1. **Off or mock switch.** A boolean or profile that removes the auth filter (`Auth__Enabled`, `quarkus.oidc.enabled`, a Spring profile guard on the security config, custom `AUTH_MODE=mock`). Ledger `app.auth.mode: disabled` with the key and value. 401/403 responses on entry points are marked `testable: false`.
 2. **Configurable issuer or JWKS URL.** Ledger `app.auth.mode: jwks`, with the issuer and JWKS keys. Harness serves discovery and JWKS from MockServer and mints tokens.
 3. **Neither.** Ledger `app.auth.mode: blocked`. README lists what a developer would need to change. Unauthenticated endpoints are still tested.
+
+A switch found by name pattern alone is recorded with `confirmed: false`; the traced gate fails until the model confirms it (Plan 2 adds `flow_map.py set-auth`).
 
 Readiness: from the manifest probe. Fallback `Wait.forListeningPort` on the container port, recorded as `app.readiness.source: fallback`. Serverless doubles the startup timeout.
 
@@ -197,11 +199,13 @@ Unresolved hops are allowed in subagent output, not in the ledger. The main agen
 ### 5.4 Phase 3 — Rules, `rules.py`
 
 ```
-python scripts/rules.py extract <repo> --ledger karate-tests/flow-map.yaml --out-dir karate-tests/rules
+python scripts/rules.py extract <repo> --ledger karate-tests/flow-map.yaml --out-dir karate-tests
 (dispatch one rules subagent per unscanned rules source, prompts/rules.md)
 python scripts/rules.py add <entry-id> <rows.csv>
 python scripts/rules.py mark-scanned <entry-id> <source-file>
 ```
+
+`--out-dir` is the `karate-tests` root; the script appends `rules/` itself.
 
 `extract` handles declarative validators: Bean Validation and Hibernate Validator annotations, FluentValidation `RuleFor` chains, .NET data annotations, Pydantic `Field` constraints and validators. It emits candidate rows with `source`.
 
@@ -270,6 +274,8 @@ Harness classes:
 - **`karate-config.js`.** Reads the system properties above and defines the globals every feature uses: `appBaseUrl`, `Db`, `Jms`, `Stubs`, `Jwt` (each via `Java.type`), and `mutate` (from `common/mutate.js`).
 
 Also rendered: `run` instructions in README, `azure-pipelines.karate.yml`, `src/test/resources/testcontainers.properties`.
+
+The rendered `pom.xml` registers `rules/`, `stubs/` and `seed/` at the module root as additional test resources so `classpath:rules/...`, `classpath:stubs/...` and `classpath:seed/...` resolve; the generated gate checks those directories at the module root and features under `src/test/resources/`.
 
 `testcontainers.properties` and README cover podman: `DOCKER_HOST` for the rootless podman socket on Linux or the podman machine named pipe on Windows, `ryuk.container.privileged=true`, and `TESTCONTAINERS_RYUK_DISABLED=true` as the documented fallback.
 
