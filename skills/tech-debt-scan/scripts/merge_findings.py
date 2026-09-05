@@ -386,7 +386,7 @@ def merge(
             cleaned = _validate(raw, family)
             if isinstance(cleaned, str):
                 stats[family]["dropped"] += 1
-                dropped_reasons.setdefault(family, []).append(cleaned)
+                dropped_reasons.setdefault(family, []).append(redact(cleaned))
                 continue
             verified = _verify(cleaned, files)
             if not verified:

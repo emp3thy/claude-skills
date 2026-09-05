@@ -244,6 +244,20 @@ def test_malformed_items_are_dropped_and_counted(tmp_path: Path) -> None:
     assert "not an object" in joined, "the bare string item"
 
 
+def test_dropped_reason_is_redacted_before_recording(tmp_path: Path) -> None:
+    repo, workdir = _repo(tmp_path)
+    credential_debt_type = 'token = "abcdefghijkl0123"'
+    _scout(workdir, "security", [
+        _finding("security", "bad debt_type", "src/pay.py", 12, 12, "token",
+                 debt_type=credential_debt_type),
+    ])
+    _scout(workdir, "error-masking", [])
+    doc = merge(workdir, repo, DEFAULTS)
+    text = json.dumps(doc)
+    assert "abcdefghijkl0123" not in text
+    assert "abcd***" in " | ".join(doc["stats"]["security"]["dropped_reasons"])
+
+
 def test_suppression_with_expiry_and_path_class_disable(tmp_path: Path) -> None:
     repo, workdir = _repo(tmp_path)
     fp, _ = fingerprint("error-masking", "src/pay.py", SWALLOW)
