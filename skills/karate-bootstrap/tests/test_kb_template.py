@@ -21,6 +21,7 @@ REQUIRED_FILES = [
     ".mvn/wrapper/maven-wrapper.properties",
     ".gitignore",
     "defects.md",
+    "README.md.tmpl",
     "azure-pipelines.karate.yml",
     "rules/harness-smoke.csv",
     "stubs/.gitkeep",
