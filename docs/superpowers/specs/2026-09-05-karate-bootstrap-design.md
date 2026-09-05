@@ -503,10 +503,12 @@ Invocation:
 
 ```
 /karate-bootstrap <repo-path> [--service-dir <sub>] [--migrations-image <ref>] [--app-image <tag>]
-                  [--max-iterations 15] [--double-trace] [--commit]
+                  [--max-iterations 15] [--double-trace] [--no-commit]
 ```
 
-Default leaves the working tree modified. `--commit` creates branch `karate-bootstrap` and commits at each phase gate.
+Git behaviour: by default the skill commits after each phase gate passes, so a long run has checkpoints and the end state is a branch ready for a pull request. If the repo is on its default branch when the skill starts, the skill first creates and checks out `karate-bootstrap`. If the repo is already on another branch, such as a ralph-managed `ralph/<PBI-id>` branch, the skill commits on that branch and creates nothing. `--no-commit` writes files only and never runs git. The skill never pushes.
+
+Expected usage: manual runs first to remove kinks, then bulk runs through ralph across the 80 repos. A run that stops on a stop condition still commits what it has, so a developer can pull the branch and finish it with Claude interactively.
 
 Exit codes: 0 green, 3 unsupported stack, 4 no schema source, 5 missing expected output, 6 stopped by stop condition, 7 container runtime or JDK missing.
 
@@ -552,7 +554,7 @@ Exact versions of each are pinned in the implementation plan after a one-line ch
 - Monorepos are handled only through `--service-dir` in v1.
 - Quarkus has a cheat sheet but no fixture app in v1.
 - Defect promotion to ralph is a later step.
-- The skill leaves the working tree modified unless `--commit`.
+- The skill commits but never pushes. Pushing and opening the pull request belong to the caller, ralph or a developer.
 - Podman on Windows requires WSL2. That is a one-time developer setup, documented, not automated.
 
 ## 13. Out of scope for v1
