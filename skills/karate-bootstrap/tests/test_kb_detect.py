@@ -107,3 +107,19 @@ def test_cli_toolchain_missing_exits_7(tmp_path: Path, monkeypatch: pytest.Monke
     with pytest.raises(KbError) as excinfo:
         main([str(FIXTURES / "spring-mini"), "--out", str(out)])
     assert excinfo.value.exit_code == EXIT_TOOLCHAIN
+
+
+def test_hibernate_validator_alone_is_not_an_orm(tmp_path: Path) -> None:
+    (tmp_path / "pom.xml").write_text(
+        "<project><dependencies>"
+        "<dependency><groupId>io.quarkus</groupId>"
+        "<artifactId>quarkus-resteasy-reactive</artifactId></dependency>"
+        "<dependency><groupId>io.quarkus</groupId>"
+        "<artifactId>quarkus-hibernate-validator</artifactId></dependency>"
+        "</dependencies></project>",
+        encoding="utf-8",
+    )
+    result = detect(tmp_path)
+    assert result["framework"] == "quarkus"
+    assert result["orm"] is None
+    assert result["validation"] == "bean-validation"

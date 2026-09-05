@@ -95,8 +95,10 @@ def detect(root: Path) -> dict[str, Any]:
 
     orm = _first(text, (
         ("quarkus-hibernate-orm-panache", "panache"),
-        ("hibernate", "hibernate-jpa"),
+        ("quarkus-hibernate-orm", "hibernate-jpa"),
         ("spring-boot-starter-data-jpa", "hibernate-jpa"),
+        ("hibernate-core", "hibernate-jpa"),
+        ("hibernate-orm", "hibernate-jpa"),
         ("entityframeworkcore", "efcore"),
         ("sqlalchemy", "sqlalchemy"),
         ("django", "django-orm"),
