@@ -88,6 +88,47 @@ def test_parse_app_config_spring_yaml_extracts_env_vars() -> None:
     assert keys["app.security.enabled"]["source"] == "src/main/resources/application.yml"
 
 
+def _write(root: Path, relpath: str, text: str) -> None:
+    target = root / relpath
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+
+
+def test_parse_app_config_base_profile_wins_over_variants_and_test_tree(tmp_path: Path) -> None:
+    _write(tmp_path, "src/main/resources/application.yml",
+           "spring:\n  datasource:\n    url: ${SPRING_DATASOURCE_URL}\n")
+    _write(tmp_path, "src/main/resources/application-prod.yml",
+           "spring:\n  datasource:\n    url: jdbc:postgresql://prod-db:5432/app\n")
+    _write(tmp_path, "src/test/resources/application.yml",
+           "spring:\n  datasource:\n    url: jdbc:h2:mem:test\n")
+    keys = parse_app_config(tmp_path)
+    assert keys["spring.datasource.url"]["env_var"] == "SPRING_DATASOURCE_URL"
+    assert keys["spring.datasource.url"]["source"] == "src/main/resources/application.yml"
+
+
+def test_find_entry_points_ignores_test_trees(tmp_path: Path) -> None:
+    _write(tmp_path, "src/main/java/com/acme/ShipmentController.java",
+           'package com.acme;\n\n@RestController\n@RequestMapping("/api/shipments")\n'
+           'public class ShipmentController {\n    @GetMapping("/{id}")\n'
+           '    public String get() { return "x"; }\n}\n')
+    _write(tmp_path, "src/test/java/com/acme/ShipmentControllerTest.java",
+           'package com.acme;\n\npublic class ShipmentControllerTest {\n'
+           '    @GetMapping("/test-only")\n    public void t() { }\n}\n')
+    assert {e["id"] for e in find_entry_points(tmp_path, "spring", {})} == {
+        "GET /api/shipments/{id}"
+    }
+
+
+def test_detect_migrations_ignores_test_profile_ddl_auto(tmp_path: Path) -> None:
+    _write(tmp_path, "src/main/resources/application.yml",
+           "spring:\n  jpa:\n    hibernate:\n      ddl-auto: validate\n")
+    _write(tmp_path, "src/test/resources/application.yml",
+           "spring:\n  jpa:\n    hibernate:\n      ddl-auto: create-drop\n")
+    config = parse_app_config(tmp_path)
+    assert config["spring.jpa.hibernate.ddl-auto"]["placeholder"] == "validate"
+    assert detect_migrations(tmp_path, "spring", config)["also_on_boot"] is False
+
+
 def test_parse_app_config_quarkus_properties() -> None:
     keys = parse_app_config(FIXTURES / "quarkus-mini")
     assert keys["quarkus.oidc.enabled"]["env_var"] == "OIDC_ENABLED"

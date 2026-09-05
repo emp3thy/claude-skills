@@ -8,6 +8,7 @@ import pytest
 from kb_common import (
     EXIT_MISSING_OUTPUT,
     EXIT_VALIDATION,
+    TEST_TREE_NAMES,
     KbError,
     iter_files,
     read_json,
@@ -79,6 +80,49 @@ def test_iter_files_skips_ignored_dirs(tmp_path: Path) -> None:
     (tmp_path / "node_modules" / "c.py").write_text("x", encoding="utf-8")
     found = sorted(rel(p, tmp_path) for p in iter_files(tmp_path, (".java", ".py")))
     assert found == ["src/A.java"]
+
+
+def _make(root: Path, *relpaths: str) -> None:
+    for relpath in relpaths:
+        target = root / relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("x", encoding="utf-8")
+
+
+def test_iter_files_yields_paths_in_sorted_order(tmp_path: Path) -> None:
+    _make(tmp_path, "c/d/4.java", "a/2.java", "b/3.java", "a/1.java")
+    found = [rel(p, tmp_path) for p in iter_files(tmp_path, (".java",))]
+    assert found == ["a/1.java", "a/2.java", "b/3.java", "c/d/4.java"]
+    assert found == sorted(found)
+
+
+def test_iter_files_skips_test_trees_only_when_asked(tmp_path: Path) -> None:
+    _make(tmp_path, "src/main/java/A.java", "src/test/java/ATest.java", "tests/B.java",
+          "Deals.Tests/C.java", "spec/D.java", "__tests__/E.java")
+    assert "src/test" in TEST_TREE_NAMES
+    skipped = [rel(p, tmp_path) for p in iter_files(tmp_path, (".java",), skip_test_trees=True)]
+    assert skipped == ["src/main/java/A.java"]
+    assert len(list(iter_files(tmp_path, (".java",)))) == 6
+
+
+def test_read_json_wraps_decode_error(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+    with pytest.raises(KbError) as excinfo:
+        read_json(bad)
+    assert excinfo.value.exit_code == EXIT_VALIDATION
+    assert "invalid JSON" in str(excinfo.value)
+
+
+def test_read_yaml_wraps_parse_error(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("a:\n  - x\n b: [\n", encoding="utf-8")
+    with pytest.raises(KbError) as excinfo:
+        read_yaml(bad)
+    assert excinfo.value.exit_code == EXIT_VALIDATION
+    assert "invalid YAML" in str(excinfo.value)
+    with pytest.raises(KbError, match="invalid YAML"):
+        read_yaml_docs(bad)
 
 
 def test_run_cli_maps_kberror_to_exit_code(capsys: pytest.CaptureFixture[str]) -> None:

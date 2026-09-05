@@ -18,7 +18,7 @@ from flow_map import (
     validate,
     verify_refs,
 )
-from kb_common import EXIT_MISSING_OUTPUT, EXIT_VALIDATION, KbError, read_json
+from kb_common import EXIT_MISSING_OUTPUT, EXIT_VALIDATION, KbError, read_json, run_cli
 from kb_helpers import line_of
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -185,6 +185,16 @@ def test_cli_next_merge_mark(spring_ledger: tuple[Path, dict[str, Any]],
     reloaded = load_ledger(path)
     assert reloaded["entry_points"][0]["status"] == {"traced": True, "stubbed": True,
                                                      "tested": False, "passing": False}
+
+
+def test_cli_merge_malformed_json_exits_2(spring_ledger: tuple[Path, dict[str, Any]],
+                                          tmp_path: Path,
+                                          capsys: pytest.CaptureFixture[str]) -> None:
+    path, _ = spring_ledger
+    bad = tmp_path / "bad.json"
+    bad.write_text('{"id": "POST /api/shipments",', encoding="utf-8")
+    assert run_cli(main, ["merge", str(bad), "--ledger", str(path)]) == EXIT_VALIDATION
+    assert "invalid JSON" in capsys.readouterr().err
 
 
 def _trace_all(ledger: dict[str, Any]) -> None:

@@ -47,6 +47,11 @@ DEFAULT_IGNORE: Final[tuple[str, ...]] = (
     "karate-tests",
 )
 
+# Directories that hold a project's own tests. Skipped by ``iter_files`` when
+# ``skip_test_trees=True`` so test fixtures never win over production config.
+TEST_TREE_NAMES: Final[tuple[str, ...]] = ("test", "tests", "src/test", "__tests__", "spec")
+_TEST_TREE_SUFFIXES: Final[tuple[str, ...]] = ("Tests", ".Tests")
+
 
 class KbError(Exception):
     """A user-facing failure with a defined process exit code."""
@@ -61,7 +66,10 @@ def read_text(path: Path) -> str:
 
 
 def read_json(path: Path) -> dict[str, Any]:
-    data = json.loads(read_text(path))
+    try:
+        data = json.loads(read_text(path))
+    except json.JSONDecodeError as err:
+        raise KbError(f"{path}: invalid JSON: {err}") from err
     if not isinstance(data, dict):
         raise KbError(f"{path}: expected a JSON object at top level")
     return cast(dict[str, Any], data)
@@ -73,14 +81,20 @@ def write_json(path: Path, data: Mapping[str, Any]) -> None:
 
 
 def read_yaml(path: Path) -> dict[str, Any]:
-    data = yaml.safe_load(read_text(path))
+    try:
+        data = yaml.safe_load(read_text(path))
+    except yaml.YAMLError as err:
+        raise KbError(f"{path}: invalid YAML: {err}") from err
     if not isinstance(data, dict):
         raise KbError(f"{path}: expected a YAML mapping at top level")
     return cast(dict[str, Any], data)
 
 
 def read_yaml_docs(path: Path) -> list[dict[str, Any]]:
-    docs = yaml.safe_load_all(read_text(path))
+    try:
+        docs = list(yaml.safe_load_all(read_text(path)))
+    except yaml.YAMLError as err:
+        raise KbError(f"{path}: invalid YAML: {err}") from err
     return [cast(dict[str, Any], d) for d in docs if isinstance(d, dict)]
 
 
@@ -100,17 +114,41 @@ def rel(path: Path, root: Path) -> str:
     return path.resolve().relative_to(root.resolve()).as_posix()
 
 
-def iter_files(root: Path, suffixes: tuple[str, ...]) -> Iterator[Path]:
-    """Yield files under ``root`` with one of ``suffixes``, skipping DEFAULT_IGNORE dirs."""
+def is_test_tree(directory: Path, root: Path) -> bool:
+    """True when ``directory`` holds the project's own tests rather than its sources."""
+    name = directory.name
+    if name in TEST_TREE_NAMES or name.endswith(_TEST_TREE_SUFFIXES):
+        return True
+    try:
+        relative = directory.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return False
+    return relative in TEST_TREE_NAMES
+
+
+def iter_files(root: Path, suffixes: tuple[str, ...], *,
+               skip_test_trees: bool = False) -> Iterator[Path]:
+    """Yield files under ``root`` with one of ``suffixes``, skipping DEFAULT_IGNORE dirs.
+
+    Traversal is depth-first in alphabetical order, so the first file seen for a
+    given name is stable across platforms. With ``skip_test_trees`` the project's
+    own test directories (``src/test``, ``tests``, ``*.Tests``, ...) are not
+    descended into, so test fixtures never shadow production sources or config.
+    """
     stack = [root]
     while stack:
         current = stack.pop()
+        directories: list[Path] = []
         for child in sorted(current.iterdir()):
             if child.is_dir():
-                if child.name not in DEFAULT_IGNORE:
-                    stack.append(child)
+                if child.name in DEFAULT_IGNORE:
+                    continue
+                if skip_test_trees and is_test_tree(child, root):
+                    continue
+                directories.append(child)
             elif child.suffix in suffixes:
                 yield child
+        stack.extend(reversed(directories))
 
 
 def run_cli(main: Callable[[list[str] | None], int], argv: list[str] | None = None) -> int:

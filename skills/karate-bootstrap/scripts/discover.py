@@ -221,10 +221,34 @@ def _record(out: dict[str, dict[str, Any]], key: str, placeholder: str, source: 
     }
 
 
+_BASE_CONFIG_NAMES = ("application.yml", "application.yaml", "application.properties",
+                      "appsettings.json")
+
+
+def _config_rank(path: Path) -> int:
+    """0 for a base config file, 1 for a profile variant, 2 for everything else.
+
+    ``_record`` keeps the first value seen, so the base file has to be read
+    before ``application-prod.yml`` or ``appsettings.Development.json``.
+    """
+    name = path.name
+    if name in _BASE_CONFIG_NAMES:
+        return 0
+    if name.startswith("application-") and path.suffix in (".yml", ".yaml", ".properties"):
+        return 1
+    if name.startswith("appsettings.") and path.suffix == ".json":
+        return 1
+    return 2
+
+
 def parse_app_config(root: Path) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
-    for path in iter_files(root, (".yml", ".yaml", ".properties", ".json", ".py", ".xml",
-                                  ".example")):
+    candidates = sorted(
+        iter_files(root, (".yml", ".yaml", ".properties", ".json", ".py", ".xml", ".example"),
+                   skip_test_trees=True),
+        key=lambda p: (_config_rank(p), rel(p, root)),
+    )
+    for path in candidates:
         name = path.name
         source = rel(path, root)
         if name.startswith("application") and path.suffix in (".yml", ".yaml"):
@@ -405,7 +429,7 @@ def find_entry_points(root: Path, stack: str,
     http_markers = markers_of_kind(stack, "entry-http")
     amq_markers = markers_of_kind(stack, "entry-amq")
     entries: dict[str, dict[str, Any]] = {}
-    for path in iter_files(root, SOURCE_SUFFIXES[stack]):
+    for path in iter_files(root, SOURCE_SUFFIXES[stack], skip_test_trees=True):
         lines = read_text(path).splitlines()
         prefix, class_index = _class_prefix(stack, lines)
         source = rel(path, root)
@@ -483,7 +507,8 @@ def detect_migrations(root: Path, stack: str, config: dict[str, dict[str, Any]])
     found: list[str] = [d for d in _MIGRATION_DIRS if (root / d).is_dir()]
     if stack == "aspnetcore":
         found.extend(
-            sorted({rel(p.parent, root) for p in iter_files(root, (".cs",))
+            sorted({rel(p.parent, root)
+                    for p in iter_files(root, (".cs",), skip_test_trees=True)
                     if p.parent.name == "Migrations"})
         )
     also_on_boot = any(
@@ -491,9 +516,11 @@ def detect_migrations(root: Path, stack: str, config: dict[str, dict[str, Any]])
         for k in _ON_BOOT_KEYS
     )
     if not also_on_boot and stack == "aspnetcore":
-        also_on_boot = any(".Migrate()" in read_text(p) for p in iter_files(root, (".cs",)))
+        also_on_boot = any(".Migrate()" in read_text(p)
+                           for p in iter_files(root, (".cs",), skip_test_trees=True))
     if not also_on_boot and stack == "python":
-        also_on_boot = any("create_all(" in read_text(p) for p in iter_files(root, (".py",)))
+        also_on_boot = any("create_all(" in read_text(p)
+                           for p in iter_files(root, (".py",), skip_test_trees=True))
     return {
         "strategy": "migration-container",
         "image": None,
