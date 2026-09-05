@@ -462,55 +462,6 @@
       "tier": null
     },
     {
-      "fingerprint": "74b05b690193443e",
-      "quote_hash": "3637db2b68884d51ae7eeb8ab49c0797cea94205",
-      "family": "test-gaps",
-      "debt_type": "test",
-      "type_id": "TD-04",
-      "title": "Payments kill switch has no test verifying it changes behaviour",
-      "severity": 5,
-      "effort": "S",
-      "source": "scout",
-      "rule_id": null,
-      "note": "No test exercises flags.IsEnabled or asserts flipping payments.killswitch changes behaviour, despite the runbook naming it the on-call incident lever. untested_change_share=0.5. main.go only logs on it; a regression here would go uncaught.",
-      "evidence": [
-        {
-          "file": "cmd/app/main.go",
-          "line_start": 28,
-          "line_end": 28,
-          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")",
-          "quote_verified": true
-        },
-        {
-          "file": "cmd/app/main.go",
-          "line_start": 22,
-          "line_end": 24,
-          "quote": "\tif flags.IsEnabled(\"payments.killswitch\") {\n\t\tlog.Println(\"payments disabled by kill switch\")\n\t}",
-          "quote_verified": true
-        }
-      ],
-      "confirmed_by": [
-        "hotspot",
-        "pattern:flag-sdk",
-        "scout:test-gaps",
-        "signal:no-mapped-tests"
-      ],
-      "signals_cited": [
-        "hotspot",
-        "pattern:test-gaps:no-mapped-test",
-        "satd"
-      ],
-      "signals": {
-        "hotspot_score": 4.2,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": null,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "tier": null
-    },
-    {
       "fingerprint": "81123c5aab0571a0",
       "quote_hash": "bf10b6740a833ffeb73b8ffe86f0b92e51bac662",
       "family": "test-gaps",
@@ -551,6 +502,108 @@
       ],
       "signals": {
         "hotspot_score": 2.5,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "a8331cfe8ba14bf7",
+      "quote_hash": "eb14cad80d05834db5153b833719a63f9016e6eb",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Payments kill switch has no test verifying it changes behaviour",
+      "severity": 5,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "No test exercises flags.IsEnabled or asserts flipping payments.killswitch changes behaviour, despite the runbook naming it the on-call incident lever. untested_change_share=0.5. main.go only logs on it; a regression here would go uncaught.",
+      "evidence": [
+        {
+          "file": "internal/flags/flags.go",
+          "line_start": 3,
+          "line_end": 9,
+          "quote": "// Flags holds operational switches read at startup.\n//\n// payments.killswitch is a permanent kill switch: it stays false in normal\n// operation and is flipped by on-call during an incident (see docs/runbook.md).\nvar Flags = map[string]bool{\n\t\"payments.killswitch\": false,\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 22,
+          "line_end": 24,
+          "quote": "\tif flags.IsEnabled(\"payments.killswitch\") {\n\t\tlog.Println(\"payments disabled by kill switch\")\n\t}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:flag-sdk",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:test-gaps:no-mapped-test",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 0.7,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "1487b4ad80a6ee86",
+      "quote_hash": "6e62cabdb5422f523713129e4002a69cb25a6283",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Deprecated but still-called httpc.Fetch path has no test",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Fetch is marked deprecated in favour of FetchWithTimeout, yet main.go still calls it and discards the result. No test exists for either function; the silent-empty-string error path is unverified.",
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 11,
+          "line_end": 18,
+          "quote": "// Deprecated: use FetchWithTimeout from httpc_safe.go.\nfunc Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}\n\tdefer resp.Body.Close()",
+          "quote_verified": true
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:credential",
+        "pattern:deprecation",
+        "pattern:flag-sdk",
+        "pattern:no-timeout",
+        "pattern:tls-disabled",
+        "satd",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:test-gaps:no-mapped-test",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 2.0,
         "churn": 1,
         "coupling_degree": 0,
         "fan_in_approx": 1,
@@ -612,47 +665,6 @@
       "tier": null
     },
     {
-      "fingerprint": "25b76070ec41c753",
-      "quote_hash": "3637db2b68884d51ae7eeb8ab49c0797cea94205",
-      "family": "half-finished",
-      "debt_type": "code",
-      "type_id": "TD-28",
-      "title": "Fetch has no timeout and can hang forever on health check",
-      "severity": 4,
-      "effort": "S",
-      "source": "scout",
-      "rule_id": null,
-      "note": "http.Get uses http.DefaultClient which has no Timeout set, so if the remote never responds this call in main() blocks indefinitely with no way to cancel.",
-      "evidence": [
-        {
-          "file": "cmd/app/main.go",
-          "line_start": 28,
-          "line_end": 28,
-          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")",
-          "quote_verified": true
-        }
-      ],
-      "confirmed_by": [
-        "hotspot",
-        "pattern:flag-sdk",
-        "scout:half-finished"
-      ],
-      "signals_cited": [
-        "coupling",
-        "hotspot",
-        "pattern:half-finished:no-timeout"
-      ],
-      "signals": {
-        "hotspot_score": 4.2,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": null,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "tier": null
-    },
-    {
       "fingerprint": "a9f954d154719182",
       "quote_hash": "59ecdf2629c50c48e76ede4c1b845d2eec166086",
       "family": "half-finished",
@@ -705,20 +717,81 @@
       "fingerprint": "45d73ee57cd37a54",
       "quote_hash": "881c4b96ed9e0a5d0de232655a9ddefdbbc0b4ed",
       "family": "half-finished",
-      "debt_type": "defect",
-      "type_id": null,
-      "title": "Deprecated Fetch left in place and still called from main",
-      "severity": 3,
+      "debt_type": "code",
+      "type_id": "TD-28",
+      "title": "Fetch has no timeout and can hang forever on health check",
+      "severity": 4,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "Marker is 671 days old with no ticket referenced, and the replacement (FetchWithTimeout) exists in httpc_safe.go but the deprecated call site in main.go was never migrated.",
+      "note": "http.Get uses http.DefaultClient which has no Timeout set, so if the remote never responds this call in main() blocks indefinitely with no way to cancel.",
       "evidence": [
         {
           "file": "internal/httpc/httpc.go",
           "line_start": 11,
           "line_end": 11,
           "quote": "// Deprecated: use FetchWithTimeout from httpc_safe.go.",
+          "quote_verified": true
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 12,
+          "line_end": 18,
+          "quote": "func Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}\n\tdefer resp.Body.Close()",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:credential",
+        "pattern:deprecation",
+        "pattern:flag-sdk",
+        "pattern:no-timeout",
+        "pattern:tls-disabled",
+        "satd",
+        "scout:half-finished"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot",
+        "pattern:half-finished:no-timeout",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 2.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "f5a9c42e37bfbe4d",
+      "quote_hash": "82b4e760f173404d75b1470fd8104c63492296de",
+      "family": "migration",
+      "debt_type": "design",
+      "type_id": "TD-06",
+      "title": "Deprecated httpc.Fetch still called instead of FetchWithTimeout",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "httpc.go carries a Deprecated annotation pointing at FetchWithTimeout in httpc_safe.go, but the sole call site (main.go) still uses the old Fetch. 1 of 1 call sites (100%) is on the deprecated side; no ticket or removal date is referenced.",
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 11,
+          "line_end": 17,
+          "quote": "// Deprecated: use FetchWithTimeout from httpc_safe.go.\nfunc Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}",
           "quote_verified": true
         },
         {
@@ -737,47 +810,6 @@
         "pattern:no-timeout",
         "pattern:tls-disabled",
         "satd",
-        "scout:half-finished"
-      ],
-      "signals_cited": [
-        "coupling",
-        "hotspot",
-        "satd"
-      ],
-      "signals": {
-        "hotspot_score": 2.0,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": 1,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "tier": null
-    },
-    {
-      "fingerprint": "8a91399acf1235af",
-      "quote_hash": "3637db2b68884d51ae7eeb8ab49c0797cea94205",
-      "family": "migration",
-      "debt_type": "design",
-      "type_id": "TD-06",
-      "title": "Deprecated httpc.Fetch still called instead of FetchWithTimeout",
-      "severity": 3,
-      "effort": "S",
-      "source": "scout",
-      "rule_id": null,
-      "note": "httpc.go carries a Deprecated annotation pointing at FetchWithTimeout in httpc_safe.go, but the sole call site (main.go) still uses the old Fetch. 1 of 1 call sites (100%) is on the deprecated side; no ticket or removal date is referenced.",
-      "evidence": [
-        {
-          "file": "cmd/app/main.go",
-          "line_start": 28,
-          "line_end": 28,
-          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")",
-          "quote_verified": true
-        }
-      ],
-      "confirmed_by": [
-        "hotspot",
-        "pattern:flag-sdk",
         "scout:migration"
       ],
       "signals_cited": [
@@ -786,10 +818,10 @@
         "satd"
       ],
       "signals": {
-        "hotspot_score": 4.2,
+        "hotspot_score": 2.0,
         "churn": 1,
         "coupling_degree": 0,
-        "fan_in_approx": null,
+        "fan_in_approx": 1,
         "path_class": "source",
         "in_hotspot_band": true
       },
@@ -1675,7 +1707,7 @@
       "raw": 4,
       "dropped": 0,
       "quote_failed": 0,
-      "clustered": 1,
+      "clustered": 0,
       "suppressed": 0,
       "disabled": 0
     },
@@ -1683,7 +1715,7 @@
       "raw": 3,
       "dropped": 0,
       "quote_failed": 0,
-      "clustered": 0,
+      "clustered": 1,
       "suppressed": 0,
       "disabled": 0
     },

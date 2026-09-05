@@ -16,6 +16,7 @@
     "8d9953f72a4e0fd8",
     "bcb3cd9522cdbe0a",
     "26b3f35c0a5ea5e2",
+    "29629621bdb42797",
     "92be85bba7b53708",
     "ab911a0fcb015d8e",
     "e86c1f37f0d0e9d4",
@@ -59,22 +60,29 @@
       "output": "verdicts/verify-03.json",
       "fingerprints": [
         "26b3f35c0a5ea5e2",
+        "29629621bdb42797",
         "92be85bba7b53708",
         "ab911a0fcb015d8e",
         "e86c1f37f0d0e9d4",
-        "07ed8cbe95f89a9e",
-        "cf9039c7651cee2c"
+        "07ed8cbe95f89a9e"
       ]
     },
     {
       "prompt": "prompts/verify-04.md",
       "output": "verdicts/verify-04.json",
       "fingerprints": [
+        "cf9039c7651cee2c",
         "355885f54c1b8168",
         "9c6b39118019c27e",
         "f814e83b9c9e56a4",
         "795ec415100325e3",
-        "b7396d04c3285472",
+        "b7396d04c3285472"
+      ]
+    },
+    {
+      "prompt": "prompts/verify-05.md",
+      "output": "verdicts/verify-05.json",
+      "fingerprints": [
         "3d5daf8fb72b00a9"
       ]
     }

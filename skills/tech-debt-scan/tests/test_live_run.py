@@ -11,6 +11,7 @@ import pytest
 from categories import SCOUT_OUTPUT_SCHEMA
 from live_run import (
     _main,
+    _write_payload,
     claude_argv,
     dispatch,
     extract_reply,
@@ -160,6 +161,35 @@ def test_dispatch_writes_a_list_payload_for_the_verifier_contract(
     raw = out.read_bytes()
     assert b"\r\n" not in raw
     assert [v["fingerprint"] for v in json.loads(raw)] == ["abc123", "def456"]
+
+
+def test_write_payload_redacts_every_string_it_writes(tmp_path: Path) -> None:
+    """The harness is a writer too: no agent payload reaches disk with a raw credential."""
+    secret = "abcdefghijkl0123"
+    payload = {
+        "family": "security",
+        "findings": [{
+            "severity": 4,
+            "verified": True,
+            "note": None,
+            "evidence": [{"quote": f'api_key = "{secret}"', "line_start": 11}],
+        }],
+    }
+    out = tmp_path / "scouts" / "security.json"
+    _write_payload(out, payload)
+    raw = out.read_bytes()
+    assert b"\r\n" not in raw
+    assert secret.encode() not in raw
+    doc = json.loads(raw)
+    finding = doc["findings"][0]
+    assert finding["evidence"][0]["quote"] == 'api_key = "abcd***"'
+    assert finding["severity"] == 4 and finding["verified"] is True
+    assert finding["note"] is None and finding["evidence"][0]["line_start"] == 11
+    # The verifier contract is a bare list, and its prose quotes the file too.
+    verdicts = tmp_path / "verdicts" / "verify-01.json"
+    _write_payload(verdicts, [{"proof": f'token = "{secret}" at line 11', "checked": []}])
+    assert secret.encode() not in verdicts.read_bytes()
+    assert json.loads(verdicts.read_bytes())[0]["proof"] == 'token = "abcd***" at line 11'
 
 
 def test_log_row_creates_the_header_and_appends_a_row(tmp_path: Path) -> None:

@@ -12,7 +12,9 @@ section. Rule findings and tool facts are tier A without a verifier. Family
 caps from spec 2.3 apply after a confirm; the verifier's severity and effort
 replace the scout's. Migration's "churn on both sides" lift uses the
 ``coupling`` corroboration only, because a candidate carries churn for its
-primary file alone.
+primary file alone. Every piece of verifier prose kept on a finding (``proof``,
+``checked``, ``opened``, ``trap_matched``) goes through ``redaction.redact``
+first: the verifier reads the repository, so it can quote a credential back.
 """
 from __future__ import annotations
 
@@ -23,6 +25,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from inventory import write_json
+from redaction import redact
 from validation import ValidationError, validate_effort
 from verify_prompts import VERDICT_VALUES
 
@@ -123,11 +126,13 @@ def _finding(
         if cand["family"] == "test-quality" and not _has(cand, "tool:"):
             out["severity"] = min(int(out["severity"]), 3)
         out["verdict"] = str(verdict.get("verdict"))
-        out["proof"] = str(verdict.get("proof", ""))
-        out["checked"] = [str(c) for c in verdict.get("checked", []) or []]
-        out["opened"] = [str(o) for o in verdict.get("opened", []) or []]
+        # The verifier reads the repository and quotes it back, so its prose is a
+        # credential path like any other written quote (spec 4.3).
+        out["proof"] = redact(str(verdict.get("proof", "")))
+        out["checked"] = [redact(str(c)) for c in verdict.get("checked", []) or []]
+        out["opened"] = [redact(str(o)) for o in verdict.get("opened", []) or []]
         trap = verdict.get("trap_matched")
-        out["trap_matched"] = str(trap) if trap else None
+        out["trap_matched"] = redact(str(trap)) if trap else None
         out["verified"] = True
     elif cand.get("tier") == "A":
         out.update({"verdict": "rule", "proof": "verified by construction",

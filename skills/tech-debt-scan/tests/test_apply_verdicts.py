@@ -128,6 +128,24 @@ def test_reject_and_trap_are_kept(tmp_path: Path) -> None:
     assert doc["stats"]["rejected"] == 1
 
 
+def test_verifier_text_is_redacted_before_it_reaches_a_finding() -> None:
+    """The verifier reads the repository, so its prose is a credential path too (spec 4.3)."""
+    secret = "abcdefghijkl0123"
+    a = _cand("security", confirmed=["scout:security", "pattern:x"])
+    doc = apply([a], _plan(a), {"verdicts/verify-01.json": [_verdict(
+        a, "confirm",
+        proof=f'src/a.py:11 hardcodes token = "{secret}" at module level',
+        checked=[f'token = "{secret}" is not in a test fixture'],
+        opened=[f'src/a.py -> token = "{secret}"'],
+        trap_matched=f'trap: token = "{secret}" is the documented sample',
+    )]})
+    finding = doc["findings"][0]
+    assert "abcd***" in finding["proof"]
+    assert secret not in json.dumps(finding), "no verifier field may carry the raw value"
+    assert all("abcd***" in text for text in (*finding["checked"], *finding["opened"]))
+    assert "abcd***" in finding["trap_matched"]
+
+
 def test_cli_reads_verdict_files(tmp_path: Path) -> None:
     a = _cand("error-masking", confirmed=["scout:error-masking", "satd"])
     workdir = tmp_path / "wd"

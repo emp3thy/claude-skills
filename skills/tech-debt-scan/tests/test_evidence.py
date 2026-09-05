@@ -29,6 +29,18 @@ def test_find_quote_prefers_the_cited_range_then_anywhere() -> None:
     assert find_quote(lines, "", 1, 1) is None
 
 
+def test_find_quote_recovers_a_quote_longer_than_the_default_window() -> None:
+    """An 8-line quote cited one line off is still rejoined at its real range."""
+    body = [f"line {n}" for n in range(1, 9)]
+    lines = ["header", *body, "footer"]
+    quote = "\n".join(body)
+    # Cited 1-8, really 2-9: the cited range misses, so the fallback must widen
+    # its window past the six-line default to the quote's own line count.
+    assert find_quote(lines, quote, 1, 8) == (2, 9)
+    assert find_quote(lines, quote, None, None) == (2, 9)
+    assert find_quote(lines, "\n".join(body[:7]), 1, 7) == (2, 8)
+
+
 def test_signals_for_reads_files_then_artefacts_then_null_shape() -> None:
     inventory: dict[str, Any] = {
         "hotspot_band": ["a.py"],

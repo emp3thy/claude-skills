@@ -890,6 +890,20 @@
           "quote_verified": true
         },
         {
+          "file": "src/pay/refund.py",
+          "line_start": 1,
+          "line_end": 11,
+          "quote": "\"\"\"Refund workflow: validate, post to the ledger, notify the gateway.\"\"\"\nfrom __future__ import annotations\n\nimport logging\n\nfrom pay import ledger\nfrom pay.gateway import Gateway\nfrom pay.models import Entry, Refund\nfrom pay.utils import cents\n\nlog = logging.getLogger(__name__)",
+          "quote_verified": true
+        },
+        {
+          "file": "README.md",
+          "line_start": 1,
+          "line_end": 9,
+          "quote": "# pay-service\n\nRefund and ledger service.\n\n## Run\n\n    python -m pay.refund --help\n\nCode lives in `src/pay/refund.py`; the design is in `docs/adr/0001-ledger.md`.",
+          "quote_verified": true
+        },
+        {
           "file": "README.md",
           "line_start": 10,
           "line_end": 10,
@@ -915,7 +929,8 @@
       ],
       "signals_cited": [
         "pattern:doc-drift:dangling-reference",
-        "pattern:doc-drift:example-does-not-run"
+        "pattern:doc-drift:example-does-not-run",
+        "pattern:doc-drift:missing-doc"
       ],
       "signals": {
         "hotspot_score": 0.4,
@@ -965,8 +980,8 @@
       "tier": null
     },
     {
-      "fingerprint": "30582a5d8e1e3f58",
-      "quote_hash": "52db94cd866e087ab58ce479896048b79dba26f6",
+      "fingerprint": "532b106d4a224260",
+      "quote_hash": "90a2906486e72d37f88044140e8f58b8e1f1c1c6",
       "family": "architecture",
       "debt_type": "architecture",
       "type_id": null,
@@ -978,6 +993,13 @@
       "note": "ADR 0001 names ledger.py's JSON-lines file canonical, but legacy_export.py sits in the same pay package and reads refunds from a separate sqlite3 db, importing neither ledger nor models. Two divergent stores for one domain.",
       "evidence": [
         {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 1,
+          "line_end": 7,
+          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report",
+          "quote_verified": true
+        },
+        {
           "file": "docs/adr/0001-ledger.md",
           "line_start": 5,
           "line_end": 6,
@@ -986,6 +1008,13 @@
         }
       ],
       "confirmed_by": [
+        "hotspot",
+        "pattern:commented-out-code",
+        "pattern:dynamic-eval",
+        "pattern:legacy-name",
+        "pattern:security-suppression",
+        "pattern:string-sql",
+        "satd",
         "scout:architecture"
       ],
       "signals_cited": [
@@ -994,12 +1023,12 @@
         "satd"
       ],
       "signals": {
-        "hotspot_score": 0.0,
+        "hotspot_score": 2.5,
         "churn": 1,
         "coupling_degree": 0,
-        "fan_in_approx": null,
-        "path_class": "docs",
-        "in_hotspot_band": false
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
       },
       "tier": null
     },
@@ -1729,12 +1758,6 @@
       "reason": null
     },
     {
-      "file": "README.md",
-      "line_start": 1,
-      "question": "README has no CONTRIBUTING section or file for the repo",
-      "reason": "quote not found"
-    },
-    {
       "file": "src/pay/legacy_export.py",
       "line_start": 8,
       "question": "Is refunds.db (sqlite3) intended to stay a permanent secondary store for the v1 report, or should this module read through ledger.py instead?",
@@ -1946,8 +1969,8 @@
     "doc-drift": {
       "raw": 4,
       "dropped": 0,
-      "quote_failed": 1,
-      "clustered": 1,
+      "quote_failed": 0,
+      "clustered": 2,
       "suppressed": 0,
       "disabled": 0
     },

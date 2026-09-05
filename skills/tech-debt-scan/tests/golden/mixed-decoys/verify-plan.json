@@ -5,9 +5,6 @@
   "selected": [
     "67a7969de9b64d00",
     "7184d41860800e6d",
-    "25b76070ec41c753",
-    "74b05b690193443e",
-    "8a91399acf1235af",
     "5be87c92ab0d4b6b",
     "bf26c2f7166e080c",
     "682f7e3ccc19fe29",
@@ -15,11 +12,14 @@
     "81123c5aab0571a0",
     "a9f954d154719182",
     "d715b507df24e5ab",
+    "a8331cfe8ba14bf7",
+    "1487b4ad80a6ee86",
     "45d73ee57cd37a54",
     "8f91af0854095dec",
     "a8a0b3c16057f8e1",
     "d59bf39ced06c57e",
     "d887ca1f61883449",
+    "f5a9c42e37bfbe4d",
     "47ec0ffaa597bd86",
     "bf52c33dda8e609a",
     "61ee0ea261ec98c1",
@@ -38,33 +38,33 @@
       "fingerprints": [
         "67a7969de9b64d00",
         "7184d41860800e6d",
-        "25b76070ec41c753",
-        "74b05b690193443e",
-        "8a91399acf1235af",
-        "5be87c92ab0d4b6b"
+        "5be87c92ab0d4b6b",
+        "bf26c2f7166e080c",
+        "682f7e3ccc19fe29",
+        "e5babfbf1dc17e2e"
       ]
     },
     {
       "prompt": "prompts/verify-02.md",
       "output": "verdicts/verify-02.json",
       "fingerprints": [
-        "bf26c2f7166e080c",
-        "682f7e3ccc19fe29",
-        "e5babfbf1dc17e2e",
         "81123c5aab0571a0",
         "a9f954d154719182",
-        "d715b507df24e5ab"
+        "d715b507df24e5ab",
+        "a8331cfe8ba14bf7",
+        "1487b4ad80a6ee86",
+        "45d73ee57cd37a54"
       ]
     },
     {
       "prompt": "prompts/verify-03.md",
       "output": "verdicts/verify-03.json",
       "fingerprints": [
-        "45d73ee57cd37a54",
         "8f91af0854095dec",
         "a8a0b3c16057f8e1",
         "d59bf39ced06c57e",
         "d887ca1f61883449",
+        "f5a9c42e37bfbe4d",
         "47ec0ffaa597bd86"
       ]
     },

@@ -34,7 +34,7 @@
   {
     "fingerprint": "3aad01488c771d47",
     "verdict": "confirm",
-    "proof": "gateway.py:11 hardcodes `api_key = \"sk_live_51H8f2kL9mN3pQ7rS4tU6vW\"`, matching Stripe's live-secret-key shape (sk_live_ prefix + random suffix). It's module-level in production source (not tests/fixtures), used directly as the Authorization bearer at line 23 for real POST refunds (line 20-25), with `verify=False` (TLS disabled) and a wildcard CORS header alongside it. No suppression comment or test/fixture context nearby. This is a genuine hardcoded live-looking credential in the money-movement path.",
+    "proof": "gateway.py:11 hardcodes `api_key = \"sk_l***\"`, matching Stripe's live-secret-key shape (sk_live_ prefix + random suffix). It's module-level in production source (not tests/fixtures), used directly as the Authorization bearer at line 23 for real POST refunds (line 20-25), with `verify=False` (TLS disabled) and a wildcard CORS header alongside it. No suppression comment or test/fixture context nearby. This is a genuine hardcoded live-looking credential in the money-movement path.",
     "severity": 5,
     "effort": "S",
     "trap_matched": null,

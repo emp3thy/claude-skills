@@ -2,6 +2,57 @@
   "schema_version": 2,
   "candidates": [
     {
+      "fingerprint": "29629621bdb42797",
+      "quote_hash": "1cfa18593b35b56663ac9354209dbf53fab66a65",
+      "family": "duplication",
+      "debt_type": "code",
+      "type_id": "TD-05",
+      "title": "Duplicated fetch-wrapper logic between client.ts and client-admin.ts",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Both modules build the same BASE/token/headers structure and fetch+json+catch flow, differing only in constant values (URL, env var name) and one has a timeout/log call the other lacks. Change-history coupling (ratio 0.889) confirms they are edited together.",
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 1,
+          "line_end": 7,
+          "quote": "import { isEnabled } from \"../flags\";\n\nconst BASE = \"https://api.example.com\";\nconst token = process.env.API_TOKEN ?? \"\";\n\nexport async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };",
+          "quote_verified": true
+        },
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 1,
+          "line_end": 7,
+          "quote": "import { isEnabled } from \"../flags\";\n\nconst BASE = \"https://admin.example.com\";\nconst token = process.env.ADMIN_TOKEN ?? \"\";\n\nexport async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:flag-sdk",
+        "pattern:no-timeout",
+        "pattern:swallowed-catch",
+        "scout:duplication"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot",
+        "pattern:duplication:parallel-http-client"
+      ],
+      "signals": {
+        "hotspot_score": 42.9,
+        "churn": 5,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
       "fingerprint": "bcb3cd9522cdbe0a",
       "quote_hash": "61b1c30476e7e46d71c080e53c35f3124be8a72f",
       "family": "dead-code",
@@ -1322,12 +1373,6 @@
   ],
   "open_questions": [
     {
-      "file": "src/api/client.ts",
-      "line_start": 1,
-      "question": "Duplicated fetch-wrapper logic between client.ts and client-admin.ts",
-      "reason": "quote not found"
-    },
-    {
       "file": "src/api/client-admin.ts",
       "line_start": 21,
       "question": "Is the \"adminPanel\" key expected to be injected into FLAGS by external config/build tooling not present in this repo, or was it never wired up?",
@@ -1517,7 +1562,7 @@
     "duplication": {
       "raw": 1,
       "dropped": 0,
-      "quote_failed": 1,
+      "quote_failed": 0,
       "clustered": 0,
       "suppressed": 0,
       "disabled": 0

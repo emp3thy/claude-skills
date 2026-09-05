@@ -1111,6 +1111,20 @@
           "quote_verified": true
         },
         {
+          "file": "src/pay/refund.py",
+          "line_start": 1,
+          "line_end": 11,
+          "quote": "\"\"\"Refund workflow: validate, post to the ledger, notify the gateway.\"\"\"\nfrom __future__ import annotations\n\nimport logging\n\nfrom pay import ledger\nfrom pay.gateway import Gateway\nfrom pay.models import Entry, Refund\nfrom pay.utils import cents\n\nlog = logging.getLogger(__name__)",
+          "quote_verified": true
+        },
+        {
+          "file": "README.md",
+          "line_start": 1,
+          "line_end": 9,
+          "quote": "# pay-service\n\nRefund and ledger service.\n\n## Run\n\n    python -m pay.refund --help\n\nCode lives in `src/pay/refund.py`; the design is in `docs/adr/0001-ledger.md`.",
+          "quote_verified": true
+        },
+        {
           "file": "README.md",
           "line_start": 10,
           "line_end": 10,
@@ -1136,7 +1150,8 @@
       ],
       "signals_cited": [
         "pattern:doc-drift:dangling-reference",
-        "pattern:doc-drift:example-does-not-run"
+        "pattern:doc-drift:example-does-not-run",
+        "pattern:doc-drift:missing-doc"
       ],
       "signals": {
         "hotspot_score": 0.4,
@@ -1208,8 +1223,8 @@
       "verified": true
     },
     {
-      "fingerprint": "30582a5d8e1e3f58",
-      "quote_hash": "52db94cd866e087ab58ce479896048b79dba26f6",
+      "fingerprint": "532b106d4a224260",
+      "quote_hash": "90a2906486e72d37f88044140e8f58b8e1f1c1c6",
       "family": "architecture",
       "debt_type": "architecture",
       "type_id": null,
@@ -1221,6 +1236,13 @@
       "note": "ADR 0001 names ledger.py's JSON-lines file canonical, but legacy_export.py sits in the same pay package and reads refunds from a separate sqlite3 db, importing neither ledger nor models. Two divergent stores for one domain.",
       "evidence": [
         {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 1,
+          "line_end": 7,
+          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report",
+          "quote_verified": true
+        },
+        {
           "file": "docs/adr/0001-ledger.md",
           "line_start": 5,
           "line_end": 6,
@@ -1229,6 +1251,13 @@
         }
       ],
       "confirmed_by": [
+        "hotspot",
+        "pattern:commented-out-code",
+        "pattern:dynamic-eval",
+        "pattern:legacy-name",
+        "pattern:security-suppression",
+        "pattern:string-sql",
+        "satd",
         "scout:architecture"
       ],
       "signals_cited": [
@@ -1237,26 +1266,20 @@
         "satd"
       ],
       "signals": {
-        "hotspot_score": 0.0,
+        "hotspot_score": 2.5,
         "churn": 1,
         "coupling_degree": 0,
-        "fan_in_approx": null,
-        "path_class": "docs",
-        "in_hotspot_band": false
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
       },
-      "tier": "B",
-      "verdict": "confirm",
-      "proof": "ledger.py:9-15 implements the canonical JSON-lines store described in ADR 0001 (LEDGER_PATH ledger.jsonl, post/balance using models.Entry). legacy_export.py imports only sqlite3/subprocess, never pay.ledger or pay.models, and reads refund rows from a separate 'refunds.db' sqlite file (lines 4,9-11). Two divergent, unsynchronized stores for the same refund/ledger domain, contradicting the ADR's 'append-only ledger is canonical' statement. Real architecture debt.",
-      "checked": [
-        "ledger.py canonical store",
-        "legacy_export.py imports/data source"
-      ],
-      "opened": [
-        "src/pay/ledger.py",
-        "src/pay/models.py"
-      ],
+      "tier": "C",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "3aad01488c771d47",
@@ -1316,7 +1339,7 @@
       },
       "tier": "B",
       "verdict": "confirm",
-      "proof": "gateway.py:11 hardcodes `api_key = \"sk_live_51H8f2kL9mN3pQ7rS4tU6vW\"`, matching Stripe's live-secret-key shape (sk_live_ prefix + random suffix). It's module-level in production source (not tests/fixtures), used directly as the Authorization bearer at line 23 for real POST refunds (line 20-25), with `verify=False` (TLS disabled) and a wildcard CORS header alongside it. No suppression comment or test/fixture context nearby. This is a genuine hardcoded live-looking credential in the money-movement path.",
+      "proof": "gateway.py:11 hardcodes `api_key = \"sk_l***\"`, matching Stripe's live-secret-key shape (sk_live_ prefix + random suffix). It's module-level in production source (not tests/fixtures), used directly as the Authorization bearer at line 23 for real POST refunds (line 20-25), with `verify=False` (TLS disabled) and a wildcard CORS header alongside it. No suppression comment or test/fixture context nearby. This is a genuine hardcoded live-looking credential in the money-movement path.",
       "checked": [
         "Path class example, fixture or test, and secret entropy? - src/pay/gateway.py is production source; key has plausible live-key entropy/shape",
         "User input reachable at the SQL or shell site? - n/a, this candidate is about the key not injection",
@@ -2058,12 +2081,12 @@
   ],
   "stats": {
     "selected": 28,
-    "verdicts": 28,
-    "unknown_fingerprint": 0,
-    "missing_verdict": 0,
+    "verdicts": 27,
+    "unknown_fingerprint": 1,
+    "missing_verdict": 1,
     "tier_a": 17,
-    "tier_b": 13,
-    "tier_c": 5,
+    "tier_b": 12,
+    "tier_c": 6,
     "rejected": 2
   }
 }

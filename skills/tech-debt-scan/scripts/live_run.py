@@ -15,7 +15,9 @@ level), read-only tools only, user settings and MCP servers excluded
 (``--setting-sources project --strict-mcp-config
 --disable-slash-commands``; ``--bare`` loses auth on this machine) and a per-call
 dollar budget. A reply that fails the contract is retried once with an appended
-instruction; a second failure stops the run with exit 4.
+instruction; a second failure stops the run with exit 4. Every reply is walked
+through ``redaction.redact`` before it is written, because the agents read the
+repository under scan and the harness is a writer like any other script.
 
 Direct-path invocable (no package imports): `python live_run.py <fixture-or-repo>`.
 """
@@ -43,6 +45,7 @@ from merge_findings import merge
 from patterns import run_patterns
 from plan_scan import build_plan, write_plan
 from rank import rank
+from redaction import redact
 from rules import SCHEMA_VERSION as RULES_SCHEMA_VERSION
 from rules import run_rules
 from verify_prompts import VERDICT_SCHEMA, build_verify_plan
@@ -203,13 +206,30 @@ def _valid(payload: Any, schema: dict[str, Any]) -> bool:
     )
 
 
+def redact_payload(payload: Any) -> Any:
+    """``payload`` with every string value redacted, dicts and lists walked in place.
+
+    Keys are structural and are left alone; numbers, booleans and null pass
+    through untouched. An agent reads the repository under scan, so anything it
+    hands back can quote a credential, and the harness writes that reply to disk.
+    """
+    if isinstance(payload, str):
+        return redact(payload)
+    if isinstance(payload, dict):
+        return {key: redact_payload(value) for key, value in payload.items()}
+    if isinstance(payload, list):
+        return [redact_payload(item) for item in payload]
+    return payload
+
+
 def _write_payload(output_file: Path, payload: Any) -> None:
     """LF-only JSON for either payload shape (``write_json`` only takes a document)."""
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(payload, dict):
-        write_json(output_file, payload)
+    safe = redact_payload(payload)
+    if isinstance(safe, dict):
+        write_json(output_file, safe)
     else:
-        output_file.write_bytes((json.dumps(payload, indent=2) + "\n").encode("utf-8"))
+        output_file.write_bytes((json.dumps(safe, indent=2) + "\n").encode("utf-8"))
 
 
 def dispatch(

@@ -16,6 +16,11 @@ the file, so the diversion path is exercised on every run. The live scouts of
 their own accord produced a few more unverifiable quotes; those are named in
 ``LIVE_QUOTE_MISSES`` rather than edited out, so the test still states the exact
 set of quotes that must fail.
+
+The verdict goldens are the live output, redacted as the harness now writes them:
+``live_run._write_payload`` walks every string of an agent reply through
+``redaction.redact``, so ``service-py/verdicts/verify-02.json`` was re-redacted
+once by hand to match (hand edit 4).
 """
 from __future__ import annotations
 
@@ -47,35 +52,26 @@ UPDATE = os.environ.get("UPDATE_GOLDENS") == "1"
 RULES_NOW = datetime(2026, 9, 5, tzinfo=UTC)
 # The hand-added finding whose quote is not in the file; the merge must divert it.
 PIN_TITLE = "invented quote (golden pin)"
-# Live scout findings that cite a quote ``find_quote`` cannot rejoin: each spans
-# more lines than the six-line fallback window and its cited range is off by a
-# line or two, so the quote is lost. Kept exactly as the run emitted them, because
-# this is the evidence gate working on real output rather than fixture damage.
-# ``diverted`` findings lose every quote and land in ``open_questions``; ``partial``
-# findings keep another verified quote and stay as candidates.
+# Live scout findings that cite a quote ``find_quote`` cannot rejoin. Every one of
+# them spanned more lines than the fallback window and was cited a line or two off;
+# fix round 1 widened that window to the quote's own line count, so all of them are
+# now rejoined and the only quote that must fail is the hand-added pin. The tables
+# are kept (empty) so a new unverifiable quote fails the test rather than passing as
+# noise. ``diverted`` findings lose every quote and land in ``open_questions``;
+# ``partial`` findings keep another verified quote and stay as candidates.
 LIVE_QUOTE_MISSES: dict[str, dict[str, frozenset[str]]] = {
-    "service-py": {
-        "diverted": frozenset({"README has no CONTRIBUTING section or file for the repo"}),
-        "partial": frozenset({
-            "Legacy export bypasses the ledger, writing refund data to a second store",
-            "README Run instructions reference a CLI that refund.py does not implement",
-        }),
-    },
-    "web-ts": {
-        "diverted": frozenset({
-            "Duplicated fetch-wrapper logic between client.ts and client-admin.ts",
-        }),
-        "partial": frozenset(),
-    },
-    "mixed-decoys": {
-        "diverted": frozenset(),
-        "partial": frozenset({
-            "Deprecated but still-called httpc.Fetch path has no test",
-            "Deprecated httpc.Fetch still called instead of FetchWithTimeout",
-            "Fetch has no timeout and can hang forever on health check",
-            "Payments kill switch has no test verifying it changes behaviour",
-        }),
-    },
+    "service-py": {"diverted": frozenset(), "partial": frozenset()},
+    "web-ts": {"diverted": frozenset(), "partial": frozenset()},
+    "mixed-decoys": {"diverted": frozenset(), "partial": frozenset()},
+}
+# Recovering those quotes put more candidates in the verify pool, and web-ts now
+# spills into a fifth verifier batch the first live run never made. A verdict file
+# cannot be written by hand (it would be invented agent output), so that batch's
+# candidates stay unverified at tier C until the next live run replaces the goldens.
+UNVERIFIED_BATCHES: dict[str, frozenset[str]] = {
+    "service-py": frozenset(),
+    "web-ts": frozenset({"verdicts/verify-05.json"}),
+    "mixed-decoys": frozenset(),
 }
 
 Chain = tuple[dict[str, Any], dict[str, Any], dict[str, Any]]
@@ -140,6 +136,9 @@ def _chain(name: str, repo: Path, tmp_path: Path) -> Chain:
     verdicts: dict[str, list[dict[str, Any]]] = {}
     for batch in vplan["batches"]:
         src = golden / batch["output"]
+        if batch["output"] in UNVERIFIED_BATCHES[name]:
+            assert not src.is_file(), f"{src} exists; drop it from UNVERIFIED_BATCHES"
+            continue
         assert src.is_file(), f"golden verdict missing: {src}"
         verdicts[batch["output"]] = json.loads(src.read_bytes())
     verified = apply(candidates["candidates"], vplan, verdicts)

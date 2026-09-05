@@ -19,6 +19,9 @@ from typing import Any
 SIGNAL_KEYS: tuple[str, ...] = (
     "hotspot_score", "churn", "coupling_degree", "fan_in_approx", "path_class", "in_hotspot_band",
 )
+# The widest fallback window ``find_quote`` will scan for a long quote. The scan is
+# O(width x file length), so a runaway quote cannot make the merge quadratic.
+WIDTH_CAP: int = 20
 
 
 def normalise_quote(text: str) -> str:
@@ -49,7 +52,11 @@ def find_quote(
 
     The cited range is tried first (so a quote that is genuinely there keeps
     its line numbers); otherwise every window of 1 to ``max_lines`` lines is
-    tried from the top, and the first match is the real range.
+    tried from the top, and the first match is the real range. A quote longer
+    than ``max_lines`` widens the search to its own line count (capped at
+    ``WIDTH_CAP``): models routinely drop a blank line when they quote, which
+    shifts the cited range by a line or two, and a verbatim ten-line quote is
+    no less real than a verbatim two-line one.
     """
     wanted = normalise_quote(quote)
     if not wanted:
@@ -59,7 +66,8 @@ def find_quote(
         start, end = max(1, line_start), min(total, max(line_start, line_end))
         if start <= end and _window_matches(lines, start, end, wanted):
             return start, end
-    for width in range(1, max_lines + 1):
+    widest = min(max(max_lines, quote.count("\n") + 1), WIDTH_CAP)
+    for width in range(1, widest + 1):
         for start in range(1, total - width + 2):
             if _window_matches(lines, start, start + width - 1, wanted):
                 return start, start + width - 1
