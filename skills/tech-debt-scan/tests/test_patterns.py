@@ -9,9 +9,9 @@ from typing import Any
 import pytest
 import yaml
 from config import DEFAULTS
-from inventory import build_all, write_json
+from inventory import MAX_SCAN_BYTES, build_all, write_json
 from make_history import git_output, replay_history
-from patterns import RULES, Lead, capped_leads, redact, run_patterns
+from patterns import RULES, Lead, _logger_present, _scan_files, capped_leads, redact, run_patterns
 
 SCRIPTS = Path(__file__).parent.parent / "scripts"
 
@@ -192,6 +192,95 @@ def test_capped_leads_hotspot_band_first() -> None:
     assert [item["file"] for item in capped[:10]] == band
     assert [item["file"] for item in capped[10:]] == [f"f{i}.py" for i in range(30)]
     assert capped_leads(leads, band, limit=5) == capped[:5]
+
+
+def test_artefact_leads_carry_the_real_path_class_and_keep_rule_scope(tmp_path: Path) -> None:
+    """Rule scope keys on the artefact class; the emitted path_class is the real one.
+
+    The same workflow sits at the repository root (path class ``source``) and
+    under a fixture tree (path class ``tests``). Both are artefact class ``ci``,
+    so every ``ci``-scoped rule still reaches both. ``tls-disabled`` is a plain
+    line rule with no tests skip, so it fires on both copies and the fixture-tree
+    lead carries ``tests``; ``credential`` is the one scanner that skips
+    ``path_class == "tests"``, so it fires on the root copy only.
+    """
+    workflow = (
+        "jobs:\n"
+        "  build:\n"
+        "    env:\n"
+        '      REGISTRY_TOKEN: "sk_live_9Qw3RtY7"\n'
+        "    steps:\n"
+        "      # TODO: pin the runner image\n"
+        "      - run: curl --insecure https://registry.internal/health\n"
+    )
+    root = ".github/workflows/ci.yml"
+    fixture = "tests/fixtures/z/.github/workflows/ci.yml"
+    repo = _synthetic(tmp_path, {root: workflow, fixture: workflow})
+    doc = _run(repo, blame=False)
+    satd = {(s["file"], s["line"]): s for s in doc["satd"]}
+    assert satd[(root, 6)]["path_class"] == "source"
+    assert satd[(fixture, 6)]["path_class"] == "tests"
+    tls = _leads(doc, "security", "tls-disabled")
+    assert tls[(root, 7)]["path_class"] == "source"
+    assert tls[(fixture, 7)]["path_class"] == "tests"
+    credential = _leads(doc, "security", "credential")
+    assert (root, 4) in credential
+    assert (fixture, 4) not in credential
+    emitted = [*doc["satd"], *(lead for items in doc["leads"].values() for lead in items)]
+    assert emitted
+    assert not {item["path_class"] for item in emitted} & {"ci", "container", "config", "build"}
+
+
+def test_logger_present_keys_on_scan_scope_not_path_class(tmp_path: Path) -> None:
+    """``_logger_present`` must key on ``ScanFile.scope``, not the emitted ``path_class``.
+
+    A root-level artefact's ``path_class`` is ``source`` too (spec 4.3's split between
+    the artefact class that drives rule scope and the real path class the file reports),
+    so a logger-shaped import-like line inside a root ``.sql`` artefact must not flip the
+    repo-wide ``logger_present`` flag -- only an actual first-party source file's import
+    may. Before the fix, ``_logger_present`` checked ``sf.path_class == "source"``, which
+    this root artefact also satisfies, so the flag would wrongly come back True.
+    """
+    repo = _synthetic(
+        tmp_path,
+        {
+            "schema.sql": "use serilog;\nSELECT 1;\n",
+            "app.py": 'print("hi")\n',
+        },
+    )
+    files = _scan_files(repo[0], repo[1])
+    sql = next(sf for sf in files if sf.path == "schema.sql")
+    assert sql.path_class == "source"  # root artefact: the real path class is source
+    assert sql.scope == "sql"  # rule/logger scope stays the artefact class
+    assert _logger_present(files) is False
+
+
+def test_generated_vendored_and_skipped_large_artefacts_are_not_scanned(tmp_path: Path) -> None:
+    """The artefact walk applies the same three skips the code-file walk applies."""
+    oversized = "FROM alpine\n# TODO: oversized artefact\n" + "# pad\n" * 400_000
+    assert len(oversized.encode("utf-8")) > MAX_SCAN_BYTES
+    repo = _synthetic(
+        tmp_path,
+        {
+            "vendor/Dockerfile": "FROM alpine\n# TODO: vendored artefact\n",
+            "generated/compose.yaml": "services:\n  # TODO: generated artefact\n",
+            "Dockerfile": oversized,
+            "app.py": "# TODO: a real marker\n",
+        },
+    )
+    containers = {a["path"]: a for a in repo[1]["artefacts"]["container"]}
+    assert containers["vendor/Dockerfile"]["path_class"] == "vendored"
+    assert containers["generated/compose.yaml"]["path_class"] == "generated"
+    assert containers["Dockerfile"]["skipped_large"] is True
+    scanned = {sf.path for sf in _scan_files(repo[0], repo[1])}
+    doc = _run(repo, blame=False)
+    reported = {s["file"] for s in doc["satd"]} | {
+        lead["file"] for items in doc["leads"].values() for lead in items
+    }
+    assert "app.py" in scanned and "app.py" in reported  # the walk is not vacuously empty
+    for rel in ("vendor/Dockerfile", "generated/compose.yaml", "Dockerfile"):
+        assert rel not in scanned
+        assert rel not in reported
 
 
 # --- B: error-masking and dead-code ----------------------------------------------

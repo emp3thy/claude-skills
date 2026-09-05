@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from config import DEFAULTS, deep_merge
 from evaluate import evaluate
-from inventory import build_all, write_json
+from inventory import MAX_SCAN_BYTES, build_all, write_json
 from make_history import CORPUS_ROOT
 from rules import fingerprint, run_rules
 
@@ -180,6 +180,41 @@ def test_artefacts_under_a_tests_tree_never_become_findings(tmp_path: Path) -> N
     assert findings[0]["signals"]["path_class"] == "source"
 
 
+def test_skipped_large_artefact_is_never_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Spec 4.2: rules.py reads only the artefacts the inventory would have read."""
+    import rules
+
+    repo = tmp_path / "repo"
+    (repo / "svc").mkdir(parents=True)
+    head = b"FROM alpine:3.20\n"  # a naive read yields container.no-user
+    (repo / "Dockerfile").write_bytes(head + b"#" * (MAX_SCAN_BYTES + 1 - len(head)))
+    (repo / "svc" / "Dockerfile").write_bytes(b"FROM alpine:3.20\n\x00RUN apk add curl\n")
+    inventory, _ = build_all(repo, churn_months=240)
+    containers = {str(a["path"]): a for a in inventory["artefacts"]["container"]}
+    assert set(containers) == {"Dockerfile", "svc/Dockerfile"}
+    assert all(a["skipped_large"] for a in containers.values())
+    assert all(a["path_class"] == "source" for a in containers.values())
+
+    seen: list[str] = []
+    unpatched = rules._read
+
+    def recording_read(root: Path, rel: str) -> str:
+        seen.append(rel)
+        return unpatched(root, rel)
+
+    monkeypatch.setattr(rules, "_read", recording_read)
+    findings, _leads = run_rules(repo, inventory, DEFAULTS, now=NOW)
+    assert _at(findings, "pipeline-infra", "Dockerfile") is None
+    assert _at(findings, "pipeline-infra", "svc/Dockerfile") is None
+    assert findings == []
+    assert "Dockerfile" not in seen and "svc/Dockerfile" not in seen
+
+    monkeypatch.undo()  # the size guard inside _read itself, independent of the flag
+    assert rules._read(repo, "Dockerfile") == ""
+
+
 def test_iac_rules(mixed: Repo) -> None:
     findings = _run(mixed)
     deployment = _at(findings, "pipeline-infra", "k8s/deployment.yaml")
@@ -219,6 +254,33 @@ def test_manifest_rules_and_migration_leads(service_py: Repo, web_ts: Repo, mixe
     assert web_leads[0]["extra"] == {"pair": ["tslint.json", ".eslintrc.json"]}
     assert _at(_run(mixed), "dependency-debt", "go.mod") is None
     assert _leads(mixed) == {"migration": []}
+
+
+def test_tslint_lead_under_a_tests_tree_is_skipped_and_its_quote_redacted(
+    tmp_path: Path,
+) -> None:
+    """The tslint lead obeys the path-class disable and redacts like its setup.py sibling."""
+    secret = "abcdefghijkl0123"
+    eslint = '{"root": true}\n'
+    repo = tmp_path / "repo"
+    (repo / "tests" / "fixtures" / "y").mkdir(parents=True)
+    (repo / "tslint.json").write_text(f'{{"token": "{secret}"}}\n', encoding="utf-8")
+    (repo / ".eslintrc.json").write_text(eslint, encoding="utf-8")
+    fixtures = repo / "tests" / "fixtures" / "y"
+    (fixtures / "tslint.json").write_text('{ "extends": "tslint:recommended" }\n', encoding="utf-8")
+    (fixtures / ".eslintrc.json").write_text(eslint, encoding="utf-8")
+    inventory, _ = build_all(repo, churn_months=240)
+    classes = {str(a["path"]): a["path_class"] for a in inventory["artefacts"]["config"]}
+    assert classes["tslint.json"] == "source"
+    assert classes["tests/fixtures/y/tslint.json"] == "tests"
+
+    _findings, leads = run_rules(repo, inventory, DEFAULTS, now=NOW)
+    migration = leads["migration"]
+    assert [lead["file"] for lead in migration] == ["tslint.json"]
+    assert migration[0]["path_class"] == "source"
+    assert migration[0]["extra"] == {"pair": ["tslint.json", ".eslintrc.json"]}
+    assert secret not in json.dumps(leads)
+    assert "abcd***" in migration[0]["quote"]
 
 
 @pytest.mark.parametrize(

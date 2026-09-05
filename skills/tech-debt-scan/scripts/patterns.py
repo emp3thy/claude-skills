@@ -10,6 +10,20 @@ inventory's extension map, which says which comment markers to strip. No
 function here branches on a language name (spec 0(d)); a grep test enforces
 it.
 
+Artefacts in ``ARTEFACT_SCAN_CLASSES`` are scanned alongside code files. A
+rule's scope is matched against ``ScanFile.scope`` -- the artefact class
+(``ci``, ``container``, ...) for an artefact and the path class for a code
+file -- while every emitted lead and SATD entry carries ``ScanFile.path_class``,
+the artefact's real path class from the inventory, so a workflow under a
+fixture tree reports ``tests`` rather than ``ci`` and phase 2's merge can apply
+the path-class disables to leads. Artefacts classed ``generated`` or
+``vendored``, or whose inventory entry has ``skipped_large``, are not scanned,
+the same three skips the code-file loop applies; scanners that skip
+``path_class == "tests"`` (the credential scanner) therefore skip tests-tree
+artefacts too, and ``_logger_present`` keys on ``ScanFile.scope == "source"``,
+not ``path_class``, so a root-level artefact (whose real path class is also
+``source``) never counts as a first-party logger import.
+
 Leads feed scouts and corroborate the merge; counts go to report statistics,
 never to a finding. Blame runs only for the SATD markers, on at most
 ``BLAME_FILE_CAP`` files; ``--no-blame`` skips it and leaves ``age_days`` and
@@ -130,7 +144,8 @@ class Lead:
 @dataclass(slots=True)
 class ScanFile:
     path: str
-    path_class: str
+    path_class: str  # the real path class from the inventory; what leads report
+    scope: str  # what ``Rule.scope`` is matched against: the artefact class, else path_class
     language: str
     text: str
     lines: list[str]
@@ -857,16 +872,25 @@ def _scan_files(root: Path, inventory: dict[str, Any]) -> list[ScanFile]:
         language = str(entry.get("language") or "")
         markers = LANG_COMMENT.get(language, DEFAULT_COMMENT)
         files.append(
-            ScanFile(str(entry["path"]), path_class, language, text, text.splitlines(), markers)
+            ScanFile(
+                str(entry["path"]), path_class, path_class, language, text,
+                text.splitlines(), markers,
+            )
         )
     artefacts = inventory.get("artefacts") or {}
     for cls in ARTEFACT_SCAN_CLASSES:
         for artefact in artefacts.get(cls, []):
+            path_class = str(artefact["path_class"])
+            if path_class in ("generated", "vendored") or artefact.get("skipped_large"):
+                continue
             text = _read_text(root / str(artefact["path"]))
             if text is None:
                 continue
             files.append(
-                ScanFile(str(artefact["path"]), cls, "", text, text.splitlines(), DEFAULT_COMMENT)
+                ScanFile(
+                    str(artefact["path"]), path_class, cls, "", text,
+                    text.splitlines(), DEFAULT_COMMENT,
+                )
             )
     return files
 
@@ -879,7 +903,7 @@ LOGGER_RE: Final[re.Pattern[str]] = re.compile(
 
 def _logger_present(files: Sequence[ScanFile]) -> bool:
     for sf in files:
-        if sf.path_class == "source" and any(
+        if sf.scope == "source" and any(
             LOGGER_RE.search(line) for line in import_lines(sf.text)
         ):
             return True
@@ -924,7 +948,7 @@ def run_patterns(
     inline: dict[str, int] = {}
     for sf in files:
         for rule in RULES:
-            if sf.path_class not in rule.scope:
+            if sf.scope not in rule.scope:
                 continue
             found = _HANDLERS[rule.kind](sf, rule, ctx)
             if rule.kind == "satd":

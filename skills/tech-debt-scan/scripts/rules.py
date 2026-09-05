@@ -25,9 +25,12 @@ lines and a quote stating the fact, with ``quote_verified`` true (the shape
 spec 4.5 gives osv facts). Only ``yaml.safe_load`` is used.
 
 An artefact's ``path_class`` (spec 4.2) decides whether it is scanned at all:
-a Dockerfile, workflow or manifest under a tests, vendored or generated tree
-is fixture material and never becomes a finding, and every finding copies the
-artefact's path class into ``signals.path_class`` for the merge to weigh.
+a Dockerfile, workflow, manifest or config under a tests, vendored or
+generated tree is fixture material and never becomes a finding, and an
+artefact the inventory marked ``skipped_large`` is never read at all, so
+``rules.py`` reads only what the inventory would have read. Every finding
+copies the artefact's path class into ``signals.path_class`` for the merge
+to weigh.
 
 ``python scripts/rules.py <repo> --workdir .tech-debt`` reads
 ``<workdir>/inventory.json`` and writes ``<workdir>/rule-findings.json`` as
@@ -49,7 +52,7 @@ from typing import Any, Final
 
 import yaml
 from config import ConfigError, load_config
-from inventory import write_json
+from inventory import MAX_SCAN_BYTES, NUL_SNIFF_BYTES, write_json
 from redaction import redact
 
 SCHEMA_VERSION: Final[int] = 2
@@ -138,8 +141,21 @@ def _parse_date(value: Any) -> datetime | None:
 
 
 def _read(root: Path, rel: str) -> str:
+    """Read ``rel`` under the inventory's own size guard (spec 4.2).
+
+    A file over ``MAX_SCAN_BYTES``, or with a NUL byte in its first
+    ``NUL_SNIFF_BYTES``, is never decoded: it reads as empty text, exactly as
+    ``inventory.py`` saw it.
+    """
+    path = root / rel
     try:
-        return (root / rel).read_bytes().decode("utf-8", errors="replace")
+        if path.stat().st_size > MAX_SCAN_BYTES:
+            return ""
+        with path.open("rb") as handle:
+            head = handle.read(NUL_SNIFF_BYTES)
+            if b"\x00" in head:
+                return ""
+            return (head + handle.read()).decode("utf-8", errors="replace")
     except OSError:
         return ""
 
@@ -179,7 +195,13 @@ def _join(directory: str, name: str) -> str:
 
 
 def _disabled(artefact: dict[str, Any]) -> bool:
-    """True when the artefact's path class disables every family on it (spec 4.2)."""
+    """True when rules.py must not look at this artefact at all (spec 4.2).
+
+    Either its path class disables every family on it, or the inventory's size
+    guard marked it ``skipped_large`` and never read it.
+    """
+    if artefact.get("skipped_large"):
+        return True
     return str(artefact.get("path_class")) in DISABLED_PATH_CLASSES
 
 
@@ -386,7 +408,10 @@ def _manifest_hits(
     artefacts = inventory.get("artefacts") or {}
     lockfiles = {str(a["path"]) for a in artefacts.get("lockfile", [])}
     manifests = [str(a["path"]) for a in artefacts.get("manifest", []) if not _disabled(a)]
-    configs = {str(a["path"]) for a in artefacts.get("config", [])}
+    config_entries = {
+        str(a["path"]): a for a in artefacts.get("config", []) if not _disabled(a)
+    }
+    configs = set(config_entries)
     files = {str(e["path"]): e for e in inventory["files"]}
     hits: dict[str, list[Hit]] = {}
     for rel in manifests:
@@ -428,7 +453,8 @@ def _manifest_hits(
         if eslint is not None:
             leads.append({
                 "rule": "dual-manifest", "file": rel, "line": 1,
-                "quote": _first_line(_read(root, rel)), "path_class": "config",
+                "quote": redact(_first_line(_read(root, rel))),
+                "path_class": str(config_entries[rel]["path_class"]),
                 "extra": {"pair": [rel, eslint]},
             })
     return hits, leads
