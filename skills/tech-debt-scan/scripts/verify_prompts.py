@@ -89,19 +89,41 @@ def _primary(cand: dict[str, Any]) -> dict[str, Any]:
 # --- budget rule ------------------------------------------------------------------------
 
 
+def _pool_maxima(pool: list[dict[str, Any]]) -> dict[str, float | int]:
+    """Hotspot, coupling and fan-in maxima over the candidate pool itself.
+
+    Unit maxima let a raw ``coupling_degree`` (which can run into the tens)
+    dominate the provisional priority over severity; normalising against the
+    pool's own scale keeps the terms comparable. Each maximum is 0 when the
+    pool is empty or every value is falsy or null, and ``priority_terms``
+    already yields 0 for a zero maximum. Fan-in counts int values only.
+    """
+    signals = [c.get("signals") or {} for c in pool]
+    hotspot = max((float(s.get("hotspot_score") or 0.0) for s in signals), default=0.0)
+    coupling = max((int(s.get("coupling_degree") or 0) for s in signals), default=0)
+    fan_in = max(
+        (int(s["fan_in_approx"]) for s in signals if isinstance(s.get("fan_in_approx"), int)),
+        default=0,
+    )
+    return {"hotspot": hotspot, "coupling": coupling, "fan_in": fan_in}
+
+
 def select_candidates(
     candidates: list[dict[str, Any]], config: dict[str, Any], top: int
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """(selected in priority order, unverified fingerprints) per the 4.8 budget rule.
 
-    The provisional ranking runs against unit maxima: only the relative order
-    matters at this stage, and the repository's real maxima belong to
-    ``rank.py``, which scores the verified findings.
+    The provisional ranking normalises H, C and F against the candidate
+    pool's own maxima (``_pool_maxima``), not the repository's real maxima —
+    those belong to ``rank.py``, which scores the verified findings. Ranking
+    against the pool's own scale keeps a large raw signal (e.g. a
+    ``coupling_degree`` of 12) from outweighing severity in this provisional
+    order.
     """
     vcfg = config["verifier"]
     rcfg = config["ranking"]
-    maxima: dict[str, float | int] = {"hotspot": 1.0, "coupling": 1, "fan_in": 1}
     pool = [c for c in candidates if c.get("tier") is None]
+    maxima = _pool_maxima(pool)
     provisional = {
         c["fingerprint"]: priority_terms(
             c, maxima, rcfg["weights"], rcfg["tractability"],

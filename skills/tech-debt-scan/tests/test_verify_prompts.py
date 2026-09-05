@@ -76,6 +76,25 @@ def test_budget_rule_floors_inclusions_cap_and_tier_a_exclusion() -> None:
     assert len(sel) == 36 and len(unv) == 4, "3N beats the 30 floor at N=12"
 
 
+def test_provisional_ranking_normalises_coupling_over_the_pool() -> None:
+    """A raw coupling_degree of 12 must not outweigh severity once C is normalised.
+
+    Unit maxima would give the coupling-heavy candidate C=12 (uncapped), so its
+    priority (2 * 7.0 * ...) beats every severity-4 candidate (4 * 1.0 * ...) and
+    it gets selected. Normalised over the pool, C=1.0: 2 * (1 + 0.5 * 1) = 3.0
+    loses to 4 * 1 = 4.0, so it should rank last and land in ``unverified``.
+    """
+    coupling_heavy = _cand("dead-code", "src/heavy.py", 1, 2, coupling=12)
+    plain = [_cand("dead-code", f"src/p{i}.py", 1, 4) for i in range(34)]
+    cands = [coupling_heavy] + plain
+    selected, unverified = select_candidates(cands, DEFAULTS, top=5)
+    fps = {c["fingerprint"] for c in selected}
+    assert len(cands) == 35
+    assert len(selected) == 30 and len(unverified) == 5
+    assert coupling_heavy["fingerprint"] not in fps
+    assert coupling_heavy["fingerprint"] in unverified
+
+
 def test_batches_group_by_file_and_size() -> None:
     cands = [_cand("dead-code", "src/a.py", i, 2) for i in range(1, 8)]
     cands += [_cand("dead-code", "src/b.py", 1, 4)]
