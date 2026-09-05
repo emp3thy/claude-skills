@@ -13,7 +13,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["skills/tech-debt-scan/tests"]
+testpaths = ["skills/tech-debt-scan/tests", "skills/karate-bootstrap/tests"]
 markers = ["live: hits a real LLM (off by default)"]
 addopts = "-m 'not live'"
 
@@ -27,7 +27,7 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["skills/tech-debt-scan/scripts"]
+files = ["skills/tech-debt-scan/scripts", "skills/karate-bootstrap/scripts"]
 # scripts/ are direct-path-invocable (no package), so sibling imports like
 # `from validation import ...` need the scripts dir on the mypy search path.
-mypy_path = "skills/tech-debt-scan/scripts"
+mypy_path = "skills/tech-debt-scan/scripts,skills/karate-bootstrap/scripts"
