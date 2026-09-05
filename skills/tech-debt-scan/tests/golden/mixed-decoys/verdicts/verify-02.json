@@ -1,0 +1,92 @@
+[
+  {
+    "fingerprint": "bf26c2f7166e080c",
+    "verdict": "confirm",
+    "proof": "go.mod (lines 1-3) has no require block at all; go.sum (line 1) records github.com/example/dep v1.2.0. Grep for 'github.com/example/dep' across the repo returns only the go.sum line itself, confirming it is unreferenced by any import. This is a genuine manifest/lockfile mismatch, not a monorepo split or migration artifact (single-module repo, 11 Go files total).",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "import search for github.com/example/dep",
+      "go.mod require block presence"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "682f7e3ccc19fe29",
+    "verdict": "reject",
+    "proof": "main.go:15 builds via `build.NewConfig().WithName(\"app\").WithPort(8080).Build()` \u2014 WithTLS is never chained, and Config.TLS is never read anywhere in the repo (grep for '.TLS' and 'WithTLS' returns only the builder.go definition line 17). Not a plugin/reflection surface; Config is a plain struct consumed only by the literal builder chain in main.go.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": "golden trap: intentional fixture",
+    "checked": [
+      "reflection",
+      "string dispatch",
+      "DI/serialisation",
+      "main.go builder chain usage"
+    ],
+    "opened": [
+      "cmd/app/main.go"
+    ]
+  },
+  {
+    "fingerprint": "e5babfbf1dc17e2e",
+    "verdict": "confirm",
+    "proof": "Grep for 'Fingerprint' across all 11 Go files returns only the definition at hash.go:8. No caller, no reflection/string-dispatch/route/DI/serialisation use found. It's an exported function in an internal package, not a public library API or plugin hook, so zero fan-in genuinely indicates dead code.",
+    "severity": 1,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "reflection",
+      "string dispatch",
+      "serialisation",
+      "public/plugin surface"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "81123c5aab0571a0",
+    "verdict": "confirm",
+    "proof": "Only test file in the repo is internal/store/store_test.go (glob for **/*_test.go); no dispatch_test.go or unconventionally named test exists. Run() (dispatch.go:15-24) is invoked directly from main.go:25 with raw os.Args, so its empty-args, unknown-command and legacy-panic paths are all reachable from real CLI input with zero test coverage.",
+    "severity": 4,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "test file search (glob **/*_test.go)",
+      "unconventional test naming"
+    ],
+    "opened": [
+      "cmd/app/main.go"
+    ]
+  },
+  {
+    "fingerprint": "a9f954d154719182",
+    "verdict": "confirm",
+    "proof": "main.go:25 calls dispatch.Run(os.Args[1:]) directly, so running the binary with argument 'legacy' reaches handlers[\"legacy\"] (dispatch.go:11) -> legacyHandler (dispatch.go:30-32), which unconditionally panics. This is a live CLI command table, not an abstract interface stub, and crashes the whole process instead of returning an error like its sibling handlers.",
+    "severity": 4,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "reachability from main.go/os.Args",
+      "stub vs interface-contract distinction"
+    ],
+    "opened": [
+      "cmd/app/main.go"
+    ]
+  },
+  {
+    "fingerprint": "d715b507df24e5ab",
+    "verdict": "reject",
+    "proof": "This duplicates candidate a9f954d154719182 but mislabels the finding as dead-code. legacyHandler is not dead: it is a live entry in the CLI dispatch table (dispatch.go:7-12) invoked via main.go:25 dispatch.Run(os.Args[1:]), so any user typing `app legacy` reaches it. Absence of an internal repo caller is expected for a leaf CLI command reached by user-typed argument, not evidence of dead code \u2014 the real issue (unconditional panic) is already captured correctly under half-finished (a9f954d154719182).",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": "Entry point, script run by name, or runner-discovered test?",
+    "checked": [
+      "reachability via os.Args CLI input",
+      "entry-point pattern"
+    ],
+    "opened": [
+      "cmd/app/main.go"
+    ]
+  }
+]

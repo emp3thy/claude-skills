@@ -1,0 +1,102 @@
+[
+  {
+    "fingerprint": "26b3f35c0a5ea5e2",
+    "verdict": "confirm",
+    "proof": "client.ts:9 calls fetch with only {headers}, no AbortSignal/timeout, so a hung remote blocks the await forever. client-admin.ts:9-12 passes signal: AbortSignal.timeout(5000) for the identical pattern. Recent commit fbf5b36 'fix: timeout handling copied between clients' confirms a timeout fix was intended for both clients but only landed in client-admin.ts, leaving client.ts unfinished. No ticket or abstract-contract marker found; this is a genuine partial fix, not a stub.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "reflection/string-dispatch: n/a",
+      "commit history for the referenced fix",
+      "sibling implementation diff"
+    ],
+    "opened": [
+      "src/api/client-admin.ts"
+    ]
+  },
+  {
+    "fingerprint": "92be85bba7b53708",
+    "verdict": "confirm",
+    "proof": "client.ts:11 `catch (e) {}` discards network errors, non-JSON bodies, and abort errors with no logging, falling through to return null (line 15), indistinguishable from a valid empty response. client-admin.ts:14-17 logs the error via console.error before returning null, showing the intended pattern. Grep across src/ finds no caller of getJson anywhere in the repo (only its own definition), so the masking is currently latent rather than actively hiding a live failure today, but the code itself is a real error-masking defect for any future/external caller.",
+    "severity": 4,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "callers via grep for getJson",
+      "sibling client-admin.ts error handling",
+      "rethrow/cause preservation: none, error is dropped"
+    ],
+    "opened": [
+      "src/api/client-admin.ts"
+    ]
+  },
+  {
+    "fingerprint": "ab911a0fcb015d8e",
+    "verdict": "confirm",
+    "proof": "flags.ts:4 sets betaBanner: true and grep finds no other write site for the key anywhere in the repo, so isEnabled('betaBanner') at client.ts:12 always evaluates true and the branch always executes. Unlike newCheckout (flags.ts:3, explicitly commented as an unfinished off-switch and actually read as a real toggle in checkout.ts:7), betaBanner has no consumer that ever flips it, so the conditional is vestigial. Not a permission/kill-switch pattern.",
+    "severity": 1,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "all write sites for betaBanner via grep",
+      "dynamic/string-based flag lookups: none found",
+      "comparison against newCheckout's genuine toggle usage"
+    ],
+    "opened": [
+      "src/checkout/checkout.ts"
+    ]
+  },
+  {
+    "fingerprint": "e86c1f37f0d0e9d4",
+    "verdict": "confirm",
+    "proof": "Glob for *client* under the repo returns only src/api/client.ts and client-admin.ts themselves; no test file targets either. The __tests__ directory only covers cart.test.ts and pricing.spec.ts. Nothing exercises the fallback-to-null path, the swallowed-catch behavior, or the betaBanner log branch in client.ts:9-14.",
+    "severity": 4,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "glob for test files matching client",
+      "contents of __tests__ directory",
+      "unconventionally named tests: none found"
+    ],
+    "opened": [
+      "src/__tests__/cart.test.ts",
+      "src/__tests__/pricing.spec.ts"
+    ]
+  },
+  {
+    "fingerprint": "07ed8cbe95f89a9e",
+    "verdict": "confirm",
+    "proof": "checkout.ts:2 imports priceOf from cart's internal pricing.ts alongside the public total() from cart.ts:1. eslintrc.json only extends eslint:recommended, no boundary/import-restriction plugin. Since flags.ts:3 hardcodes newCheckout: false with a comment that the new flow 'was never finished,' the legacy branch (checkout.ts:10-11) is the only live path in production, and it prices solely cart.items[0] via priceOf, ignoring quantity and any additional items, diverging from total() (cart.ts:16-18) which sums qty*price across all items. This is a real, currently-active correctness/architecture gap, not just a latent layering concern.",
+    "severity": 4,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "eslint config for boundary enforcement",
+      "flags.ts for newCheckout's actual runtime state",
+      "total() vs priceOf(first) divergence",
+      "co-change explanation via feature work: none declared"
+    ],
+    "opened": [
+      "src/cart/stock.ts",
+      ".eslintrc.json"
+    ]
+  },
+  {
+    "fingerprint": "cf9039c7651cee2c",
+    "verdict": "confirm",
+    "proof": "Glob for *checkout* under src finds only checkout.ts itself, no test file. __tests__ only contains cart.test.ts and pricing.spec.ts, neither of which imports checkout(). Both the flag-gated new branch (checkout.ts:7-8) and the legacy empty-cart guard plus legacyFormat/priceOf composition (lines 10-11) are unexercised, despite computing the customer-facing total.",
+    "severity": 4,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "glob for test files matching checkout",
+      "contents of __tests__ directory",
+      "unconventionally named tests: none found"
+    ],
+    "opened": [
+      "src/__tests__/cart.test.ts",
+      "src/__tests__/pricing.spec.ts"
+    ]
+  }
+]

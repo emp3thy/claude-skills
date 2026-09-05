@@ -1,0 +1,52 @@
+{
+  "family": "dependency-debt",
+  "module": null,
+  "findings": [
+    {
+      "title": "go.sum lists a module absent from go.mod requires",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:dependency-debt:manifest-lockfile-mismatch"
+      ],
+      "evidence": [
+        {
+          "file": "go.mod",
+          "line_start": 1,
+          "line_end": 3,
+          "quote": "module example.com/app\n\ngo 1.22"
+        },
+        {
+          "file": "go.sum",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "github.com/example/dep v1.2.0 h1:abc="
+        }
+      ],
+      "note": "go.mod has no require block at all, yet go.sum records a checksum for github.com/example/dep v1.2.0, which is also unreferenced by any import in the codebase. Lockfile and manifest disagree on what is a dependency."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/httpc/httpc.go",
+      "line_start": 1,
+      "line_end": 21,
+      "why": "Two files (httpc.go, httpc_safe.go) in the same package both wrap net/http, but both use the Go standard library only \u2014 no duplicate third-party HTTP client dependency is involved, so this is out of scope for dependency-debt."
+    },
+    {
+      "file": "Dockerfile",
+      "line_start": 1,
+      "line_end": 1,
+      "why": "golang:1.22 base image matches go.mod's `go 1.22` and CI's go-version 1.22 \u2014 no runtime-version disagreement."
+    }
+  ],
+  "not_assessed": [
+    "CVE or vulnerability status of github.com/example/dep",
+    "end-of-life or currency of Go 1.22 or any dependency",
+    "whether github.com/example/dep is deprecated upstream"
+  ]
+}

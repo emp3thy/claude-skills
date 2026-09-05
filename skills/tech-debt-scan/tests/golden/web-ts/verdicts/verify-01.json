@@ -1,0 +1,89 @@
+[
+  {
+    "fingerprint": "3be7c52dfb951591",
+    "verdict": "confirm",
+    "proof": "ci.yml:15-19 wraps the bare `npm test` command (not npm install) in nick-fields/retry with max_attempts: 3. Any single test run that fails non-deterministically gets up to two silent re-runs before the job is marked failed, and CI never surfaces that a retry occurred. This applies to the whole suite, not a scoped flaky test, so genuine intermittent failures are indistinguishable from a clean pass in the workflow's final status.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "ci.yml step order",
+      "retry scope (whole command vs single test)"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "1a2cee62a043fa63",
+    "verdict": "confirm",
+    "proof": "README.md:1-5 has no changelog/contribution section, and no CHANGELOG.md, CONTRIBUTING.md, or docs/adr directory exist anywhere in the repo (glob for CHANGELOG*/CONTRIBUTING* returned nothing). package.json:3 declares version 1.1.0 and CI (.github/workflows/ci.yml) runs on every push, so releases happen without any recorded rationale or process doc.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "existence of CHANGELOG/CONTRIBUTING files",
+      "README contents"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "bee2a473c0afedc2",
+    "verdict": "confirm",
+    "proof": "docs/architecture.md:3-4 claims pricing and stock import each other. stock.ts:1 only imports the `Cart` type from cart.ts; it does not import pricing.ts. pricing.ts:1 imports `reserve` from stock.ts, and cart.ts:1 imports `priceOf` from pricing.ts. The actual cycle is cart -> pricing -> stock -> cart (via the Cart type), not a direct pricing<->stock relationship as documented.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "stock.ts imports",
+      "pricing.ts imports",
+      "cart.ts imports to trace actual cycle"
+    ],
+    "opened": [
+      "src/cart/cart.ts"
+    ]
+  },
+  {
+    "fingerprint": "9ead67e93821ff71",
+    "verdict": "confirm",
+    "proof": "package-lock.json:1 has an empty packages map despite package.json:6-7 declaring tiny-emitter, typescript, jest, and eslint. yarn.lock:1-4 is the only lockfile with real resolved versions. ci.yml never runs `npm install`/`npm ci` before `npm test` (line 19), so with the npm lockfile empty and no install step, a clean CI checkout has no mechanism to materialize node_modules from npm; the repo's actual reproducibility depends entirely on yarn.lock while README.md:5 documents npm.",
+    "severity": 4,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "package-lock.json contents",
+      "yarn.lock contents",
+      "presence/absence of install step in ci.yml"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "107fa620ca40e71c",
+    "verdict": "confirm",
+    "proof": "package.json:8 sets jest coverageThreshold to 80% lines, but package.json:5's test script is plain `jest` with no --coverage flag, and ci.yml:19 invokes `npm test` (same plain script). Jest only enforces coverageThreshold when run with --coverage, so this gate never executes and cannot fail a build regardless of actual coverage.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "test script definition",
+      "CI invocation",
+      "jest coverage-threshold semantics"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "f08436450c50e406",
+    "verdict": "confirm",
+    "proof": "cart.test.ts:6 asserts total(cart)===2000 with no visible derivation. Tracing the callees: cart.ts:17 computes sum of priceOf(sku)*qty, and pricing.ts:3 sets A1's price to 1000; with qty:2 (test line 5) the correct expected value is 1000*2=2000, so the assertion is numerically correct, but a reader must open two other files to confirm that \u2014 the literal is opaque in isolation as described.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "cart.ts total() implementation",
+      "pricing.ts price table",
+      "manual recomputation of expected value"
+    ],
+    "opened": [
+      "src/cart/cart.ts",
+      "src/cart/pricing.ts"
+    ]
+  }
+]

@@ -1,0 +1,22 @@
+{
+  "family": "god-classes",
+  "module": null,
+  "findings": [],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/lookup/lookup.go",
+      "line_start": 1,
+      "why": "302 lines and highest hotspot score in the repo, but it is one function (PathFor) plus a single static map literal of 290 name-to-path entries. One responsibility, no field clustering, no fan-out to other units \u2014 a data table, not a god-class."
+    },
+    {
+      "file": "internal/build/builder.go",
+      "line_start": 9,
+      "why": "Fluent builder pattern (WithName/WithPort/WithTLS/Build chained on *Builder) is wide by design per the family's own trap list, not a god-class."
+    }
+  ],
+  "not_assessed": [
+    "Fan-in/coupling could not be verified beyond the fan_in_approx values supplied in the leads; no additional call-graph tooling was run.",
+    "SQL injection in internal/store/store.go:38 and hardcoded credential/TLS bypass in internal/httpc/httpc.go:9,13 are real issues but belong to a security family, not god-classes, so not reported here."
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "family": "architecture",
+  "module": null,
+  "findings": [
+    {
+      "title": "checkout bypasses cart's public API to import cart's internal pricing module",
+      "family": "architecture",
+      "debt_type": "architecture",
+      "type_id": "TD-07",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "coupling",
+        "hotspot"
+      ],
+      "evidence": [
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 1,
+          "line_end": 2,
+          "quote": "import { Cart, total } from \"../cart/cart\";\nimport { priceOf } from \"../cart/pricing\";"
+        },
+        {
+          "file": "src/cart/cart.ts",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "import { priceOf } from \"./pricing\";"
+        }
+      ],
+      "note": "checkout imports cart's internal pricing.ts directly instead of only cart.ts's public total(). Legacy branch only prices the first item via priceOf, diverging from total(); no boundary tool constrains cart's internals (only eslint:recommended configured)."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/cart/stock.ts",
+      "line_start": 1,
+      "line_end": 1,
+      "why": "stock.ts imports `type Cart` from cart.ts, which together with cart.ts -> pricing.ts -> stock.ts forms the cycle in the given lead. The stock->cart edge is a type-only import (`import type`), erased at compile time, so there is no runtime cycle; all three files also live in the same cart component, so per the traps this is a design smell internal to one cohesive package rather than a cross-module architecture cycle."
+    }
+  ],
+  "not_assessed": [
+    "No claims about test coverage, CVEs, EOL/currency of dependencies, library-level deprecation status, test flakiness, or exploitability were made; the @deprecated tag in src/util/format-legacy.ts is an in-repo JSDoc annotation only, not an assessed library deprecation."
+  ]
+}

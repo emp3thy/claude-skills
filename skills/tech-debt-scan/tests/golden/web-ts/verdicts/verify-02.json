@@ -1,0 +1,93 @@
+[
+  {
+    "fingerprint": "0e7744dd726d5b40",
+    "verdict": "downgrade",
+    "proof": "pricing.ts:3-7 confirms PRICES={A1:1000,B2:2500} with flat lookup, no bulk logic; skipped test at pricing.spec.ts:7-9 expects 900 for A1, which would fail if run. Real gap, correctly described. But blast radius is a single SKU/test in a non-hotspot file (hotspot_score=5.7, path_class=tests) with no other coupling \u2014 severity 3 overstates impact for a self-contained, trivially fixable stale test.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "mapped test paths (__tests__/pricing.spec.ts, cart.test.ts)",
+      "priceOf implementation",
+      "callers in cart.ts and checkout.ts"
+    ],
+    "opened": [
+      "src/cart/cart.ts",
+      "src/checkout/checkout.ts"
+    ]
+  },
+  {
+    "fingerprint": "aa20afe178c7ab9b",
+    "verdict": "downgrade",
+    "proof": "Duplicate of 0e7744dd726d5b40, same span and same underlying fact: pricing.ts:3-7 has no bulk discount path, PRICES.A1=1000 not 900. Skip is real and the assertion is indeed stale/inconsistent with current table. Not table-driven, no fake timers involved. Severity 3 is high for one skipped unit test with narrow scope; downgrading to match sibling candidate.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "table-driven idiom (none present)",
+      "fake timers (n/a)",
+      "assertion content vs PRICES table"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "eaefb059a8c16e0d",
+    "verdict": "downgrade",
+    "proof": "Same span/fact as the two prior candidates. priceOf (pricing.ts:5-7) is a flat map lookup with zero bulk-discount code path; the skip has no ticket/date annotation. This is real but is not a load-bearing 'stub is an abstract contract' situation \u2014 it's a single disabled test with no named risk elsewhere in the code (grep shows only cart.ts and checkout.ts call priceOf, neither references bulk pricing). Severity 3 overstates a narrowly-scoped, easily-fixed test gap.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "stub as abstract contract (no)",
+      "ticket reference (none found)",
+      "named risk elsewhere in code (none \u2014 only flat lookup callers)"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "843db87dca3fb8d8",
+    "verdict": "confirm",
+    "proof": "Confirmed: no test file for client-admin.ts exists (only cart.test.ts and pricing.spec.ts under __tests__). getAdminJson (lines 6-18) catches all fetch/json errors, logs, and returns null \u2014 untested. adminEnabled (lines 20-22) checks isEnabled('adminPanel'); flags.ts:1-4 shows FLAGS only contains newCheckout and betaBanner, so isEnabled always falls through to '?? false' (flags.ts:8) \u2014 untested and effectively dead logic, exactly as claimed.",
+    "severity": 5,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "test paths for client-admin",
+      "FLAGS contents for adminPanel key",
+      "unconventional test names"
+    ],
+    "opened": [
+      "src/flags.ts",
+      "src/api/client.ts"
+    ]
+  },
+  {
+    "fingerprint": "8d9953f72a4e0fd8",
+    "verdict": "reject",
+    "proof": "Confirmed mechanically: catch block (lines 14-17) logs via console.error(e) then returns null instead of rethrowing, so a caller cannot distinguish failure from a legitimately empty/null JSON response. However, grep across the repo shows getAdminJson has zero in-repo callers, so no code path is actually misled today \u2014 this is latent risk in currently-dead code rather than an active masking bug affecting a real caller.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": "golden trap: intentional fixture",
+    "checked": [
+      "callers of getAdminJson (none found)",
+      "cause preservation in catch (console.error(e) \u2014 preserved for logs only)",
+      "process boundary (none \u2014 plain function)"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "bcb3cd9522cdbe0a",
+    "verdict": "confirm",
+    "proof": "Confirmed by repo-wide grep: adminEnabled (client-admin.ts:20-22) and getAdminJson (line 6) have zero in-repo callers/importers. flags.ts:1-4 lists FLAGS={newCheckout:false, betaBanner:true} \u2014 'adminPanel' is absent, so isEnabled falls through to the '?? false' default at flags.ts:8, making adminEnabled() permanently return false even if it were called. No dynamic dispatch, route registration, or DI found referencing either export.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "reflection/string-dispatch for adminEnabled/getAdminJson",
+      "entry points/scripts/test runners",
+      "public/plugin surface",
+      "flag purpose (feature flag, not permission/kill-switch)"
+    ],
+    "opened": []
+  }
+]

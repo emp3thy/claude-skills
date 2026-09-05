@@ -1,0 +1,196 @@
+{
+  "family": "dead-code",
+  "module": null,
+  "findings": [
+    {
+      "title": "290-entry lookup table is fully redundant with its own fallback",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 3,
+      "effort": "M",
+      "signals_cited": [
+        "hotspot",
+        "pattern:dead-code:redundant-table"
+      ],
+      "evidence": [
+        {
+          "file": "internal/lookup/lookup.go",
+          "line_start": 4,
+          "line_end": 9,
+          "quote": "func PathFor(name string) string {\n\tif p, ok := paths[name]; ok {\n\t\treturn p\n\t}\n\treturn \"data/\" + name + \".json\"\n}"
+        },
+        {
+          "file": "internal/lookup/lookup.go",
+          "line_start": 11,
+          "line_end": 16,
+          "quote": "var paths = map[string]string{\n\t\"n001\": \"data/n001.json\",\n\t\"n002\": \"data/n002.json\",\n\t\"n003\": \"data/n003.json\",\n\t\"n004\": \"data/n004.json\",\n\t\"n005\": \"data/n005.json\","
+        }
+      ],
+      "note": "Every entry in the 290-line paths map exactly matches the value the fallback branch (\"data/\"+name+\".json\") would compute anyway, so the map never changes PathFor's return value for any key it contains. The whole map has no observable effect and is the file's top hotspot."
+    },
+    {
+      "title": "legacyHandler is reachable only to unconditionally panic",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:dead-code:legacy-name"
+      ],
+      "evidence": [
+        {
+          "file": "internal/dispatch/dispatch.go",
+          "line_start": 7,
+          "line_end": 12,
+          "quote": "var handlers = map[string]handler{\n\t\"start\":  start,\n\t\"stop\":   stop,\n\t\"status\": status,\n\t\"legacy\": legacyHandler,\n}"
+        },
+        {
+          "file": "internal/dispatch/dispatch.go",
+          "line_start": 30,
+          "line_end": 32,
+          "quote": "func legacyHandler(args []string) error {\n\tpanic(\"not implemented\")\n}"
+        }
+      ],
+      "note": "legacyHandler is wired into the string-dispatch table (checked: this is the only dispatch mechanism in the file) under the \"legacy\" command name, but its body is an unconditional panic, so invoking it can only crash the process. No caller in the repo passes \"legacy\" as an argument."
+    },
+    {
+      "title": "Deprecated Fetch is still the live call site instead of its replacement",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 3,
+      "effort": "M",
+      "signals_cited": [
+        "hotspot",
+        "pattern:dead-code:deprecation",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 11,
+          "line_end": 13,
+          "quote": "// Deprecated: use FetchWithTimeout from httpc_safe.go.\nfunc Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}"
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")"
+        }
+      ],
+      "note": "Fetch carries a Deprecated marker pointing at FetchWithTimeout, yet main.go still calls the deprecated version rather than the replacement, so the deprecation has not been followed through anywhere in the codebase."
+    },
+    {
+      "title": "crypto.Fingerprint has no callers anywhere in the repository",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 1,
+      "effort": "S",
+      "signals_cited": [
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "internal/crypto/hash.go",
+          "line_start": 8,
+          "line_end": 11,
+          "quote": "func Fingerprint(id string) string {\n\tsum := md5.Sum([]byte(id))\n\treturn hex.EncodeToString(sum[:])\n}"
+        }
+      ],
+      "note": "Checked for reflection, string dispatch, routes, DI and serialisation references to Fingerprint; found none. It is an exported function with zero fan-in in a 13-file repo."
+    },
+    {
+      "title": "Builder.WithTLS and Config.TLS are set up but never consumed",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "coupling",
+        "pattern:dead-code:unused-option"
+      ],
+      "evidence": [
+        {
+          "file": "internal/build/builder.go",
+          "line_start": 3,
+          "line_end": 7,
+          "quote": "type Config struct {\n\tName string\n\tPort int\n\tTLS  bool\n}"
+        },
+        {
+          "file": "internal/build/builder.go",
+          "line_start": 17,
+          "line_end": 17,
+          "quote": "func (b *Builder) WithTLS(on bool) *Builder      { b.cfg.TLS = on; return b }"
+        }
+      ],
+      "note": "WithTLS has no call sites in the repo and Config.TLS is never read anywhere, including in main.go's builder chain, so the TLS option added in the builder has no effect."
+    },
+    {
+      "title": "internal/shell package is entirely unimported",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "internal/shell/run.go",
+          "line_start": 5,
+          "line_end": 8,
+          "quote": "// Run executes a shell snippet; callers pass trusted input only.\nfunc Run(snippet string) ([]byte, error) {\n\treturn exec.Command(\"sh\", \"-c\", snippet).CombinedOutput() //nolint:gosec\n}"
+        }
+      ],
+      "note": "Searched the module for any import of internal/shell; none exists. The only exported function in the package has zero fan-in, and the whole file/package is unreferenced."
+    },
+    {
+      "title": "invented quote (golden pin)",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 1,
+      "effort": "S",
+      "signals_cited": [],
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "this quote was never in the file"
+        }
+      ],
+      "note": "Hand-added golden pin: the quote is not in the file, so the merge must divert this finding to open_questions with 'quote not found'."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "internal/dispatch/dispatch.go",
+      "line_start": 11,
+      "question": "Is the \"legacy\" subcommand ever invoked by an external script, CI job, or operator runbook outside this repository?"
+    },
+    {
+      "file": "internal/build/builder.go",
+      "line_start": 17,
+      "question": "Was WithTLS added in anticipation of wiring TLS into main.go's builder chain, and is that wiring still pending?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/flags/flags.go",
+      "line_start": 5,
+      "why": "payments.killswitch is documented in flags.go and docs/runbook.md as a permanent, deliberately always-false-in-normal-operation kill switch flipped by on-call during incidents; it is not a stale single-value flag."
+    }
+  ],
+  "not_assessed": [
+    "Security implications of InsecureSkipVerify in httpc.Fetch or the string-built SQL in store.Find were not assessed; this report covers only dead-code status.",
+    "Whether internal/shell.Run or internal/crypto.Fingerprint are part of an intended-but-unfinished public/plugin surface could not be determined from repository contents alone."
+  ]
+}

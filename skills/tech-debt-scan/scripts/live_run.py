@@ -9,8 +9,10 @@ per verifier batch, ``apply_verdicts.py`` and ``rank.py``; when a
 row to ``docs/evaluation-log.md``.
 
 Every ``claude`` call is a list argv in print mode with JSON output, structured
-output from the contract's JSON schema, read-only tools only, user settings and
-MCP servers excluded (``--setting-sources project --strict-mcp-config
+output from the contract's JSON schema (an array contract travels wrapped in a
+one-key object, because ``--json-schema`` only accepts an object at the top
+level), read-only tools only, user settings and MCP servers excluded
+(``--setting-sources project --strict-mcp-config
 --disable-slash-commands``; ``--bare`` loses auth on this machine) and a per-call
 dollar budget. A reply that fails the contract is retried once with an appended
 instruction; a second failure stops the run with exit 4.
@@ -55,6 +57,10 @@ PROMPT_LIMIT: Final[int] = 30_000
 RETRY_SUFFIX: Final[str] = (
     "\n\nThe previous response failed the schema; re-emit valid JSON only.\n"
 )
+# ``--json-schema`` wires the document straight into a tool's ``input_schema``, which
+# the API rejects unless its type is ``object`` (400 tools.N.custom.input_schema.type).
+# The verifier contract is an array, so it travels wrapped under this key.
+WRAPPER_KEY: Final[str] = "verdicts"
 LOG_HEADER: Final[str] = (
     "| date | fixture | model | churn_months | tier_a_precision | reported_precision "
     "| decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd |\n"
@@ -113,12 +119,36 @@ def prompt_text(prompt_file: Path) -> str:
     return text
 
 
+def wire_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """``schema`` in the shape ``--json-schema`` accepts: an object at the top level.
+
+    The CLI hands the document to the model as a tool's ``input_schema``, and the
+    API rejects anything but an object there, so an array contract (the verifier's)
+    travels as a one-key object and comes back out through ``unwrap_payload``.
+    """
+    if schema.get("type") != "array":
+        return schema
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [WRAPPER_KEY],
+        "properties": {WRAPPER_KEY: schema},
+    }
+
+
+def unwrap_payload(payload: Any, schema: dict[str, Any]) -> Any:
+    """The array back out of its wrapper; a reply that is already an array passes through."""
+    if schema.get("type") == "array" and isinstance(payload, dict) and WRAPPER_KEY in payload:
+        return payload[WRAPPER_KEY]
+    return payload
+
+
 def _argv(
     text: str, *, model: str, budget: float, schema: dict[str, Any], claude: str
 ) -> list[str]:
     return [
         *launcher_argv(claude), "-p", *ISOLATION,
-        "--output-format", "json", "--json-schema", json.dumps(schema),
+        "--output-format", "json", "--json-schema", json.dumps(wire_schema(schema)),
         "--tools", TOOLS, "--allowedTools", TOOLS,
         "--model", model, "--max-budget-usd", f"{budget:.2f}",
         text,
@@ -209,6 +239,7 @@ def dispatch(
             result.error = str(exc)
             return result
         payload, cost, error = extract_reply(proc.stdout)
+        payload = unwrap_payload(payload, schema)
         result.cost_usd += cost
         if error is None and _valid(payload, schema):
             _write_payload(output_file, payload)

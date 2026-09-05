@@ -1,0 +1,58 @@
+{
+  "family": "test-quality",
+  "module": null,
+  "findings": [
+    {
+      "title": "Sleep in test with no async work to wait on",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-quality:sleep"
+      ],
+      "evidence": [
+        {
+          "file": "internal/store/store_test.go",
+          "line_start": 14,
+          "line_end": 16,
+          "quote": "func TestLoadSmoke(t *testing.T) {\n\ttime.Sleep(10 * time.Millisecond)\n\t_ = (&Store{path: \"x\"}).Load(\"k\")"
+        }
+      ],
+      "note": "Load() is synchronous file I/O with no goroutines or timers to wait on, so the 10ms sleep serves no synchronization purpose and only adds arbitrary latency/flakiness risk to the suite."
+    },
+    {
+      "title": "TestLoadSmoke discards result and asserts nothing",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-quality:assert-free"
+      ],
+      "evidence": [
+        {
+          "file": "internal/store/store_test.go",
+          "line_start": 14,
+          "line_end": 17,
+          "quote": "func TestLoadSmoke(t *testing.T) {\n\ttime.Sleep(10 * time.Millisecond)\n\t_ = (&Store{path: \"x\"}).Load(\"k\")\n}"
+        }
+      ],
+      "note": "Result of Load is discarded with no assertion on its value; since path \"x\" does not exist, Load returns nil via the early ReadFile-error branch, so the test never exercises the JSON-unmarshal path it appears to target."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/store/store_test.go",
+      "line_start": 8,
+      "why": "if _, err := Open(\"missing\"); err == nil { t.Fatal(...) } is the standard idiomatic Go pattern for asserting an error occurred (no assert library available); it is a single deterministic check, not conditional logic branching test behavior on data."
+    }
+  ],
+  "not_assessed": [
+    "test flakiness history for TestLoadSmoke",
+    "CI retry configuration"
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "family": "pipeline-infra",
+  "module": null,
+  "findings": [
+    {
+      "title": "print() used for refund outcome despite logger present",
+      "family": "pipeline-infra",
+      "debt_type": "infrastructure",
+      "type_id": null,
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:pipeline-infra:stdout-write"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 39,
+          "line_end": 41,
+          "quote": "        log.exception(\"gateway unreachable for %s\", refund.order_id)\n        raise RuntimeError(\"gateway unreachable\") from exc\n    print(f\"refund {refund.order_id} accepted={accepted}\")"
+        }
+      ],
+      "note": "issue() is a library function (no __main__ guard, module has no CLI parsing) that already uses `log` elsewhere in the same function; the print bypasses log level/formatting/aggregation for a production refund outcome."
+    },
+    {
+      "title": "Version bumped in pyproject.toml with no matching tag/changelog/release run",
+      "family": "pipeline-infra",
+      "debt_type": "build",
+      "type_id": null,
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "pyproject.toml",
+          "line_start": 3,
+          "line_end": 3,
+          "quote": "version = \"0.2.0\""
+        },
+        {
+          "file": "CHANGELOG.md",
+          "line_start": 1,
+          "line_end": 5,
+          "quote": "# Changelog\n\n## 0.1.0 - 2024-10-05\n\n- initial refund and ledger flow"
+        },
+        {
+          "file": ".github/workflows/release.yml",
+          "line_start": 1,
+          "line_end": 4,
+          "quote": "name: release\non:\n  push:\n    tags: [\"v*\"]"
+        }
+      ],
+      "note": "release.yml only runs on a pushed v* tag and has no step checking that the tag matches pyproject.toml's version; pyproject.toml is already at 0.2.0 but the only tag (v0.1.0) and CHANGELOG stop at 0.1.0, indicating the version bump is a manual, unverified step outside the pipeline."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "src/pay/refund.py",
+      "line_start": 1,
+      "line_end": 53,
+      "question": "Dockerfile CMD runs `python -m pay.refund` but this module has no `if __name__ == \"__main__\"` block or argument parsing, and README claims `python -m pay.refund --help` works \u2014 is there an intended CLI entry point missing, or is the Dockerfile CMD stale?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": ".github/workflows/ci.yml",
+      "line_start": 1,
+      "line_end": 13,
+      "why": "Differs substantially in purpose/steps from release.yml (test job vs. publish job); not hand-copied duplication."
+    },
+    {
+      "file": ".github/workflows/release.yml",
+      "line_start": 10,
+      "line_end": 10,
+      "why": "Checkout action is pinned to a full commit SHA rather than a floating tag \u2014 this is a stricter, not weaker, practice."
+    },
+    {
+      "file": "Dockerfile",
+      "line_start": 1,
+      "line_end": 1,
+      "why": "Base image tag is pinned to python:3.11-slim (not a floating `latest`), and there is no separate dev-only compose/override file in the repo to compare against."
+    }
+  ],
+  "not_assessed": [
+    "Actual test coverage percentage vs. the fail_under = 80 threshold in pyproject.toml",
+    "CVE or vulnerability status of requests>=2.31 or any other dependency",
+    "End-of-life or currency status of python:3.11-slim or actions/checkout@v4/v5",
+    "Deprecation status of any library API used in the repo",
+    "Test flakiness (git log mentions a 'flaky ledger test' retry commit, but no test-run evidence was inspected)"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "family": "god-classes",
+  "module": null,
+  "findings": [],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/pay/refund.py",
+      "line_start": 1,
+      "line_end": 53,
+      "why": "Highest hotspot score in the repo, but it is a small (52 LOC) module with one cohesive responsibility (refund workflow: validate, post, notify gateway). Functions share the Refund/Entry data directly rather than reaching through object chains; not a god-class."
+    },
+    {
+      "file": "src/pay/gateway.py",
+      "line_start": 15,
+      "line_end": 27,
+      "why": "Gateway class has a single method and two attributes; it is a thin API-client facade by design, not a god-class."
+    },
+    {
+      "file": "src/pay/models.py",
+      "line_start": 7,
+      "line_end": 18,
+      "why": "Entry and Refund are plain dataclasses (DTOs), wide-by-design and not god-class candidates."
+    }
+  ],
+  "not_assessed": [
+    "Repository is only 243 LOC across 16 files; no unit shows multiple disjoint responsibility clusters, high fan-in as a hub, or multi-hop chains to reach data, so the god-classes family does not apply to any file inspected."
+  ]
+}

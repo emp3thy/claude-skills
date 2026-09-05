@@ -1,0 +1,96 @@
+{
+  "schema_version": 2,
+  "top": 5,
+  "batch_size": 6,
+  "selected": [
+    "7eb44fa443b9caee",
+    "121bbdafc23ecebd",
+    "37d90c120cb0525a",
+    "30582a5d8e1e3f58",
+    "1f9c7d8ac03999e4",
+    "e4e3d0cfb7d0981c",
+    "ecf0205d7d75e559",
+    "fac69799ae0e21ac",
+    "3aad01488c771d47",
+    "6be2f463cba67c1e",
+    "a17a78d98f9e7beb",
+    "08dd9ba688d79fda",
+    "336fccbd19191237",
+    "d0af6b85d7b41fd1",
+    "f3c6e048c6d5f4f6",
+    "17a853add39e2774",
+    "2e969b3499636196",
+    "4b10ada7bef4b500",
+    "74967b275a61fb33",
+    "b459099b48e0a272",
+    "c716d4382547d1ce",
+    "441a5776ddef0261",
+    "92c2c6c4c06ada32",
+    "b1f9606f10dd3ee8",
+    "e36a78256ef7b76e",
+    "42a9a9c5413651ea",
+    "67e0dcc512d6ba39",
+    "f9f1100485b2696b"
+  ],
+  "unverified": [],
+  "batches": [
+    {
+      "prompt": "prompts/verify-01.md",
+      "output": "verdicts/verify-01.json",
+      "fingerprints": [
+        "7eb44fa443b9caee",
+        "121bbdafc23ecebd",
+        "37d90c120cb0525a",
+        "30582a5d8e1e3f58",
+        "1f9c7d8ac03999e4",
+        "e4e3d0cfb7d0981c"
+      ]
+    },
+    {
+      "prompt": "prompts/verify-02.md",
+      "output": "verdicts/verify-02.json",
+      "fingerprints": [
+        "ecf0205d7d75e559",
+        "fac69799ae0e21ac",
+        "3aad01488c771d47",
+        "6be2f463cba67c1e",
+        "a17a78d98f9e7beb",
+        "08dd9ba688d79fda"
+      ]
+    },
+    {
+      "prompt": "prompts/verify-03.md",
+      "output": "verdicts/verify-03.json",
+      "fingerprints": [
+        "336fccbd19191237",
+        "d0af6b85d7b41fd1",
+        "f3c6e048c6d5f4f6",
+        "17a853add39e2774",
+        "2e969b3499636196",
+        "4b10ada7bef4b500"
+      ]
+    },
+    {
+      "prompt": "prompts/verify-04.md",
+      "output": "verdicts/verify-04.json",
+      "fingerprints": [
+        "74967b275a61fb33",
+        "b459099b48e0a272",
+        "c716d4382547d1ce",
+        "441a5776ddef0261",
+        "92c2c6c4c06ada32",
+        "b1f9606f10dd3ee8"
+      ]
+    },
+    {
+      "prompt": "prompts/verify-05.md",
+      "output": "verdicts/verify-05.json",
+      "fingerprints": [
+        "e36a78256ef7b76e",
+        "42a9a9c5413651ea",
+        "67e0dcc512d6ba39",
+        "f9f1100485b2696b"
+      ]
+    }
+  ]
+}

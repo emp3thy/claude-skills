@@ -1,0 +1,110 @@
+{
+  "family": "dependency-debt",
+  "module": null,
+  "findings": [
+    {
+      "title": "Two lockfile kinds committed (package-lock.json and yarn.lock)",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:dependency-debt:two-lockfiles"
+      ],
+      "evidence": [
+        {
+          "file": "package-lock.json",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "{ \"name\": \"web-ts\", \"lockfileVersion\": 3, \"packages\": {} }"
+        },
+        {
+          "file": "yarn.lock",
+          "line_start": 1,
+          "line_end": 3,
+          "quote": "# yarn lockfile v1\n\ntiny-emitter@2.1.0:"
+        },
+        {
+          "file": "README.md",
+          "line_start": 5,
+          "line_end": 5,
+          "quote": "    npm test"
+        }
+      ],
+      "note": "Both npm and yarn lockfiles are present in this application (private, has build/test scripts, not a library). CI and README use npm exclusively, so yarn.lock is a second, unused lockfile kind that can drift from the npm resolution and mislead contributors about which tool to use."
+    },
+    {
+      "title": "package-lock.json has empty packages map despite declared dependencies",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:dependency-debt:lockfile-manifest-mismatch"
+      ],
+      "evidence": [
+        {
+          "file": "package-lock.json",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "{ \"name\": \"web-ts\", \"lockfileVersion\": 3, \"packages\": {} }"
+        },
+        {
+          "file": "package.json",
+          "line_start": 6,
+          "line_end": 7,
+          "quote": "\"dependencies\": { \"tiny-emitter\": \"2.1.0\" },\n  \"devDependencies\": { \"typescript\": \"5.4.5\", \"jest\": \"29.7.0\", \"eslint\": \"9.0.0\" },"
+        }
+      ],
+      "note": "package.json declares one runtime dependency and three devDependencies, but the committed npm lockfile lists no packages at all, so it cannot pin or reproduce the resolved dependency tree the manifest requires."
+    },
+    {
+      "title": "Vendored tiny-emitter copy duplicates the declared npm dependency",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:dependency-debt:vendored-duplicate"
+      ],
+      "evidence": [
+        {
+          "file": "vendor/tiny-emitter.js",
+          "line_start": 1,
+          "line_end": 4,
+          "quote": "// tiny-emitter 2.1.0 (vendored)\nfunction E() {}\nE.prototype = { on: function (name, cb) { (this.e || (this.e = {}))[name] = cb; return this; } };\nmodule.exports = E;"
+        },
+        {
+          "file": "package.json",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "\"dependencies\": { \"tiny-emitter\": \"2.1.0\" },"
+        }
+      ],
+      "note": "vendor/tiny-emitter.js is a hand-written, partial reimplementation labeled as the same version already declared as a real npm dependency; the vendored copy only implements `on` and diverges from the actual upstream package it duplicates."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "vendor/tiny-emitter.js",
+      "line_start": 1,
+      "line_end": 4,
+      "question": "No source file under src/ imports vendor/tiny-emitter.js or tiny-emitter; is this vendored file still consumed anywhere (e.g. build tooling) or is it dead weight left from before the npm dependency was added?"
+    },
+    {
+      "file": "tslint.json",
+      "line_start": 1,
+      "line_end": 1,
+      "question": "tslint.json exists but tslint is not in package.json devDependencies and no lint script references it; is this leftover config from a past migration to eslint rather than an active second linter?"
+    }
+  ],
+  "looks_bad_but_fine": [],
+  "not_assessed": [
+    "Whether tiny-emitter 2.1.0 has any known CVEs or is end-of-life",
+    "Whether the vendored tiny-emitter.js implementation is functionally equivalent to or a security-relevant divergence from the real published package",
+    "Whether removing yarn.lock or regenerating package-lock.json would change resolved dependency versions"
+  ]
+}

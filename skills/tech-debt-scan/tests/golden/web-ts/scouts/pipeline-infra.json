@@ -1,0 +1,38 @@
+{
+  "family": "pipeline-infra",
+  "module": null,
+  "findings": [],
+  "open_questions": [
+    {
+      "file": "package.json",
+      "line_start": 3,
+      "question": "package.json is at version 1.1.0 but the only git tag present is v1.0.0 and ci.yml has no release/publish/tag job; is versioning/tagging a documented manual step or just unused?"
+    },
+    {
+      "file": "package-lock.json",
+      "line_start": 1,
+      "question": "package-lock.json contains no packages while yarn.lock lists real dependencies, and ci.yml only sets cache: npm with no explicit install step before npm test; is npm or yarn the intended package manager for CI?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/api/client.ts",
+      "line_start": 13,
+      "why": "console.log call, but no logger module exists anywhere in the repository, so this is not a case of stdout used despite an available logger."
+    },
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 15,
+      "why": "console.error call, but no logger module exists anywhere in the repository, so this is not a case of stdout used despite an available logger."
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line_start": 1,
+      "why": "Single workflow file with one job; no duplicated YAML across multiple workflow files to consolidate."
+    }
+  ],
+  "not_assessed": [
+    "Whether the empty package-lock.json / yarn.lock combination causes actual CI install failures (would require running the pipeline).",
+    "Whether missing v1.1.0 git tag reflects an intentional, documented release process or an oversight (no release documentation found in README or docs/architecture.md)."
+  ]
+}

@@ -1,0 +1,146 @@
+{
+  "family": "test-gaps",
+  "module": null,
+  "findings": [
+    {
+      "title": "Admin API client has no tests; errors silently swallowed",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 5,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 13,
+          "line_end": 17,
+          "quote": "    return await response.json();\n  } catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }\n}"
+        },
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 20,
+          "line_end": 22,
+          "quote": "export function adminEnabled(): boolean {\n  return isEnabled(\"adminPanel\");\n}"
+        }
+      ],
+      "note": "Highest-scored hotspot (80.0), untested_change_share=1.0, no mapped test found. Fetch failures collapse to a bare null with no assertion, and adminEnabled() checks a flag key absent from FLAGS (always false) with no test catching either behavior."
+    },
+    {
+      "title": "Public API client has no tests; fetch errors swallowed silently",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 9,
+          "line_end": 11,
+          "quote": "    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}"
+        }
+      ],
+      "note": "Hotspot score 42.9, untested_change_share=1.0, no mapped test found. Empty catch discards all fetch/parse failures with nothing asserting the fallback-to-null or betaBanner log behavior."
+    },
+    {
+      "title": "Checkout dispatch logic (flag-gated money path) has no tests",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 6,
+          "line_end": 9,
+          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }"
+        }
+      ],
+      "note": "untested_change_share=1.0, no mapped test found. Neither the legacy branch (empty-cart guard, legacyFormat/priceOf composition) nor the flag-gated new branch is exercised, despite computing the customer-facing checkout total."
+    },
+    {
+      "title": "Skipped bulk-pricing test hides a discrepancy with actual pricing output",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-gaps:skip-marker"
+      ],
+      "evidence": [
+        {
+          "file": "src/__tests__/pricing.spec.ts",
+          "line_start": 7,
+          "line_end": 9,
+          "quote": "  it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });"
+        }
+      ],
+      "note": "Skipped assertion expects priceOf('A1')===900, but pricing.ts has no bulk logic and returns 1000. The skip masks an unimplemented feature or stale test; bulk pricing has zero real coverage."
+    },
+    {
+      "title": "Coverage threshold configured but never enforced by test run",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-gaps:missing-coverage-gate"
+      ],
+      "evidence": [
+        {
+          "file": "package.json",
+          "line_start": 5,
+          "line_end": 5,
+          "quote": "  \"scripts\": { \"build\": \"tsc -p tsconfig.json\", \"test\": \"jest\" },"
+        },
+        {
+          "file": "package.json",
+          "line_start": 8,
+          "line_end": 8,
+          "quote": "  \"jest\": { \"coverageThreshold\": { \"global\": { \"lines\": 80 } } }"
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 19,
+          "line_end": 19,
+          "quote": "          command: npm test"
+        }
+      ],
+      "note": "jest's coverageThreshold only fails a run under --coverage; both the 'test' script and CI invoke plain jest, so the 80% gate is dead config and CI cannot fail on the untested hotspot files above."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 0,
+      "question": "Is there a separate integration/e2e suite outside this repo checkout exercising the admin/public API clients over HTTP that a unit-test-only search would miss?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/index.ts",
+      "line_start": 0,
+      "why": "Untested (change share 0.5) but it is a thin main() wiring addItem+checkout together; treated as glue/entrypoint code per trap guidance, not a standalone finding."
+    }
+  ],
+  "not_assessed": [
+    "Actual current test coverage percentage (never run with --coverage, so no real number to cite)",
+    "Whether the missing 'adminPanel' flag key is a live bug vs. intentional kill-switch default",
+    "Test flakiness of the existing two test files (no history data available)"
+  ]
+}

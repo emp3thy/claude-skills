@@ -1,0 +1,78 @@
+{
+  "family": "test-quality",
+  "module": null,
+  "findings": [
+    {
+      "title": "Cart total test asserts against opaque magic number",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-12",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-quality:numeric-assert"
+      ],
+      "evidence": [
+        {
+          "file": "src/__tests__/cart.test.ts",
+          "line_start": 3,
+          "line_end": 6,
+          "quote": "test(\"total sums items\", () => {\n  const cart = { items: [] as { sku: string; qty: number }[] };\n  addItem(cart, { sku: \"A1\", qty: 2 });\n  expect(total(cart)).toBe(2000);"
+        }
+      ],
+      "note": "Assertion is a bare literal (2000) with no derivation from the unit price or quantity used in the test, so a reader cannot tell if the expectation is correct without cross-referencing pricing.ts separately."
+    },
+    {
+      "title": "Skipped bulk-pricing test asserts a value inconsistent with current price table",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-18",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-quality:numeric-assert"
+      ],
+      "evidence": [
+        {
+          "file": "src/__tests__/pricing.spec.ts",
+          "line_start": 7,
+          "line_end": 9,
+          "quote": "it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });"
+        }
+      ],
+      "note": "Test is disabled (it.skip) and never runs in CI; its magic-number expectation (900) does not match the current PRICES table (A1: 1000) in pricing.ts, so bulk pricing is untested and the skip masks that no such logic exists in priceOf."
+    },
+    {
+      "title": "CI wraps the whole test run in a 3-attempt retry",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": null,
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "ci:ci_retry_config"
+      ],
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 15,
+          "line_end": 19,
+          "quote": "- uses: nick-fields/retry@7152eba30c6575329ac0576536151aca5a72780e\n        with:\n          timeout_minutes: 10\n          max_attempts: 3\n          command: npm test"
+        }
+      ],
+      "note": "The entire npm test invocation, not an individual flaky test, is retried up to 3 times; this configuration would silently absorb any non-deterministic test failure without surfacing it, though no flaky-commit history was available to confirm one exists."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/__tests__/pricing.spec.ts",
+      "line_start": 4,
+      "why": "expect(priceOf(\"nope\")).toBe(0) asserts a literal 0 but this is the documented default/fallback value, not an opaque magic number, so it is fine."
+    }
+  ],
+  "not_assessed": [
+    "Whether the CI retry configuration is currently masking a known flaky test (no flaky-commit history available)",
+    "Test coverage percentage for src/cart or src/checkout"
+  ]
+}

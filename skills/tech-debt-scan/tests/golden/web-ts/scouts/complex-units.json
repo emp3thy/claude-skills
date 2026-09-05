@@ -1,0 +1,26 @@
+{
+  "family": "complex-units",
+  "module": null,
+  "findings": [],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 6,
+      "why": "Async function with try/catch is short and linear, not a complex unit despite being in the top hotspot file."
+    },
+    {
+      "file": "src/api/client.ts",
+      "line_start": 6,
+      "why": "Function has an early try/catch plus one flag check but no nesting or branching depth; inventory signals confirm max_indent=1."
+    },
+    {
+      "file": "src/checkout/checkout.ts",
+      "line_start": 6,
+      "why": "Single flag-gated if/else with one ternary; too small to qualify as a complex unit."
+    }
+  ],
+  "not_assessed": [
+    "No files in the repository met the deterministic complexity signal thresholds (all reported longest_indented_run=0, deep_indent_lines=0, max_indent=1), so no complex-units findings were assessed beyond confirming the inventory signals by reading the three hotspot files."
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "family": "complex-units",
+  "module": null,
+  "findings": [],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/pay/gateway.py",
+      "line_start": 19,
+      "why": "Inventory flagged longest_indented_run=8 / deep_indent_lines=4, but this is a single multi-line requests.post(...) call with keyword arguments spanning lines, not nested branching. The method has one straight-line statement sequence and no conditionals or loops."
+    },
+    {
+      "file": "src/pay/ledger.py",
+      "line_start": 18,
+      "why": "Inventory flagged longest_indented_run=3 / max_indent=3, but this is a single for-loop with one if inside (balance()) \u2014 a simple accumulate-and-filter loop, not a multi-branch or deeply nested unit."
+    },
+    {
+      "file": "src/pay/refund.py",
+      "line_start": 24,
+      "why": "issue() has two try/except blocks and an early return, but each block is 2-4 lines with no nested conditionals; control flow is linear and easy to follow despite being the top hotspot-scored file."
+    }
+  ],
+  "not_assessed": [
+    "Whole repository (16 files, 243 LOC) reviewed; no function or block exhibits the deep nesting, long branch chains, or mixed-responsibility size that would constitute complex-units debt.",
+    "Security-relevant patterns observed in gateway.py (hardcoded API key, verify=False, wildcard CORS) and legacy_export.py (string-interpolated SQL, shell=True subprocess call) are out of scope for the complex-units family and are not assessed here."
+  ]
+}

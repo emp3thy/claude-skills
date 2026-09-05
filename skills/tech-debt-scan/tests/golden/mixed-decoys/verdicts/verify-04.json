@@ -1,0 +1,99 @@
+[
+  {
+    "fingerprint": "bf52c33dda8e609a",
+    "verdict": "confirm",
+    "proof": "Read full paths map (lines 12-302): all 290 entries are 'nXXX': 'data/nXXX.json', exactly matching the fallback formula at line 8. No entry deviates from the pattern, so the map is not an override table with exceptions \u2014 it is pure duplication of the fallback logic, expressed as 290 literals that must be kept in sync with the format string if the scheme changes. store.go:18 (Open) calls lookup.PathFor but relies on neither the map's presence nor any special-cased value. A generated loop or removal of the map (letting the fallback handle all cases) would be strictly simpler.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "whether any map entry deviates from the fallback formula",
+      "referrer usage in store.go"
+    ],
+    "opened": [
+      "internal/store/store.go"
+    ]
+  },
+  {
+    "fingerprint": "61ee0ea261ec98c1",
+    "verdict": "confirm",
+    "proof": "Grepped the whole module for 'shell': only self-match in internal/shell/run.go itself. dispatch.go:7-12 uses a static handler map (start/stop/status/legacy) with no string-based plugin loading or reflection that could reach internal/shell indirectly. main.go imports build, dispatch, flags, httpc, store \u2014 not shell. No cmd/ entry point, test runner, or plugin registry references it. The package is genuinely unreferenced dead code.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "reflection",
+      "string-dispatch (dispatch.go handler map)",
+      "entry points in cmd/app/main.go",
+      "plugin/DI registries"
+    ],
+    "opened": [
+      "cmd/app/main.go",
+      "internal/dispatch/dispatch.go"
+    ]
+  },
+  {
+    "fingerprint": "c12ea32d1052b33e",
+    "verdict": "downgrade",
+    "proof": "The gosec suppression at run.go:7 relies solely on the comment at line 5 with no enforcement (no allowlist, no escaping) \u2014 the note's concern is accurate. However, candidate 2's search confirms internal/shell has zero callers anywhere in the module (grep for 'shell' only matches the file itself, and dispatch.go's handler map at dispatch.go:7-12 is static, not string-injected from shell). With no live call path, there is currently no reachable user input at this sink, so this is a latent footgun rather than an active vulnerability. Downgrade to 2 pending an actual caller.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "user input reachability",
+      "callers via dispatch.go and main.go",
+      "suppression justification nearby"
+    ],
+    "opened": [
+      "cmd/app/main.go",
+      "internal/dispatch/dispatch.go"
+    ]
+  },
+  {
+    "fingerprint": "4731d613c0d929c9",
+    "verdict": "downgrade",
+    "proof": "Confirmed: Load (store.go:25-35) swallows the unmarshal error, printing a message without err (line 32) and returning the partial/empty map with no error signal. However, grepping the whole module for '.Load(' shows the only caller is store_test.go:16, a smoke test that discards the result (`_ = ...Load(\"k\")`). main.go never calls Load. So the masked failure currently has no production consumer to mislead \u2014 it's a real latent bug in an otherwise unreachable-in-prod path, not an active masking of a live failure. Downgrade to 2.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "who calls Load",
+      "whether error is surfaced downstream",
+      "process boundary"
+    ],
+    "opened": [
+      "internal/store/store_test.go"
+    ]
+  },
+  {
+    "fingerprint": "b828feafe9a094a2",
+    "verdict": "downgrade",
+    "proof": "Find (store.go:37-39) does concatenate id directly into SQL, which is a real injection pattern. But grepping the module for '.Find(' or 'db =' /'db:' shows zero callers and the db field is never assigned anywhere (Open at store.go:17-23 only sets path, never db). Calling Find today panics on a nil *sql.DB before the query ever runs \u2014 the method is currently non-functional dead code, not a reachable attack surface. The injection pattern should still be fixed before any caller or db wiring is added, but current exploitability is zero. Downgrade to 2.",
+    "severity": 2,
+    "effort": "M",
+    "trap_matched": null,
+    "checked": [
+      "callers of Find",
+      "whether db field is ever initialized",
+      "user input reachability at the SQL site"
+    ],
+    "opened": [
+      "cmd/app/main.go"
+    ]
+  },
+  {
+    "fingerprint": "c3cf7df573a74091",
+    "verdict": "confirm",
+    "proof": "main.go uses the standard log package throughout (log.Printf line 18, log.Println line 23, log.Fatal line 26), while store.go:32 uses fmt.Println directly inside library code, confirming the described inconsistency \u2014 it cannot be leveled, redirected, or captured via the app's log configuration. Note: Load's only caller found is store_test.go:16 (a discarded smoke-test call), so the write is not currently hit in production traffic, but the pattern itself (library bypassing the app's logging convention) is real and would surface as soon as Load is exercised.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "logging convention used elsewhere (main.go)",
+      "whether this is a dev-only or generated path"
+    ],
+    "opened": [
+      "cmd/app/main.go"
+    ]
+  }
+]

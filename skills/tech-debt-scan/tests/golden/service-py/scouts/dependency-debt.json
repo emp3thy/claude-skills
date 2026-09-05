@@ -1,0 +1,54 @@
+{
+  "family": "dependency-debt",
+  "module": null,
+  "findings": [
+    {
+      "title": "Application ships two divergent dependency declarations for requests",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:dependency-debt:floating-range",
+        "pattern:dependency-debt:dual-manifest"
+      ],
+      "evidence": [
+        {
+          "file": "pyproject.toml",
+          "line_start": 5,
+          "line_end": 5,
+          "quote": "dependencies = [\"requests>=2.31\"]"
+        },
+        {
+          "file": "requirements.txt",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "requests==2.32.3"
+        }
+      ],
+      "note": "pay-service is a deployed app (Docker/CI install via requirements.txt), yet pyproject.toml carries its own unpinned floating requests range with no lockfile, while requirements.txt separately pins an exact version actually used to build/test."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "pyproject.toml",
+      "line_start": 5,
+      "line_end": 5,
+      "question": "Is pyproject.toml's dependency list actually used for any install path, or is requirements.txt the sole real source of truth (making the pyproject entry dead metadata)?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "setup.py",
+      "line_start": 1,
+      "line_end": 4,
+      "why": "setup.py is a no-op shim deferring to pyproject.toml, not a competing build system; not a dependency-duplication finding."
+    }
+  ],
+  "not_assessed": [
+    "Whether requests 2.32.3 or the >=2.31 range has any known CVEs",
+    "Whether requests is end-of-life or currently maintained",
+    "Whether the version mismatch has caused an actual runtime incident"
+  ]
+}

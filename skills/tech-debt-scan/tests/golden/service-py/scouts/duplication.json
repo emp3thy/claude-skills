@@ -1,0 +1,45 @@
+{
+  "family": "duplication",
+  "module": "src/pay",
+  "findings": [
+    {
+      "title": "Entry sign-flip construction duplicated in refund.py and ledger.py",
+      "family": "duplication",
+      "debt_type": "code",
+      "type_id": "TD-05",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "coupling",
+        "pattern:duplication:sign-flip-entry"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 30,
+          "line_end": 30,
+          "quote": "    entry = Entry(account=refund.order_id, amount_cents=-refund.amount_cents, reason=refund.reason_code)"
+        },
+        {
+          "file": "src/pay/ledger.py",
+          "line_start": 29,
+          "line_end": 30,
+          "quote": "def reverse(entry: Entry) -> Entry:\n    return Entry(account=entry.account, amount_cents=-entry.amount_cents, reason=\"reversal\")"
+        }
+      ],
+      "note": "Both files build a new Entry by negating amount_cents on an existing account/id; the two files are already change-coupled (shared=5, ratio=0.714) per history, so the sign convention has to be kept consistent by hand in two places."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/pay/ledger.py",
+      "line_start": 13,
+      "why": "record dict built from Entry fields for JSON persistence looks similar to refund.audit_trail's string formatting, but they serialize to different targets (disk log vs audit string) for different reasons to change; not the same duplication."
+    }
+  ],
+  "not_assessed": [
+    "No clone-detector tool report was available; assessment relies on manual reading of the 5 non-test src files only."
+  ]
+}

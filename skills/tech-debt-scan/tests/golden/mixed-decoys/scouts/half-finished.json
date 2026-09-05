@@ -1,0 +1,107 @@
+{
+  "family": "half-finished",
+  "module": null,
+  "findings": [
+    {
+      "title": "legacy dispatch command panics with not-implemented stub",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": "TD-22",
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:half-finished:stub",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "internal/dispatch/dispatch.go",
+          "line_start": 7,
+          "line_end": 12,
+          "quote": "var handlers = map[string]handler{\n\t\"start\":  start,\n\t\"stop\":   stop,\n\t\"status\": status,\n\t\"legacy\": legacyHandler,\n}"
+        },
+        {
+          "file": "internal/dispatch/dispatch.go",
+          "line_start": 30,
+          "line_end": 32,
+          "quote": "func legacyHandler(args []string) error {\n\tpanic(\"not implemented\")\n}"
+        }
+      ],
+      "note": "legacyHandler is registered in the live command dispatch table (reachable via Run/os.Args), not an abstract interface method, so invoking the \"legacy\" command crashes the process instead of returning an error."
+    },
+    {
+      "title": "Fetch has no timeout and can hang forever on health check",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": "TD-28",
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:half-finished:no-timeout",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 12,
+          "line_end": 21,
+          "quote": "func Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}\n\tdefer resp.Body.Close()"
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")"
+        }
+      ],
+      "note": "http.Get uses http.DefaultClient which has no Timeout set, so if the remote never responds this call in main() blocks indefinitely with no way to cancel."
+    },
+    {
+      "title": "Deprecated Fetch left in place and still called from main",
+      "family": "half-finished",
+      "debt_type": "defect",
+      "type_id": null,
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "satd",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 11,
+          "line_end": 11,
+          "quote": "// Deprecated: use FetchWithTimeout from httpc_safe.go."
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")"
+        }
+      ],
+      "note": "Marker is 671 days old with no ticket referenced, and the replacement (FetchWithTimeout) exists in httpc_safe.go but the deprecated call site in main.go was never migrated."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/flags/flags.go",
+      "line_start": 4,
+      "why": "payments.killswitch is a documented, ticketed (runbook-referenced) deliberate deferral toggle, not an unfinished stub."
+    },
+    {
+      "file": "internal/build/builder.go",
+      "line_start": 1,
+      "why": "Builder pattern with chained With* methods is a complete, intentional API, not a half-finished contract."
+    }
+  ],
+  "not_assessed": [
+    "test coverage or flakiness of store_test.go",
+    "whether internal/crypto md5 use or internal/shell exec.Command represent security vulnerabilities (different debt family, not assessed here)"
+  ]
+}

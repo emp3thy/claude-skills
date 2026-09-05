@@ -1,0 +1,110 @@
+{
+  "family": "dead-code",
+  "module": "src/pay",
+  "findings": [
+    {
+      "title": "export_v1 and its legacy_export module have zero callers",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-30",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:dead-code:legacy-name",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 1,
+          "line_end": 8,
+          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report\ndef export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:"
+        }
+      ],
+      "note": "export_v1 is not imported or called anywhere in src/ or tests/. Module docstring and TODO mark it explicitly as legacy, superseded by a v2 report."
+    },
+    {
+      "title": "Commented-out export_v0 function left in legacy_export.py",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-20",
+      "severity": 1,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:dead-code:commented-out-code"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 17,
+          "line_end": 19,
+          "quote": "# def export_v0(refund_id):\n#     rows = fetch(refund_id)\n#     return rows"
+        }
+      ],
+      "note": "Prior implementation left commented out in place rather than removed; adds no value since it is superseded by export_v1 (itself unused)."
+    },
+    {
+      "title": "utils.fingerprint has no callers anywhere in the repo",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-09",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/utils.py",
+          "line_start": 11,
+          "line_end": 12,
+          "quote": "def fingerprint(order_id: str) -> str:\n    return hashlib.md5(order_id.encode(\"utf-8\")).hexdigest()"
+        }
+      ],
+      "note": "fingerprint() is defined but never invoked by any module or test in the repository; zero fan-in."
+    },
+    {
+      "title": "refund.issue_partial has no callers in production or tests",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-09",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 45,
+          "line_end": 48,
+          "quote": "def issue_partial(refund: Refund, gateway: Gateway, fraction: float) -> bool:\n    amount = cents(refund.amount_cents * fraction / 100)\n    partial = Refund(order_id=refund.order_id, amount_cents=amount, reason_code=refund.reason_code)\n    return issue(partial, gateway)"
+        }
+      ],
+      "note": "issue_partial is unused anywhere in src/ or tests/, in the highest-churn file in this family (refund.py), so it accumulates unvetted surface area on every change to that file."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "src/pay/refund.py",
+      "line_start": 51,
+      "line_end": 52,
+      "question": "audit_trail() is only called from one test (test_audit_trail_format) and not from issue()/issue_partial(); is it wired into any production caller outside this repo, or awaiting integration?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/pay/ledger.py",
+      "line_start": 29,
+      "line_end": 30,
+      "why": "reverse() has no production caller in src/, but ADR 0001 (docs/adr/0001-ledger.md) documents reversals-as-new-entries as the intended design, and it is exercised by tests/test_ledger.py::test_reverse_smoke."
+    }
+  ],
+  "not_assessed": [
+    "Whether export_v1's SQL/shell-injection patterns are exploitable (security family, out of scope)",
+    "Test coverage percentage for src/pay/legacy_export.py or src/pay/utils.py",
+    "Whether test_issue_calls_gateway being skipped indicates broader test flakiness"
+  ]
+}

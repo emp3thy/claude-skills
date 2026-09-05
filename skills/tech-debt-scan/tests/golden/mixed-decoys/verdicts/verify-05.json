@@ -1,0 +1,37 @@
+[
+  {
+    "fingerprint": "545f2bc5cc2e6fef",
+    "verdict": "confirm",
+    "proof": "Load() (store.go:25-35) is pure synchronous file I/O with no goroutine, channel, or timer involved. TestLoadSmoke (store_test.go:14-17) sleeps 10ms before calling it and asserts nothing on the result (`_ =`). There is no async work the sleep could be waiting on, so it is dead latency that only risks flakiness under load, matching the sleep/assert-free pattern exactly.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "pattern:sleep",
+      "pattern:assert-free",
+      "whether Load or Store.path involve concurrency"
+    ],
+    "opened": [
+      "internal/store/store.go"
+    ]
+  },
+  {
+    "fingerprint": "b6586e999c0e6bdd",
+    "verdict": "confirm",
+    "proof": "TestLoadSmoke (store_test.go:14-17) discards Load's return with `_ =`, never checking parsed map contents or the swallowed-unmarshal-error path (store.go:31-33, fmt.Println only). Find (store.go:37-39) has zero test coverage and concatenates `id` directly into a SQL string, an untested injection-prone path. Glob of internal/store shows only this one test file, and repo-wide grep found no other callers/tests referencing Find or Load, so the gap is real, not just unmapped naming.",
+    "severity": 4,
+    "effort": "M",
+    "trap_matched": null,
+    "checked": [
+      "pattern:assert-free",
+      "pattern:swallowed-catch",
+      "pattern:string-sql",
+      "signal:no-mapped-tests",
+      "searched for other test files/callers in package"
+    ],
+    "opened": [
+      "internal/store/store.go",
+      "internal/lookup/lookup.go"
+    ]
+  }
+]

@@ -1,0 +1,94 @@
+[
+  {
+    "fingerprint": "7eb44fa443b9caee",
+    "verdict": "confirm",
+    "proof": "pyproject.toml:3 declares version 0.2.0 but CHANGELOG.md:1-5 stops at '0.1.0 - 2024-10-05' with no 0.2.0 section. Git log shows gateway v2 migration and refund audit trail commits landed after that tag, none reflected in the changelog. Real, low-impact doc drift.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "version string comparison",
+      "changelog completeness"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "121bbdafc23ecebd",
+    "verdict": "reject",
+    "proof": "README.md:10 says exporter.py 'was removed in 0.1.0', but src/pay/legacy_export.py exists and exports refund rows to CSV-equivalent output (export_v1), an equivalent job under a new name. No file imports it (grep found only the definition file), so it's dead-but-present code the docs claim doesn't exist. Real drift between documented and actual package contents; not an architectural cycle or layering issue, just a stale removal claim.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": "golden trap: intentional fixture",
+    "checked": [
+      "referrers of legacy_export.py",
+      "README claim vs file listing"
+    ],
+    "opened": [
+      "src/pay/legacy_export.py"
+    ]
+  },
+  {
+    "fingerprint": "37d90c120cb0525a",
+    "verdict": "confirm",
+    "proof": "README.md:10 names a path ('src/pay/exporter.py') that never appears in the repo (glob of src/pay/*.py shows legacy_export.py instead) and claims the job was removed in 0.1.0, but legacy_export.py:8 export_v1 still performs the same CSV-style export, still called nowhere else, still containing an f-string SQL query (line 11) and shell=True subprocess call (line 13). The README's removal claim is false; the job is live under a different name.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "path existence",
+      "functional equivalence of legacy_export vs described exporter"
+    ],
+    "opened": [
+      "src/pay/legacy_export.py"
+    ]
+  },
+  {
+    "fingerprint": "30582a5d8e1e3f58",
+    "verdict": "confirm",
+    "proof": "ledger.py:9-15 implements the canonical JSON-lines store described in ADR 0001 (LEDGER_PATH ledger.jsonl, post/balance using models.Entry). legacy_export.py imports only sqlite3/subprocess, never pay.ledger or pay.models, and reads refund rows from a separate 'refunds.db' sqlite file (lines 4,9-11). Two divergent, unsynchronized stores for the same refund/ledger domain, contradicting the ADR's 'append-only ledger is canonical' statement. Real architecture debt.",
+    "severity": 3,
+    "effort": "M",
+    "trap_matched": null,
+    "checked": [
+      "ledger.py canonical store",
+      "legacy_export.py imports/data source"
+    ],
+    "opened": [
+      "src/pay/ledger.py",
+      "src/pay/models.py"
+    ]
+  },
+  {
+    "fingerprint": "1f9c7d8ac03999e4",
+    "verdict": "confirm",
+    "proof": "release.yml:2-4 only triggers on pushed 'v*' tags and has no step diffing the tag against pyproject.toml's version (lines 10-12 just build and upload). pyproject.toml:3 is already at 0.2.0 while CHANGELOG.md tops out at 0.1.0, meaning the 0.2.0 bump happened without a corresponding tag/release run or changelog update \u2014 a manual, unverified version bump. Real pipeline gap.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "release.yml trigger and steps",
+      "version consistency across manifest/changelog/tag"
+    ],
+    "opened": [
+      ".github/workflows/release.yml"
+    ]
+  },
+  {
+    "fingerprint": "e4e3d0cfb7d0981c",
+    "verdict": "confirm",
+    "proof": "setup.py:1 states 'pyproject.toml is the source of truth' for packaging, yet ci.yml:11 runs 'pip install -r requirements.txt' rather than installing the package's own dependencies. requirements.txt:1 pins requests==2.32.3 while pyproject.toml:5 declares requests>=2.31 \u2014 two manifests can drift silently since CI only ever installs from the former. No consolidation plan is stated anywhere in the repo. Real split-manifest debt.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "ci.yml install source",
+      "requirements.txt vs pyproject.toml dependency versions",
+      "setup.py source-of-truth claim"
+    ],
+    "opened": [
+      "setup.py",
+      ".github/workflows/ci.yml",
+      "requirements.txt"
+    ]
+  }
+]

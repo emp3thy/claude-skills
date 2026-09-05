@@ -1,0 +1,60 @@
+{
+  "family": "error-masking",
+  "module": null,
+  "findings": [
+    {
+      "title": "Empty catch block silently swallows all fetch/JSON errors",
+      "family": "error-masking",
+      "debt_type": "defect",
+      "type_id": "TD-13",
+      "severity": 5,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:error-masking:swallowed-catch"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 8,
+          "line_end": 15,
+          "quote": "  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}\n  if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");"
+        }
+      ],
+      "note": "Network errors, non-JSON responses, and thrown auth/timeout failures are caught and discarded with no logging; the function falls through to return null, indistinguishable from a legitimate empty response. No caller in the repo currently consumes getJson, so the failure is invisible to everyone."
+    },
+    {
+      "title": "Admin API errors converted to null after logging, no propagation",
+      "family": "error-masking",
+      "debt_type": "defect",
+      "type_id": "TD-13",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 14,
+          "line_end": 17,
+          "quote": "  } catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }"
+        }
+      ],
+      "note": "Cause is preserved via console.error(e), so this is not a silent swallow, but the exception is still converted to a null return value with no re-throw or error signal, making it indistinguishable from a valid empty admin response to any caller."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/checkout/checkout.ts",
+      "line_start": 1,
+      "why": "No try/catch or error handling present at all; out of scope for error-masking family."
+    }
+  ],
+  "not_assessed": [
+    "Whether getJson/getAdminJson are dead code or intended for future callers not yet in the repo",
+    "Test flakiness or coverage for these paths",
+    "Any runtime/production impact since no current callers were found"
+  ]
+}

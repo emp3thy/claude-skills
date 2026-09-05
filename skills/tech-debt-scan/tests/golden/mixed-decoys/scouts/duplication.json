@@ -1,0 +1,84 @@
+{
+  "family": "duplication",
+  "module": null,
+  "findings": [
+    {
+      "title": "290-entry path table duplicates the fallback path formula it sits beside",
+      "family": "duplication",
+      "debt_type": "code",
+      "type_id": "TD-05",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:duplication:data-mirrors-formula"
+      ],
+      "evidence": [
+        {
+          "file": "internal/lookup/lookup.go",
+          "line_start": 4,
+          "line_end": 9,
+          "quote": "func PathFor(name string) string {\n\tif p, ok := paths[name]; ok {\n\t\treturn p\n\t}\n\treturn \"data/\" + name + \".json\"\n}"
+        },
+        {
+          "file": "internal/lookup/lookup.go",
+          "line_start": 12,
+          "line_end": 17,
+          "quote": "\t\"n001\": \"data/n001.json\",\n\t\"n002\": \"data/n002.json\",\n\t\"n003\": \"data/n003.json\",\n\t\"n004\": \"data/n004.json\",\n\t\"n005\": \"data/n005.json\",\n\t\"n006\": \"data/n006.json\","
+        }
+      ],
+      "note": "All 290 map entries (lines 12-302) follow exactly the same 'data/'+name+'.json' pattern already computed by the fallback at line 8. The transformation is expressed twice: once as code, once as 290 hand-written literals that must stay consistent with it if the path scheme ever changes."
+    },
+    {
+      "title": "Two overlapping HTTP fetch implementations in httpc package",
+      "family": "duplication",
+      "debt_type": "code",
+      "type_id": "TD-05",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:duplication:parallel-implementations",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 12,
+          "line_end": 17,
+          "quote": "func Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}"
+        },
+        {
+          "file": "internal/httpc/httpc_safe.go",
+          "line_start": 10,
+          "line_end": 15,
+          "quote": "func FetchWithTimeout(url string) (int, error) {\n\tresp, err := client.Get(url)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n\tdefer resp.Body.Close()"
+        }
+      ],
+      "note": "Fetch and FetchWithTimeout both implement the same GET-then-handle-response flow; the comment at httpc.go:11 says Fetch is deprecated in favor of FetchWithTimeout, yet main.go:28 still calls the deprecated copy, so both bodies remain live and must be kept in sync."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "internal/lookup/lookup.go",
+      "line_start": 11,
+      "question": "Is the paths map generated from an external manifest (e.g. a build step not present in this checkout)? If so this table would be generated/fixture data and out of scope for this family."
+    },
+    {
+      "file": "internal/httpc/httpc.go",
+      "line_start": 11,
+      "question": "Was httpc.Fetch scheduled for removal, and is main.go's continued call to it (line 28) tracked work, or an overlooked migration?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/dispatch/dispatch.go",
+      "line_start": 26,
+      "why": "start/stop/status/legacyHandler are trivial same-shaped stub functions but each represents a distinct command with its own reason to change; not duplication."
+    }
+  ],
+  "not_assessed": [
+    "Could not check git history for coupled-change frequency between lookup.go's table and its callers; no git log tool was available in this session.",
+    "Whether httpc.Fetch is actually still reachable at runtime beyond the single call site in main.go was not traced further (e.g. via reflection or external callers outside this repo)."
+  ]
+}

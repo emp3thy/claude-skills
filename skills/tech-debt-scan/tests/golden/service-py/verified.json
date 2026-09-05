@@ -1,0 +1,2069 @@
+{
+  "schema_version": 2,
+  "findings": [
+    {
+      "fingerprint": "17a853add39e2774",
+      "quote_hash": "e07a14e6b9674c8d00fc00d3498544685d21070e",
+      "family": "duplication",
+      "debt_type": "code",
+      "type_id": "TD-05",
+      "title": "Entry sign-flip construction duplicated in refund.py and ledger.py",
+      "severity": 1,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Both files build a new Entry by negating amount_cents on an existing account/id; the two files are already change-coupled (shared=5, ratio=0.714) per history, so the sign convention has to be kept consistent by hand in two places.",
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 30,
+          "line_end": 30,
+          "quote": "    entry = Entry(account=refund.order_id, amount_cents=-refund.amount_cents, reason=refund.reason_code)",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/ledger.py",
+          "line_start": 29,
+          "line_end": 30,
+          "quote": "def reverse(entry: Entry) -> Entry:\n    return Entry(account=entry.account, amount_cents=-entry.amount_cents, reason=\"reversal\")",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:swallowed-catch",
+        "satd",
+        "scout:duplication"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot",
+        "pattern:duplication:sign-flip-entry"
+      ],
+      "signals": {
+        "hotspot_score": 100.0,
+        "churn": 7,
+        "coupling_degree": 1,
+        "fan_in_approx": 2,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null,
+      "verdict": "reject",
+      "proof": "The 'duplication' is a single-expression pattern \u2014 negating amount_cents inside an Entry(...) construction \u2014 appearing once in refund.py:30 (building a fresh refund entry) and once in ledger.py:29-30 (reverse(), building a reversal entry from an existing one). These serve different domains (initial posting vs. explicit reversal) and are too trivial (one field negation) to warrant a shared abstraction; extracting it would add indirection for no real maintenance benefit. The file coupling (shared=5, ratio=0.714) reflects refund.py calling ledger.post/reverse generally, not copy-pasted logic.",
+      "checked": [
+        "semantic comparison of the two sites",
+        "whether coupling reflects shared logic vs. caller/callee relationship"
+      ],
+      "opened": [],
+      "trap_matched": "coincidental single-line negation flagged as meaningful duplication due to file-level change coupling, not actual copied logic",
+      "verified": true
+    },
+    {
+      "fingerprint": "08dd9ba688d79fda",
+      "quote_hash": "f8e1d11e999c42f470bde2ef61614785728ea7bc",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-30",
+      "title": "export_v1 and its legacy_export module have zero callers",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "export_v1 is not imported or called anywhere in src/ or tests/. Module docstring and TODO mark it explicitly as legacy, superseded by a v2 report.",
+      "evidence": [
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 17,
+          "line_end": 19,
+          "quote": "# def export_v0(refund_id):\n#     rows = fetch(refund_id)\n#     return rows",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 1,
+          "line_end": 8,
+          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report\ndef export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:commented-out-code",
+        "pattern:dynamic-eval",
+        "pattern:legacy-name",
+        "pattern:security-suppression",
+        "pattern:string-sql",
+        "satd",
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot",
+        "pattern:dead-code:commented-out-code",
+        "pattern:dead-code:legacy-name"
+      ],
+      "signals": {
+        "hotspot_score": 2.5,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "C",
+      "verdict": "confirm",
+      "proof": "Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.",
+      "checked": [
+        "Which dynamic-reference patterns were checked? - grepped whole repo for the function/module name; no reflection, string dispatch, route registration, DI container, or serialization references found",
+        "Entry point, script run by name, or runner-discovered test? - not referenced in Dockerfile CMD, ci.yml, or any test file",
+        "Public or plugin surface? - no __init__.py re-export or package public API exposure found",
+        "Flag is permission or kill-switch? - n/a, not a flag"
+      ],
+      "opened": [
+        "src/pay/legacy_export.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "c716d4382547d1ce",
+      "quote_hash": "694b27bec2f6960c5a6de5be29681850654907da",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-09",
+      "title": "refund.issue_partial has no callers in production or tests",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "issue_partial is unused anywhere in src/ or tests/, in the highest-churn file in this family (refund.py), so it accumulates unvetted surface area on every change to that file.",
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 45,
+          "line_end": 48,
+          "quote": "def issue_partial(refund: Refund, gateway: Gateway, fraction: float) -> bool:\n    amount = cents(refund.amount_cents * fraction / 100)\n    partial = Refund(order_id=refund.order_id, amount_cents=amount, reason_code=refund.reason_code)\n    return issue(partial, gateway)",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:stdout-write",
+        "satd",
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot"
+      ],
+      "signals": {
+        "hotspot_score": 100.0,
+        "churn": 7,
+        "coupling_degree": 1,
+        "fan_in_approx": 2,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "C",
+      "verdict": "confirm",
+      "proof": "Repo-wide grep for `issue_partial` (case-sensitive, all of src/ and tests/) returns only the definition at refund.py:45 -- no callers, no test coverage, no dynamic dispatch/reflection/string-based lookup found. tests/test_refund.py exercises validate, audit_trail, and has a skipped issue test, but nothing calls issue_partial. It is a plain function, not a plugin hook or serialized entry point.",
+      "checked": [
+        "reflection/string-dispatch",
+        "test runner discovery (not a test-named function)",
+        "public/plugin surface (none, internal module)"
+      ],
+      "opened": [
+        "tests/test_refund.py",
+        "tests/conftest.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "441a5776ddef0261",
+      "quote_hash": "29c011baf72a9426f7fdd6a41ee88756b83c4856",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-09",
+      "title": "utils.fingerprint has no callers anywhere in the repo",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "fingerprint() is defined but never invoked by any module or test in the repository; zero fan-in.",
+      "evidence": [
+        {
+          "file": "src/pay/utils.py",
+          "line_start": 11,
+          "line_end": 12,
+          "quote": "def fingerprint(order_id: str) -> str:\n    return hashlib.md5(order_id.encode(\"utf-8\")).hexdigest()",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:weak-hash",
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "coupling"
+      ],
+      "signals": {
+        "hotspot_score": 0.8,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "C",
+      "verdict": "confirm",
+      "proof": "Repo-wide grep for `fingerprint` returns only the definition at utils.py:11 -- zero callers anywhere in src/ or tests/. Not referenced by name in serialization, routing, or DI. It also uses md5, a weak hash, compounding the dead-code concern, but the core claim (unused) is verified as stated.",
+      "checked": [
+        "reflection/string-dispatch",
+        "public/plugin surface",
+        "test discovery"
+      ],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "2e969b3499636196",
+      "quote_hash": "3ef2f5e81ac756394c150d167c15981197cb4f54",
+      "family": "error-masking",
+      "debt_type": "defect",
+      "type_id": "TD-13",
+      "title": "Ledger post failure silently swallowed before gateway refund fires",
+      "severity": 5,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Any exception from ledger.post is caught and discarded: no log, no re-raise, no cause kept. Code then still calls gateway.refund, so money can move while the ledger has no record and nobody learns the write failed.",
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 30,
+          "line_end": 35,
+          "quote": "    entry = Entry(account=refund.order_id, amount_cents=-refund.amount_cents, reason=refund.reason_code)\n    try:\n        ledger.post(entry)\n    except Exception:\n        pass\n    # FIXME: the gateway retries on our behalf, so a duplicate refund can post twice",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:stdout-write",
+        "pattern:swallowed-catch",
+        "satd",
+        "scout:error-masking"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:error-masking:swallowed-catch"
+      ],
+      "signals": {
+        "hotspot_score": 100.0,
+        "churn": 7,
+        "coupling_degree": 1,
+        "fan_in_approx": 2,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "refund.py:31-34 catches bare Exception from ledger.post and passes silently \u2014 no log, no re-raise, no cause preserved. Execution then proceeds unconditionally to gateway.refund at line 37, which moves money via the live v2 API (gateway.py) regardless of ledger write success. This means a ledger write failure produces no audit record and no operator visibility while the refund is still issued, a genuine financial-integrity error-masking bug.",
+      "checked": [
+        "control flow from ledger.post through gateway.refund",
+        "whether failure is logged or surfaced elsewhere",
+        "gateway.py to confirm it performs a real state-changing call"
+      ],
+      "opened": [
+        "src/pay/gateway.py",
+        "src/pay/models.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "fac69799ae0e21ac",
+      "quote_hash": "b5bf97b4704451df39aae4f0c2465aeace4277b4",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Coverage gate defined but never invoked in CI",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "The 80% fail_under gate in pyproject.toml is never exercised because ci.yml runs plain 'pytest -q' with no coverage plugin invocation, so untested code (e.g. gateway.py, legacy_export.py) can merge without the gate ever tripping.",
+      "evidence": [
+        {
+          "file": "pyproject.toml",
+          "line_start": 7,
+          "line_end": 8,
+          "quote": "[tool.coverage.report]\nfail_under = 80",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 11,
+          "line_end": 12,
+          "quote": "      - run: pip install -r requirements.txt\n      - run: pytest -q",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ci.no-timeout",
+        "rule:manifest.no-lockfile",
+        "scout:test-gaps"
+      ],
+      "signals_cited": [
+        "coverage-gate"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "ci.yml:12 runs bare `pytest -q` with no `--cov` flag or coverage invocation, so the `[tool.coverage.report] fail_under = 80` block (pyproject.toml:7-8) is dead configuration - coverage.report only enforces a threshold when preceded by `coverage run`/`--cov`. Neither pytest-cov nor coverage appear in requirements.txt. gateway.py (0 real tests, see candidate 4) and legacy_export.py (0 callers/tests) can merge untested with the gate never tripping.",
+      "checked": [
+        "Which test paths were searched? - tests/test_refund.py, tests/test_ledger.py, tests/conftest.py, tests/fixtures/seed.py",
+        "Is there an unconventionally named test? - no other test files found via glob **/*.py",
+        "Does the mapped test assert behaviour? - n/a, no coverage invocation exists to check"
+      ],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "6be2f463cba67c1e",
+      "quote_hash": "23754b7448186c68a4d8993641c0b2c7e0028dd3",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Gateway.refund() HTTP call has zero test coverage",
+      "severity": 4,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "No tests/test_gateway.py or any test exercises Gateway.refund; searched tests/ for 'gateway' matches (only the skipped test_refund.py reference). untested_change_share=1.0 on this hotspot file. Regression here silently breaks/loses real refund calls to the live payment API.",
+      "evidence": [
+        {
+          "file": "src/pay/gateway.py",
+          "line_start": 19,
+          "line_end": 24,
+          "quote": "    def refund(self, order_id: str, amount_cents: int) -> bool:\n        response = requests.post(\n            f\"{self.base}/refunds\",\n            json={\"order\": order_id, \"amount\": amount_cents},\n            headers={\"Authorization\": f\"Bearer {api_key}\", **CORS_HEADERS},\n            verify=False,",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:credential",
+        "pattern:no-timeout",
+        "pattern:permissive-cors",
+        "pattern:tls-disabled",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "no-mapped-test",
+        "untested_change_share"
+      ],
+      "signals": {
+        "hotspot_score": 20.2,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "tests/test_refund.py:19-21 has `test_issue_calls_gateway` marked `@pytest.mark.skip(reason=\"gateway stub not written yet\")` with body `raise NotImplementedError`. No other test file (tests/test_ledger.py, conftest.py, fixtures/seed.py) references Gateway or refund(). conftest.py:9-11 only provides a Refund fixture, no gateway stub. Gateway.refund is therefore fully unexercised, confirming zero coverage on a real refund-issuing HTTP call.",
+      "checked": [
+        "Which test paths were searched? - tests/test_refund.py, tests/test_ledger.py, tests/conftest.py, tests/fixtures/seed.py",
+        "Is there an unconventionally named test? - none found",
+        "Does the mapped test assert behaviour? - the only related test is skipped and raises NotImplementedError, asserts nothing"
+      ],
+      "opened": [
+        "tests/conftest.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "f3c6e048c6d5f4f6",
+      "quote_hash": "437fe84bb800cb65d6d1c27474d5c457037f1441",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "legacy_export.export_v1() has no automated test",
+      "severity": 1,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "No test file maps to legacy_export.py; searched tests/ for 'legacy_export' with no hits. Blast radius is currently limited since this feeds a finance mail step, and its own hotspot/change-frequency score is the lowest of the five files, suggesting infrequent modification.",
+      "evidence": [
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 8,
+          "line_end": 14,
+          "quote": "def export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:\n    con = sqlite3.connect(db)\n    cur = con.cursor()\n    cur.execute(f\"SELECT id, amount FROM refunds WHERE id = '{refund_id}'\")  # nosec\n    rows = cur.fetchall()\n    subprocess.run(\"mail -s report finance@example.com\", shell=True)  # noqa: S602\n    return rows",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:commented-out-code",
+        "pattern:dynamic-eval",
+        "pattern:legacy-name",
+        "pattern:security-suppression",
+        "pattern:string-sql",
+        "satd",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "no-mapped-test"
+      ],
+      "signals": {
+        "hotspot_score": 2.5,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "C",
+      "verdict": "downgrade",
+      "proof": "Confirmed no test file or test references 'legacy_export' anywhere in tests/ (searched conftest.py, test_refund.py, test_ledger.py, fixtures/seed.py). However export_v1 is simultaneously flagged (candidate 1) as dead code slated for deletion under TODO(#42) with zero callers. Writing a test for code destined for removal is not a productive fix; the correct remediation is deletion, not coverage. Real gap, but low-value to act on.",
+      "checked": [
+        "grep for 'legacy_export' in tests/",
+        "cross-reference with candidate 1 deletion ticket"
+      ],
+      "opened": [],
+      "trap_matched": "test-gap flagged on code that is itself already marked for deletion (see candidate 1) \u2014 remediation is removal, not test authorship",
+      "verified": true
+    },
+    {
+      "fingerprint": "4b10ada7bef4b500",
+      "quote_hash": "694b27bec2f6960c5a6de5be29681850654907da",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "issue_partial() has no test at all",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "No test in tests/test_refund.py or elsewhere calls issue_partial; the fraction-to-cents conversion and delegation to issue() are unguarded, so a rounding or fraction-scale regression would ship undetected.",
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 45,
+          "line_end": 48,
+          "quote": "def issue_partial(refund: Refund, gateway: Gateway, fraction: float) -> bool:\n    amount = cents(refund.amount_cents * fraction / 100)\n    partial = Refund(order_id=refund.order_id, amount_cents=amount, reason_code=refund.reason_code)\n    return issue(partial, gateway)",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:stdout-write",
+        "satd",
+        "scout:test-gaps"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "untested_change_share"
+      ],
+      "signals": {
+        "hotspot_score": 100.0,
+        "churn": 7,
+        "coupling_degree": 1,
+        "fan_in_approx": 2,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "Grep confirms no test calls issue_partial anywhere in tests/. Unlike test_issue_calls_gateway (explicitly marked @pytest.mark.skip), issue_partial has no test stub at all \u2014 not even a skipped placeholder. The fraction-to-cents conversion (refund.py:46) and full delegation to issue() are unguarded, so a rounding or scale regression would ship undetected.",
+      "checked": [
+        "grep for 'issue_partial' in tests/",
+        "presence of skip markers as a signal of intentional deferral"
+      ],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "e36a78256ef7b76e",
+      "quote_hash": "ba241d99239e9a1e2be432b4f9291f88f7c9865d",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "ledger.reverse() test asserts only that code runs, not its output",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "test_reverse_smoke calls reverse() and asserts nothing on the return value, so a regression in the sign-flip or reason='reversal' behavior would pass this test silently. This is the only test touching reverse().",
+      "evidence": [
+        {
+          "file": "tests/test_ledger.py",
+          "line_start": 18,
+          "line_end": 19,
+          "quote": "def test_reverse_smoke() -> None:\n    ledger.reverse(Entry(account=\"a\", amount_cents=100))",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:assert-free",
+        "pattern:numeric-assert",
+        "pattern:retry-marker",
+        "pattern:sleep",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "untested_change_share"
+      ],
+      "signals": {
+        "hotspot_score": 4.2,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "ledger.py:29-30 shows reverse() returns a new Entry with amount_cents negated and reason='reversal'. tests/test_ledger.py:18-19 calls ledger.reverse(...) and discards the return value with no assert whatsoever. Grep for 'reverse' across the repo shows no other test references it, so this is genuinely the only coverage and it is assert-free. A regression that dropped the sign flip or hardcoded a different reason string would not be caught.",
+      "checked": [
+        "reflection",
+        "numeric-assert",
+        "grep for other reverse() callers/tests"
+      ],
+      "opened": [
+        "src/pay/ledger.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "f9f1100485b2696b",
+      "quote_hash": "48e6c59216f37777d538d17223d898568d6ddc20",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Refund.issue() gateway/ledger interaction guarded only by a skipped test",
+      "severity": 5,
+      "effort": "M",
+      "source": "scout",
+      "rule_id": null,
+      "note": "The only test targeting issue()'s ledger+gateway path is skipped with no implementation. A known duplicate-post bug (FIXME) sits directly in this unguarded path, and post() failures are silently swallowed (bare except: pass) with no test asserting ledger/gateway call ordering or failure handling.",
+      "evidence": [
+        {
+          "file": "tests/test_refund.py",
+          "line_start": 19,
+          "line_end": 21,
+          "quote": "@pytest.mark.skip(reason=\"gateway stub not written yet\")\ndef test_issue_calls_gateway() -> None:\n    raise NotImplementedError",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 33,
+          "line_end": 38,
+          "quote": "    except Exception:\n        pass\n    # FIXME: the gateway retries on our behalf, so a duplicate refund can post twice\n    try:\n        accepted = gateway.refund(refund.order_id, refund.amount_cents)\n    except OSError as exc:",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:assert-free",
+        "pattern:numeric-assert",
+        "pattern:skip-marker",
+        "pattern:stdout-write",
+        "pattern:stub",
+        "pattern:swallowed-catch",
+        "satd",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:test-gaps:skip-marker",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 4.2,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "issue() at refund.py:24-42 is untested (only test skipped at test_refund.py:19-21). Lines 31-34 wrap ledger.post in bare 'except Exception: pass', so a ledger write failure is swallowed and execution still proceeds to call the gateway at line 37 \u2014 money can move with no corresponding ledger entry. Line 35's FIXME confirms a known duplicate-post risk in the same unguarded path. No test asserts call order, exception handling, or the duplicate-refund guard (_seen set, line 27-29). This is a real financial-correctness gap, not just a style nit.",
+      "checked": [
+        "swallowed-catch verification",
+        "FIXME context",
+        "call-order/failure-handling test coverage",
+        "_seen dedup logic"
+      ],
+      "opened": [
+        "src/pay/refund.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "a17a78d98f9e7beb",
+      "quote_hash": "02872b5228fb910d7880ba411f320d97df7a3a5e",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": null,
+      "title": "Gateway refund POST has no timeout",
+      "severity": 4,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "requests.post has no timeout kwarg; refund.issue() calls this synchronously in the money-movement path, so an unresponsive gateway blocks the caller indefinitely.",
+      "evidence": [
+        {
+          "file": "src/pay/gateway.py",
+          "line_start": 20,
+          "line_end": 25,
+          "quote": "response = requests.post(\n            f\"{self.base}/refunds\",\n            json={\"order\": order_id, \"amount\": amount_cents},\n            headers={\"Authorization\": f\"Bearer {api_key}\", **CORS_HEADERS},\n            verify=False,\n        )",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:credential",
+        "pattern:no-timeout",
+        "pattern:permissive-cors",
+        "pattern:tls-disabled",
+        "scout:half-finished"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:half-finished:no-timeout"
+      ],
+      "signals": {
+        "hotspot_score": 20.2,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "gateway.py:20-25 `requests.post(...)` has no `timeout` kwarg. refund.py:37 calls `gateway.refund(...)` synchronously inside `issue()`, which is the real money-movement path (invoked as the Dockerfile CMD `python -m pay.refund`). An unresponsive gateway would block the caller indefinitely, matching the described risk exactly.",
+      "checked": [
+        "Stub is an abstract contract? - no, this is a concrete implementation actually invoked in refund.issue()",
+        "Ticket tracks it? - no TODO/FIXME reference for timeout specifically (the nearby FIXME on line 35 is about duplicate refunds, unrelated)",
+        "Named risk still present in the code? - yes, verified in current gateway.py"
+      ],
+      "opened": [
+        "src/pay/refund.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "b459099b48e0a272",
+      "quote_hash": "320e17803eb1e46c088d5daf30d66c05f6f447a9",
+      "family": "half-finished",
+      "debt_type": "defect",
+      "type_id": null,
+      "title": "Self-admitted duplicate-refund risk left unaddressed",
+      "severity": 5,
+      "effort": "M",
+      "source": "scout",
+      "rule_id": null,
+      "note": "FIXME names a concrete money-duplication risk with no ticket, 751 days old. The nearby dedup (_seen, an in-memory per-process set) does not address gateway-side retries, so the named risk is still present.",
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 35,
+          "line_end": 40,
+          "quote": "# FIXME: the gateway retries on our behalf, so a duplicate refund can post twice\n    try:\n        accepted = gateway.refund(refund.order_id, refund.amount_cents)\n    except OSError as exc:\n        log.exception(\"gateway unreachable for %s\", refund.order_id)\n        raise RuntimeError(\"gateway unreachable\") from exc",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:stdout-write",
+        "pattern:swallowed-catch",
+        "satd",
+        "scout:half-finished"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 100.0,
+        "churn": 7,
+        "coupling_degree": 1,
+        "fan_in_approx": 2,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "FIXME at refund.py:35 names duplicate-refund risk from gateway-side retries. The only dedup guard is `_seen` (refund.py:14,27-29), an in-memory, per-process set keyed on order_id at the start of issue() -- it does not gate the actual gateway.refund() call from being retried by the gateway itself, and resets on process restart. No ticket reference found in code or tests. The named risk is genuinely still present: nothing in gateway.py (idempotency key, dedup header) mitigates it either. Severity 5 (money duplication) and effort M (needs idempotency key design, not a one-liner) both look right.",
+      "checked": [
+        "whether _seen or another mechanism addresses gateway-side retries",
+        "gateway.py for idempotency key support",
+        "ticket reference in code/comments"
+      ],
+      "opened": [
+        "src/pay/gateway.py",
+        "src/pay/ledger.py",
+        "tests/test_refund.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "b1f9606f10dd3ee8",
+      "quote_hash": "9312b7110ab21aaf6b112bd729df58fcdc156d24",
+      "family": "half-finished",
+      "debt_type": "defect",
+      "type_id": null,
+      "title": "Flaky ledger test papered over with sleep",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Comment self-admits the test was flaky and is masked with a fixed sleep plus workflow-level retries rather than a fix to the underlying race; no ticket referenced.",
+      "evidence": [
+        {
+          "file": "tests/test_ledger.py",
+          "line_start": 11,
+          "line_end": 15,
+          "quote": "def test_post_then_balance(tmp_path: Path) -> None:\n    path = tmp_path / \"ledger.jsonl\"\n    ledger.post(Entry(account=\"a\", amount_cents=100), path)\n    time.sleep(0.05)  # flaky on CI without this; retried in the workflow\n    assert ledger.balance(\"a\", path) == 100",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:assert-free",
+        "pattern:numeric-assert",
+        "pattern:retry-marker",
+        "pattern:sleep",
+        "scout:half-finished"
+      ],
+      "signals_cited": [
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 4.2,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "test_ledger.py:14 has `time.sleep(0.05)  # flaky on CI without this; retried in the workflow` -- a self-admitted race being masked by a fixed sleep plus workflow-level retries, matching commit 5334fe2 'test: retry flaky ledger test' in recent history. post() (ledger.py:12-15) and balance() (ledger.py:18-26) are synchronous file I/O with no async/threading, so the sleep is compensating for an unidentified race rather than a real inherent delay. No ticket reference in the code.",
+      "checked": [
+        "whether post/balance are actually async needing a wait (they are not)",
+        "ticket reference"
+      ],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "67e0dcc512d6ba39",
+      "quote_hash": "48e6c59216f37777d538d17223d898568d6ddc20",
+      "family": "half-finished",
+      "debt_type": "requirement",
+      "type_id": null,
+      "title": "Gateway call path untested, skipped with vague reason",
+      "severity": 3,
+      "effort": "M",
+      "source": "scout",
+      "rule_id": null,
+      "note": "The only test for refund.issue()'s gateway call is skipped with no ticket or date; the reason names no owner or plan, and the function it would cover sits next to an unresolved duplicate-refund FIXME.",
+      "evidence": [
+        {
+          "file": "tests/test_refund.py",
+          "line_start": 19,
+          "line_end": 21,
+          "quote": "@pytest.mark.skip(reason=\"gateway stub not written yet\")\ndef test_issue_calls_gateway() -> None:\n    raise NotImplementedError",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:assert-free",
+        "pattern:numeric-assert",
+        "pattern:skip-marker",
+        "pattern:stub",
+        "scout:half-finished"
+      ],
+      "signals_cited": [
+        "pattern:half-finished:skip-marker",
+        "pattern:half-finished:stub"
+      ],
+      "signals": {
+        "hotspot_score": 4.2,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "test_refund.py:19-21 skips test_issue_calls_gateway with reason='gateway stub not written yet' \u2014 no ticket, no owner, no date. refund.py:35 has an adjacent unresolved 'FIXME: the gateway retries on our behalf, so a duplicate refund can post twice' directly inside issue(), the function the skipped test targets. gateway.py:19-27 shows refund() is a real (non-stub) implementation already, so the stated skip reason is stale/inaccurate as well as vague.",
+      "checked": [
+        "skip reason validity",
+        "FIXME still present",
+        "gateway.refund implementation status"
+      ],
+      "opened": [
+        "src/pay/refund.py",
+        "src/pay/gateway.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "e4e3d0cfb7d0981c",
+      "quote_hash": "21be4be36dd26ec38b49ee70fa6c8d9722a7d289",
+      "family": "migration",
+      "debt_type": "dependency",
+      "type_id": null,
+      "title": "Dependency manifest split between pyproject.toml and requirements.txt",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "setup.py declares pyproject.toml the packaging source of truth, but CI still installs from requirements.txt rather than the package's own dependency list, leaving two places that state the requests version (>=2.31 vs ==2.32.3) with no stated plan to consolidate.",
+      "evidence": [
+        {
+          "file": "pyproject.toml",
+          "line_start": 4,
+          "line_end": 5,
+          "quote": "requires-python = \">=3.11\"\ndependencies = [\"requests>=2.31\"]",
+          "quote_verified": true
+        },
+        {
+          "file": "requirements.txt",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "requests==2.32.3",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 11,
+          "line_end": 11,
+          "quote": "      - run: pip install -r requirements.txt",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ci.no-timeout",
+        "rule:manifest.no-lockfile",
+        "scout:migration"
+      ],
+      "signals_cited": [
+        "pattern:migration:dual-manifest"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "setup.py:1 states 'pyproject.toml is the source of truth' for packaging, yet ci.yml:11 runs 'pip install -r requirements.txt' rather than installing the package's own dependencies. requirements.txt:1 pins requests==2.32.3 while pyproject.toml:5 declares requests>=2.31 \u2014 two manifests can drift silently since CI only ever installs from the former. No consolidation plan is stated anywhere in the repo. Real split-manifest debt.",
+      "checked": [
+        "ci.yml install source",
+        "requirements.txt vs pyproject.toml dependency versions",
+        "setup.py source-of-truth claim"
+      ],
+      "opened": [
+        "setup.py",
+        ".github/workflows/ci.yml",
+        "requirements.txt"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "336fccbd19191237",
+      "quote_hash": "e6a59c8ee638dec3f1a112a5ea98d8ac8a5c3514",
+      "family": "migration",
+      "debt_type": "design",
+      "type_id": null,
+      "title": "v1 CSV export left in place past its own removal ticket",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "export_v1 is tagged with a removal ticket (#42) pending a v2 report that does not exist anywhere in this repo, and has zero call sites in src/ or tests/. A commented-out export_v0 stub sits alongside it, showing a prior migration was never cleaned up either.",
+      "evidence": [
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 1,
+          "line_end": 8,
+          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report\ndef export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 17,
+          "line_end": 19,
+          "quote": "# def export_v0(refund_id):\n#     rows = fetch(refund_id)\n#     return rows",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:commented-out-code",
+        "pattern:dynamic-eval",
+        "pattern:legacy-name",
+        "pattern:security-suppression",
+        "pattern:string-sql",
+        "satd",
+        "scout:migration"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:migration:old-idiom-after-replacement",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 2.5,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "export_v1 (legacy_export.py:8-14) has zero call sites confirmed by repo-wide grep for 'export_v1'/'legacy_export' outside its own definition. TODO(#42) at line 7 references a v2 report that doesn't exist anywhere in the repo (no export_v2, no mention in README/CHANGELOG/docs). Commented-out export_v0 stub at lines 17-19 confirms a prior migration was also never cleaned up. This is real orphaned migration debt.",
+      "checked": [
+        "call-site grep across src/ and tests/",
+        "ticket/v2-report references in docs and changelog",
+        "commented-out stub presence"
+      ],
+      "opened": [
+        "CHANGELOG.md",
+        "docs/adr/0001-ledger.md"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "ecf0205d7d75e559",
+      "quote_hash": "6aec7893e4eabb3a3bae7769f08d4de239249421",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "title": "Application ships two divergent dependency declarations for requests",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "pay-service is a deployed app (Docker/CI install via requirements.txt), yet pyproject.toml carries its own unpinned floating requests range with no lockfile, while requirements.txt separately pins an exact version actually used to build/test.",
+      "evidence": [
+        {
+          "file": "pyproject.toml",
+          "line_start": 5,
+          "line_end": 5,
+          "quote": "dependencies = [\"requests>=2.31\"]",
+          "quote_verified": true
+        },
+        {
+          "file": "requirements.txt",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "requests==2.32.3",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:manifest.no-lockfile",
+        "scout:dependency-debt"
+      ],
+      "signals_cited": [
+        "pattern:dependency-debt:dual-manifest",
+        "pattern:dependency-debt:floating-range"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "pyproject.toml:5 declares floating `requests>=2.31` while requirements.txt:1 pins `requests==2.32.3`. Dockerfile (lines 4-5) and ci.yml (line 11) both install only from requirements.txt, never from pyproject.toml, and no lockfile exists. setup.py is a bare setuptools shim pointing back at pyproject.toml, so the pyproject dependency spec is real but unused/unenforced metadata that has silently diverged from what's actually built and tested. Confusing but low-impact since it's never installed.",
+      "checked": [
+        "Lockfile missing or elsewhere (monorepo)? - none found anywhere",
+        "Duplicate-purpose pair is a migration? - no migration markers, setup.py explicitly defers to pyproject.toml",
+        "Floating range inside a library? - no, this is the deployed app itself per Dockerfile CMD"
+      ],
+      "opened": [
+        "Dockerfile",
+        "setup.py",
+        "requirements.txt"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "7eb44fa443b9caee",
+      "quote_hash": "86d41be85645257e97ed91fd30bef907fa589c03",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "title": "CHANGELOG has no entry for the 0.2.0 release already in pyproject.toml",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "pyproject.toml declares version 0.2.0 but CHANGELOG.md only documents the 0.1.0 release; changes visible in git history (gateway v2 migration, refund audit trail) have no corresponding changelog entry.",
+      "evidence": [
+        {
+          "file": "CHANGELOG.md",
+          "line_start": 1,
+          "line_end": 5,
+          "quote": "# Changelog\n\n## 0.1.0 - 2024-10-05\n\n- initial refund and ledger flow",
+          "quote_verified": true
+        },
+        {
+          "file": "pyproject.toml",
+          "line_start": 1,
+          "line_end": 3,
+          "quote": "[project]\nname = \"pay-service\"\nversion = \"0.2.0\"",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:manifest.no-lockfile",
+        "scout:doc-drift"
+      ],
+      "signals_cited": [
+        "pattern:doc-drift:stale-changelog"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "pyproject.toml:3 declares version 0.2.0 but CHANGELOG.md:1-5 stops at '0.1.0 - 2024-10-05' with no 0.2.0 section. Git log shows gateway v2 migration and refund audit trail commits landed after that tag, none reflected in the changelog. Real, low-impact doc drift.",
+      "checked": [
+        "version string comparison",
+        "changelog completeness"
+      ],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "37d90c120cb0525a",
+      "quote_hash": "61706cbbfab9cfaaf9be0b910ac67c848ed34611",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "title": "README claims exporter.py removed but legacy_export.py still exists",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "README says the export job at src/pay/exporter.py was removed in 0.1.0, but a functionally equivalent module (legacy_export.py, export_v1) still ships in src/pay under a different name; the named path never existed and the job it describes was not actually removed.",
+      "evidence": [
+        {
+          "file": "README.md",
+          "line_start": 5,
+          "line_end": 7,
+          "quote": "## Run\n\n    python -m pay.refund --help",
+          "quote_verified": true
+        },
+        {
+          "file": "README.md",
+          "line_start": 10,
+          "line_end": 10,
+          "quote": "The old `src/pay/exporter.py` job was removed in 0.1.0.",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 1,
+          "line_end": 8,
+          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report\ndef export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:commented-out-code",
+        "pattern:dynamic-eval",
+        "pattern:legacy-name",
+        "pattern:security-suppression",
+        "pattern:string-sql",
+        "satd",
+        "scout:doc-drift"
+      ],
+      "signals_cited": [
+        "pattern:doc-drift:dangling-reference",
+        "pattern:doc-drift:example-does-not-run"
+      ],
+      "signals": {
+        "hotspot_score": 0.4,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "README.md:10 names a path ('src/pay/exporter.py') that never appears in the repo (glob of src/pay/*.py shows legacy_export.py instead) and claims the job was removed in 0.1.0, but legacy_export.py:8 export_v1 still performs the same CSV-style export, still called nowhere else, still containing an f-string SQL query (line 11) and shell=True subprocess call (line 13). The README's removal claim is false; the job is live under a different name.",
+      "checked": [
+        "path existence",
+        "functional equivalence of legacy_export vs described exporter"
+      ],
+      "opened": [
+        "src/pay/legacy_export.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "121bbdafc23ecebd",
+      "quote_hash": "7bc1280df5a43ae4ead2445149f0ce1f431253e9",
+      "family": "architecture",
+      "debt_type": "architecture",
+      "type_id": null,
+      "title": "Removed exporter still referenced in README while a same-purpose module remains",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "README states the legacy exporter job was removed, but src/pay/legacy_export.py still exists in the package performing an equivalent v1 CSV export; the documented boundary no longer matches what is on disk.",
+      "evidence": [
+        {
+          "file": "README.md",
+          "line_start": 9,
+          "line_end": 10,
+          "quote": "Code lives in `src/pay/refund.py`; the design is in `docs/adr/0001-ledger.md`.\nThe old `src/pay/exporter.py` job was removed in 0.1.0.",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:architecture"
+      ],
+      "signals_cited": [
+        "pattern:architecture:stale-boundary-doc"
+      ],
+      "signals": {
+        "hotspot_score": 0.4,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
+      },
+      "tier": null,
+      "verdict": "reject",
+      "proof": "README.md:10 says exporter.py 'was removed in 0.1.0', but src/pay/legacy_export.py exists and exports refund rows to CSV-equivalent output (export_v1), an equivalent job under a new name. No file imports it (grep found only the definition file), so it's dead-but-present code the docs claim doesn't exist. Real drift between documented and actual package contents; not an architectural cycle or layering issue, just a stale removal claim.",
+      "checked": [
+        "referrers of legacy_export.py",
+        "README claim vs file listing"
+      ],
+      "opened": [
+        "src/pay/legacy_export.py"
+      ],
+      "trap_matched": "golden trap: intentional fixture",
+      "verified": true
+    },
+    {
+      "fingerprint": "30582a5d8e1e3f58",
+      "quote_hash": "52db94cd866e087ab58ce479896048b79dba26f6",
+      "family": "architecture",
+      "debt_type": "architecture",
+      "type_id": null,
+      "title": "Legacy export bypasses the ledger, writing refund data to a second store",
+      "severity": 3,
+      "effort": "M",
+      "source": "scout",
+      "rule_id": null,
+      "note": "ADR 0001 names ledger.py's JSON-lines file canonical, but legacy_export.py sits in the same pay package and reads refunds from a separate sqlite3 db, importing neither ledger nor models. Two divergent stores for one domain.",
+      "evidence": [
+        {
+          "file": "docs/adr/0001-ledger.md",
+          "line_start": 5,
+          "line_end": 6,
+          "quote": "We store ledger entries as JSON lines in `src/pay/ledger.py` and never rewrite\nhistory; reversals are new entries.",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:architecture"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "ledger.py:9-15 implements the canonical JSON-lines store described in ADR 0001 (LEDGER_PATH ledger.jsonl, post/balance using models.Entry). legacy_export.py imports only sqlite3/subprocess, never pay.ledger or pay.models, and reads refund rows from a separate 'refunds.db' sqlite file (lines 4,9-11). Two divergent, unsynchronized stores for the same refund/ledger domain, contradicting the ADR's 'append-only ledger is canonical' statement. Real architecture debt.",
+      "checked": [
+        "ledger.py canonical store",
+        "legacy_export.py imports/data source"
+      ],
+      "opened": [
+        "src/pay/ledger.py",
+        "src/pay/models.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "3aad01488c771d47",
+      "quote_hash": "28a1e115319bbf4be526dbe4e61b4bf9ca10e91d",
+      "family": "security",
+      "debt_type": "security",
+      "type_id": "TD-03",
+      "title": "Live-looking payment gateway API key hardcoded in source",
+      "severity": 5,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Module-level constant holds an sk_live_-prefixed key (Stripe live-key shape) used directly as the Authorization bearer token for real refund POSTs, not under a test/fixture path.",
+      "evidence": [
+        {
+          "file": "src/pay/gateway.py",
+          "line_start": 19,
+          "line_end": 25,
+          "quote": "def refund(self, order_id: str, amount_cents: int) -> bool:\n        response = requests.post(\n            f\"{self.base}/refunds\",\n            json={\"order\": order_id, \"amount\": amount_cents},\n            headers={\"Authorization\": f\"Bearer {api_key}\", **CORS_HEADERS},\n            verify=False,\n        )",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/gateway.py",
+          "line_start": 12,
+          "line_end": 12,
+          "quote": "CORS_HEADERS = {\"Access-Control-Allow-Origin\": \"*\"}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/gateway.py",
+          "line_start": 11,
+          "line_end": 11,
+          "quote": "api_key = \"sk_l***\"",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:credential",
+        "pattern:no-timeout",
+        "pattern:permissive-cors",
+        "pattern:tls-disabled",
+        "scout:security"
+      ],
+      "signals_cited": [
+        "pattern:security:credential",
+        "pattern:security:permissive-cors",
+        "pattern:security:tls-disabled"
+      ],
+      "signals": {
+        "hotspot_score": 20.2,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "gateway.py:11 hardcodes `api_key = \"sk_live_51H8f2kL9mN3pQ7rS4tU6vW\"`, matching Stripe's live-secret-key shape (sk_live_ prefix + random suffix). It's module-level in production source (not tests/fixtures), used directly as the Authorization bearer at line 23 for real POST refunds (line 20-25), with `verify=False` (TLS disabled) and a wildcard CORS header alongside it. No suppression comment or test/fixture context nearby. This is a genuine hardcoded live-looking credential in the money-movement path.",
+      "checked": [
+        "Path class example, fixture or test, and secret entropy? - src/pay/gateway.py is production source; key has plausible live-key entropy/shape",
+        "User input reachable at the SQL or shell site? - n/a, this candidate is about the key not injection",
+        "Suppression justified nearby? - no nosec/noqa or comment suppressing this"
+      ],
+      "opened": [
+        "src/pay/refund.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "d0af6b85d7b41fd1",
+      "quote_hash": "035f400d02017896218ee3de8d6103d4be2cd3e5",
+      "family": "security",
+      "debt_type": "security",
+      "type_id": "TD-03",
+      "title": "SQL f-string interpolation of refund_id, nosec with no justification",
+      "severity": 4,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "refund_id is a caller-supplied string interpolated directly into SQL text; no in-repo caller exists but the file's own TODO says it is kept for the still-running v1 reporting job, implying external invocation. The # nosec has no comment explaining why the injection risk is not real.",
+      "evidence": [
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 13,
+          "line_end": 13,
+          "quote": "subprocess.run(\"mail -s report finance@example.com\", shell=True)  # noqa: S602",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 8,
+          "line_end": 11,
+          "quote": "def export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:\n    con = sqlite3.connect(db)\n    cur = con.cursor()\n    cur.execute(f\"SELECT id, amount FROM refunds WHERE id = '{refund_id}'\")  # nosec",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:commented-out-code",
+        "pattern:dynamic-eval",
+        "pattern:legacy-name",
+        "pattern:security-suppression",
+        "pattern:string-sql",
+        "satd",
+        "scout:security"
+      ],
+      "signals_cited": [
+        "pattern:security:security-suppression",
+        "pattern:security:string-sql",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 2.5,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "Line 11 interpolates refund_id directly into SQL via f-string with a bare '# nosec' (no justification text). Line 13 runs a shell command with shell=True and a bare '# noqa: S602'. Both are genuine injection-prone patterns; refund_id is a caller-supplied parameter with no validation. No in-repo caller exists (confirmed by grep), but the module docstring states it's kept for an active external v1 reporting job, so reachability cannot be ruled out. The suppressions are unexplained regardless of current reachability.",
+      "checked": [
+        "reachability/call-site grep",
+        "suppression comment justification"
+      ],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "92c2c6c4c06ada32",
+      "quote_hash": "ba241d99239e9a1e2be432b4f9291f88f7c9865d",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-18",
+      "title": "test_reverse_smoke exercises reverse() logic with no assertions",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Calls reverse(), which negates the amount and sets reason to 'reversal', but never checks the returned Entry. Unlike a startup-only smoke test, this drives real business logic and would pass even if reverse() returned garbage or the wrong sign.",
+      "evidence": [
+        {
+          "file": "tests/test_ledger.py",
+          "line_start": 18,
+          "line_end": 19,
+          "quote": "def test_reverse_smoke() -> None:\n    ledger.reverse(Entry(account=\"a\", amount_cents=100))",
+          "quote_verified": true
+        },
+        {
+          "file": "tests/test_ledger.py",
+          "line_start": 13,
+          "line_end": 15,
+          "quote": "    ledger.post(Entry(account=\"a\", amount_cents=100), path)\n    time.sleep(0.05)  # flaky on CI without this; retried in the workflow\n    assert ledger.balance(\"a\", path) == 100",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:assert-free",
+        "pattern:numeric-assert",
+        "pattern:retry-marker",
+        "pattern:sleep",
+        "scout:test-quality"
+      ],
+      "signals_cited": [
+        "pattern:test-quality:assert-free",
+        "pattern:test-quality:retry-marker",
+        "pattern:test-quality:sleep"
+      ],
+      "signals": {
+        "hotspot_score": 4.2,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "test_ledger.py:18-19 calls `ledger.reverse(Entry(...))` and discards the return value with no assert. ledger.reverse (ledger.py:29-30) negates amount_cents and sets reason='reversal' -- real business logic, not a startup/import smoke check. A regression that flipped the sign or dropped the reason field would not fail this test. Not table-driven/parametrised, not a permission/kill-switch check.",
+      "checked": [
+        "whether it guards only import/startup (it doesn't)",
+        "table-driven idiom (none)"
+      ],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "42a9a9c5413651ea",
+      "quote_hash": "5504da467da6e151d57419f9fe8d9cc0869296fc",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-12",
+      "title": "Audit-trail assertion hard-codes a string built from fixture values",
+      "severity": 1,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "The expected literal 'o-1:500:other' duplicates the refund fixture's order_id, amount_cents and default reason_code by hand; changing the fixture in conftest.py silently breaks this assertion with no visible link between the two.",
+      "evidence": [
+        {
+          "file": "tests/test_refund.py",
+          "line_start": 15,
+          "line_end": 16,
+          "quote": "def test_audit_trail_format(refund: Refund) -> None:\n    assert refund_mod.audit_trail(refund) == [\"o-1:500:other\"]",
+          "quote_verified": true
+        },
+        {
+          "file": "tests/test_refund.py",
+          "line_start": 19,
+          "line_end": 21,
+          "quote": "@pytest.mark.skip(reason=\"gateway stub not written yet\")\ndef test_issue_calls_gateway() -> None:\n    raise NotImplementedError",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:assert-free",
+        "pattern:numeric-assert",
+        "pattern:skip-marker",
+        "pattern:stub",
+        "scout:test-quality"
+      ],
+      "signals_cited": [
+        "pattern:test-quality:assert-free",
+        "pattern:test-quality:numeric-assert"
+      ],
+      "signals": {
+        "hotspot_score": 4.2,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "tier": "C",
+      "verdict": "downgrade",
+      "proof": "conftest.py:9-11 defines refund fixture (order_id='o-1', amount_cents=500); models.py sets reason_code default 'other'. test_refund.py:16 hardcodes 'o-1:500:other'. The note's premise that fixture drift 'silently breaks' the assertion is inaccurate: an equality assert fails loudly with a clear diff, it is not silent breakage, just a normal tightly-coupled test. Real minor duplication, not a hidden-failure risk.",
+      "checked": [
+        "fixture value cross-check",
+        "models.py default reason_code",
+        "silent-vs-loud failure claim"
+      ],
+      "opened": [
+        "tests/conftest.py",
+        "src/pay/models.py"
+      ],
+      "trap_matched": "pattern:numeric-assert (literal-duplicates-fixture is common and not inherently a debt signal)",
+      "verified": true
+    },
+    {
+      "fingerprint": "1f9c7d8ac03999e4",
+      "quote_hash": "e9c50b84b29125a75000c3b064ced6cb4df0fcba",
+      "family": "pipeline-infra",
+      "debt_type": "build",
+      "type_id": null,
+      "title": "Version bumped in pyproject.toml with no matching tag/changelog/release run",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "release.yml only runs on a pushed v* tag and has no step checking that the tag matches pyproject.toml's version; pyproject.toml is already at 0.2.0 but the only tag (v0.1.0) and CHANGELOG stop at 0.1.0, indicating the version bump is a manual, unverified step outside the pipeline.",
+      "evidence": [
+        {
+          "file": "pyproject.toml",
+          "line_start": 3,
+          "line_end": 3,
+          "quote": "version = \"0.2.0\"",
+          "quote_verified": true
+        },
+        {
+          "file": "CHANGELOG.md",
+          "line_start": 1,
+          "line_end": 5,
+          "quote": "# Changelog\n\n## 0.1.0 - 2024-10-05\n\n- initial refund and ledger flow",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/release.yml",
+          "line_start": 1,
+          "line_end": 4,
+          "quote": "name: release\non:\n  push:\n    tags: [\"v*\"]",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ci.no-permissions",
+        "rule:manifest.no-lockfile",
+        "scout:pipeline-infra"
+      ],
+      "signals_cited": [
+        "coupling"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "release.yml:2-4 only triggers on pushed 'v*' tags and has no step diffing the tag against pyproject.toml's version (lines 10-12 just build and upload). pyproject.toml:3 is already at 0.2.0 while CHANGELOG.md tops out at 0.1.0, meaning the 0.2.0 bump happened without a corresponding tag/release run or changelog update \u2014 a manual, unverified version bump. Real pipeline gap.",
+      "checked": [
+        "release.yml trigger and steps",
+        "version consistency across manifest/changelog/tag"
+      ],
+      "opened": [
+        ".github/workflows/release.yml"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "74967b275a61fb33",
+      "quote_hash": "3fe59fbdb132f8152200b03d294363a7fb32630b",
+      "family": "pipeline-infra",
+      "debt_type": "infrastructure",
+      "type_id": null,
+      "title": "print() used for refund outcome despite logger present",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "issue() is a library function (no __main__ guard, module has no CLI parsing) that already uses `log` elsewhere in the same function; the print bypasses log level/formatting/aggregation for a production refund outcome.",
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 39,
+          "line_end": 41,
+          "quote": "        log.exception(\"gateway unreachable for %s\", refund.order_id)\n        raise RuntimeError(\"gateway unreachable\") from exc\n    print(f\"refund {refund.order_id} accepted={accepted}\")",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:stdout-write",
+        "pattern:swallowed-catch",
+        "satd",
+        "scout:pipeline-infra"
+      ],
+      "signals_cited": [
+        "pattern:pipeline-infra:stdout-write"
+      ],
+      "signals": {
+        "hotspot_score": 100.0,
+        "churn": 7,
+        "coupling_degree": 1,
+        "fan_in_approx": 2,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "refund.py:39-40 uses `log.exception` for the OSError path, but line 41 uses bare `print()` for the normal-outcome message in the same function, on the same code path a few lines later. There is no __main__ guard or CLI parsing in this module (it's a library import per refund.py:1), so the print goes to stdout uncontrolled by log level/handlers, breaking aggregation for a production refund outcome. Real, low-effort fix (swap to log.info).",
+      "checked": [
+        "module has no __main__ guard",
+        "log is used elsewhere in same function",
+        "no CLI parsing present"
+      ],
+      "opened": [
+        "src/pay/gateway.py",
+        "src/pay/ledger.py",
+        "tests/test_refund.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "495747bed5818465",
+      "quote_hash": "b7e5af77c82e531de520e08c3b5994fded038512",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "title": "Dependency manifest gaps in pyproject.toml",
+      "severity": 2,
+      "effort": "S",
+      "source": "rule",
+      "rule_id": "manifest.no-lockfile",
+      "note": "no lockfile (poetry.lock, uv.lock, pdm.lock) beside pyproject.toml",
+      "evidence": [
+        {
+          "file": "pyproject.toml",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "[project]",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:manifest.no-lockfile"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "ce6c51b2a87e9ed3",
+      "quote_hash": "d6e81007e5ddc8f9e3fcb3ac543e0041449345e6",
+      "family": "pipeline-infra",
+      "debt_type": "build",
+      "type_id": "TD-27",
+      "title": "Release process gaps",
+      "severity": 2,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "release.stale-env-branch",
+      "note": "long-lived environment branch",
+      "evidence": [
+        {
+          "file": null,
+          "line_start": null,
+          "line_end": null,
+          "quote": "branch hotfix/ledger-rounding unmerged, last commit 2026-04-10 (147 days ago)",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:release.stale-env-branch"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 0,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": null,
+        "in_hotspot_band": false
+      },
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "628faae80f817909",
+      "quote_hash": "13f2e45b0b67b3964b0490d0d07c8955492fdc2a",
+      "family": "pipeline-infra",
+      "debt_type": "build",
+      "type_id": "TD-14",
+      "title": "CI workflow gaps in .github/workflows/ci.yml",
+      "severity": 2,
+      "effort": "S",
+      "source": "rule",
+      "rule_id": "ci.no-timeout",
+      "note": "job test has no timeout-minutes; job test has no permissions block; job test runs on the mutable label ubuntu-latest; actions/checkout@v4 is not pinned to a commit SHA; actions/setup-python@v5 is not pinned to a commit SHA; job test has no cache step",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 4,
+          "line_end": 4,
+          "quote": "test:",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 4,
+          "line_end": 4,
+          "quote": "test:",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 5,
+          "line_end": 5,
+          "quote": "runs-on: ubuntu-latest",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 7,
+          "line_end": 7,
+          "quote": "- uses: actions/checkout@v4",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 8,
+          "line_end": 8,
+          "quote": "- uses: actions/setup-python@v5",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 4,
+          "line_end": 4,
+          "quote": "test:",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ci.mutable-runner",
+        "rule:ci.no-cache",
+        "rule:ci.no-permissions",
+        "rule:ci.no-timeout",
+        "rule:ci.unpinned-action"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "56bed476273d3727",
+      "quote_hash": "0609ecd583b6d7f660e11ab1d8e565edd23a2016",
+      "family": "pipeline-infra",
+      "debt_type": "build",
+      "type_id": "TD-14",
+      "title": "CI workflow gaps in .github/workflows/release.yml",
+      "severity": 3,
+      "effort": "S",
+      "source": "rule",
+      "rule_id": "ci.no-permissions",
+      "note": "job publish has no permissions block; job publish has no cache step",
+      "evidence": [
+        {
+          "file": ".github/workflows/release.yml",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "publish:",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/release.yml",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "publish:",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ci.no-cache",
+        "rule:ci.no-permissions"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "b10028c3d26d421c",
+      "quote_hash": "b1f142edef141e72c2694c29276884b9dacb5834",
+      "family": "pipeline-infra",
+      "debt_type": "infrastructure",
+      "type_id": "TD-19",
+      "title": "Container configuration gaps in Dockerfile",
+      "severity": 2,
+      "effort": "S",
+      "source": "rule",
+      "rule_id": "container.unversioned-install",
+      "note": "package install without a version pin; no USER instruction; the container runs as root",
+      "evidence": [
+        {
+          "file": "Dockerfile",
+          "line_start": 3,
+          "line_end": 3,
+          "quote": "RUN apt-get update && apt-get install -y curl",
+          "quote_verified": true
+        },
+        {
+          "file": "Dockerfile",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "FROM python:3.11-slim",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:container.no-user",
+        "rule:container.unversioned-install"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "8fe7e5857c49c8ad",
+      "quote_hash": "d169f8a50a6e3dc62e456f8b6f54830df1ea4ea3",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-23",
+      "title": "Ownership gaps",
+      "severity": 2,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "ownership.no-codeowners",
+      "note": "no ownership map",
+      "evidence": [
+        {
+          "file": null,
+          "line_start": null,
+          "line_end": null,
+          "quote": "no CODEOWNERS file with 3 human authors",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ownership.no-codeowners"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 0,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": null,
+        "in_hotspot_band": false
+      },
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "c908b30f7c99dc87",
+      "quote_hash": "e03abdb2b97d6ff177b1a8f7397e4439a5ac2c6c",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "title": "Ownership gaps in src/pay/gateway.py",
+      "severity": 4,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "ownership.knowledge-island",
+      "note": "knowledge island on a hotspot-band file",
+      "evidence": [
+        {
+          "file": "src/pay/gateway.py",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/pay/gateway.py: 100% of lines by one author, 1 author(s) in the window",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ownership.knowledge-island"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 20.2,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "10a292b59f942eaf",
+      "quote_hash": "d6c5ab1055c4d1f1c2110c8c6ffd39ffd9aaa1c6",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "title": "Ownership gaps in src/pay/models.py",
+      "severity": 4,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "ownership.knowledge-island",
+      "note": "knowledge island on a hotspot-band file",
+      "evidence": [
+        {
+          "file": "src/pay/models.py",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/pay/models.py: 89% of lines by one author, 2 author(s) in the window",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ownership.knowledge-island"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 5.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "cad19db020b88f9f",
+      "quote_hash": "c30764bc5f647de1e4dea1ddb3dfab131d995ce4",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "title": "Ownership gaps in src/pay/refund.py",
+      "severity": 4,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "ownership.knowledge-island",
+      "note": "knowledge island on a hotspot-band file",
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/pay/refund.py: 100% of lines by one author, 1 author(s) in the window",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ownership.knowledge-island"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 100.0,
+        "churn": 7,
+        "coupling_degree": 1,
+        "fan_in_approx": 2,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    }
+  ],
+  "stats": {
+    "selected": 28,
+    "verdicts": 28,
+    "unknown_fingerprint": 0,
+    "missing_verdict": 0,
+    "tier_a": 17,
+    "tier_b": 13,
+    "tier_c": 5,
+    "rejected": 2
+  }
+}

@@ -1,0 +1,69 @@
+[
+  {
+    "fingerprint": "e36a78256ef7b76e",
+    "verdict": "confirm",
+    "proof": "ledger.py:29-30 shows reverse() returns a new Entry with amount_cents negated and reason='reversal'. tests/test_ledger.py:18-19 calls ledger.reverse(...) and discards the return value with no assert whatsoever. Grep for 'reverse' across the repo shows no other test references it, so this is genuinely the only coverage and it is assert-free. A regression that dropped the sign flip or hardcoded a different reason string would not be caught.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "reflection",
+      "numeric-assert",
+      "grep for other reverse() callers/tests"
+    ],
+    "opened": [
+      "src/pay/ledger.py"
+    ]
+  },
+  {
+    "fingerprint": "42a9a9c5413651ea",
+    "verdict": "downgrade",
+    "proof": "conftest.py:9-11 defines refund fixture (order_id='o-1', amount_cents=500); models.py sets reason_code default 'other'. test_refund.py:16 hardcodes 'o-1:500:other'. The note's premise that fixture drift 'silently breaks' the assertion is inaccurate: an equality assert fails loudly with a clear diff, it is not silent breakage, just a normal tightly-coupled test. Real minor duplication, not a hidden-failure risk.",
+    "severity": 1,
+    "effort": "S",
+    "trap_matched": "pattern:numeric-assert (literal-duplicates-fixture is common and not inherently a debt signal)",
+    "checked": [
+      "fixture value cross-check",
+      "models.py default reason_code",
+      "silent-vs-loud failure claim"
+    ],
+    "opened": [
+      "tests/conftest.py",
+      "src/pay/models.py"
+    ]
+  },
+  {
+    "fingerprint": "67e0dcc512d6ba39",
+    "verdict": "confirm",
+    "proof": "test_refund.py:19-21 skips test_issue_calls_gateway with reason='gateway stub not written yet' \u2014 no ticket, no owner, no date. refund.py:35 has an adjacent unresolved 'FIXME: the gateway retries on our behalf, so a duplicate refund can post twice' directly inside issue(), the function the skipped test targets. gateway.py:19-27 shows refund() is a real (non-stub) implementation already, so the stated skip reason is stale/inaccurate as well as vague.",
+    "severity": 3,
+    "effort": "M",
+    "trap_matched": null,
+    "checked": [
+      "skip reason validity",
+      "FIXME still present",
+      "gateway.refund implementation status"
+    ],
+    "opened": [
+      "src/pay/refund.py",
+      "src/pay/gateway.py"
+    ]
+  },
+  {
+    "fingerprint": "f9f1100485b2696b",
+    "verdict": "confirm",
+    "proof": "issue() at refund.py:24-42 is untested (only test skipped at test_refund.py:19-21). Lines 31-34 wrap ledger.post in bare 'except Exception: pass', so a ledger write failure is swallowed and execution still proceeds to call the gateway at line 37 \u2014 money can move with no corresponding ledger entry. Line 35's FIXME confirms a known duplicate-post risk in the same unguarded path. No test asserts call order, exception handling, or the duplicate-refund guard (_seen set, line 27-29). This is a real financial-correctness gap, not just a style nit.",
+    "severity": 5,
+    "effort": "M",
+    "trap_matched": null,
+    "checked": [
+      "swallowed-catch verification",
+      "FIXME context",
+      "call-order/failure-handling test coverage",
+      "_seen dedup logic"
+    ],
+    "opened": [
+      "src/pay/refund.py"
+    ]
+  }
+]

@@ -1,0 +1,119 @@
+{
+  "family": "security",
+  "module": null,
+  "findings": [
+    {
+      "title": "TLS certificate verification disabled process-wide, invoked at startup",
+      "family": "security",
+      "debt_type": "security",
+      "type_id": "TD-03",
+      "severity": 5,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:security:tls-disabled",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 12,
+          "line_end": 14,
+          "quote": "func Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)"
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "_ = httpc.Fetch(\"https://example.com/health\")"
+        }
+      ],
+      "note": "Fetch mutates the process-wide http.DefaultTransport to skip TLS verification, and is called unconditionally from main() against a live https URL, not a local/dev target. Every other consumer of http.DefaultTransport in the process is affected for the life of the process."
+    },
+    {
+      "title": "Hardcoded credential-shaped literal committed to source",
+      "family": "security",
+      "debt_type": "security",
+      "type_id": "TD-03",
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:security:credential"
+      ],
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 9,
+          "line_end": 9,
+          "quote": "const apiToken = \"tok_live_9f8e7d6c5b4a3f2e1d0c\""
+        }
+      ],
+      "note": "Token-shaped constant named with a 'live' prefix sits in non-test source and is committed to git history; it is unreferenced elsewhere in the package but remains exposed to anyone with repo read access."
+    },
+    {
+      "title": "String-concatenated SQL query on exported Store method",
+      "family": "security",
+      "debt_type": "security",
+      "type_id": "TD-03",
+      "severity": 4,
+      "effort": "M",
+      "signals_cited": [
+        "pattern:security:string-sql"
+      ],
+      "evidence": [
+        {
+          "file": "internal/store/store.go",
+          "line_start": 37,
+          "line_end": 39,
+          "quote": "func (s *Store) Find(id string) (*sql.Rows, error) {\n\treturn s.db.Query(\"SELECT * FROM items WHERE id = '\" + id + \"'\")\n}"
+        }
+      ],
+      "note": "Find is an exported method that concatenates its id parameter directly into a SQL string instead of using a parameterized query. No current in-repo caller was found, but the method is public API surface reachable by any future caller with unsanitized input."
+    },
+    {
+      "title": "Shell-out via sh -c with unenforced trust assumption and suppressed lint",
+      "family": "security",
+      "debt_type": "security",
+      "type_id": "TD-03",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:security:dynamic-eval",
+        "pattern:security:security-suppression",
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "internal/shell/run.go",
+          "line_start": 5,
+          "line_end": 8,
+          "quote": "// Run executes a shell snippet; callers pass trusted input only.\nfunc Run(snippet string) ([]byte, error) {\n\treturn exec.Command(\"sh\", \"-c\", snippet).CombinedOutput() //nolint:gosec\n}"
+        }
+      ],
+      "note": "The gosec suppression is backed only by a comment asserting caller trust, with no enforcement mechanism (no allowlist, no escaping). No current in-repo caller was found, so the trust boundary is unverifiable from the code itself."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "internal/crypto/hash.go",
+      "line_start": 8,
+      "question": "Fingerprint() using md5 has no in-repo caller; unclear whether any future use is security-sensitive (e.g. auth token) versus a cache key/checksum, which would not be a finding."
+    },
+    {
+      "file": "internal/shell/run.go",
+      "line_start": 6,
+      "question": "No caller of shell.Run was found in the repository; unclear whether external callers exist that could pass untrusted input, which would change severity."
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/crypto/hash.go",
+      "line_start": 9,
+      "why": "md5 use has no discoverable caller in the repo; per family rules a weak hash used only for a cache key or checksum is not reportable, and no evidence contradicts that reading."
+    }
+  ],
+  "not_assessed": [
+    "Whether apiToken in internal/httpc/httpc.go is a live/valid credential or already revoked",
+    "Exploitability of the SQL injection in Store.Find given no in-repo caller was found",
+    "Whether internal/shell/run.go has external callers outside this repository"
+  ]
+}

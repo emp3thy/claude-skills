@@ -1,0 +1,151 @@
+{
+  "family": "half-finished",
+  "module": null,
+  "findings": [
+    {
+      "title": "fetch in client.ts has no timeout/abort signal",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:half-finished:no-timeout",
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}"
+        }
+      ],
+      "note": "fetch has no AbortSignal/timeout, so a non-responding remote hangs the await indefinitely. The sibling client-admin.ts (line 11) has AbortSignal.timeout(5000), and recent history shows a timeout fix intended for both clients was only applied to one, leaving this path unfinished."
+    },
+    {
+      "title": "Empty catch block silently swallows fetch errors in client.ts",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:half-finished:no-timeout"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 11,
+          "line_end": 11,
+          "quote": "  } catch (e) {}"
+        }
+      ],
+      "note": "Errors (including the timeout/network failures noted above) are caught and discarded with no logging, unlike client-admin.ts which logs via console.error. Callers cannot distinguish a failed request from a legitimate null JSON body."
+    },
+    {
+      "title": "Skipped test for unimplemented bulk pricing feature",
+      "family": "half-finished",
+      "debt_type": "requirement",
+      "type_id": null,
+      "severity": 3,
+      "effort": "M",
+      "signals_cited": [
+        "pattern:half-finished:skip-marker"
+      ],
+      "evidence": [
+        {
+          "file": "src/__tests__/pricing.spec.ts",
+          "line_start": 7,
+          "line_end": 9,
+          "quote": "  it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });\n});"
+        }
+      ],
+      "note": "priceOf in src/cart/pricing.ts only does a flat lookup (returns 1000 for A1, not 900); the skipped test documents a bulk-pricing discount path that was never implemented, with no ticket or date attached to the skip."
+    },
+    {
+      "title": "newCheckout feature flag permanently off, flow never finished",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 2,
+      "effort": "M",
+      "signals_cited": [
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "src/flags.ts",
+          "line_start": 2,
+          "line_end": 3,
+          "quote": "  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,"
+        }
+      ],
+      "note": "checkout.ts still branches on isEnabled(\"newCheckout\") (src/checkout/checkout.ts:7-8) to call total(cart), but the comment admits the new flow was never completed; the dead/unfinished branch and its dependency remain in the live code path indefinitely with no ticket referenced."
+    },
+    {
+      "title": "Deprecated legacyFormat still exercised on live checkout path",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "src/util/format-legacy.ts",
+          "line_start": 3,
+          "line_end": 6,
+          "quote": "/** @deprecated use formatMoney */\nexport function legacyFormat(cents: number): string {\n  return formatMoney(cents).replace(\"$\", \"USD \");\n}"
+        }
+      ],
+      "note": "Marked deprecated ~704 days ago with no ticket reference, yet checkout.ts still calls legacyFormat on the default (flag-off) path, so the deprecated code is not a dead leftover but the actual production behavior."
+    },
+    {
+      "title": "invented quote (golden pin)",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 1,
+      "effort": "S",
+      "signals_cited": [],
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "this quote was never in the file"
+        }
+      ],
+      "note": "Hand-added golden pin: the quote is not in the file, so the merge must divert this finding to open_questions with 'quote not found'."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "src/checkout/checkout.ts",
+      "line_start": 7,
+      "question": "Is there a tracked plan/ticket to finish and enable newCheckout, or should the flag and dead branch be removed?"
+    },
+    {
+      "file": "src/__tests__/pricing.spec.ts",
+      "line_start": 7,
+      "question": "Is bulk pricing still a planned requirement, and is there a ticket tracking the skipped test?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 9,
+      "why": "fetch here does include AbortSignal.timeout(5000) and logs errors on failure, so it is not part of this debt family."
+    }
+  ],
+  "not_assessed": [
+    "Whether legacyFormat or the newCheckout flag will actually be removed/finished on any timeline",
+    "Test flakiness or coverage percentage for pricing.spec.ts",
+    "Any CVE or dependency currency status"
+  ]
+}

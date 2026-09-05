@@ -1,0 +1,100 @@
+{
+  "family": "test-quality",
+  "module": null,
+  "findings": [
+    {
+      "title": "Ledger test uses sleep to mask a synchronous race that doesn't exist",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-12",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-quality:sleep",
+        "pattern:test-quality:retry-marker"
+      ],
+      "evidence": [
+        {
+          "file": "tests/test_ledger.py",
+          "line_start": 13,
+          "line_end": 15,
+          "quote": "    ledger.post(Entry(account=\"a\", amount_cents=100), path)\n    time.sleep(0.05)  # flaky on CI without this; retried in the workflow\n    assert ledger.balance(\"a\", path) == 100"
+        }
+      ],
+      "note": "post() and balance() are synchronous file writes/reads with no async gap, so the sleep masks nothing real. The comment claims CI retries the job, but ci.yml runs plain 'pytest -q' with no rerun plugin or retry step, so the stated flakiness mitigation does not exist."
+    },
+    {
+      "title": "test_reverse_smoke exercises reverse() logic with no assertions",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-18",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-quality:assert-free"
+      ],
+      "evidence": [
+        {
+          "file": "tests/test_ledger.py",
+          "line_start": 18,
+          "line_end": 19,
+          "quote": "def test_reverse_smoke() -> None:\n    ledger.reverse(Entry(account=\"a\", amount_cents=100))"
+        }
+      ],
+      "note": "Calls reverse(), which negates the amount and sets reason to 'reversal', but never checks the returned Entry. Unlike a startup-only smoke test, this drives real business logic and would pass even if reverse() returned garbage or the wrong sign."
+    },
+    {
+      "title": "Skipped gateway test is a placeholder that never runs",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-18",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-quality:assert-free"
+      ],
+      "evidence": [
+        {
+          "file": "tests/test_refund.py",
+          "line_start": 19,
+          "line_end": 21,
+          "quote": "@pytest.mark.skip(reason=\"gateway stub not written yet\")\ndef test_issue_calls_gateway() -> None:\n    raise NotImplementedError"
+        }
+      ],
+      "note": "issue() is the only test targeting gateway interaction and is permanently skipped with no assertions inside; it never executes, so the gateway call path in refund.issue() has no automated coverage."
+    },
+    {
+      "title": "Audit-trail assertion hard-codes a string built from fixture values",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-12",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-quality:numeric-assert"
+      ],
+      "evidence": [
+        {
+          "file": "tests/test_refund.py",
+          "line_start": 15,
+          "line_end": 16,
+          "quote": "def test_audit_trail_format(refund: Refund) -> None:\n    assert refund_mod.audit_trail(refund) == [\"o-1:500:other\"]"
+        }
+      ],
+      "note": "The expected literal 'o-1:500:other' duplicates the refund fixture's order_id, amount_cents and default reason_code by hand; changing the fixture in conftest.py silently breaks this assertion with no visible link between the two."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "tests/test_ledger.py",
+      "line_start": 15,
+      "line_end": 15,
+      "why": "assert ledger.balance(\"a\", path) == 100 restates the amount_cents=100 posted two lines above in the same test, so the value is locally traceable rather than an unexplained magic number."
+    }
+  ],
+  "not_assessed": [
+    "Whether the CI job has historically flaked without the sleep (no flaky-commit history available)",
+    "Whether time.sleep(0.05) was added in response to an actual observed CI failure"
+  ]
+}

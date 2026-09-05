@@ -1,0 +1,43 @@
+{
+  "family": "duplication",
+  "module": null,
+  "findings": [
+    {
+      "title": "Duplicated fetch-wrapper logic between client.ts and client-admin.ts",
+      "family": "duplication",
+      "debt_type": "code",
+      "type_id": "TD-05",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "coupling",
+        "pattern:duplication:parallel-http-client"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 1,
+          "line_end": 16,
+          "quote": "import { isEnabled } from \"../flags\";\n\nconst BASE = \"https://api.example.com\";\nconst token = process.env.API_TOKEN ?? \"\";\n\nexport async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };"
+        },
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 1,
+          "line_end": 13,
+          "quote": "import { isEnabled } from \"../flags\";\n\nconst BASE = \"https://admin.example.com\";\nconst token = process.env.ADMIN_TOKEN ?? \"\";\n\nexport async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };"
+        }
+      ],
+      "note": "Both modules build the same BASE/token/headers structure and fetch+json+catch flow, differing only in constant values (URL, env var name) and one has a timeout/log call the other lacks. Change-history coupling (ratio 0.889) confirms they are edited together."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/util/format-legacy.ts",
+      "line_start": 1,
+      "why": "legacyFormat delegates to formatMoney rather than reimplementing it; not duplication despite similar name/shape."
+    }
+  ],
+  "not_assessed": []
+}

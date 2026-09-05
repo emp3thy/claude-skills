@@ -1,0 +1,73 @@
+{
+  "family": "architecture",
+  "module": null,
+  "findings": [
+    {
+      "title": "Legacy export bypasses the ledger, writing refund data to a second store",
+      "family": "architecture",
+      "debt_type": "architecture",
+      "type_id": null,
+      "severity": 3,
+      "effort": "M",
+      "signals_cited": [
+        "hotspot",
+        "coupling",
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 1,
+          "line_end": 14,
+          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report"
+        },
+        {
+          "file": "docs/adr/0001-ledger.md",
+          "line_start": 5,
+          "line_end": 6,
+          "quote": "We store ledger entries as JSON lines in `src/pay/ledger.py` and never rewrite\nhistory; reversals are new entries."
+        }
+      ],
+      "note": "ADR 0001 names ledger.py's JSON-lines file canonical, but legacy_export.py sits in the same pay package and reads refunds from a separate sqlite3 db, importing neither ledger nor models. Two divergent stores for one domain."
+    },
+    {
+      "title": "Removed exporter still referenced in README while a same-purpose module remains",
+      "family": "architecture",
+      "debt_type": "architecture",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:architecture:stale-boundary-doc"
+      ],
+      "evidence": [
+        {
+          "file": "README.md",
+          "line_start": 9,
+          "line_end": 10,
+          "quote": "Code lives in `src/pay/refund.py`; the design is in `docs/adr/0001-ledger.md`.\nThe old `src/pay/exporter.py` job was removed in 0.1.0."
+        }
+      ],
+      "note": "README states the legacy exporter job was removed, but src/pay/legacy_export.py still exists in the package performing an equivalent v1 CSV export; the documented boundary no longer matches what is on disk."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "src/pay/legacy_export.py",
+      "line_start": 8,
+      "question": "Is refunds.db (sqlite3) intended to stay a permanent secondary store for the v1 report, or should this module read through ledger.py instead?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/pay/refund.py",
+      "line_start": 6,
+      "why": "refund.py imports ledger, gateway, models, and utils but none of those import back from refund.py, so this is a simple acyclic layering, not a dependency cycle."
+    }
+  ],
+  "not_assessed": [
+    "Whether legacy_export.py's SQL injection / shell=True usage is exploitable (security family, not assessed here)",
+    "Test coverage percentage despite pyproject.toml declaring fail_under = 80",
+    "Whether legacy_export.py is dead code (no callers found in src or tests, but absence of import elsewhere across the whole repo was not exhaustively verified beyond grep)"
+  ]
+}

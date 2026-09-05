@@ -1,0 +1,126 @@
+{
+  "family": "dead-code",
+  "module": null,
+  "findings": [
+    {
+      "title": "newCheckout flag permanently false; if-branch never reachable",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-20",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:dead-code:flag-sdk",
+        "pattern:dead-code:legacy-name",
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "src/flags.ts",
+          "line_start": 1,
+          "line_end": 5,
+          "quote": "const FLAGS: Record<string, boolean> = {\n  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,\n  betaBanner: true,\n};"
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 6,
+          "line_end": 9,
+          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }"
+        }
+      ],
+      "note": "FLAGS hardcodes newCheckout to false with a comment confirming it has been off since launch and the new flow was never finished. There is no runtime toggle for it in the repo, so the `new:` branch of checkout() is unreachable dead code."
+    },
+    {
+      "title": "adminEnabled() has no callers and checks a flag key absent from FLAGS",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-09",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:dead-code:flag-sdk"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 20,
+          "line_end": 22,
+          "quote": "export function adminEnabled(): boolean {\n  return isEnabled(\"adminPanel\");\n}"
+        },
+        {
+          "file": "src/flags.ts",
+          "line_start": 1,
+          "line_end": 5,
+          "quote": "const FLAGS: Record<string, boolean> = {\n  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,\n  betaBanner: true,\n};"
+        }
+      ],
+      "note": "adminEnabled is exported but has zero in-repo callers, and the \"adminPanel\" key it checks is not present in FLAGS at all, so isEnabled falls through to its `?? false` default permanently. File is the highest-scored hotspot in the repo."
+    },
+    {
+      "title": "betaBanner flag hardcoded true with no toggle path",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-20",
+      "severity": 1,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:dead-code:flag-sdk"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 12,
+          "line_end": 14,
+          "quote": "  if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");\n  }"
+        },
+        {
+          "file": "src/flags.ts",
+          "line_start": 4,
+          "line_end": 4,
+          "quote": "  betaBanner: true,"
+        }
+      ],
+      "note": "betaBanner is hardcoded to true in FLAGS with no other write site in the repo, so the isEnabled check in getJson always evaluates true; the conditional adds no branching value."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 21,
+      "line_end": 21,
+      "question": "Is the \"adminPanel\" key expected to be injected into FLAGS by external config/build tooling not present in this repo, or was it never wired up?"
+    },
+    {
+      "file": "src/flags.ts",
+      "line_start": 3,
+      "line_end": 3,
+      "question": "Is newCheckout expected to be revived later, or should the flag and its branch be removed given the comment says the flow was never finished?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/util/format-legacy.ts",
+      "line_start": 3,
+      "line_end": 6,
+      "why": "legacyFormat is marked @deprecated but is still actively called from src/checkout/checkout.ts:11, so it has a live in-repo caller and is not dead code."
+    },
+    {
+      "file": "src/api/client.ts",
+      "line_start": 6,
+      "line_end": 16,
+      "why": "getJson has no in-repo caller, but it is an exported function from an API client module (public/library surface), matching the entry-point exception."
+    },
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 6,
+      "line_end": 18,
+      "why": "getAdminJson has no in-repo caller, but like getJson it is exported public API-client surface rather than an internal dead unit."
+    }
+  ],
+  "not_assessed": [
+    "Whether \"adminPanel\" is read from an external config/env system outside this repo (dynamic reference via string key cannot be fully ruled out from static search alone)",
+    "Test coverage, CVE/vulnerability status, or dependency currency were not evaluated"
+  ]
+}

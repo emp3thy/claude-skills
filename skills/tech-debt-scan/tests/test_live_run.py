@@ -9,7 +9,16 @@ from pathlib import Path
 
 import pytest
 from categories import SCOUT_OUTPUT_SCHEMA
-from live_run import _main, claude_argv, dispatch, extract_reply, log_row, run_chain
+from live_run import (
+    _main,
+    claude_argv,
+    dispatch,
+    extract_reply,
+    log_row,
+    run_chain,
+    unwrap_payload,
+    wire_schema,
+)
 from verify_prompts import VERDICT_SCHEMA
 
 FAKE = '''#!/usr/bin/env python
@@ -85,6 +94,27 @@ def test_claude_argv_is_a_list_with_the_isolation_flags(tmp_path: Path) -> None:
     assert argv[argv.index("--max-budget-usd") + 1] == "1.00"
     assert argv[-1] == "hello"
     assert "--bare" not in argv
+
+
+def test_the_array_verdict_contract_travels_as_an_object_schema(tmp_path: Path) -> None:
+    """``--json-schema`` becomes a tool input_schema, which the API rejects unless it is
+    an object: an array contract must be wrapped on the way out and unwrapped on the
+    way back (the first live run died with 400 input_schema.type on every verifier)."""
+    wired = wire_schema(VERDICT_SCHEMA)
+    assert wired["type"] == "object"
+    assert wired["properties"]["verdicts"] == VERDICT_SCHEMA
+    assert wire_schema(SCOUT_OUTPUT_SCHEMA) is SCOUT_OUTPUT_SCHEMA
+
+    prompt = tmp_path / "p.md"
+    prompt.write_text("hello", encoding="utf-8")
+    argv = claude_argv(prompt, model="sonnet", budget=1.0, schema=VERDICT_SCHEMA,
+                       claude="claude")
+    assert json.loads(argv[argv.index("--json-schema") + 1])["type"] == "object"
+
+    items = [{"fingerprint": "abc", "verdict": "confirm"}]
+    assert unwrap_payload({"verdicts": items}, VERDICT_SCHEMA) == items
+    assert unwrap_payload(items, VERDICT_SCHEMA) == items
+    assert unwrap_payload({"verdicts": 1}, SCOUT_OUTPUT_SCHEMA) == {"verdicts": 1}
 
 
 def test_extract_reply_prefers_structured_output_then_fenced_result() -> None:
