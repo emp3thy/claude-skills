@@ -65,6 +65,10 @@ CHANGELOG presence, the latest tag, dangling references in docs and doc
 staleness versus code. ``inline_disables`` is emitted as 0 and filled in
 place by ``patterns.py``.
 
+Every artefact entry carries ``path_class`` from the same classifier the code
+entries use, so a later stage can apply path-class disables to a workflow,
+Dockerfile or config that lives under a tests or fixtures tree.
+
 A file over ``MAX_SCAN_BYTES`` (2 MB), or with a NUL byte in its first
 ``NUL_SNIFF_BYTES``, is never read: its entry keeps ``loc`` 0 and
 ``complexity`` 0 with ``skipped_large`` true, the reference graph and the docs
@@ -535,11 +539,18 @@ def _notebook_facts(text: str) -> tuple[int, bool | None]:
     return len(cells), monotonic
 
 
-def _artefact_entry(path: Path, rel: str, cls: str, history: FileHistory | None) -> dict[str, Any]:
+def _artefact_entry(
+    path: Path,
+    rel: str,
+    cls: str,
+    history: FileHistory | None,
+    extra_classes: dict[str, list[str]] | None,
+) -> dict[str, Any]:
     size = path.stat().st_size
     skipped = _skips_read(path, size)
     entry: dict[str, Any] = {
         "path": rel,
+        "path_class": _classify_path(rel, extra_classes),
         "loc": 0,
         "churn": history.churn if history else 0,
         "last_touched": history.last_touched if history else None,
@@ -566,7 +577,10 @@ def _artefact_entry(path: Path, rel: str, cls: str, history: FileHistory | None)
 
 
 def _walk_artefacts(
-    root: Path, candidates: list[tuple[Path, str]], histories: dict[str, FileHistory]
+    root: Path,
+    candidates: list[tuple[Path, str]],
+    histories: dict[str, FileHistory],
+    extra_classes: dict[str, list[str]] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Classify the files the extension map skipped (spec 4.2 artefact classes)."""
     out: dict[str, list[dict[str, Any]]] = {cls: [] for cls, _ in ARTEFACT_CLASSES}
@@ -574,7 +588,7 @@ def _walk_artefacts(
         cls = _artefact_class(path, rel)
         if cls is None:
             continue
-        out[cls].append(_artefact_entry(path, rel, cls, histories.get(rel)))
+        out[cls].append(_artefact_entry(path, rel, cls, histories.get(rel), extra_classes))
     return out
 
 
@@ -802,7 +816,9 @@ def build_all(
     if git_available:
         for entry in entries:
             _apply_history(entry, histories[entry.path])
-    artefacts = _walk_artefacts(root, artefact_candidates, histories if git_available else {})
+    artefacts = _walk_artefacts(
+        root, artefact_candidates, histories if git_available else {}, extra_classes
+    )
 
     present_source = {e.path for e in entries if e.path_class == "source"}
     pairs, degree = change_coupling(

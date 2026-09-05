@@ -107,8 +107,9 @@ def test_service_py_artefact_classes(service_py_repo: Path) -> None:
     assert paths["lockfile"] == []
     entry = next(e for e in artefacts["manifest"] if e["path"] == "pyproject.toml")
     assert list(entry) == [
-        "path", "loc", "churn", "last_touched", "size_bytes", "skipped_large",
+        "path", "path_class", "loc", "churn", "last_touched", "size_bytes", "skipped_large",
     ]
+    assert entry["path_class"] == "source"
     assert entry["loc"] == 8
     assert entry["size_bytes"] > 0
     assert entry["skipped_large"] is False

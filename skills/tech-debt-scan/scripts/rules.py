@@ -24,6 +24,11 @@ Repository-level facts have no file: their evidence carries null file and
 lines and a quote stating the fact, with ``quote_verified`` true (the shape
 spec 4.5 gives osv facts). Only ``yaml.safe_load`` is used.
 
+An artefact's ``path_class`` (spec 4.2) decides whether it is scanned at all:
+a Dockerfile, workflow or manifest under a tests, vendored or generated tree
+is fixture material and never becomes a finding, and every finding copies the
+artefact's path class into ``signals.path_class`` for the merge to weigh.
+
 ``python scripts/rules.py <repo> --workdir .tech-debt`` reads
 ``<workdir>/inventory.json`` and writes ``<workdir>/rule-findings.json`` as
 ``{"schema_version": 2, "findings": [...], "leads": {"migration": [...]}}``.
@@ -94,6 +99,10 @@ LOCKFILES_FOR: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
     ("*.csproj", ("packages.lock.json",)),
     ("build.gradle*", ("gradle.lockfile",)),
 )
+# Path classes on which every family is disabled (spec 4.2): a Dockerfile or
+# workflow under a tests, vendored or generated tree is fixture material, not
+# the repository's own pipeline, so it never becomes a finding.
+DISABLED_PATH_CLASSES: Final[frozenset[str]] = frozenset({"tests", "vendored", "generated"})
 ESLINT_NAMES: Final[tuple[str, ...]] = (
     ".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.yml",
     ".eslintrc.yaml", "eslint.config.js", "eslint.config.mjs", "eslint.config.cjs",
@@ -167,6 +176,11 @@ def _dirname(path: str) -> str:
 
 def _join(directory: str, name: str) -> str:
     return f"{directory}/{name}" if directory else name
+
+
+def _disabled(artefact: dict[str, Any]) -> bool:
+    """True when the artefact's path class disables every family on it (spec 4.2)."""
+    return str(artefact.get("path_class")) in DISABLED_PATH_CLASSES
 
 
 # --- ci -------------------------------------------------------------------------
@@ -371,7 +385,7 @@ def _manifest_hits(
 ) -> tuple[dict[str, list[Hit]], list[dict[str, Any]]]:
     artefacts = inventory.get("artefacts") or {}
     lockfiles = {str(a["path"]) for a in artefacts.get("lockfile", [])}
-    manifests = [str(a["path"]) for a in artefacts.get("manifest", [])]
+    manifests = [str(a["path"]) for a in artefacts.get("manifest", []) if not _disabled(a)]
     configs = {str(a["path"]) for a in artefacts.get("config", [])}
     files = {str(e["path"]): e for e in inventory["files"]}
     hits: dict[str, list[Hit]] = {}
@@ -600,11 +614,11 @@ def _signals(inventory: dict[str, Any], path: str | None) -> dict[str, Any]:
             signals["path_class"] = entry["path_class"]
             signals["in_hotspot_band"] = path in inventory.get("hotspot_band", [])
             return signals
-    for cls, entries in (inventory.get("artefacts") or {}).items():
+    for entries in (inventory.get("artefacts") or {}).values():
         for artefact in entries:
             if artefact["path"] == path:
                 signals["churn"] = artefact["churn"]
-                signals["path_class"] = cls
+                signals["path_class"] = artefact.get("path_class")
                 return signals
     return signals
 
@@ -658,6 +672,8 @@ def run_rules(
     scanners = (("ci", _ci_hits), ("container", _container_hits), ("iac", _iac_hits))
     for group, scanner in scanners:
         for artefact in artefacts.get(group, []):
+            if _disabled(artefact):
+                continue
             rel = str(artefact["path"])
             hits = scanner(rel, _read(root, rel))
             if hits:

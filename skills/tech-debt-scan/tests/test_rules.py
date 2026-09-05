@@ -83,7 +83,7 @@ def test_finding_schema_source_tier_and_one_per_file(service_py: Repo) -> None:
     assert all(e["quote_verified"] is True for e in ci["evidence"])
     assert all(e["line_start"] == e["line_end"] for e in ci["evidence"])
     assert len(ci["fingerprint"]) == 16 and len(ci["quote_hash"]) == 40
-    assert ci["signals"]["path_class"] == "ci"
+    assert ci["signals"]["path_class"] == "source"  # the artefact's path class, not its class
     assert ci["signals"]["in_hotspot_band"] is False
     assert len(ci["title"]) <= 80
     assert ci["signals_cited"] == []
@@ -161,6 +161,23 @@ def test_credential_in_a_dockerfile_quote_is_redacted(tmp_path: Path) -> None:
     raw = (workdir / "rule-findings.json").read_bytes()
     assert secret.encode("utf-8") not in raw
     assert b"abcd***" in raw
+
+
+def test_artefacts_under_a_tests_tree_never_become_findings(tmp_path: Path) -> None:
+    """Spec 4.2: an artefact's path_class disables the rule groups on it."""
+    dockerfile = "FROM alpine\nRUN apk add curl\n"
+    repo = tmp_path / "repo"
+    (repo / "tests" / "fixtures" / "x").mkdir(parents=True)
+    (repo / "tests" / "fixtures" / "x" / "Dockerfile").write_text(dockerfile, encoding="utf-8")
+    (repo / "Dockerfile").write_text(dockerfile, encoding="utf-8")
+    inventory, _ = build_all(repo)
+    classes = {
+        str(a["path"]): a["path_class"] for a in inventory["artefacts"]["container"]
+    }
+    assert classes == {"Dockerfile": "source", "tests/fixtures/x/Dockerfile": "tests"}
+    findings, _leads = run_rules(repo, inventory, DEFAULTS, now=NOW)
+    assert [f["evidence"][0]["file"] for f in findings] == ["Dockerfile"]
+    assert findings[0]["signals"]["path_class"] == "source"
 
 
 def test_iac_rules(mixed: Repo) -> None:
