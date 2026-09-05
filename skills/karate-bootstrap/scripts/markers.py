@@ -73,7 +73,8 @@ MARKERS: Final[dict[str, tuple[Marker, ...]]] = {
     "spring": (
         _m(
             "entry-http",
-            r'@(Get|Post|Put|Delete|Patch)Mapping(?:\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?"([^"]*)")?',
+            r'@(Get|Post|Put|Delete|Patch)Mapping\b'
+            r'(?:\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?"([^"]*)")?',
             "Mapping",
         ),
         _m("entry-amq", r'@JmsListener\s*\(\s*destination\s*=\s*"([^"]+)"', "@JmsListener"),

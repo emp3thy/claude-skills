@@ -153,10 +153,33 @@ _RULEFOR_RE = re.compile(
 _CHAIN_RE = re.compile(r"\.(\w+)\(([^)]*)\)")
 
 
+def _fluent_statements(text: str) -> list[tuple[int, str]]:
+    """Join each ``RuleFor(...)`` statement onto one line, keyed by its first line.
+
+    FluentValidation chains are routinely wrapped across lines, one call per
+    line, so the regexes have to see the whole statement at once.
+    """
+    statements: list[tuple[int, str]] = []
+    start: int | None = None
+    parts: list[str] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if start is None:
+            if "RuleFor" not in line:
+                continue
+            start = number
+        parts.append(line.strip())
+        if ";" in line:
+            statements.append((start, " ".join(parts)))
+            start, parts = None, []
+    if start is not None:
+        statements.append((start, " ".join(parts)))
+    return statements
+
+
 def extract_fluent_validation(text: str, source_rel: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        for match in _RULEFOR_RE.finditer(line):
+    for number, statement in _fluent_statements(text):
+        for match in _RULEFOR_RE.finditer(statement):
             field, chain = match.group(1), match.group(2)
             src = f"{source_rel}:{number}"
             for call, raw in _CHAIN_RE.findall(chain):

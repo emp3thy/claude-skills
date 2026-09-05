@@ -96,6 +96,25 @@ def test_extract_fluent_validation() -> None:
     assert len(rows) == 7
 
 
+def test_extract_fluent_validation_joins_a_multi_line_chain() -> None:
+    text = (
+        "public class V : AbstractValidator<Req>\n"
+        "{\n"
+        "    public V()\n"
+        "    {\n"
+        "        RuleFor(x => x.Volume)\n"
+        "            .GreaterThan(0)\n"
+        '            .WithMessage("positive");\n'
+        "    }\n"
+        "}\n"
+    )
+    rows = extract_fluent_validation(text, "V.cs")
+    assert [(r["field"], r["mutation"], r["value"]) for r in rows] == [
+        ("Volume", "out_of_range", "0")
+    ]
+    assert rows[0]["source"] == "V.cs:5"
+
+
 def test_extract_data_annotations() -> None:
     text = (
         "public class Req\n{\n    [Required]\n    [StringLength(10, MinimumLength = 2)]\n"

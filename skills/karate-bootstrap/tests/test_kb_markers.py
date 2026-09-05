@@ -95,6 +95,7 @@ def test_marker_matches_fixture_line(stack: str, kind: str, line: str) -> None:
     ("stack", "kind", "line"),
     [
         ("spring", "entry-http", "    private final ShipmentService service;"),
+        ("spring", "entry-http", '    @GetMappingCustom("/x")'),
         ("spring", "db-write", "        return repository.findById(id);"),
         (
             "aspnetcore",
