@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: invoices
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: invoices
+          image: registry.example/invoices:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /q/health/ready
+              port: http
+          env:
+            - name: QUARKUS_DATASOURCE_JDBC_URL
+              value: jdbc:postgresql://db:5432/invoices
+            - name: AMQP_HOST
+              value: artemis
+            - name: AMQP_PORT
+              value: "5672"
+            - name: ORDERS_API_URL
+              value: http://orders:8080
+            - name: OIDC_URL
+              value: https://login.example/realms/acme

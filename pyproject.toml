@@ -20,6 +20,7 @@ addopts = "-m 'not live'"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["skills/*/tests/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]

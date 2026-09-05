@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.acme</groupId>
+  <artifactId>invoices</artifactId>
+  <version>1.0.0</version>
+  <properties>
+    <quarkus.platform.version>3.13.0</quarkus.platform.version>
+  </properties>
+  <dependencies>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-resteasy-reactive-jackson</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-hibernate-orm-panache</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-jdbc-postgresql</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-smallrye-reactive-messaging-amqp</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-hibernate-validator</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-rest-client-reactive-jackson</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-oidc</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-smallrye-health</artifactId></dependency>
+  </dependencies>
+</project>

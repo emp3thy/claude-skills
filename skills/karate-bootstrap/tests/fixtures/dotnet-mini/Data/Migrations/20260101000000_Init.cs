@@ -1,0 +1,11 @@
+using Microsoft.EntityFrameworkCore.Migrations;
+
+namespace Deals.Api.Data.Migrations;
+
+public partial class Init : Migration
+{
+    protected override void Up(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.CreateTable(name: "deals", columns: table => new { });
+    }
+}
