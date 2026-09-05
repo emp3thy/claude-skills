@@ -13,12 +13,14 @@ it.
 Leads feed scouts and corroborate the merge; counts go to report statistics,
 never to a finding. Blame runs only for the SATD markers, on at most
 ``BLAME_FILE_CAP`` files; ``--no-blame`` skips it and leaves ``age_days`` and
-``commits_since`` null. Every quote is passed through ``redaction.redact``
-before it is written, whatever rule or family it came from, so a
-credential-shaped value on a SATD-marker line or any other non-security lead
-never reaches ``patterns.json`` unredacted, cut to its first four characters;
-``rules.py`` imports the same shared module so a credential in a Dockerfile
-or workflow quote is redacted too.
+``commits_since`` null (``commits_since`` comes from one ``git log
+--format=%H -- <path>`` call per blamed file, the position of the blamed sha
+in that list, never a per-marker ``rev-list``). Every quote is passed
+through ``redaction.redact`` before it is written, whatever rule or family
+it came from, so a credential-shaped value on a SATD-marker line or any
+other non-security lead never reaches ``patterns.json`` unredacted, cut to
+its first four characters; ``rules.py`` imports the same shared module so a
+credential in a Dockerfile or workflow quote is redacted too.
 ``inline_disables`` per source file is written back into ``inventory.json``
 in place, the only cross-script in-place edit in the pipeline (spec 9).
 
@@ -248,14 +250,12 @@ def _blame_lines(root: Path, rel: str) -> dict[int, tuple[int, str]] | None:
     return out
 
 
-def _commits_since(
-    root: Path, sha: str, rel: str, cache: dict[tuple[str, str], int | None]
-) -> int | None:
-    key = (sha, rel)
-    if key not in cache:
-        stdout = run_git(root, ["rev-list", "--count", f"{sha}..HEAD", "--", rel])
-        cache[key] = int(stdout.strip()) if stdout and stdout.strip().isdigit() else None
-    return cache[key]
+def _file_commit_shas(root: Path, rel: str) -> list[str] | None:
+    """Every commit sha touching ``rel``, newest first, via one ``git log`` call."""
+    stdout = run_git(root, ["log", "--format=%H", "--", rel])
+    if stdout is None:
+        return None
+    return [line.strip() for line in stdout.splitlines() if line.strip()]
 
 
 def _attach_blame(root: Path, satd: list[dict[str, Any]]) -> None:
@@ -264,11 +264,11 @@ def _attach_blame(root: Path, satd: list[dict[str, Any]]) -> None:
         if entry["file"] not in files:
             files.append(str(entry["file"]))
     now = datetime.now(UTC)
-    cache: dict[tuple[str, str], int | None] = {}
     for rel in files[:BLAME_FILE_CAP]:
         blamed = _blame_lines(root, rel)
         if blamed is None:
             continue
+        shas = _file_commit_shas(root, rel)
         for entry in satd:
             if entry["file"] != rel:
                 continue
@@ -277,7 +277,7 @@ def _attach_blame(root: Path, satd: list[dict[str, Any]]) -> None:
                 continue
             epoch, sha = hit
             entry["age_days"] = (now - datetime.fromtimestamp(epoch, UTC)).days
-            entry["commits_since"] = _commits_since(root, sha, rel, cache)
+            entry["commits_since"] = shas.index(sha) if shas and sha in shas else None
 
 
 def _age_band(age: int | None) -> str:

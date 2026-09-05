@@ -216,32 +216,31 @@ def parse_branch_refs(stdout: str) -> list[dict[str, Any]]:
     return refs
 
 
-def _is_ancestor(root: Path, sha: str) -> bool | None:
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(root), "merge-base", "--is-ancestor", sha, "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=GIT_TIMEOUT,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+def _merged_refnames(root: Path) -> frozenset[str] | None:
+    """Full refnames merged into HEAD, via one bounded ``for-each-ref --merged`` pass.
+
+    None when the call fails (a non-repository, no HEAD/unborn branch gives
+    exit 128, a timeout, or a missing binary), so every branch gets
+    ``merged: None`` rather than a wrong guess.
+    """
+    stdout = run_git(
+        root,
+        ["for-each-ref", "--format=%(refname)", "--merged=HEAD", "refs/heads", "refs/remotes"],
+    )
+    if stdout is None:
         return None
-    if proc.returncode == 0:
-        return True
-    if proc.returncode == 1:
-        return False
-    return None  # 128: unknown object or no HEAD
+    return frozenset(line.strip() for line in stdout.splitlines() if line.strip())
 
 
 def list_branches(root: Path) -> list[dict[str, Any]] | None:
     stdout = run_git(root, ["for-each-ref", f"--format={REF_FORMAT}", "refs/heads", "refs/remotes"])
     if stdout is None:
         return None
+    merged = _merged_refnames(root)
     branches: list[dict[str, Any]] = []
     for ref in parse_branch_refs(stdout):
-        sha = str(ref.pop("sha"))
-        ref["merged"] = _is_ancestor(root, sha)
+        ref.pop("sha", None)
+        ref["merged"] = None if merged is None else str(ref["ref"]) in merged
         branches.append(ref)
     return branches
 

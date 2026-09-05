@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -322,6 +323,37 @@ def test_branches_and_tags(service_py_repo: Path) -> None:
     assert [t["name"] for t in git["tags"]] == ["v0.1.0", "v0.2.0"]
     assert git["tags"][0]["date"].startswith("2024-10-05")
     assert git["tags"][1]["date"].startswith("2026-02-20")
+
+
+def test_list_branches_merged_state_and_null_when_unavailable(
+    service_py_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One bounded ``--merged`` pass decides every ref; a failed pass gives every ref null."""
+    import git_history
+    from git_history import list_branches
+
+    branches = list_branches(service_py_repo)
+    assert branches is not None
+    assert {b["name"]: b["merged"] for b in branches} == {
+        "hotfix/ledger-rounding": False, "main": True,
+    }
+    assert all(set(b) == {"name", "ref", "last_commit", "merged"} for b in branches)
+
+    real_run_git = git_history.run_git
+    calls: list[Sequence[str]] = []
+
+    def without_merged(root: Path, args: Sequence[str]) -> str | None:
+        calls.append(args)
+        if any(str(arg).startswith("--merged") for arg in args):
+            return None
+        return real_run_git(root, args)
+
+    monkeypatch.setattr(git_history, "run_git", without_merged)
+    fallback = list_branches(service_py_repo)
+    assert fallback is not None
+    assert [b["name"] for b in fallback] == [b["name"] for b in branches]
+    assert all(b["merged"] is None for b in fallback)
+    assert len(calls) == 2  # one ref listing and one --merged pass, whatever the branch count
 
 
 def test_parse_branch_refs_skips_symref() -> None:

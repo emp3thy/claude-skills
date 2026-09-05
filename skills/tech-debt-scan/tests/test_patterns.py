@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from config import DEFAULTS
 from inventory import build_all, write_json
+from make_history import git_output, replay_history
 from patterns import RULES, Lead, capped_leads, redact, run_patterns
 
 SCRIPTS = Path(__file__).parent.parent / "scripts"
@@ -97,6 +99,48 @@ def test_satd_markers_with_age_ticket_and_commits_since(
     ]
     assert 0.0 < stats["markers_without_ticket_share"] < 1.0
     assert set(stats["leads_per_family"]) == set(doc["leads"])
+
+
+def test_commits_since_is_the_blamed_shas_position_in_the_file_log(
+    service_py: tuple[Path, dict[str, Any]],
+) -> None:
+    """One ``git log`` per blamed file: commits_since is how many touched it since."""
+    repo = service_py[0]
+    rel = "src/pay/refund.py"
+    satd = {(s["file"], s["line"]): s for s in _run(service_py)["satd"]}
+    blamed = git_output(repo, "blame", "-w", "--porcelain", "-L", "35,35", "--", rel).split()[0]
+    shas = git_output(repo, "log", "--format=%H", "--", rel).split()
+    assert blamed in shas
+    assert satd[(rel, 35)]["commits_since"] == shas.index(blamed)
+
+
+def test_commits_since_is_null_when_the_blamed_sha_is_not_in_the_file_log(
+    tmp_path: Path,
+) -> None:
+    """A renamed file: blame reaches past the rename, ``git log <path>`` does not."""
+    source = "def export():\n    # TODO: finish the exporter\n    return None\n"
+    history = tmp_path / "history.yaml"
+    history.write_text(
+        yaml.safe_dump({
+            "commits": [
+                {"author": "Ada Lovelace <ada@example.com>", "date": "2026-01-05T09:00:00+00:00",
+                 "subject": "add the exporter", "files": {"src/old_exporter.py": source}},
+                {"author": "Ada Lovelace <ada@example.com>", "date": "2026-02-05T09:00:00+00:00",
+                 "subject": "rename the exporter", "delete": ["src/old_exporter.py"],
+                 "files": {"src/exporter.py": source}},
+            ]
+        }),
+        encoding="utf-8",
+    )
+    repo = replay_history(history, tmp_path, tmp_path / "repo")
+    rel = "src/exporter.py"
+    blamed = git_output(repo, "blame", "-w", "--porcelain", "-L", "2,2", "--", rel).split()[0]
+    assert blamed not in git_output(repo, "log", "--format=%H", "--", rel).split()
+    inventory, _ = build_all(repo, churn_months=240)
+    doc, _inline = run_patterns(repo, inventory, DEFAULTS)
+    entry = next(s for s in doc["satd"] if s["file"] == rel)
+    assert entry["age_days"] is not None  # blame still dates the line
+    assert entry["commits_since"] is None
 
 
 def test_satd_marker_in_a_second_language(mixed: tuple[Path, dict[str, Any]]) -> None:
