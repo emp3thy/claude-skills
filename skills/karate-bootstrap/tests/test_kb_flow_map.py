@@ -15,6 +15,7 @@ from flow_map import (
     merge_entry,
     next_entry,
     save_ledger,
+    set_auth,
     validate,
     verify_refs,
 )
@@ -346,6 +347,20 @@ Scenario: happy
   * Stubs.verify('GET', '/rates/GB', 1)
 """
 
+UNSAFE_FEATURE = GOOD_FEATURE + """
+@error
+Scenario: outage without the tag
+  * Stubs.load('classpath:stubs/pricing/outage.json')
+  Then status 503
+  * Stubs.reset()
+
+@error @parallel=false
+Scenario: outage with the tag
+  * Stubs.load('classpath:stubs/pricing/outage.json')
+  Then status 503
+  * Stubs.reset()
+"""
+
 
 def test_validate_generated_passes_with_markers(spring_ledger: tuple[Path, dict[str, Any]],
                                                 tmp_path: Path) -> None:
@@ -452,6 +467,66 @@ def test_validate_generated_flags_unscanned_source(spring_ledger: tuple[Path, di
     gaps = validate(ledger, "generated", SPRING, None, tests_dir, None, None)
     assert gaps == ["POST /api/shipments: rules source "
                     "src/main/java/com/acme/shipments/ShipmentRequest.java not scanned"]
+
+
+def test_validate_generated_requires_parallel_false_for_exclusive_state(
+    spring_ledger: tuple[Path, dict[str, Any]], tmp_path: Path
+) -> None:
+    _, ledger = spring_ledger
+    _trace_all(ledger)
+    tests_dir = _fake_generated(tmp_path, ledger, UNSAFE_FEATURE)
+    gaps = validate(ledger, "generated", SPRING, None, tests_dir, None, None)
+    assert gaps == [
+        "POST /api/shipments: features/post-api-shipments.feature scenario "
+        "'outage without the tag' uses exclusive state without @parallel=false",
+        "GET /api/shipments/{id}: features/post-api-shipments.feature scenario "
+        "'outage without the tag' uses exclusive state without @parallel=false",
+        "amq shipment.requested: features/post-api-shipments.feature scenario "
+        "'outage without the tag' uses exclusive state without @parallel=false",
+    ]
+
+
+def test_set_auth_records_each_mode(spring_ledger: tuple[Path, dict[str, Any]]) -> None:
+    _, ledger = spring_ledger
+    assert set_auth(ledger, "disabled", key="AUTH_MODE", value="mock") == {
+        "mode": "disabled", "key": "AUTH_MODE", "value": "mock", "confirmed": True,
+    }
+    assert set_auth(ledger, "jwks", issuer_keys=["JWKS_URL", "AUTH_ISSUER_URI", "JWKS_URL"]) == {
+        "mode": "jwks", "keys": ["AUTH_ISSUER_URI", "JWKS_URL"],
+    }
+    assert set_auth(ledger, "none") == {"mode": "none"}
+    assert set_auth(ledger, "blocked") == {"mode": "blocked"}
+    assert ledger["app"]["auth"] == {"mode": "blocked"}
+
+
+def test_set_auth_rejects_incomplete_input(spring_ledger: tuple[Path, dict[str, Any]]) -> None:
+    _, ledger = spring_ledger
+    with pytest.raises(KbError, match="--key and --value"):
+        set_auth(ledger, "disabled", key="AUTH_MODE")
+    with pytest.raises(KbError, match="--issuer-keys"):
+        set_auth(ledger, "jwks")
+    with pytest.raises(KbError, match="unknown auth mode"):
+        set_auth(ledger, "basic")
+
+
+def test_cli_set_auth_clears_the_unconfirmed_switch_gap(
+    spring_ledger: tuple[Path, dict[str, Any]], capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger_path, ledger = spring_ledger
+    ledger["app"]["auth"] = {"mode": "disabled", "key": "AUTH_MODE", "value": "disabled",
+                             "confirmed": False}
+    save_ledger(ledger_path, ledger)
+    assert any("unconfirmed" in g for g in validate(load_ledger(ledger_path), "traced", SPRING,
+                                                    None, None, None, None))
+    assert run_cli(main, ["set-auth", "--ledger", str(ledger_path), "--mode", "disabled",
+                          "--key", "AUTH_MODE", "--value", "mock"]) == 0
+    assert '"confirmed": true' in capsys.readouterr().out
+    reloaded = load_ledger(ledger_path)
+    assert reloaded["app"]["auth"] == {"mode": "disabled", "key": "AUTH_MODE", "value": "mock",
+                                       "confirmed": True}
+    assert not any("unconfirmed" in g for g in validate(reloaded, "traced", SPRING, None, None,
+                                                        None, None))
+    assert run_cli(main, ["set-auth", "--ledger", str(ledger_path), "--mode", "jwks"]) == 2
 
 
 def test_cli_validate_and_verify_refs_exit_codes(spring_ledger: tuple[Path, dict[str, Any]],

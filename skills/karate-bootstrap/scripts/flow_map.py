@@ -7,6 +7,9 @@ Subcommands:
     merge       ENTRY_JSON --ledger PATH
                 merges one trace subagent result into its entry
     mark        --entry ID (--generated|--tested|--passing|--failing) --ledger PATH
+    set-auth    --ledger PATH --mode disabled|jwks|none|blocked [--key K --value V]
+                [--issuer-keys A,B]
+                records the confirmed auth mode on app.auth (spec 5.2)
     validate    --phase traced|generated|green --ledger PATH --repo ROOT
                 [--service-dir SUB] [--env PATH] [--tests-dir PATH] [--report PATH]
                 [--defects PATH]
@@ -39,6 +42,7 @@ from kb_common import (
     run_cli,
     write_yaml,
 )
+from kb_features import PARALLEL_FALSE_TAG, unsafe_parallel_scenarios
 from markers import tokens_for
 
 STATUS_FLAGS = ("traced", "stubbed", "tested", "passing")
@@ -52,6 +56,8 @@ _REQUIRED_EXIT_FIELDS = {
     "amq-publish": ("destination",),
     "http-out": ("host_key", "method", "path"),
 }
+
+AUTH_MODES = ("disabled", "jwks", "none", "blocked")
 
 
 def load_ledger(path: Path) -> dict[str, Any]:
@@ -194,6 +200,37 @@ def _cmd_mark(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def set_auth(ledger: dict[str, Any], mode: str, key: str | None = None,
+             value: str | None = None, issuer_keys: list[str] | None = None) -> dict[str, Any]:
+    """Record the confirmed auth mode on ``app.auth`` (spec 5.2)."""
+    if mode not in AUTH_MODES:
+        raise KbError(f"unknown auth mode {mode!r}; expected one of {AUTH_MODES}")
+    auth: dict[str, Any]
+    if mode == "disabled":
+        if not key or value is None:
+            raise KbError("auth mode disabled needs --key and --value")
+        auth = {"mode": "disabled", "key": key, "value": value, "confirmed": True}
+    elif mode == "jwks":
+        if not issuer_keys:
+            raise KbError("auth mode jwks needs --issuer-keys")
+        auth = {"mode": "jwks", "keys": sorted(set(issuer_keys))}
+    else:
+        auth = {"mode": mode}
+    ledger.setdefault("app", {})["auth"] = auth
+    return auth
+
+
+def _cmd_set_auth(args: argparse.Namespace) -> int:
+    ledger = load_ledger(args.ledger)
+    keys = None
+    if args.issuer_keys:
+        keys = [k.strip() for k in args.issuer_keys.split(",") if k.strip()]
+    auth = set_auth(ledger, args.mode, args.key, args.value, keys)
+    save_ledger(args.ledger, ledger)
+    print(f"app.auth: {json.dumps(auth)}")
+    return EXIT_OK
+
+
 # --- verify-refs -----------------------------------------------------------------------
 
 
@@ -289,8 +326,14 @@ def _validate_generated(ledger: dict[str, Any], tests_dir: Path | None) -> list[
             path = resources / feature
             if not path.is_file():
                 gaps.append(f"{eid}: feature {feature} does not exist")
-            else:
-                texts.append(read_text(path))
+                continue
+            feature_text = read_text(path)
+            texts.append(feature_text)
+            for name in unsafe_parallel_scenarios(feature_text):
+                gaps.append(
+                    f"{eid}: {feature} scenario {name!r} uses exclusive state "
+                    f"without {PARALLEL_FALSE_TAG}"
+                )
         text = "\n".join(texts)
         for item in entry.get("exits", []):
             kind = item["kind"]
@@ -429,6 +472,15 @@ def build_parser() -> argparse.ArgumentParser:
     mark.add_argument("--passing", action="store_true")
     mark.add_argument("--failing", action="store_true")
     mark.set_defaults(func=_cmd_mark)
+
+    auth = sub.add_parser("set-auth", help="Record the confirmed auth mode on app.auth")
+    auth.add_argument("--ledger", type=Path, required=True)
+    auth.add_argument("--mode", choices=AUTH_MODES, required=True)
+    auth.add_argument("--key", default=None, help="switch env var (mode disabled)")
+    auth.add_argument("--value", default=None, help="switch value that turns auth off")
+    auth.add_argument("--issuer-keys", default=None,
+                      help="comma-separated issuer or JWKS env vars (mode jwks)")
+    auth.set_defaults(func=_cmd_set_auth)
 
     val = sub.add_parser("validate", help="Run a phase gate")
     val.add_argument("--phase", choices=("traced", "generated", "green"), required=True)
