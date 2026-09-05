@@ -58,7 +58,8 @@ aggregates and ``unstable_edges``.
 ``hotspot_score`` and the top-level ``hotspot_band`` lists the top fraction
 of source-class files (``hotspot_band`` in config: 0.10, at least 5, at most
 50). Blame runs only for band files (cap 50) to give ``top_author_line_share``.
-``mapped_tests`` comes from one union table of test-name conventions; the
+``mapped_tests`` reads a test file name back to its source stem through
+``_test_stem_keys``, one union of the seven naming conventions; the
 ``tests`` block reports the test-to-source ratio, coverage gates and CI retry
 configuration; the ``docs`` block reports README, CONTRIBUTING, ADR and
 CHANGELOG presence, the latest tag, dangling references in docs and doc
@@ -268,13 +269,6 @@ HOTSPOT_LIMIT = 20
 
 # Blame runs only for hotspot-band files (spec 4.2), at most this many.
 HOTSPOT_BLAME_CAP = 50
-
-# Test-file naming conventions (spec 4.2), one union table; {s} is the source
-# stem lower-cased, {S} the stem as written.
-TEST_NAME_GLOBS: tuple[str, ...] = (
-    "test_{s}.*", "{s}_test.*", "{s}.test.*", "{s}.spec.*", "{s}_spec.*",
-    "{S}Test.*", "{S}Tests.*",
-)
 
 _COVERAGE_GATE_RE = re.compile(r"fail_under|coverageThreshold|check-coverage")
 _COVERAGE_GATE_NAMES = ("codecov.yml", ".codecov.yml")

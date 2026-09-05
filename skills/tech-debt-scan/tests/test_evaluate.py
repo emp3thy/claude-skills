@@ -151,8 +151,13 @@ def test_render_table_and_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]
     assert report["source"] == "verified.json"
     assert report["decoys_in_top_n"] == 1
     table = render_table(report)
-    assert table.splitlines()[0] == "scored at churn_months 240"
-    assert table.splitlines()[1].startswith("family")
+    lines = table.splitlines()
+    assert lines[0] == "scored at churn_months 240"
+    assert lines[1].startswith("family")
+    header_width = len(lines[1])
+    assert all(len(line) == header_width for line in lines[2:-4])  # decoys pad as one column
+    assert lines[1].endswith("decoy A/B/C")
+    assert next(line for line in lines if line.startswith("dead-code")).endswith("1/0/0")
 
 
 def test_cli_missing_inputs_exit_2(tmp_path: Path) -> None:

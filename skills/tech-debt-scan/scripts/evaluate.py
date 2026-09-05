@@ -196,11 +196,11 @@ def render_table(report: dict[str, Any]) -> str:
         f"{'precision':>9} {'decoy A/B/C':>11}",
     ]
     for family, stats in report["families"].items():
-        hits_by_tier = stats["decoy_hits"]
+        by_tier = stats["decoy_hits"]
+        decoys = f"{by_tier['A']}/{by_tier['B']}/{by_tier['C']}"
         rows.append(
             f"{family:<18} {stats['planted']:>7} {stats['found']:>5} {_fmt(stats['recall']):>6} "
-            f"{stats['reported']:>8} {_fmt(stats['precision']):>9} "
-            f"{hits_by_tier['A']}/{hits_by_tier['B']}/{hits_by_tier['C']:>9}"
+            f"{stats['reported']:>8} {_fmt(stats['precision']):>9} {decoys:>11}"
         )
     counts = report["counts"]
     rows.append(
