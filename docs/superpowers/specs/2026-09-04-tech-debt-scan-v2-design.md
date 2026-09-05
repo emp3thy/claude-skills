@@ -314,7 +314,7 @@ coupling.json
 
 ### 4.3 `patterns.py`
 
-One regex lead table keyed by family. Each row has `family`, `rule`, regex, path-class scope and a blame flag. Every regex is a union of idioms across languages; the extension map only says which comment markers to strip. Leads feed scouts and corroborate the merge; counts go to report statistics, never to a finding. Blame runs only for the `satd` group, on at most 200 files; `--no-blame` skips it. `commits_since` comes from one `git log --format=%H -- <path>` per blamed file (the position of the blamed commit in that list), never from one `rev-list` per marker. Redaction lives in one shared module, `redaction.py`, used by every script that writes a quote (`patterns.py` and `rules.py`).
+One regex lead table keyed by family. Each row has `family`, `rule`, regex, path-class scope and a blame flag. Every regex is a union of idioms across languages; the extension map only says which comment markers to strip. A rule's scope is matched against the artefact class for an artefact and the path class for a code file, but every emitted lead and SATD entry carries the real `path_class` from 4.2, and an artefact classed `generated` or `vendored`, or marked `skipped_large`, is not scanned at all. Leads feed scouts and corroborate the merge; counts go to report statistics, never to a finding. Blame runs only for the `satd` group, on at most 200 files; `--no-blame` skips it. `commits_since` comes from one `git log --format=%H -- <path>` per blamed file (the position of the blamed commit in that list), never from one `rev-list` per marker. Redaction lives in one shared module, `redaction.py`, used by every script that writes a quote (`patterns.py` and `rules.py`).
 
 | Group (family) | Rules | Scope |
 |---|---|---|
