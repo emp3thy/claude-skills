@@ -2,37 +2,27 @@
   "family": "pipeline-infra",
   "module": null,
   "findings": [],
-  "open_questions": [
-    {
-      "file": "package.json",
-      "line_start": 3,
-      "question": "package.json is at version 1.1.0 but the only git tag present is v1.0.0 and ci.yml has no release/publish/tag job; is versioning/tagging a documented manual step or just unused?"
-    },
-    {
-      "file": "package-lock.json",
-      "line_start": 1,
-      "question": "package-lock.json contains no packages while yarn.lock lists real dependencies, and ci.yml only sets cache: npm with no explicit install step before npm test; is npm or yarn the intended package manager for CI?"
-    }
-  ],
+  "open_questions": [],
   "looks_bad_but_fine": [
     {
       "file": "src/api/client.ts",
       "line_start": 13,
-      "why": "console.log call, but no logger module exists anywhere in the repository, so this is not a case of stdout used despite an available logger."
+      "why": "console.log call looks like a stdout-vs-logger violation, but no logger/logging library exists anywhere in the repo (grep for logger/winston/pino/log4js found nothing), so the pipeline-infra pattern (stdout writes where a logger exists) does not apply."
     },
     {
       "file": "src/api/client-admin.ts",
       "line_start": 15,
-      "why": "console.error call, but no logger module exists anywhere in the repository, so this is not a case of stdout used despite an available logger."
+      "why": "console.error call, same reasoning: no logger is present in the codebase to compare against."
     },
     {
       "file": ".github/workflows/ci.yml",
       "line_start": 1,
-      "why": "Single workflow file with one job; no duplicated YAML across multiple workflow files to consolidate."
+      "why": "Only one workflow file with a single job exists; there is no second workflow to compare against, so this is not duplicated pipeline YAML."
     }
   ],
   "not_assessed": [
-    "Whether the empty package-lock.json / yarn.lock combination causes actual CI install failures (would require running the pipeline).",
-    "Whether missing v1.1.0 git tag reflects an intentional, documented release process or an oversight (no release documentation found in README or docs/architecture.md)."
+    "No CVE, EOL, or dependency-currency claims made.",
+    "No test flakiness or coverage-number claims made.",
+    "Whether the absence of a release/CD workflow constitutes a 'manual release step' could not be assessed \u2014 no release documentation or process exists to inspect."
   ]
 }

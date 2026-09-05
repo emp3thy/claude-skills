@@ -1,0 +1,21 @@
+[
+  {
+    "fingerprint": "3d5daf8fb72b00a9",
+    "verdict": "confirm",
+    "proof": "tslint.json:1 (`tslint:recommended`) has no corresponding tooling: package.json:7 lists eslint but not tslint, and grep confirms tslint appears nowhere else in the repo (no script, no CI step). ci.yml only runs `npm test` (no lint step at all), so neither tslint.json nor .eslintrc.json is actually invoked \u2014 but tslint.json specifically is a dead leftover from a superseded tool with zero remaining references, matching the migration-debris pattern exactly.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "package.json deps",
+      "grep for 'tslint' and 'eslint' repo-wide",
+      "CI workflow steps",
+      "lockfile presence"
+    ],
+    "opened": [
+      "package.json",
+      ".github/workflows/ci.yml",
+      ".eslintrc.json"
+    ]
+  }
+]

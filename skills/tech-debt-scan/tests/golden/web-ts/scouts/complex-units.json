@@ -7,20 +7,18 @@
     {
       "file": "src/api/client-admin.ts",
       "line_start": 6,
-      "why": "Async function with try/catch is short and linear, not a complex unit despite being in the top hotspot file."
+      "why": "Hotspot score 80.00 but function is a short async fetch wrapper with one try/catch, no nesting; not a complex-units candidate."
     },
     {
       "file": "src/api/client.ts",
       "line_start": 6,
-      "why": "Function has an early try/catch plus one flag check but no nesting or branching depth; inventory signals confirm max_indent=1."
+      "why": "Hotspot score 42.90 but function has only a try/catch and one flat if, no nesting or branching complexity."
     },
     {
       "file": "src/checkout/checkout.ts",
       "line_start": 6,
-      "why": "Single flag-gated if/else with one ternary; too small to qualify as a complex unit."
+      "why": "Single flat if/return with one ternary-like ternary expression; no nesting or long branching chains despite being a hotspot file."
     }
   ],
-  "not_assessed": [
-    "No files in the repository met the deterministic complexity signal thresholds (all reported longest_indented_run=0, deep_indent_lines=0, max_indent=1), so no complex-units findings were assessed beyond confirming the inventory signals by reading the three hotspot files."
-  ]
+  "not_assessed": []
 }

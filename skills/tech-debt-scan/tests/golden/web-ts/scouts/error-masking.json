@@ -3,7 +3,7 @@
   "module": null,
   "findings": [
     {
-      "title": "Empty catch block silently swallows all fetch/JSON errors",
+      "title": "Empty catch swallows fetch/JSON errors in getJson",
       "family": "error-masking",
       "debt_type": "defect",
       "type_id": "TD-13",
@@ -18,13 +18,13 @@
           "file": "src/api/client.ts",
           "line_start": 8,
           "line_end": 15,
-          "quote": "  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}\n  if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");"
+          "quote": "try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}\n  if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");\n  }"
         }
       ],
-      "note": "Network errors, non-JSON responses, and thrown auth/timeout failures are caught and discarded with no logging; the function falls through to return null, indistinguishable from a legitimate empty response. No caller in the repo currently consumes getJson, so the failure is invisible to everyone."
+      "note": "Catch block is completely empty: network failures, non-JSON responses, and auth errors are silently discarded. Caller receives null indistinguishable from a legitimate empty result; no log, no rethrow, nothing to alert anyone the request failed."
     },
     {
-      "title": "Admin API errors converted to null after logging, no propagation",
+      "title": "Admin request failures logged then converted to null, hiding cause from caller",
       "family": "error-masking",
       "debt_type": "defect",
       "type_id": "TD-13",
@@ -38,23 +38,16 @@
           "file": "src/api/client-admin.ts",
           "line_start": 14,
           "line_end": 17,
-          "quote": "  } catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }"
+          "quote": "} catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }"
         }
       ],
-      "note": "Cause is preserved via console.error(e), so this is not a silent swallow, but the exception is still converted to a null return value with no re-throw or error signal, making it indistinguishable from a valid empty admin response to any caller."
+      "note": "Error is logged with cause preserved in the console, but is not rethrown or surfaced to the caller; getAdminJson returns null on both failure and any falsy JSON body, so callers cannot distinguish failure from a valid null/empty response."
     }
   ],
   "open_questions": [],
-  "looks_bad_but_fine": [
-    {
-      "file": "src/checkout/checkout.ts",
-      "line_start": 1,
-      "why": "No try/catch or error handling present at all; out of scope for error-masking family."
-    }
-  ],
+  "looks_bad_but_fine": [],
   "not_assessed": [
-    "Whether getJson/getAdminJson are dead code or intended for future callers not yet in the repo",
-    "Test flakiness or coverage for these paths",
-    "Any runtime/production impact since no current callers were found"
+    "Whether any test suite exercises these catch paths (test coverage not assessed)",
+    "Whether console.error in client-admin.ts is captured by any monitoring/alerting downstream"
   ]
 }

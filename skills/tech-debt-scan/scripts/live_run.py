@@ -15,9 +15,17 @@ level), read-only tools only, user settings and MCP servers excluded
 (``--setting-sources project --strict-mcp-config
 --disable-slash-commands``; ``--bare`` loses auth on this machine) and a per-call
 dollar budget. A reply that fails the contract is retried once with an appended
-instruction; a second failure stops the run with exit 4. Every reply is walked
-through ``redaction.redact`` before it is written, because the agents read the
-repository under scan and the harness is a writer like any other script.
+instruction; a second failure stops the run with exit 4.
+
+Redaction is asymmetric, by contract. A verdict reply (the array contract) is
+walked through ``redaction.redact`` as it is written, because nothing downstream
+reads its prose back against the repository. A scout reply (the object contract)
+is written **raw** to ``<workdir>/scouts/*.json``: ``merge_findings.py`` verifies
+every quote against the file and only then redacts it, so a quote that is itself a
+credential has to reach the merge intact or the finding -- the highest-severity
+kind the scan looks for -- is diverted as unverifiable. The workdir is a scratch
+directory (``.tech-debt``, gitignored), and everything that leaves it,
+``candidates.json`` and every artefact derived from it, is redacted by the merge.
 
 Direct-path invocable (no package imports): `python live_run.py <fixture-or-repo>`.
 """
@@ -223,12 +231,21 @@ def redact_payload(payload: Any) -> Any:
 
 
 def _write_payload(output_file: Path, payload: Any) -> None:
-    """LF-only JSON for either payload shape (``write_json`` only takes a document)."""
+    """LF-only JSON for either payload shape; the verifier's array is redacted, a scout's not.
+
+    The payload's shape *is* its contract: ``_valid`` only lets a list through for the
+    array (verifier) schema and only a document for the object (scout) schema, so the
+    branch below is the same split. Verdict prose is redacted here because nothing
+    downstream re-reads it against the repository. A scout reply is written raw
+    because ``merge_findings`` verifies each quote against the file *before* it
+    redacts it, so a redacted credential quote would no longer match and the finding
+    -- the highest-severity kind the scan looks for -- would be diverted unverified.
+    """
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    safe = redact_payload(payload)
-    if isinstance(safe, dict):
-        write_json(output_file, safe)
+    if isinstance(payload, dict):
+        write_json(output_file, payload)
     else:
+        safe = redact_payload(payload)
         output_file.write_bytes((json.dumps(safe, indent=2) + "\n").encode("utf-8"))
 
 

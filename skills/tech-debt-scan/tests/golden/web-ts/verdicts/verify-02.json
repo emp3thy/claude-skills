@@ -1,93 +1,94 @@
 [
   {
-    "fingerprint": "0e7744dd726d5b40",
-    "verdict": "downgrade",
-    "proof": "pricing.ts:3-7 confirms PRICES={A1:1000,B2:2500} with flat lookup, no bulk logic; skipped test at pricing.spec.ts:7-9 expects 900 for A1, which would fail if run. Real gap, correctly described. But blast radius is a single SKU/test in a non-hotspot file (hotspot_score=5.7, path_class=tests) with no other coupling \u2014 severity 3 overstates impact for a self-contained, trivially fixable stale test.",
+    "fingerprint": "f08436450c50e406",
+    "verdict": "confirm",
+    "proof": "pricing.ts:3 sets PRICES.A1=1000; cart.ts:17 total() sums priceOf(sku)*qty. Test adds A1 qty=2 (1000*2=2000) and asserts toBe(2000) with no reference to the 1000 unit price, so the reader must open pricing.ts to confirm correctness. Not table-driven, no fake timers, and this is the only assertion in the test (not assertion-free).",
     "severity": 2,
     "effort": "S",
     "trap_matched": null,
     "checked": [
-      "mapped test paths (__tests__/pricing.spec.ts, cart.test.ts)",
-      "priceOf implementation",
-      "callers in cart.ts and checkout.ts"
+      "derivation math (1000*2=2000)",
+      "table-driven idiom",
+      "assertion presence"
     ],
     "opened": [
-      "src/cart/cart.ts",
-      "src/checkout/checkout.ts"
+      "src/cart/pricing.ts",
+      "src/cart/cart.ts"
     ]
   },
   {
-    "fingerprint": "aa20afe178c7ab9b",
-    "verdict": "downgrade",
-    "proof": "Duplicate of 0e7744dd726d5b40, same span and same underlying fact: pricing.ts:3-7 has no bulk discount path, PRICES.A1=1000 not 900. Skip is real and the assertion is indeed stale/inconsistent with current table. Not table-driven, no fake timers involved. Severity 3 is high for one skipped unit test with narrow scope; downgrading to match sibling candidate.",
-    "severity": 2,
+    "fingerprint": "0e7744dd726d5b40",
+    "verdict": "confirm",
+    "proof": "pricing.ts:5-8 has flat PRICES lookup with no discount/quantity logic. The only test naming 'bulk pricing' (pricing.spec.ts:7-9) is it.skip'd, and no other test file (cart.test.ts, pricing.spec.ts) exercises tiered/bulk pricing. No ticket or date annotation near the skip. Confirms priceOf's non-trivial pricing behavior is unguarded by the suite.",
+    "severity": 3,
     "effort": "S",
     "trap_matched": null,
     "checked": [
-      "table-driven idiom (none present)",
-      "fake timers (n/a)",
-      "assertion content vs PRICES table"
+      "searched all test files under src/__tests__ for bulk-pricing coverage",
+      "no ticket/date near skip marker"
     ],
-    "opened": []
+    "opened": [
+      "src/cart/pricing.ts"
+    ]
+  },
+  {
+    "fingerprint": "1b4189615c5560c6",
+    "verdict": "confirm",
+    "proof": "priceOf (pricing.ts:5-8) is PRICES[sku] ?? 0 with PRICES.A1=1000 and no discount logic; reserve(sku,0) in stock.ts has no side effect on price. So priceOf('A1') always returns 1000, never 900 as asserted at line 8. The skipped test is not merely disabled coverage but literally unpassable as written, confirming it never worked and documents nothing accurate about current behavior.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "traced priceOf/reserve for hidden state affecting price",
+      "confirmed PRICES.A1=1000 vs asserted 900"
+    ],
+    "opened": [
+      "src/cart/pricing.ts",
+      "src/cart/stock.ts"
+    ]
   },
   {
     "fingerprint": "eaefb059a8c16e0d",
-    "verdict": "downgrade",
-    "proof": "Same span/fact as the two prior candidates. priceOf (pricing.ts:5-7) is a flat map lookup with zero bulk-discount code path; the skip has no ticket/date annotation. This is real but is not a load-bearing 'stub is an abstract contract' situation \u2014 it's a single disabled test with no named risk elsewhere in the code (grep shows only cart.ts and checkout.ts call priceOf, neither references bulk pricing). Severity 3 overstates a narrowly-scoped, easily-fixed test gap.",
-    "severity": 2,
+    "verdict": "confirm",
+    "proof": "pricing.ts:5-8 confirms priceOf is a flat PRICES.get with no bulk/tiered logic \u2014 no partial scaffolding, branch, or comment toward the feature exists anywhere in cart.ts, pricing.ts, or checkout.ts. The skip has no ticket/date/reason string attached. This matches half-finished: a requirement named in a test but never implemented, not a flaky-test skip.",
+    "severity": 3,
     "effort": "S",
     "trap_matched": null,
     "checked": [
-      "stub as abstract contract (no)",
-      "ticket reference (none found)",
-      "named risk elsewhere in code (none \u2014 only flat lookup callers)"
+      "searched pricing.ts/cart.ts/checkout.ts for any bulk-discount scaffolding",
+      "checked for ticket reference near skip"
     ],
     "opened": []
   },
   {
-    "fingerprint": "843db87dca3fb8d8",
+    "fingerprint": "141175ed2e56d821",
     "verdict": "confirm",
-    "proof": "Confirmed: no test file for client-admin.ts exists (only cart.test.ts and pricing.spec.ts under __tests__). getAdminJson (lines 6-18) catches all fetch/json errors, logs, and returns null \u2014 untested. adminEnabled (lines 20-22) checks isEnabled('adminPanel'); flags.ts:1-4 shows FLAGS only contains newCheckout and betaBanner, so isEnabled always falls through to '?? false' (flags.ts:8) \u2014 untested and effectively dead logic, exactly as claimed.",
-    "severity": 5,
+    "proof": "Grep across the repo for getAdminJson/client-admin finds only the definition file itself \u2014 no test file (src/__tests__ has only cart.test.ts and pricing.spec.ts) and no caller yet either, but the module is exported and actively churned (churn=4, highest hotspot_score=80.0). Auth header (line 7), timeout (line 11), and catch-to-null (lines 14-16) are all unguarded by any assertion. Real gap, though current blast radius is limited since nothing calls it yet.",
+    "severity": 4,
     "effort": "S",
     "trap_matched": null,
     "checked": [
-      "test paths for client-admin",
-      "FLAGS contents for adminPanel key",
-      "unconventional test names"
+      "grepped whole repo for getAdminJson/client-admin callers and tests",
+      "confirmed no test file references it"
     ],
     "opened": [
-      "src/flags.ts",
       "src/api/client.ts"
     ]
   },
   {
     "fingerprint": "8d9953f72a4e0fd8",
     "verdict": "reject",
-    "proof": "Confirmed mechanically: catch block (lines 14-17) logs via console.error(e) then returns null instead of rethrowing, so a caller cannot distinguish failure from a legitimately empty/null JSON response. However, grep across the repo shows getAdminJson has zero in-repo callers, so no code path is actually misled today \u2014 this is latent risk in currently-dead code rather than an active masking bug affecting a real caller.",
-    "severity": 2,
+    "proof": "Catch block (lines 14-16) logs via console.error but returns null on any failure, same as a successful response whose JSON body is legitimately null; getAdminJson has no caller yet (confirmed via repo-wide grep) so no current code path depends on this masking, but the sibling client.ts (lines 8-11) swallows errors even more silently with an empty catch, suggesting this error-return-null pattern is an established, uncaught defect shape across both admin and non-admin clients.",
+    "severity": 3,
     "effort": "S",
     "trap_matched": "golden trap: intentional fixture",
     "checked": [
-      "callers of getAdminJson (none found)",
-      "cause preservation in catch (console.error(e) \u2014 preserved for logs only)",
-      "process boundary (none \u2014 plain function)"
+      "compared to client.ts's empty catch for pattern confirmation",
+      "grepped for callers relying on getAdminJson's return value"
     ],
-    "opened": []
-  },
-  {
-    "fingerprint": "bcb3cd9522cdbe0a",
-    "verdict": "confirm",
-    "proof": "Confirmed by repo-wide grep: adminEnabled (client-admin.ts:20-22) and getAdminJson (line 6) have zero in-repo callers/importers. flags.ts:1-4 lists FLAGS={newCheckout:false, betaBanner:true} \u2014 'adminPanel' is absent, so isEnabled falls through to the '?? false' default at flags.ts:8, making adminEnabled() permanently return false even if it were called. No dynamic dispatch, route registration, or DI found referencing either export.",
-    "severity": 3,
-    "effort": "S",
-    "trap_matched": null,
-    "checked": [
-      "reflection/string-dispatch for adminEnabled/getAdminJson",
-      "entry points/scripts/test runners",
-      "public/plugin surface",
-      "flag purpose (feature flag, not permission/kill-switch)"
-    ],
-    "opened": []
+    "opened": [
+      "src/api/client.ts",
+      "src/flags.ts"
+    ]
   }
 ]

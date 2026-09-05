@@ -2,30 +2,30 @@
   "schema_version": 2,
   "findings": [
     {
-      "fingerprint": "29629621bdb42797",
-      "quote_hash": "1cfa18593b35b56663ac9354209dbf53fab66a65",
+      "fingerprint": "aa3351f29bf618f1",
+      "quote_hash": "52c17ce6d6acfea802455bc121103f55867005ea",
       "family": "duplication",
       "debt_type": "code",
       "type_id": "TD-05",
-      "title": "Duplicated fetch-wrapper logic between client.ts and client-admin.ts",
-      "severity": 3,
+      "title": "Duplicated fetch-with-auth-headers logic across API clients",
+      "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "Both modules build the same BASE/token/headers structure and fetch+json+catch flow, differing only in constant values (URL, env var name) and one has a timeout/log call the other lacks. Change-history coupling (ratio 0.889) confirms they are edited together.",
+      "note": "Both build identical Authorization+X-Retry headers and repeat the fetch/json/try-catch shape, differing in BASE, token var, timeout, and error handling. Leads mark this pair change-coupled (shared=4, ratio=0.889); error handling already drifted (see fbf5b36).",
       "evidence": [
         {
           "file": "src/api/client.ts",
-          "line_start": 1,
-          "line_end": 7,
-          "quote": "import { isEnabled } from \"../flags\";\n\nconst BASE = \"https://api.example.com\";\nconst token = process.env.API_TOKEN ?? \"\";\n\nexport async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}",
           "quote_verified": true
         },
         {
           "file": "src/api/client-admin.ts",
-          "line_start": 1,
-          "line_end": 7,
-          "quote": "import { isEnabled } from \"../flags\";\n\nconst BASE = \"https://admin.example.com\";\nconst token = process.env.ADMIN_TOKEN ?? \"\";\n\nexport async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };",
+          "line_start": 6,
+          "line_end": 12,
+          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),\n    });",
           "quote_verified": true
         }
       ],
@@ -40,7 +40,7 @@
       "signals_cited": [
         "coupling",
         "hotspot",
-        "pattern:duplication:parallel-http-client"
+        "pattern:duplication:coupled-fetch-wrapper"
       ],
       "signals": {
         "hotspot_score": 42.9,
@@ -51,26 +51,41 @@
         "in_hotspot_band": true
       },
       "tier": "C",
-      "verdict": "unverified",
-      "proof": "",
-      "checked": [],
-      "opened": [],
+      "verdict": "downgrade",
+      "proof": "client.ts:6-11 and client-admin.ts:6-12 do share identical fetch+auth-header shape, and coupling data (shared=4, ratio=0.889) supports the duplication claim. However both functions are dead code with zero callers (see candidates 1/2, independently verified), so the correct fix is deletion, not building a shared abstraction \u2014 extracting a common helper for code nobody calls adds no real value. Severity should reflect that this is duplicate dead code, not duplicate live logic.",
+      "checked": [
+        "change-coupling",
+        "path-class",
+        "shared-abstraction feasibility",
+        "callers"
+      ],
+      "opened": [
+        "src/api/client.ts",
+        "src/api/client-admin.ts"
+      ],
       "trap_matched": null,
-      "verified": false
+      "verified": true
     },
     {
-      "fingerprint": "bcb3cd9522cdbe0a",
-      "quote_hash": "61b1c30476e7e46d71c080e53c35f3124be8a72f",
+      "fingerprint": "f4c345aefd008ff5",
+      "quote_hash": "641a0ecc26569e79261e318fbfd965b0d8714454",
       "family": "dead-code",
       "debt_type": "code",
-      "type_id": "TD-09",
-      "title": "adminEnabled() has no callers and checks a flag key absent from FLAGS",
+      "type_id": "TD-30",
+      "title": "client-admin.ts exports are never called; adminPanel flag key does not exist",
       "severity": 3,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "adminEnabled is exported but has zero in-repo callers, and the \"adminPanel\" key it checks is not present in FLAGS at all, so isEnabled falls through to its `?? false` default permanently. File is the highest-scored hotspot in the repo.",
+      "note": "getAdminJson and adminEnabled have zero in-repo callers (highest hotspot score in repo) despite recent churn. adminPanel is not a key in FLAGS, so adminEnabled() falls through to '?? false' and can never return true even if called.",
       "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),",
+          "quote_verified": true
+        },
         {
           "file": "src/api/client-admin.ts",
           "line_start": 20,
@@ -93,6 +108,7 @@
         "scout:dead-code"
       ],
       "signals_cited": [
+        "coupling",
         "hotspot",
         "pattern:dead-code:flag-sdk"
       ],
@@ -106,42 +122,54 @@
       },
       "tier": "C",
       "verdict": "confirm",
-      "proof": "Confirmed by repo-wide grep: adminEnabled (client-admin.ts:20-22) and getAdminJson (line 6) have zero in-repo callers/importers. flags.ts:1-4 lists FLAGS={newCheckout:false, betaBanner:true} \u2014 'adminPanel' is absent, so isEnabled falls through to the '?? false' default at flags.ts:8, making adminEnabled() permanently return false even if it were called. No dynamic dispatch, route registration, or DI found referencing either export.",
+      "proof": "grep across src for 'getAdminJson', 'adminEnabled', 'client-admin' finds only the definitions in client-admin.ts:6,20 \u2014 zero callers anywhere, including index.ts (the only entry point) and the sole test file. flags.ts:1-5 lists only newCheckout and betaBanner; 'adminPanel' is absent, so adminEnabled() at line 21 always falls through isEnabled's '?? false' at flags.ts:8. No dynamic dispatch, route table, or DI container exists in this repo to invoke it indirectly.",
       "checked": [
-        "reflection/string-dispatch for adminEnabled/getAdminJson",
-        "entry points/scripts/test runners",
-        "public/plugin surface",
-        "flag purpose (feature flag, not permission/kill-switch)"
+        "reflection",
+        "string-dispatch",
+        "entry-point",
+        "test-runner-discovery",
+        "public/plugin surface"
       ],
-      "opened": [],
+      "opened": [
+        "src/flags.ts",
+        "src/index.ts",
+        "package.json"
+      ],
       "trap_matched": null,
       "verified": true
     },
     {
-      "fingerprint": "ab911a0fcb015d8e",
-      "quote_hash": "34d8822a867f62445426bfb6332d54df5a3bfa0d",
+      "fingerprint": "39ff2c7e77aa20a8",
+      "quote_hash": "52c17ce6d6acfea802455bc121103f55867005ea",
       "family": "dead-code",
       "debt_type": "code",
-      "type_id": "TD-20",
-      "title": "betaBanner flag hardcoded true with no toggle path",
-      "severity": 1,
+      "type_id": "TD-30",
+      "title": "getJson has no in-repo callers; betaBanner flag inside it is always true",
+      "severity": 3,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "betaBanner is hardcoded to true in FLAGS with no other write site in the repo, so the isEnabled check in getJson always evaluates true; the conditional adds no branching value.",
+      "note": "No file in src imports getJson (checked index.ts, checkout, cart, tests). betaBanner is hardcoded true in flags.ts with no code path setting it false, so the isEnabled check inside this already-uncalled function can never take more than one value.",
       "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}",
+          "quote_verified": true
+        },
         {
           "file": "src/api/client.ts",
           "line_start": 12,
           "line_end": 14,
-          "quote": "  if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");\n  }",
+          "quote": "if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");\n  }",
           "quote_verified": true
         },
         {
           "file": "src/flags.ts",
           "line_start": 4,
           "line_end": 4,
-          "quote": "  betaBanner: true,",
+          "quote": "betaBanner: true,",
           "quote_verified": true
         }
       ],
@@ -154,6 +182,7 @@
         "scout:dead-code"
       ],
       "signals_cited": [
+        "coupling",
         "hotspot",
         "pattern:dead-code:flag-sdk"
       ],
@@ -167,43 +196,47 @@
       },
       "tier": "C",
       "verdict": "confirm",
-      "proof": "flags.ts:4 sets betaBanner: true and grep finds no other write site for the key anywhere in the repo, so isEnabled('betaBanner') at client.ts:12 always evaluates true and the branch always executes. Unlike newCheckout (flags.ts:3, explicitly commented as an unfinished off-switch and actually read as a real toggle in checkout.ts:7), betaBanner has no consumer that ever flips it, so the conditional is vestigial. Not a permission/kill-switch pattern.",
+      "proof": "grep for 'getJson' repo-wide returns only the definition at client.ts:6; index.ts (sole entry, checked) never imports it, and the only test file (cart.test.ts) tests cart.ts, not client.ts. betaBanner is hardcoded true at flags.ts:4 with no setter anywhere, so line 12's isEnabled check is dead-in-a-dead-function. No dynamic reference patterns exist in this small repo.",
       "checked": [
-        "all write sites for betaBanner via grep",
-        "dynamic/string-based flag lookups: none found",
-        "comparison against newCheckout's genuine toggle usage"
+        "reflection",
+        "string-dispatch",
+        "entry-point",
+        "test-runner-discovery",
+        "public/plugin surface"
       ],
       "opened": [
-        "src/checkout/checkout.ts"
+        "src/flags.ts",
+        "src/index.ts",
+        "package.json"
       ],
       "trap_matched": null,
       "verified": true
     },
     {
-      "fingerprint": "355885f54c1b8168",
-      "quote_hash": "19279d1a1b40f48b2bd3d88d0efa263dd3503791",
+      "fingerprint": "29eba6f4f9adcbc9",
+      "quote_hash": "a80a4d8cff5824dc5987d967a12510ddc8980d00",
       "family": "dead-code",
       "debt_type": "code",
       "type_id": "TD-20",
-      "title": "newCheckout flag permanently false; if-branch never reachable",
+      "title": "newCheckout flag hardcoded off, checkout branch unreachable",
       "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "FLAGS hardcodes newCheckout to false with a comment confirming it has been off since launch and the new flow was never finished. There is no runtime toggle for it in the repo, so the `new:` branch of checkout() is unreachable dead code.",
+      "note": "FLAGS is a static object with no runtime configuration source, and the comment confirms the new flow was abandoned, so this branch cannot execute; it is dead code standing in for a feature that was never finished.",
       "evidence": [
         {
           "file": "src/flags.ts",
-          "line_start": 1,
-          "line_end": 5,
-          "quote": "const FLAGS: Record<string, boolean> = {\n  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,\n  betaBanner: true,\n};",
+          "line_start": 2,
+          "line_end": 3,
+          "quote": "// newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,",
           "quote_verified": true
         },
         {
           "file": "src/checkout/checkout.ts",
-          "line_start": 6,
+          "line_start": 7,
           "line_end": 9,
-          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }",
+          "quote": "if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }",
           "quote_verified": true
         }
       ],
@@ -214,7 +247,6 @@
       ],
       "signals_cited": [
         "pattern:dead-code:flag-sdk",
-        "pattern:dead-code:legacy-name",
         "satd"
       ],
       "signals": {
@@ -227,18 +259,71 @@
       },
       "tier": "C",
       "verdict": "confirm",
-      "proof": "Grep across the repo for `newCheckout` and `isEnabled(` finds only the literal FLAGS entry (flags.ts:3) and the single literal call site in checkout.ts:7 \u2014 no env var, config loader, admin toggle, or test overrides FLAGS. client.ts and client-admin.ts use isEnabled only with their own distinct literal flag names (betaBanner, adminPanel), never newCheckout. index.ts calls checkout() directly, not via a router/DI/reflection path, so the `new:` branch (checkout.ts:7-9) is genuinely unreachable in any current code path.",
+      "proof": "FLAGS (flags.ts:1-5) is a static in-memory object with no env/config loader anywhere in src (grepped whole tree); the only way to flip newCheckout is a source edit. checkout.ts:7-8 branch is therefore unreachable under any runtime configuration, and the comment confirms it was abandoned rather than paused for a rollout. No dynamic dispatch, DI, or serialization references the string 'newCheckout' elsewhere.",
       "checked": [
-        "reflection",
-        "string-dispatch",
-        "env/config override",
-        "entry point"
+        "reflection/string-dispatch for 'newCheckout'",
+        "config/env override sources",
+        "entry points"
       ],
-      "opened": [
-        "src/api/client.ts",
-        "src/api/client-admin.ts",
-        "src/index.ts"
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "73c4ac3f4febadd0",
+      "quote_hash": "58413bddbb473a491da4234e04dfb1b9c1f4458a",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-17",
+      "title": "Deprecated legacyFormat wrapper still called from checkout",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "legacyFormat is marked @deprecated in favor of formatMoney, but checkout.ts still calls it on its only live path (the legacy branch, since newCheckout is permanently off), so the deprecated unit is not actually unused.",
+      "evidence": [
+        {
+          "file": "src/util/format-legacy.ts",
+          "line_start": 3,
+          "line_end": 6,
+          "quote": "/** @deprecated use formatMoney */\nexport function legacyFormat(cents: number): string {\n  return formatMoney(cents).replace(\"$\", \"USD \");\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 11,
+          "line_end": 11,
+          "quote": "const label = first ? legacyFormat(priceOf(first.sku)) : \"\";",
+          "quote_verified": true
+        }
       ],
+      "confirmed_by": [
+        "pattern:deprecation",
+        "pattern:flag-sdk",
+        "pattern:legacy-name",
+        "satd",
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "pattern:dead-code:deprecation",
+        "pattern:dead-code:legacy-name"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "C",
+      "verdict": "confirm",
+      "proof": "format-legacy.ts:3-6 marks legacyFormat @deprecated in favor of formatMoney; grep confirms legacyFormat's only caller is checkout.ts:11, which executes whenever the (permanently-off) newCheckout flag is false, i.e. on the sole live code path. formatMoney (format.ts:1-3) has no other callers. The deprecated function is genuinely still in active use, not dead.",
+      "checked": [
+        "all callers of legacyFormat",
+        "all callers of formatMoney"
+      ],
+      "opened": [],
       "trap_matched": null,
       "verified": true
     },
@@ -248,18 +333,18 @@
       "family": "error-masking",
       "debt_type": "defect",
       "type_id": "TD-13",
-      "title": "Admin API errors converted to null after logging, no propagation",
-      "severity": 2,
+      "title": "Admin request failures logged then converted to null, hiding cause from caller",
+      "severity": 3,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "Cause is preserved via console.error(e), so this is not a silent swallow, but the exception is still converted to a null return value with no re-throw or error signal, making it indistinguishable from a valid empty admin response to any caller.",
+      "note": "Error is logged with cause preserved in the console, but is not rethrown or surfaced to the caller; getAdminJson returns null on both failure and any falsy JSON body, so callers cannot distinguish failure from a valid null/empty response.",
       "evidence": [
         {
           "file": "src/api/client-admin.ts",
           "line_start": 14,
           "line_end": 17,
-          "quote": "  } catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }",
+          "quote": "} catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }",
           "quote_verified": true
         }
       ],
@@ -282,34 +367,36 @@
       },
       "tier": null,
       "verdict": "reject",
-      "proof": "Confirmed mechanically: catch block (lines 14-17) logs via console.error(e) then returns null instead of rethrowing, so a caller cannot distinguish failure from a legitimately empty/null JSON response. However, grep across the repo shows getAdminJson has zero in-repo callers, so no code path is actually misled today \u2014 this is latent risk in currently-dead code rather than an active masking bug affecting a real caller.",
+      "proof": "Catch block (lines 14-16) logs via console.error but returns null on any failure, same as a successful response whose JSON body is legitimately null; getAdminJson has no caller yet (confirmed via repo-wide grep) so no current code path depends on this masking, but the sibling client.ts (lines 8-11) swallows errors even more silently with an empty catch, suggesting this error-return-null pattern is an established, uncaught defect shape across both admin and non-admin clients.",
       "checked": [
-        "callers of getAdminJson (none found)",
-        "cause preservation in catch (console.error(e) \u2014 preserved for logs only)",
-        "process boundary (none \u2014 plain function)"
+        "compared to client.ts's empty catch for pattern confirmation",
+        "grepped for callers relying on getAdminJson's return value"
       ],
-      "opened": [],
+      "opened": [
+        "src/api/client.ts",
+        "src/flags.ts"
+      ],
       "trap_matched": "golden trap: intentional fixture",
       "verified": true
     },
     {
-      "fingerprint": "92be85bba7b53708",
-      "quote_hash": "93615bc5225de6d425bd23c43d37e5169571981f",
+      "fingerprint": "893cfe16bcc6f895",
+      "quote_hash": "f305ccc5ab688ce1a5b485ffbe67fd4e74117efd",
       "family": "error-masking",
       "debt_type": "defect",
       "type_id": "TD-13",
-      "title": "Empty catch block silently swallows all fetch/JSON errors",
-      "severity": 4,
+      "title": "Empty catch swallows fetch/JSON errors in getJson",
+      "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "Network errors, non-JSON responses, and thrown auth/timeout failures are caught and discarded with no logging; the function falls through to return null, indistinguishable from a legitimate empty response. No caller in the repo currently consumes getJson, so the failure is invisible to everyone.",
+      "note": "Catch block is completely empty: network failures, non-JSON responses, and auth errors are silently discarded. Caller receives null indistinguishable from a legitimate empty result; no log, no rethrow, nothing to alert anyone the request failed.",
       "evidence": [
         {
           "file": "src/api/client.ts",
           "line_start": 8,
-          "line_end": 13,
-          "quote": "  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}\n  if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");",
+          "line_end": 14,
+          "quote": "try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}\n  if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");\n  }",
           "quote_verified": true
         }
       ],
@@ -333,52 +420,39 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "A",
-      "verdict": "confirm",
-      "proof": "client.ts:11 `catch (e) {}` discards network errors, non-JSON bodies, and abort errors with no logging, falling through to return null (line 15), indistinguishable from a valid empty response. client-admin.ts:14-17 logs the error via console.error before returning null, showing the intended pattern. Grep across src/ finds no caller of getJson anywhere in the repo (only its own definition), so the masking is currently latent rather than actively hiding a live failure today, but the code itself is a real error-masking defect for any future/external caller.",
+      "tier": "C",
+      "verdict": "downgrade",
+      "proof": "The catch at client.ts:11 is genuinely empty \u2014 real error-masking as a code pattern. But getJson has zero in-repo callers (confirmed via repo-wide grep and index.ts review), so today no caller receives a masked failure and no one is misled by it in production; the question 'who learns of it' has answer 'no one, because nothing calls this.' The defect is latent, not live, so full severity-5 (production risk) is overstated until the function is wired up.",
       "checked": [
-        "callers via grep for getJson",
-        "sibling client-admin.ts error handling",
-        "rethrow/cause preservation: none, error is dropped"
+        "reflection",
+        "string-dispatch",
+        "process-boundary",
+        "rethrow/cause-preservation"
       ],
       "opened": [
-        "src/api/client-admin.ts"
+        "src/api/client.ts"
       ],
       "trap_matched": null,
       "verified": true
     },
     {
-      "fingerprint": "107fa620ca40e71c",
-      "quote_hash": "8d84f267a8719cb7ee4a3bccbfe47dbc8dabde7d",
+      "fingerprint": "08e6401c9ac87df8",
+      "quote_hash": "c948b67c0da39f478bbefe7968071e74e74bd00e",
       "family": "test-gaps",
       "debt_type": "test",
       "type_id": "TD-04",
-      "title": "Coverage threshold configured but never enforced by test run",
-      "severity": 3,
+      "title": "Coverage threshold declared but not enforced by test script",
+      "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "jest's coverageThreshold only fails a run under --coverage; both the 'test' script and CI invoke plain jest, so the 80% gate is dead config and CI cannot fail on the untested hotspot files above.",
+      "note": "coverageThreshold is configured but the \"test\" script runs plain jest without --coverage, so the threshold is never evaluated during a normal `yarn test`/`npm test` run, letting untested hotspot files (client.ts, client-admin.ts, checkout.ts) go unflagged.",
       "evidence": [
         {
           "file": "package.json",
           "line_start": 5,
-          "line_end": 5,
-          "quote": "  \"scripts\": { \"build\": \"tsc -p tsconfig.json\", \"test\": \"jest\" },",
-          "quote_verified": true
-        },
-        {
-          "file": "package.json",
-          "line_start": 8,
           "line_end": 8,
-          "quote": "  \"jest\": { \"coverageThreshold\": { \"global\": { \"lines\": 80 } } }",
-          "quote_verified": true
-        },
-        {
-          "file": ".github/workflows/ci.yml",
-          "line_start": 19,
-          "line_end": 19,
-          "quote": "          command: npm test",
+          "quote": "\"scripts\": { \"build\": \"tsc -p tsconfig.json\", \"test\": \"jest\" },\n  \"dependencies\": { \"tiny-emitter\": \"2.1.0\" },\n  \"devDependencies\": { \"typescript\": \"5.4.5\", \"jest\": \"29.7.0\", \"eslint\": \"9.0.0\" },\n  \"jest\": { \"coverageThreshold\": { \"global\": { \"lines\": 80 } } }",
           "quote_verified": true
         }
       ],
@@ -399,11 +473,11 @@
       },
       "tier": "B",
       "verdict": "confirm",
-      "proof": "package.json:8 sets jest coverageThreshold to 80% lines, but package.json:5's test script is plain `jest` with no --coverage flag, and ci.yml:19 invokes `npm test` (same plain script). Jest only enforces coverageThreshold when run with --coverage, so this gate never executes and cannot fail a build regardless of actual coverage.",
+      "proof": "package.json:5,8 \u2014 \"test\": \"jest\" with no --coverage flag, while jest.coverageThreshold.global.lines is set to 80. No jest.config.* file exists to add coverage-on-by-default. Coverage (and thus the threshold) only evaluates with `--coverage`, so plain `npm test`/`yarn test` never triggers it. Confirmed only one test file exists repo-wide (src/__tests__/cart.test.ts); client.ts, client-admin.ts, and checkout.ts have no corresponding test files, so the unmet threshold would go undetected.",
       "checked": [
-        "test script definition",
-        "CI invocation",
-        "jest coverage-threshold semantics"
+        "package.json scripts and jest config",
+        "glob for jest.config.*",
+        "glob for *.test.ts across repo"
       ],
       "opened": [],
       "trap_matched": null,
@@ -415,18 +489,18 @@
       "family": "test-gaps",
       "debt_type": "test",
       "type_id": "TD-04",
-      "title": "Skipped bulk-pricing test hides a discrepancy with actual pricing output",
-      "severity": 2,
+      "title": "Bulk pricing behavior test is skipped",
+      "severity": 3,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "Skipped assertion expects priceOf('A1')===900, but pricing.ts has no bulk logic and returns 1000. The skip masks an unimplemented feature or stale test; bulk pricing has zero real coverage.",
+      "note": "The only test that would assert priceOf's bulk-discount behavior is disabled via .skip, so priceOf's pricing logic beyond the zero-sku case runs with no automated guard; a pricing regression would not be caught by the suite.",
       "evidence": [
         {
           "file": "src/__tests__/pricing.spec.ts",
           "line_start": 7,
           "line_end": 9,
-          "quote": "  it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });",
+          "quote": "it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });",
           "quote_verified": true
         }
       ],
@@ -437,7 +511,7 @@
         "signal:no-mapped-tests"
       ],
       "signals_cited": [
-        "pattern:test-gaps:skip-marker"
+        "pattern:test-gaps:half-finished-skip-marker"
       ],
       "signals": {
         "hotspot_score": 5.7,
@@ -447,46 +521,37 @@
         "path_class": "tests",
         "in_hotspot_band": false
       },
-      "tier": "C",
-      "verdict": "downgrade",
-      "proof": "pricing.ts:3-7 confirms PRICES={A1:1000,B2:2500} with flat lookup, no bulk logic; skipped test at pricing.spec.ts:7-9 expects 900 for A1, which would fail if run. Real gap, correctly described. But blast radius is a single SKU/test in a non-hotspot file (hotspot_score=5.7, path_class=tests) with no other coupling \u2014 severity 3 overstates impact for a self-contained, trivially fixable stale test.",
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "pricing.ts:5-8 has flat PRICES lookup with no discount/quantity logic. The only test naming 'bulk pricing' (pricing.spec.ts:7-9) is it.skip'd, and no other test file (cart.test.ts, pricing.spec.ts) exercises tiered/bulk pricing. No ticket or date annotation near the skip. Confirms priceOf's non-trivial pricing behavior is unguarded by the suite.",
       "checked": [
-        "mapped test paths (__tests__/pricing.spec.ts, cart.test.ts)",
-        "priceOf implementation",
-        "callers in cart.ts and checkout.ts"
+        "searched all test files under src/__tests__ for bulk-pricing coverage",
+        "no ticket/date near skip marker"
       ],
       "opened": [
-        "src/cart/cart.ts",
-        "src/checkout/checkout.ts"
+        "src/cart/pricing.ts"
       ],
       "trap_matched": null,
       "verified": true
     },
     {
-      "fingerprint": "843db87dca3fb8d8",
-      "quote_hash": "967cf774c3bd32876e1c442d2dbc654c9ebd204a",
+      "fingerprint": "141175ed2e56d821",
+      "quote_hash": "c88d16096d77ee419eb24be88e01067ad1c9776f",
       "family": "test-gaps",
       "debt_type": "test",
       "type_id": "TD-04",
-      "title": "Admin API client has no tests; errors silently swallowed",
-      "severity": 5,
+      "title": "Admin API client has no test coverage of auth/timeout/error paths",
+      "severity": 4,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "Highest-scored hotspot (80.0), untested_change_share=1.0, no mapped test found. Fetch failures collapse to a bare null with no assertion, and adminEnabled() checks a flag key absent from FLAGS (always false) with no test catching either behavior.",
+      "note": "Highest-scored hotspot file (80.0), untested_change_share=1.0, no test file references client-admin.ts. Auth header construction, timeout, and error-swallow-to-null behavior are unguarded; a regression (e.g. wrong header name, timeout dropped) would silently break admin API access.",
       "evidence": [
         {
           "file": "src/api/client-admin.ts",
-          "line_start": 13,
+          "line_start": 6,
           "line_end": 18,
-          "quote": "    return await response.json();\n  } catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }\n}",
-          "quote_verified": true
-        },
-        {
-          "file": "src/api/client-admin.ts",
-          "line_start": 20,
-          "line_end": 22,
-          "quote": "export function adminEnabled(): boolean {\n  return isEnabled(\"adminPanel\");\n}",
+          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),\n    });\n    return await response.json();\n  } catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }\n}",
           "quote_verified": true
         }
       ],
@@ -511,94 +576,35 @@
       },
       "tier": "A",
       "verdict": "confirm",
-      "proof": "Confirmed: no test file for client-admin.ts exists (only cart.test.ts and pricing.spec.ts under __tests__). getAdminJson (lines 6-18) catches all fetch/json errors, logs, and returns null \u2014 untested. adminEnabled (lines 20-22) checks isEnabled('adminPanel'); flags.ts:1-4 shows FLAGS only contains newCheckout and betaBanner, so isEnabled always falls through to '?? false' (flags.ts:8) \u2014 untested and effectively dead logic, exactly as claimed.",
+      "proof": "Grep across the repo for getAdminJson/client-admin finds only the definition file itself \u2014 no test file (src/__tests__ has only cart.test.ts and pricing.spec.ts) and no caller yet either, but the module is exported and actively churned (churn=4, highest hotspot_score=80.0). Auth header (line 7), timeout (line 11), and catch-to-null (lines 14-16) are all unguarded by any assertion. Real gap, though current blast radius is limited since nothing calls it yet.",
       "checked": [
-        "test paths for client-admin",
-        "FLAGS contents for adminPanel key",
-        "unconventional test names"
+        "grepped whole repo for getAdminJson/client-admin callers and tests",
+        "confirmed no test file references it"
       ],
       "opened": [
-        "src/flags.ts",
         "src/api/client.ts"
       ],
       "trap_matched": null,
       "verified": true
     },
     {
-      "fingerprint": "e86c1f37f0d0e9d4",
-      "quote_hash": "41a0eb1fe8312f4855029f80c6f070bbf5359df5",
+      "fingerprint": "37123abc76b1359b",
+      "quote_hash": "095842f0ccb6ee42203cb902d3485d982ec37470",
       "family": "test-gaps",
       "debt_type": "test",
       "type_id": "TD-04",
-      "title": "Public API client has no tests; fetch errors swallowed silently",
+      "title": "Checkout flow (legacy/new switch) has no automated test",
       "severity": 4,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "Hotspot score 42.9, untested_change_share=1.0, no mapped test found. Empty catch discards all fetch/parse failures with nothing asserting the fallback-to-null or betaBanner log behavior.",
-      "evidence": [
-        {
-          "file": "src/api/client.ts",
-          "line_start": 9,
-          "line_end": 11,
-          "quote": "    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}",
-          "quote_verified": true
-        }
-      ],
-      "confirmed_by": [
-        "coupling",
-        "hotspot",
-        "pattern:flag-sdk",
-        "pattern:no-timeout",
-        "pattern:swallowed-catch",
-        "scout:test-gaps",
-        "signal:no-mapped-tests"
-      ],
-      "signals_cited": [
-        "coupling",
-        "hotspot"
-      ],
-      "signals": {
-        "hotspot_score": 42.9,
-        "churn": 5,
-        "coupling_degree": 1,
-        "fan_in_approx": 0,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "tier": "A",
-      "verdict": "confirm",
-      "proof": "Glob for *client* under the repo returns only src/api/client.ts and client-admin.ts themselves; no test file targets either. The __tests__ directory only covers cart.test.ts and pricing.spec.ts. Nothing exercises the fallback-to-null path, the swallowed-catch behavior, or the betaBanner log branch in client.ts:9-14.",
-      "checked": [
-        "glob for test files matching client",
-        "contents of __tests__ directory",
-        "unconventionally named tests: none found"
-      ],
-      "opened": [
-        "src/__tests__/cart.test.ts",
-        "src/__tests__/pricing.spec.ts"
-      ],
-      "trap_matched": null,
-      "verified": true
-    },
-    {
-      "fingerprint": "cf9039c7651cee2c",
-      "quote_hash": "826aeae8356706cbe7a4f2f7192b995f29e7ef7f",
-      "family": "test-gaps",
-      "debt_type": "test",
-      "type_id": "TD-04",
-      "title": "Checkout dispatch logic (flag-gated money path) has no tests",
-      "severity": 4,
-      "effort": "S",
-      "source": "scout",
-      "rule_id": null,
-      "note": "untested_change_share=1.0, no mapped test found. Neither the legacy branch (empty-cart guard, legacyFormat/priceOf composition) nor the flag-gated new branch is exercised, despite computing the customer-facing checkout total.",
+      "note": "untested_change_share=1.0 and no test references checkout.ts despite it composing cart total, pricing, and formatting behind a feature flag. Blast radius is direct: a regression here affects the checkout output customers/orders depend on, and neither branch (legacy or new) is asserted.",
       "evidence": [
         {
           "file": "src/checkout/checkout.ts",
           "line_start": 6,
-          "line_end": 9,
-          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }",
+          "line_end": 13,
+          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";\n  return `legacy:${label}`;\n}",
           "quote_verified": true
         }
       ],
@@ -623,11 +629,62 @@
       },
       "tier": "A",
       "verdict": "confirm",
-      "proof": "Glob for *checkout* under src finds only checkout.ts itself, no test file. __tests__ only contains cart.test.ts and pricing.spec.ts, neither of which imports checkout(). Both the flag-gated new branch (checkout.ts:7-8) and the legacy empty-cart guard plus legacyFormat/priceOf composition (lines 10-11) are unexercised, despite computing the customer-facing total.",
+      "proof": "The only test file in the repo is src/__tests__/cart.test.ts, which tests cart.ts's addItem/total and never imports checkout.ts, priceOf, or legacyFormat. Repo-wide search for 'checkout' finds no *.test.ts, *.spec.ts, or e2e references \u2014 only checkout.ts itself, index.ts (which calls checkout(cart) at index.ts:7 but discards the return value), and docs/CI mentions. Both the legacy branch (checkout.ts:10-12) and the newCheckout branch (line 7-8) are unasserted.",
       "checked": [
-        "glob for test files matching checkout",
-        "contents of __tests__ directory",
-        "unconventionally named tests: none found"
+        "test-path search",
+        "unconventional test naming",
+        "mapped-test assertion depth"
+      ],
+      "opened": [
+        "src/checkout/checkout.ts",
+        "src/__tests__/cart.test.ts"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "02bbf6de78e47bd6",
+      "quote_hash": "859d9b853dcca80bf1f256c01df3d0bb61d8cd9e",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Feature flag lookup (isEnabled) has no direct test",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "untested_change_share=1.0 and no test file references flags.ts directly. isEnabled gates checkout.ts's legacy/new branch and both API clients' behavior, so an unguarded change to the lookup or defaults propagates untested into checkout and API paths.",
+      "evidence": [
+        {
+          "file": "src/flags.ts",
+          "line_start": 1,
+          "line_end": 9,
+          "quote": "const FLAGS: Record<string, boolean> = {\n  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,\n  betaBanner: true,\n};\n\nexport function isEnabled(name: string): boolean {\n  return FLAGS[name] ?? false;\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:flag-sdk",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "coupling"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 3,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "Grep across src for .test.ts/.spec.ts finds only cart.test.ts and pricing.spec.ts, neither referencing flags.ts, client.ts, client-admin.ts, or checkout.ts. isEnabled (flags.ts:7-9) is called from checkout.ts:7, client.ts:12, client-admin.ts:21, and its ?? false fallback is what makes the undefined 'adminPanel' key resolve to false in client-admin.ts:21 \u2014 untested branch logic with real effect.",
+      "checked": [
+        "test file naming variants (.test.ts/.spec.ts)",
+        "all referrers of isEnabled"
       ],
       "opened": [
         "src/__tests__/cart.test.ts",
@@ -642,18 +699,25 @@
       "family": "half-finished",
       "debt_type": "requirement",
       "type_id": null,
-      "title": "Skipped test for unimplemented bulk pricing feature",
-      "severity": 2,
+      "title": "Bulk pricing test skipped; feature never implemented in priceOf",
+      "severity": 3,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "priceOf in src/cart/pricing.ts only does a flat lookup (returns 1000 for A1, not 900); the skipped test documents a bulk-pricing discount path that was never implemented, with no ticket or date attached to the skip.",
+      "note": "priceOf has no bulk-discount logic at all (flat PRICES lookup), so the skipped test documents a requirement that was never built, not a currently-flaky test; no ticket or date is attached to the skip.",
       "evidence": [
         {
           "file": "src/__tests__/pricing.spec.ts",
           "line_start": 7,
           "line_end": 10,
           "quote": "  it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });\n});",
+          "quote_verified": true
+        },
+        {
+          "file": "src/cart/pricing.ts",
+          "line_start": 5,
+          "line_end": 8,
+          "quote": "export function priceOf(sku: string): number {\n  reserve(sku, 0);\n  return PRICES[sku] ?? 0;\n}",
           "quote_verified": true
         }
       ],
@@ -663,7 +727,8 @@
         "scout:half-finished"
       ],
       "signals_cited": [
-        "pattern:half-finished:skip-marker"
+        "pattern:half-finished:skip-marker",
+        "satd"
       ],
       "signals": {
         "hotspot_score": 5.7,
@@ -673,38 +738,30 @@
         "path_class": "tests",
         "in_hotspot_band": false
       },
-      "tier": "C",
-      "verdict": "downgrade",
-      "proof": "Same span/fact as the two prior candidates. priceOf (pricing.ts:5-7) is a flat map lookup with zero bulk-discount code path; the skip has no ticket/date annotation. This is real but is not a load-bearing 'stub is an abstract contract' situation \u2014 it's a single disabled test with no named risk elsewhere in the code (grep shows only cart.ts and checkout.ts call priceOf, neither references bulk pricing). Severity 3 overstates a narrowly-scoped, easily-fixed test gap.",
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "pricing.ts:5-8 confirms priceOf is a flat PRICES.get with no bulk/tiered logic \u2014 no partial scaffolding, branch, or comment toward the feature exists anywhere in cart.ts, pricing.ts, or checkout.ts. The skip has no ticket/date/reason string attached. This matches half-finished: a requirement named in a test but never implemented, not a flaky-test skip.",
       "checked": [
-        "stub as abstract contract (no)",
-        "ticket reference (none found)",
-        "named risk elsewhere in code (none \u2014 only flat lookup callers)"
+        "searched pricing.ts/cart.ts/checkout.ts for any bulk-discount scaffolding",
+        "checked for ticket reference near skip"
       ],
       "opened": [],
       "trap_matched": null,
       "verified": true
     },
     {
-      "fingerprint": "26b3f35c0a5ea5e2",
-      "quote_hash": "f61b4e5c8215e88ec26bda0ed3810aa16cbf9ba0",
+      "fingerprint": "fdb5fcca4c87f4b8",
+      "quote_hash": "52c17ce6d6acfea802455bc121103f55867005ea",
       "family": "half-finished",
-      "debt_type": "code",
+      "debt_type": "defect",
       "type_id": null,
-      "title": "fetch in client.ts has no timeout/abort signal",
-      "severity": 3,
+      "title": "getJson fetch has no timeout and swallows all errors",
+      "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "fetch has no AbortSignal/timeout, so a non-responding remote hangs the await indefinitely. The sibling client-admin.ts (line 11) has AbortSignal.timeout(5000), and recent history shows a timeout fix intended for both clients was only applied to one, leaving this path unfinished.",
+      "note": "fetch call sets no AbortSignal/timeout, so a non-responding remote hangs the await indefinitely; the sibling client-admin.ts uses AbortSignal.timeout(5000) for the same pattern, and the catch block here is also empty, silently discarding failures.",
       "evidence": [
-        {
-          "file": "src/api/client.ts",
-          "line_start": 11,
-          "line_end": 11,
-          "quote": "  } catch (e) {}",
-          "quote_verified": true
-        },
         {
           "file": "src/api/client.ts",
           "line_start": 6,
@@ -723,8 +780,7 @@
       ],
       "signals_cited": [
         "hotspot",
-        "pattern:half-finished:no-timeout",
-        "satd"
+        "pattern:half-finished:no-timeout"
       ],
       "signals": {
         "hotspot_score": 42.9,
@@ -734,67 +790,18 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "A",
-      "verdict": "confirm",
-      "proof": "client.ts:9 calls fetch with only {headers}, no AbortSignal/timeout, so a hung remote blocks the await forever. client-admin.ts:9-12 passes signal: AbortSignal.timeout(5000) for the identical pattern. Recent commit fbf5b36 'fix: timeout handling copied between clients' confirms a timeout fix was intended for both clients but only landed in client-admin.ts, leaving client.ts unfinished. No ticket or abstract-contract marker found; this is a genuine partial fix, not a stub.",
+      "tier": "C",
+      "verdict": "downgrade",
+      "proof": "client.ts:9 indeed has no AbortSignal/timeout unlike client-admin.ts:9-12, and the catch at line 11 is empty \u2014 both true as static facts. But getJson (candidates 2/3) has no in-repo callers, so there is currently no live request that can hang; the 'hang the await indefinitely' risk only materializes if/when the function is called. No ticket or stub-contract markers found referencing this as tracked risk.",
       "checked": [
-        "reflection/string-dispatch: n/a",
-        "commit history for the referenced fix",
-        "sibling implementation diff"
-      ],
-      "opened": [
-        "src/api/client-admin.ts"
-      ],
-      "trap_matched": null,
-      "verified": true
-    },
-    {
-      "fingerprint": "f814e83b9c9e56a4",
-      "quote_hash": "a80a4d8cff5824dc5987d967a12510ddc8980d00",
-      "family": "half-finished",
-      "debt_type": "code",
-      "type_id": null,
-      "title": "newCheckout feature flag permanently off, flow never finished",
-      "severity": 2,
-      "effort": "S",
-      "source": "scout",
-      "rule_id": null,
-      "note": "checkout.ts still branches on isEnabled(\"newCheckout\") (src/checkout/checkout.ts:7-8) to call total(cart), but the comment admits the new flow was never completed; the dead/unfinished branch and its dependency remain in the live code path indefinitely with no ticket referenced.",
-      "evidence": [
-        {
-          "file": "src/flags.ts",
-          "line_start": 2,
-          "line_end": 3,
-          "quote": "  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,",
-          "quote_verified": true
-        }
-      ],
-      "confirmed_by": [
-        "pattern:flag-sdk",
-        "scout:half-finished"
-      ],
-      "signals_cited": [
-        "satd"
-      ],
-      "signals": {
-        "hotspot_score": 0.0,
-        "churn": 2,
-        "coupling_degree": 0,
-        "fan_in_approx": 3,
-        "path_class": "source",
-        "in_hotspot_band": false
-      },
-      "tier": "A",
-      "verdict": "confirm",
-      "proof": "Confirmed: no ticket reference found anywhere in flags.ts or checkout.ts, and no toggle exists (same grep evidence as candidates 1/2). The isEnabled(\"newCheckout\") stub is a concrete conditional branch, not an abstract contract, so it is genuinely a half-finished/abandoned path rather than intentional API surface. Effort is overstated as M in the note \u2014 deleting checkout.ts:7-9 and the now-unused `total` import is a trivial single-file change, so S is more accurate.",
-      "checked": [
+        "abstract-contract check",
         "ticket reference",
-        "abstract contract check"
+        "named-risk still present",
+        "callers"
       ],
       "opened": [
         "src/api/client.ts",
-        "src/api/client-admin.ts",
-        "src/index.ts"
+        "src/api/client-admin.ts"
       ],
       "trap_matched": null,
       "verified": true
@@ -804,13 +811,13 @@
       "quote_hash": "58413bddbb473a491da4234e04dfb1b9c1f4458a",
       "family": "half-finished",
       "debt_type": "code",
-      "type_id": null,
-      "title": "Deprecated legacyFormat still exercised on live checkout path",
+      "type_id": "TD-22",
+      "title": "Deprecated legacyFormat still used on the live checkout path",
       "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "Marked deprecated ~704 days ago with no ticket reference, yet checkout.ts still calls legacyFormat on the default (flag-off) path, so the deprecated code is not a dead leftover but the actual production behavior.",
+      "note": "Marker is 704 days old with no ticket reference; the deprecated function is still exercised whenever the newCheckout flag is off, so the replacement migration was never finished.",
       "evidence": [
         {
           "file": "src/util/format-legacy.ts",
@@ -818,10 +825,18 @@
           "line_end": 6,
           "quote": "/** @deprecated use formatMoney */\nexport function legacyFormat(cents: number): string {\n  return formatMoney(cents).replace(\"$\", \"USD \");\n}",
           "quote_verified": true
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 4,
+          "line_end": 11,
+          "quote": "import { legacyFormat } from \"../util/format-legacy\";\n\nexport function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";",
+          "quote_verified": true
         }
       ],
       "confirmed_by": [
         "pattern:deprecation",
+        "pattern:flag-sdk",
         "pattern:legacy-name",
         "satd",
         "scout:half-finished"
@@ -837,16 +852,14 @@
         "path_class": "source",
         "in_hotspot_band": false
       },
-      "tier": "A",
-      "verdict": "confirm",
-      "proof": "checkout.ts:11 calls legacyFormat(priceOf(...)) unconditionally on the default path (since newCheckout is always false per candidates 1-3), making this deprecated function the actual production formatter, not dead legacy code. No ticket found referencing removal. format.ts:1-3 shows formatMoney is the only intended replacement and legacyFormat is its sole caller-facing wrapper (format-legacy.ts:5), confirming the deprecated code is load-bearing.",
+      "tier": "C",
+      "verdict": "downgrade",
+      "proof": "Core claim verified: legacyFormat (format-legacy.ts:3-6) is @deprecated yet still exercised on checkout.ts's live path (lines 6-11) since newCheckout is always false, and no ticket marker exists in src. The '704 days old' figure cannot be verified with available read-only tools (no git-log access), so I can't confirm that specific number; severity 2 as given is consistent with the effort-S, single-caller scope confirmed independently.",
       "checked": [
-        "ticket reference",
-        "call-site liveness"
+        "ticket/ID references in code",
+        "marker age (unverifiable without git history)"
       ],
-      "opened": [
-        "src/util/format.ts"
-      ],
+      "opened": [],
       "trap_matched": null,
       "verified": true
     },
@@ -855,13 +868,13 @@
       "quote_hash": "a80a4d8cff5824dc5987d967a12510ddc8980d00",
       "family": "migration",
       "debt_type": "design",
-      "type_id": null,
-      "title": "newCheckout feature flag path never completed, dead new branch",
+      "type_id": "TD-06",
+      "title": "newCheckout flag path is dead; only legacy/deprecated path ever runs",
       "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "checkout.ts branches on the newCheckout flag, but the flag is permanently false and the comment states the new flow was never finished; 100% of call sites run the old/legacy branch and the new branch is unreachable dead code with no plan or date to finish or remove it.",
+      "note": "Old path (100% of call sites: the single checkout() caller) runs through the deprecated legacyFormat helper; the new path guarded by newCheckout is unreachable and, per the comment, was abandoned rather than scheduled. No ticket or date is present for finishing or removing it.",
       "evidence": [
         {
           "file": "src/flags.ts",
@@ -873,8 +886,8 @@
         {
           "file": "src/checkout/checkout.ts",
           "line_start": 6,
-          "line_end": 11,
-          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";",
+          "line_end": 13,
+          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";\n  return `legacy:${label}`;\n}",
           "quote_verified": true
         }
       ],
@@ -884,7 +897,7 @@
         "scout:migration"
       ],
       "signals_cited": [
-        "pattern:migration:stalled-flag",
+        "pattern:migration:dead-flag-branch",
         "satd"
       ],
       "signals": {
@@ -897,17 +910,13 @@
       },
       "tier": "C",
       "verdict": "downgrade",
-      "proof": "Same underlying fact as the dead-code candidate: no toggle mechanism exists anywhere (verified via grep of isEnabled/FLAGS and referrers client.ts, client-admin.ts, index.ts), so call-site ratio is indeed 100% legacy. However this is a single 3-line unreachable if-block with a churn=2/fan_in=3/hotspot=0 footprint and no external dependents on the 'new:' format \u2014 removal is a one-line-diff deletion, not migration-scale work, so severity 3 overstates impact; 2 fits better alongside the near-identical candidate 1.",
+      "proof": "Confirmed: checkout() (checkout.ts:6-13) has a single caller path exercised, the newCheckout branch (lines 7-9) is unreachable per the static FLAGS map, and no TODO/FIXME/ticket markers exist anywhere in src. However this is the same fact as candidate 29eba6f4f9adcbc9 (dead branch, one function, one call site, effort S) with no additional evidence (no churn breakdown available, no multi-backend indication) to justify severity 3 over 2.",
       "checked": [
-        "string-dispatch",
-        "env/config override",
-        "call-site ratio"
+        "churn evidence for old vs new side (unavailable, no git tool)",
+        "multi-backend deliberateness",
+        "call-site ratio (1/1 confirmed via grep)"
       ],
-      "opened": [
-        "src/api/client.ts",
-        "src/api/client-admin.ts",
-        "src/index.ts"
-      ],
+      "opened": [],
       "trap_matched": null,
       "verified": true
     },
@@ -916,13 +925,13 @@
       "quote_hash": "58413bddbb473a491da4234e04dfb1b9c1f4458a",
       "family": "migration",
       "debt_type": "design",
-      "type_id": null,
-      "title": "legacyFormat kept as a wrapper around formatMoney, still called",
+      "type_id": "TD-06",
+      "title": "Deprecated legacyFormat still the only caller path, not formatMoney",
       "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "legacyFormat is annotated @deprecated in favor of formatMoney, but it is the only formatter called in checkout.ts (1 of 1 call site in src still on the old side); no other module calls formatMoney directly. No removal date is stated.",
+      "note": "The only call site of legacyFormat (checkout.ts:11) still uses the deprecated wrapper instead of formatMoney directly; formatMoney has no callers outside the wrapper, so 100% of live call sites sit on the old side.",
       "evidence": [
         {
           "file": "src/util/format-legacy.ts",
@@ -936,13 +945,6 @@
           "line_start": 4,
           "line_end": 4,
           "quote": "import { legacyFormat } from \"../util/format-legacy\";",
-          "quote_verified": true
-        },
-        {
-          "file": "src/checkout/checkout.ts",
-          "line_start": 11,
-          "line_end": 11,
-          "quote": "  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";",
           "quote_verified": true
         }
       ],
@@ -967,14 +969,13 @@
       },
       "tier": "B",
       "verdict": "confirm",
-      "proof": "Grep confirms legacyFormat's only caller is checkout.ts:11, and formatMoney (format.ts:1) has no direct callers outside format-legacy.ts:5, matching the '1 of 1 call site on old side' claim. Note: legacyFormat isn't a pure pass-through \u2014 it rewrites '$' to 'USD ' (format-legacy.ts:5), so migrating callers to formatMoney directly would change output format, meaning the deprecation is real debt but not a no-op removal. No removal date exists in either file.",
+      "proof": "Grep confirms legacyFormat's only call site is checkout.ts:11 (import at line 4), and formatMoney (format.ts:1-3) has no callers besides format-legacy.ts:1's import \u2014 i.e. 100% of live call sites use the deprecated wrapper, 0% call formatMoney directly. No evidence of deliberate multi-backend design; it's a single incomplete migration.",
       "checked": [
-        "call-site ratio",
-        "behavioral equivalence of old vs new"
+        "churn old vs new side (unavailable, no git tool)",
+        "multi-backend deliberateness",
+        "call-site ratio via grep"
       ],
-      "opened": [
-        "src/util/format.ts"
-      ],
+      "opened": [],
       "trap_matched": null,
       "verified": true
     },
@@ -983,13 +984,13 @@
       "quote_hash": "602426d2d1af5d3ec7dec9f0188911a120772fdc",
       "family": "migration",
       "debt_type": "build",
-      "type_id": null,
-      "title": "tslint.json superseded by eslintrc but left in repo",
+      "type_id": "TD-17",
+      "title": "tslint.json left in place after move to ESLint, with tslint not installed",
       "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "tslint.json remains alongside .eslintrc.json but tslint is not a devDependency and no script references it, so the old config is inert; only the eslint side has tooling behind it. No removal date or ticket found for the tslint file.",
+      "note": "eslint is a devDependency and .eslintrc.json exists as the active successor config, but tslint.json (the superseded tool's config) is still checked in; tslint itself is absent from package.json and both lockfiles, and no lint script or CI step runs either config.",
       "evidence": [
         {
           "file": "tslint.json",
@@ -1009,7 +1010,7 @@
           "file": "package.json",
           "line_start": 7,
           "line_end": 7,
-          "quote": "\"devDependencies\": { \"typescript\": \"5.4.5\", \"jest\": \"29.7.0\", \"eslint\": \"9.0.0\" },",
+          "quote": "  \"devDependencies\": { \"typescript\": \"5.4.5\", \"jest\": \"29.7.0\", \"eslint\": \"9.0.0\" },",
           "quote_verified": true
         }
       ],
@@ -1018,6 +1019,7 @@
         "scout:migration"
       ],
       "signals_cited": [
+        "coupling",
         "pattern:migration:dual-manifest",
         "satd"
       ],
@@ -1031,13 +1033,17 @@
       },
       "tier": "B",
       "verdict": "confirm",
-      "proof": "package.json:6 lists only typescript, jest, and eslint as devDependencies \u2014 tslint is absent \u2014 and scripts (package.json:5) only define build/test, with no lint script for either config. ci.yml confirms the only CI step is `npm test` (jest); no lint step runs eslint or tslint. tslint.json is therefore a genuinely inert leftover with zero tooling behind it, while .eslintrc.json at least has its dependency present even though unreferenced by scripts.",
+      "proof": "tslint.json:1 (`tslint:recommended`) has no corresponding tooling: package.json:7 lists eslint but not tslint, and grep confirms tslint appears nowhere else in the repo (no script, no CI step). ci.yml only runs `npm test` (no lint step at all), so neither tslint.json nor .eslintrc.json is actually invoked \u2014 but tslint.json specifically is a dead leftover from a superseded tool with zero remaining references, matching the migration-debris pattern exactly.",
       "checked": [
-        "devDependency presence",
-        "script/CI references"
+        "package.json deps",
+        "grep for 'tslint' and 'eslint' repo-wide",
+        "CI workflow steps",
+        "lockfile presence"
       ],
       "opened": [
-        ".github/workflows/ci.yml"
+        "package.json",
+        ".github/workflows/ci.yml",
+        ".eslintrc.json"
       ],
       "trap_matched": null,
       "verified": true
@@ -1048,12 +1054,12 @@
       "family": "dependency-debt",
       "debt_type": "dependency",
       "type_id": "TD-02",
-      "title": "package-lock.json has empty packages map despite declared dependencies",
-      "severity": 4,
+      "title": "Two lockfile kinds present (npm and yarn) for one application",
+      "severity": 3,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "package.json declares one runtime dependency and three devDependencies, but the committed npm lockfile lists no packages at all, so it cannot pin or reproduce the resolved dependency tree the manifest requires.",
+      "note": "Repo carries both package-lock.json and yarn.lock for the same application manifest. CI (ci.yml) uses npm exclusively, and package-lock.json's packages map is empty, so the npm lockfile does not actually record the tiny-emitter dependency; the yarn.lock is unused by CI but still tracked.",
       "evidence": [
         {
           "file": "package-lock.json",
@@ -1068,28 +1074,12 @@
           "line_end": 3,
           "quote": "# yarn lockfile v1\n\ntiny-emitter@2.1.0:",
           "quote_verified": true
-        },
-        {
-          "file": "README.md",
-          "line_start": 5,
-          "line_end": 5,
-          "quote": "    npm test",
-          "quote_verified": true
-        },
-        {
-          "file": "package.json",
-          "line_start": 6,
-          "line_end": 7,
-          "quote": "\"dependencies\": { \"tiny-emitter\": \"2.1.0\" },\n  \"devDependencies\": { \"typescript\": \"5.4.5\", \"jest\": \"29.7.0\", \"eslint\": \"9.0.0\" },",
-          "quote_verified": true
         }
       ],
       "confirmed_by": [
-        "rule:manifest.two-lockfiles",
         "scout:dependency-debt"
       ],
       "signals_cited": [
-        "pattern:dependency-debt:lockfile-manifest-mismatch",
         "pattern:dependency-debt:two-lockfiles"
       ],
       "signals": {
@@ -1102,13 +1092,15 @@
       },
       "tier": "B",
       "verdict": "confirm",
-      "proof": "package-lock.json:1 has an empty packages map despite package.json:6-7 declaring tiny-emitter, typescript, jest, and eslint. yarn.lock:1-4 is the only lockfile with real resolved versions. ci.yml never runs `npm install`/`npm ci` before `npm test` (line 19), so with the npm lockfile empty and no install step, a clean CI checkout has no mechanism to materialize node_modules from npm; the repo's actual reproducibility depends entirely on yarn.lock while README.md:5 documents npm.",
+      "proof": "package-lock.json:1 is `{ \"packages\": {} }` \u2014 an empty lockfile that does not record tiny-emitter despite it being a declared dependency. yarn.lock:1-4 does record tiny-emitter@2.1.0. ci.yml:14,19 configures `cache: npm` and runs `npm test` exclusively; there is no yarn step anywhere in CI. So yarn.lock is dead weight and the npm lockfile that CI actually relies on is non-functional (would need regeneration on every npm ci).",
       "checked": [
-        "package-lock.json contents",
-        "yarn.lock contents",
-        "presence/absence of install step in ci.yml"
+        "package-lock.json content",
+        "yarn.lock content",
+        "ci.yml for any yarn usage"
       ],
-      "opened": [],
+      "opened": [
+        "\\.github/workflows/ci.yml"
+      ],
       "trap_matched": null,
       "verified": true
     },
@@ -1118,12 +1110,12 @@
       "family": "doc-drift",
       "debt_type": "documentation",
       "type_id": "TD-08",
-      "title": "README has no CHANGELOG despite tagged/versioned releases",
+      "title": "README missing CONTRIBUTING, ADR, and CHANGELOG documentation",
       "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "Package is versioned (1.1.0, a tagged v1.0.0 release exists) and has an active CI pipeline, but the repo has no CHANGELOG, CONTRIBUTING, or ADR directory documenting releases or contribution process; README covers neither.",
+      "note": "Repository has no CONTRIBUTING, ADR directory, or CHANGELOG, and README does not mention or link to any; a reader has no guidance on contribution process or change history for a project already at v1.1.0 with a flag/feature history (see src/flags.ts).",
       "evidence": [
         {
           "file": "README.md",
@@ -1131,22 +1123,15 @@
           "line_end": 5,
           "quote": "# web-ts\n\nCart and checkout front end.\n\n    npm test",
           "quote_verified": true
-        },
-        {
-          "file": "package.json",
-          "line_start": 3,
-          "line_end": 3,
-          "quote": "  \"version\": \"1.1.0\",",
-          "quote_verified": true
         }
       ],
       "confirmed_by": [
-        "rule:manifest.two-lockfiles",
         "scout:doc-drift"
       ],
       "signals_cited": [
-        "pattern:doc-drift:missing-changelog",
-        "pattern:doc-drift:missing-contributing"
+        "README.md missing: ADR directory",
+        "README.md missing: CHANGELOG",
+        "README.md missing: CONTRIBUTING"
       ],
       "signals": {
         "hotspot_score": 2.9,
@@ -1158,10 +1143,11 @@
       },
       "tier": "B",
       "verdict": "confirm",
-      "proof": "README.md:1-5 has no changelog/contribution section, and no CHANGELOG.md, CONTRIBUTING.md, or docs/adr directory exist anywhere in the repo (glob for CHANGELOG*/CONTRIBUTING* returned nothing). package.json:3 declares version 1.1.0 and CI (.github/workflows/ci.yml) runs on every push, so releases happen without any recorded rationale or process doc.",
+      "proof": "README.md:1-5 is the entire file: title, one-line description, `npm test`. Globbed for CONTRIBUTING*, CHANGELOG*, and any adr/ directory repo-wide \u2014 none exist. docs/ only contains architecture.md. So the absence is real and total, not just missing a link to existing docs.",
       "checked": [
-        "existence of CHANGELOG/CONTRIBUTING files",
-        "README contents"
+        "glob for CONTRIBUTING/CHANGELOG",
+        "glob for adr directory",
+        "docs/ directory listing"
       ],
       "opened": [],
       "trap_matched": null,
@@ -1173,12 +1159,12 @@
       "family": "doc-drift",
       "debt_type": "documentation",
       "type_id": "TD-08",
-      "title": "architecture.md claims pricing/stock import each other; stock does not",
+      "title": "architecture.md describes mutual import that no longer exists",
       "severity": 3,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "stock.ts imports from cart.ts, not from pricing.ts, so pricing and stock do not import each other; the real cycle is pricing -> stock -> cart -> pricing, which the doc does not describe. Doc is also flagged 582 days stale.",
+      "note": "Doc claims pricing and stock import each other (a cycle) through stock.ts. Code shows only a one-way import: pricing.ts imports reserve from stock.ts; stock.ts imports only a type from cart.ts, not from pricing.ts. No cycle exists between pricing and stock.",
       "evidence": [
         {
           "file": "docs/architecture.md",
@@ -1206,8 +1192,8 @@
         "scout:doc-drift"
       ],
       "signals_cited": [
-        "coupling",
-        "pattern:doc-drift:architecture-stale"
+        "docs/architecture.md stale 582 days behind the code",
+        "pattern:doc-drift:contradiction"
       ],
       "signals": {
         "hotspot_score": 0.0,
@@ -1219,76 +1205,72 @@
       },
       "tier": "B",
       "verdict": "confirm",
-      "proof": "docs/architecture.md:3-4 claims pricing and stock import each other. stock.ts:1 only imports the `Cart` type from cart.ts; it does not import pricing.ts. pricing.ts:1 imports `reserve` from stock.ts, and cart.ts:1 imports `priceOf` from pricing.ts. The actual cycle is cart -> pricing -> stock -> cart (via the Cart type), not a direct pricing<->stock relationship as documented.",
+      "proof": "architecture.md:3-4 claims pricing and stock 'import each other' through stock.ts. Actual code: stock.ts:1 imports only `type Cart` from cart.ts, nothing from pricing.ts; pricing.ts:1 imports `reserve` from stock.ts. This is a one-way dependency (pricing -> stock), not a cycle, and stock's only import is a type from cart, not pricing. The doc's cycle claim is factually wrong.",
       "checked": [
-        "stock.ts imports",
-        "pricing.ts imports",
-        "cart.ts imports to trace actual cycle"
+        "stock.ts full file",
+        "pricing.ts full file",
+        "import direction between the two"
       ],
-      "opened": [
-        "src/cart/cart.ts"
-      ],
+      "opened": [],
       "trap_matched": null,
       "verified": true
     },
     {
-      "fingerprint": "07ed8cbe95f89a9e",
-      "quote_hash": "3210b3ae419ea8e887b0434db94e08f9ae399382",
+      "fingerprint": "8ab1689b18c72f93",
+      "quote_hash": "737afa3b7f5fa49e218a6ab9b929f381da2992b9",
       "family": "architecture",
       "debt_type": "architecture",
-      "type_id": "TD-07",
-      "title": "checkout bypasses cart's public API to import cart's internal pricing module",
-      "severity": 4,
+      "type_id": "TD-10",
+      "title": "Checkout reaches past declared cart boundary into pricing internals",
+      "severity": 3,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "checkout imports cart's internal pricing.ts directly instead of only cart.ts's public total(). Legacy branch only prices the first item via priceOf, diverging from total(); no boundary tool constrains cart's internals (only eslint:recommended configured).",
+      "note": "docs/architecture.md declares cart as sole owner of totals, but checkout's legacy path imports cart/pricing directly and computes a price itself instead of going through cart's total(). Any change to pricing logic (e.g. discounts) must be replicated in checkout to keep the legacy path correct.",
       "evidence": [
         {
-          "file": "src/checkout/checkout.ts",
-          "line_start": 1,
-          "line_end": 2,
-          "quote": "import { Cart, total } from \"../cart/cart\";\nimport { priceOf } from \"../cart/pricing\";",
+          "file": "docs/architecture.md",
+          "line_start": 3,
+          "line_end": 4,
+          "quote": "`src/cart` owns items and totals, `src/checkout` owns the flow. Pricing and\nstock currently import each other through `src/cart/stock.ts`.",
           "quote_verified": true
         },
         {
-          "file": "src/cart/cart.ts",
+          "file": "src/checkout/checkout.ts",
           "line_start": 1,
-          "line_end": 1,
-          "quote": "import { priceOf } from \"./pricing\";",
+          "line_end": 13,
+          "quote": "import { Cart, total } from \"../cart/cart\";\nimport { priceOf } from \"../cart/pricing\";\nimport { isEnabled } from \"../flags\";\nimport { legacyFormat } from \"../util/format-legacy\";\n\nexport function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";\n  return `legacy:${label}`;\n}",
           "quote_verified": true
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "pattern:flag-sdk",
         "pattern:legacy-name",
         "scout:architecture"
       ],
       "signals_cited": [
         "coupling",
-        "hotspot"
+        "satd"
       ],
       "signals": {
-        "hotspot_score": 2.9,
+        "hotspot_score": 0.0,
         "churn": 1,
         "coupling_degree": 0,
-        "fan_in_approx": 1,
-        "path_class": "source",
-        "in_hotspot_band": true
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
       },
-      "tier": "B",
+      "tier": "C",
       "verdict": "confirm",
-      "proof": "checkout.ts:2 imports priceOf from cart's internal pricing.ts alongside the public total() from cart.ts:1. eslintrc.json only extends eslint:recommended, no boundary/import-restriction plugin. Since flags.ts:3 hardcodes newCheckout: false with a comment that the new flow 'was never finished,' the legacy branch (checkout.ts:10-11) is the only live path in production, and it prices solely cart.items[0] via priceOf, ignoring quantity and any additional items, diverging from total() (cart.ts:16-18) which sums qty*price across all items. This is a real, currently-active correctness/architecture gap, not just a latent layering concern.",
+      "proof": "checkout.ts:1-2 imports `total` from cart.ts and `priceOf` from cart/pricing.ts directly. The active legacy branch (checkout.ts:10-11, since flags.ts shows newCheckout permanently false with comment 'never finished') calls priceOf(first.sku) itself rather than total(cart), bypassing cart's aggregation function. cart.ts:16-18 shows total() is the intended single point for price aggregation. Any future change there (e.g. quantity-based pricing added only to total()) would silently not apply to the legacy path.",
       "checked": [
-        "eslint config for boundary enforcement",
-        "flags.ts for newCheckout's actual runtime state",
-        "total() vs priceOf(first) divergence",
-        "co-change explanation via feature work: none declared"
+        "checkout.ts full file",
+        "cart.ts total() implementation",
+        "flags.ts to confirm legacy path is live"
       ],
       "opened": [
-        "src/cart/stock.ts",
-        ".eslintrc.json"
+        "src/cart/cart.ts",
+        "src/flags.ts"
       ],
       "trap_matched": null,
       "verified": true
@@ -1298,13 +1280,13 @@
       "quote_hash": "f11897c638472ff1229ffc602605d690fc819b06",
       "family": "test-quality",
       "debt_type": "test",
-      "type_id": null,
-      "title": "CI wraps the whole test run in a 3-attempt retry",
+      "type_id": "TD-18",
+      "title": "CI wraps entire test suite in automatic retries",
       "severity": 3,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "The entire npm test invocation, not an individual flaky test, is retried up to 3 times; this configuration would silently absorb any non-deterministic test failure without surfacing it, though no flaky-commit history was available to confirm one exists.",
+      "note": "The whole npm test command is retried up to 3 times at CI level; a failing test can pass on retry, so intermittent test failures are not surfaced as CI failures.",
       "evidence": [
         {
           "file": ".github/workflows/ci.yml",
@@ -1330,10 +1312,10 @@
       },
       "tier": "B",
       "verdict": "confirm",
-      "proof": "ci.yml:15-19 wraps the bare `npm test` command (not npm install) in nick-fields/retry with max_attempts: 3. Any single test run that fails non-deterministically gets up to two silent re-runs before the job is marked failed, and CI never surfaces that a retry occurred. This applies to the whole suite, not a scoped flaky test, so genuine intermittent failures are indistinguishable from a clean pass in the workflow's final status.",
+      "proof": "ci.yml:15-19 wraps the entire `npm test` invocation in nick-fields/retry with max_attempts: 3, timeout_minutes: 10. This retries the whole suite, not a single flaky assertion, so any intermittently-failing test can pass on attempt 2 or 3 and CI reports green. No test-level retry/quarantine mechanism exists to isolate which test was flaky.",
       "checked": [
-        "ci.yml step order",
-        "retry scope (whole command vs single test)"
+        "ci.yml full content",
+        "no per-test retry config found"
       ],
       "opened": [],
       "trap_matched": null,
@@ -1345,12 +1327,12 @@
       "family": "test-quality",
       "debt_type": "test",
       "type_id": "TD-12",
-      "title": "Cart total test asserts against opaque magic number",
+      "title": "Cart total test asserts hardcoded money total with no derivation",
       "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "Assertion is a bare literal (2000) with no derivation from the unit price or quantity used in the test, so a reader cannot tell if the expectation is correct without cross-referencing pricing.ts separately.",
+      "note": "Asserts against the literal 2000 rather than deriving it from the priced sku/qty inputs used in the test, so a reader must cross-reference the pricing table to know the expectation is correct.",
       "evidence": [
         {
           "file": "src/__tests__/cart.test.ts",
@@ -1377,37 +1359,37 @@
       },
       "tier": "B",
       "verdict": "confirm",
-      "proof": "cart.test.ts:6 asserts total(cart)===2000 with no visible derivation. Tracing the callees: cart.ts:17 computes sum of priceOf(sku)*qty, and pricing.ts:3 sets A1's price to 1000; with qty:2 (test line 5) the correct expected value is 1000*2=2000, so the assertion is numerically correct, but a reader must open two other files to confirm that \u2014 the literal is opaque in isolation as described.",
+      "proof": "pricing.ts:3 sets PRICES.A1=1000; cart.ts:17 total() sums priceOf(sku)*qty. Test adds A1 qty=2 (1000*2=2000) and asserts toBe(2000) with no reference to the 1000 unit price, so the reader must open pricing.ts to confirm correctness. Not table-driven, no fake timers, and this is the only assertion in the test (not assertion-free).",
       "checked": [
-        "cart.ts total() implementation",
-        "pricing.ts price table",
-        "manual recomputation of expected value"
+        "derivation math (1000*2=2000)",
+        "table-driven idiom",
+        "assertion presence"
       ],
       "opened": [
-        "src/cart/cart.ts",
-        "src/cart/pricing.ts"
+        "src/cart/pricing.ts",
+        "src/cart/cart.ts"
       ],
       "trap_matched": null,
       "verified": true
     },
     {
-      "fingerprint": "aa20afe178c7ab9b",
-      "quote_hash": "97862e34745eb19e63f76c0954381db781b642d2",
+      "fingerprint": "1b4189615c5560c6",
+      "quote_hash": "567081919e2970907c0d96306a47fdc1c7c77b5a",
       "family": "test-quality",
       "debt_type": "test",
-      "type_id": "TD-18",
-      "title": "Skipped bulk-pricing test asserts a value inconsistent with current price table",
-      "severity": 2,
+      "type_id": "TD-12",
+      "title": "Skipped bulk-pricing test asserts a value the implementation cannot produce",
+      "severity": 3,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
-      "note": "Test is disabled (it.skip) and never runs in CI; its magic-number expectation (900) does not match the current PRICES table (A1: 1000) in pricing.ts, so bulk pricing is untested and the skip masks that no such logic exists in priceOf.",
+      "note": "Test is permanently skipped and asserts 900 for A1, but pricing.ts has no bulk-pricing logic and PRICES[A1] is 1000; the skipped test cannot pass as written and provides no real coverage of the feature it names.",
       "evidence": [
         {
           "file": "src/__tests__/pricing.spec.ts",
           "line_start": 7,
-          "line_end": 9,
-          "quote": "it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });",
+          "line_end": 10,
+          "quote": "it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });\n});",
           "quote_verified": true
         }
       ],
@@ -1427,15 +1409,17 @@
         "path_class": "tests",
         "in_hotspot_band": false
       },
-      "tier": "C",
-      "verdict": "downgrade",
-      "proof": "Duplicate of 0e7744dd726d5b40, same span and same underlying fact: pricing.ts:3-7 has no bulk discount path, PRICES.A1=1000 not 900. Skip is real and the assertion is indeed stale/inconsistent with current table. Not table-driven, no fake timers involved. Severity 3 is high for one skipped unit test with narrow scope; downgrading to match sibling candidate.",
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "priceOf (pricing.ts:5-8) is PRICES[sku] ?? 0 with PRICES.A1=1000 and no discount logic; reserve(sku,0) in stock.ts has no side effect on price. So priceOf('A1') always returns 1000, never 900 as asserted at line 8. The skipped test is not merely disabled coverage but literally unpassable as written, confirming it never worked and documents nothing accurate about current behavior.",
       "checked": [
-        "table-driven idiom (none present)",
-        "fake timers (n/a)",
-        "assertion content vs PRICES table"
+        "traced priceOf/reserve for hidden state affecting price",
+        "confirmed PRICES.A1=1000 vs asserted 900"
       ],
-      "opened": [],
+      "opened": [
+        "src/cart/pricing.ts",
+        "src/cart/stock.ts"
+      ],
       "trap_matched": null,
       "verified": true
     },
@@ -1696,12 +1680,12 @@
   ],
   "stats": {
     "selected": 25,
-    "verdicts": 24,
+    "verdicts": 25,
     "unknown_fingerprint": 0,
-    "missing_verdict": 1,
-    "tier_a": 13,
+    "missing_verdict": 0,
+    "tier_a": 11,
     "tier_b": 9,
-    "tier_c": 8,
+    "tier_c": 10,
     "rejected": 1
   }
 }

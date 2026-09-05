@@ -17,10 +17,12 @@ their own accord produced a few more unverifiable quotes; those are named in
 ``LIVE_QUOTE_MISSES`` rather than edited out, so the test still states the exact
 set of quotes that must fail.
 
-The verdict goldens are the live output, redacted as the harness now writes them:
-``live_run._write_payload`` walks every string of an agent reply through
+The verdict goldens are the live output, redacted as the harness writes them:
+``live_run._write_payload`` walks the array (verifier) contract through
 ``redaction.redact``, so ``service-py/verdicts/verify-02.json`` was re-redacted
-once by hand to match (hand edit 4).
+once by hand to match (hand edit 4). The scout goldens are raw, as the harness
+writes them: ``merge_findings`` verifies a quote against the file before it
+redacts it, so a credential-shaped quote has to stay raw here to be found at all.
 """
 from __future__ import annotations
 
@@ -52,25 +54,33 @@ UPDATE = os.environ.get("UPDATE_GOLDENS") == "1"
 RULES_NOW = datetime(2026, 9, 5, tzinfo=UTC)
 # The hand-added finding whose quote is not in the file; the merge must divert it.
 PIN_TITLE = "invented quote (golden pin)"
-# Live scout findings that cite a quote ``find_quote`` cannot rejoin. Every one of
-# them spanned more lines than the fallback window and was cited a line or two off;
-# fix round 1 widened that window to the quote's own line count, so all of them are
-# now rejoined and the only quote that must fail is the hand-added pin. The tables
-# are kept (empty) so a new unverifiable quote fails the test rather than passing as
-# noise. ``diverted`` findings lose every quote and land in ``open_questions``;
-# ``partial`` findings keep another verified quote and stay as candidates.
+# Live scout findings that cite a quote ``find_quote`` cannot rejoin. The round-0
+# misses all spanned more lines than the fallback window and were cited a line or
+# two off; fix round 1 widened that window to the quote's own line count and every
+# one of them rejoined. The one that remains is a different failure: the second
+# web-ts run quoted ``getJson`` with an interior line (``return await
+# response.json();``) silently dropped, and no window recovers a quote whose middle
+# is missing. The tables are kept (empty where they are empty) so a new unverifiable
+# quote fails the test rather than passing as noise. ``diverted`` findings lose every
+# quote and land in ``open_questions``; ``partial`` findings keep another verified
+# quote and stay as candidates.
 LIVE_QUOTE_MISSES: dict[str, dict[str, frozenset[str]]] = {
     "service-py": {"diverted": frozenset(), "partial": frozenset()},
-    "web-ts": {"diverted": frozenset(), "partial": frozenset()},
+    "web-ts": {
+        "diverted": frozenset({"API client silently swallows fetch errors with no test"}),
+        "partial": frozenset(),
+    },
     "mixed-decoys": {"diverted": frozenset(), "partial": frozenset()},
 }
-# Recovering those quotes put more candidates in the verify pool, and web-ts now
-# spills into a fifth verifier batch the first live run never made. A verdict file
-# cannot be written by hand (it would be invented agent output), so that batch's
-# candidates stay unverified at tier C until the next live run replaces the goldens.
+# Batches the plan asks for that no live run ever produced a verdict file for. A
+# verdict cannot be written by hand (it would be invented agent output), so such a
+# batch's candidates stay unverified at tier C. The table is empty: fix round 1
+# recovered enough quotes to push web-ts into a fifth batch its first live run never
+# made, and fix round 2's second web-ts run supplied that batch. Kept (empty) so a
+# plan that outgrows its verdicts again fails here rather than passing silently.
 UNVERIFIED_BATCHES: dict[str, frozenset[str]] = {
     "service-py": frozenset(),
-    "web-ts": frozenset({"verdicts/verify-05.json"}),
+    "web-ts": frozenset(),
     "mixed-decoys": frozenset(),
 }
 

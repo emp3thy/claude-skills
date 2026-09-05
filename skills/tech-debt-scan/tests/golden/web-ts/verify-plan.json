@@ -5,26 +5,26 @@
   "selected": [
     "3be7c52dfb951591",
     "1a2cee62a043fa63",
+    "8ab1689b18c72f93",
     "bee2a473c0afedc2",
     "9ead67e93821ff71",
-    "107fa620ca40e71c",
+    "08e6401c9ac87df8",
     "f08436450c50e406",
     "0e7744dd726d5b40",
-    "aa20afe178c7ab9b",
+    "1b4189615c5560c6",
     "eaefb059a8c16e0d",
-    "843db87dca3fb8d8",
+    "141175ed2e56d821",
     "8d9953f72a4e0fd8",
-    "bcb3cd9522cdbe0a",
-    "26b3f35c0a5ea5e2",
-    "29629621bdb42797",
-    "92be85bba7b53708",
-    "ab911a0fcb015d8e",
-    "e86c1f37f0d0e9d4",
-    "07ed8cbe95f89a9e",
-    "cf9039c7651cee2c",
-    "355885f54c1b8168",
+    "f4c345aefd008ff5",
+    "39ff2c7e77aa20a8",
+    "893cfe16bcc6f895",
+    "aa3351f29bf618f1",
+    "fdb5fcca4c87f4b8",
+    "37123abc76b1359b",
+    "02bbf6de78e47bd6",
+    "29eba6f4f9adcbc9",
     "9c6b39118019c27e",
-    "f814e83b9c9e56a4",
+    "73c4ac3f4febadd0",
     "795ec415100325e3",
     "b7396d04c3285472",
     "3d5daf8fb72b00a9"
@@ -37,44 +37,44 @@
       "fingerprints": [
         "3be7c52dfb951591",
         "1a2cee62a043fa63",
+        "8ab1689b18c72f93",
         "bee2a473c0afedc2",
         "9ead67e93821ff71",
-        "107fa620ca40e71c",
-        "f08436450c50e406"
+        "08e6401c9ac87df8"
       ]
     },
     {
       "prompt": "prompts/verify-02.md",
       "output": "verdicts/verify-02.json",
       "fingerprints": [
+        "f08436450c50e406",
         "0e7744dd726d5b40",
-        "aa20afe178c7ab9b",
+        "1b4189615c5560c6",
         "eaefb059a8c16e0d",
-        "843db87dca3fb8d8",
-        "8d9953f72a4e0fd8",
-        "bcb3cd9522cdbe0a"
+        "141175ed2e56d821",
+        "8d9953f72a4e0fd8"
       ]
     },
     {
       "prompt": "prompts/verify-03.md",
       "output": "verdicts/verify-03.json",
       "fingerprints": [
-        "26b3f35c0a5ea5e2",
-        "29629621bdb42797",
-        "92be85bba7b53708",
-        "ab911a0fcb015d8e",
-        "e86c1f37f0d0e9d4",
-        "07ed8cbe95f89a9e"
+        "f4c345aefd008ff5",
+        "39ff2c7e77aa20a8",
+        "893cfe16bcc6f895",
+        "aa3351f29bf618f1",
+        "fdb5fcca4c87f4b8",
+        "37123abc76b1359b"
       ]
     },
     {
       "prompt": "prompts/verify-04.md",
       "output": "verdicts/verify-04.json",
       "fingerprints": [
-        "cf9039c7651cee2c",
-        "355885f54c1b8168",
+        "02bbf6de78e47bd6",
+        "29eba6f4f9adcbc9",
         "9c6b39118019c27e",
-        "f814e83b9c9e56a4",
+        "73c4ac3f4febadd0",
         "795ec415100325e3",
         "b7396d04c3285472"
       ]

@@ -3,15 +3,70 @@
   "module": null,
   "findings": [
     {
-      "title": "tslint.json superseded by eslintrc but left in repo",
+      "title": "newCheckout flag path is dead; only legacy/deprecated path ever runs",
       "family": "migration",
-      "debt_type": "build",
-      "type_id": null,
+      "debt_type": "design",
+      "type_id": "TD-06",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "satd",
+        "pattern:migration:dead-flag-branch"
+      ],
+      "evidence": [
+        {
+          "file": "src/flags.ts",
+          "line_start": 2,
+          "line_end": 3,
+          "quote": "  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,"
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 6,
+          "line_end": 13,
+          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";\n  return `legacy:${label}`;\n}"
+        }
+      ],
+      "note": "Old path (100% of call sites: the single checkout() caller) runs through the deprecated legacyFormat helper; the new path guarded by newCheckout is unreachable and, per the comment, was abandoned rather than scheduled. No ticket or date is present for finishing or removing it."
+    },
+    {
+      "title": "Deprecated legacyFormat still the only caller path, not formatMoney",
+      "family": "migration",
+      "debt_type": "design",
+      "type_id": "TD-06",
       "severity": 2,
       "effort": "S",
       "signals_cited": [
-        "pattern:migration:dual-manifest",
-        "satd"
+        "satd",
+        "pattern:migration:deprecated-still-called"
+      ],
+      "evidence": [
+        {
+          "file": "src/util/format-legacy.ts",
+          "line_start": 3,
+          "line_end": 6,
+          "quote": "/** @deprecated use formatMoney */\nexport function legacyFormat(cents: number): string {\n  return formatMoney(cents).replace(\"$\", \"USD \");\n}"
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 4,
+          "line_end": 4,
+          "quote": "import { legacyFormat } from \"../util/format-legacy\";"
+        }
+      ],
+      "note": "The only call site of legacyFormat (checkout.ts:11) still uses the deprecated wrapper instead of formatMoney directly; formatMoney has no callers outside the wrapper, so 100% of live call sites sit on the old side."
+    },
+    {
+      "title": "tslint.json left in place after move to ESLint, with tslint not installed",
+      "family": "migration",
+      "debt_type": "build",
+      "type_id": "TD-17",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "satd",
+        "coupling",
+        "pattern:migration:dual-manifest"
       ],
       "evidence": [
         {
@@ -30,94 +85,36 @@
           "file": "package.json",
           "line_start": 7,
           "line_end": 7,
-          "quote": "\"devDependencies\": { \"typescript\": \"5.4.5\", \"jest\": \"29.7.0\", \"eslint\": \"9.0.0\" },"
+          "quote": "  \"devDependencies\": { \"typescript\": \"5.4.5\", \"jest\": \"29.7.0\", \"eslint\": \"9.0.0\" },"
         }
       ],
-      "note": "tslint.json remains alongside .eslintrc.json but tslint is not a devDependency and no script references it, so the old config is inert; only the eslint side has tooling behind it. No removal date or ticket found for the tslint file."
-    },
-    {
-      "title": "legacyFormat kept as a wrapper around formatMoney, still called",
-      "family": "migration",
-      "debt_type": "design",
-      "type_id": null,
-      "severity": 2,
-      "effort": "S",
-      "signals_cited": [
-        "pattern:migration:deprecated-still-called",
-        "satd"
-      ],
-      "evidence": [
-        {
-          "file": "src/util/format-legacy.ts",
-          "line_start": 3,
-          "line_end": 6,
-          "quote": "/** @deprecated use formatMoney */\nexport function legacyFormat(cents: number): string {\n  return formatMoney(cents).replace(\"$\", \"USD \");\n}"
-        },
-        {
-          "file": "src/checkout/checkout.ts",
-          "line_start": 4,
-          "line_end": 4,
-          "quote": "import { legacyFormat } from \"../util/format-legacy\";"
-        },
-        {
-          "file": "src/checkout/checkout.ts",
-          "line_start": 11,
-          "line_end": 11,
-          "quote": "  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";"
-        }
-      ],
-      "note": "legacyFormat is annotated @deprecated in favor of formatMoney, but it is the only formatter called in checkout.ts (1 of 1 call site in src still on the old side); no other module calls formatMoney directly. No removal date is stated."
-    },
-    {
-      "title": "newCheckout feature flag path never completed, dead new branch",
-      "family": "migration",
-      "debt_type": "design",
-      "type_id": null,
-      "severity": 3,
-      "effort": "M",
-      "signals_cited": [
-        "pattern:migration:stalled-flag",
-        "satd"
-      ],
-      "evidence": [
-        {
-          "file": "src/flags.ts",
-          "line_start": 2,
-          "line_end": 3,
-          "quote": "  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,"
-        },
-        {
-          "file": "src/checkout/checkout.ts",
-          "line_start": 6,
-          "line_end": 12,
-          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";"
-        }
-      ],
-      "note": "checkout.ts branches on the newCheckout flag, but the flag is permanently false and the comment states the new flow was never finished; 100% of call sites run the old/legacy branch and the new branch is unreachable dead code with no plan or date to finish or remove it."
+      "note": "eslint is a devDependency and .eslintrc.json exists as the active successor config, but tslint.json (the superseded tool's config) is still checked in; tslint itself is absent from package.json and both lockfiles, and no lint script or CI step runs either config."
     }
   ],
   "open_questions": [
     {
-      "file": "tslint.json",
-      "line_start": 1,
-      "question": "Is there a ticket tracking removal of tslint.json, or was it left behind unintentionally after the eslint migration?"
-    },
-    {
       "file": "src/flags.ts",
       "line_start": 2,
-      "question": "Is there an owner or ticket for finishing or removing the newCheckout flow, given the comment says it was never finished?"
+      "line_end": 3,
+      "question": "Is there a tracked ticket/date to either finish or remove the newCheckout flow, or is it considered permanently abandoned?"
+    },
+    {
+      "file": "tslint.json",
+      "line_start": 1,
+      "line_end": 1,
+      "question": "Is tslint.json intentionally retained for a downstream consumer/tool, or is it simply forgotten cleanup from the ESLint migration?"
     }
   ],
   "looks_bad_but_fine": [
     {
       "file": "src/api/client.ts",
       "line_start": 1,
-      "why": "client.ts and client-admin.ts are coupled and similar but appear to be a deliberate split between public and admin API clients (different base URLs, tokens, timeout handling) rather than an old/new duplication; no naming or comment hints suggest one supersedes the other."
+      "line_end": 16,
+      "why": "client.ts and client-admin.ts target distinct hosts (api.example.com vs admin.example.com) and are a duplication/coupling concern (drifted timeout/logging handling), not an old-vs-new migration pair; no naming or deprecation signal marks either as superseded."
     }
   ],
   "not_assessed": [
-    "Whether tslint is deprecated as a library/tool (not verified via package registry)",
-    "Any CVE or vulnerability status of eslint/tslint/jest versions",
-    "Test coverage percentage actually achieved vs. the 80% jest threshold in package.json"
+    "Whether eslint 9.0.0 or the tslint config represent an EOL/deprecated dependency version in the security or support sense",
+    "Whether removing tslint.json or the newCheckout branch would affect any external tooling not visible in this repository"
   ]
 }

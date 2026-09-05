@@ -1,101 +1,86 @@
 [
   {
-    "fingerprint": "355885f54c1b8168",
+    "fingerprint": "02bbf6de78e47bd6",
     "verdict": "confirm",
-    "proof": "Grep across the repo for `newCheckout` and `isEnabled(` finds only the literal FLAGS entry (flags.ts:3) and the single literal call site in checkout.ts:7 \u2014 no env var, config loader, admin toggle, or test overrides FLAGS. client.ts and client-admin.ts use isEnabled only with their own distinct literal flag names (betaBanner, adminPanel), never newCheckout. index.ts calls checkout() directly, not via a router/DI/reflection path, so the `new:` branch (checkout.ts:7-9) is genuinely unreachable in any current code path.",
+    "proof": "Grep across src for .test.ts/.spec.ts finds only cart.test.ts and pricing.spec.ts, neither referencing flags.ts, client.ts, client-admin.ts, or checkout.ts. isEnabled (flags.ts:7-9) is called from checkout.ts:7, client.ts:12, client-admin.ts:21, and its ?? false fallback is what makes the undefined 'adminPanel' key resolve to false in client-admin.ts:21 \u2014 untested branch logic with real effect.",
     "severity": 2,
     "effort": "S",
     "trap_matched": null,
     "checked": [
-      "reflection",
-      "string-dispatch",
-      "env/config override",
-      "entry point"
+      "test file naming variants (.test.ts/.spec.ts)",
+      "all referrers of isEnabled"
     ],
     "opened": [
-      "src/api/client.ts",
-      "src/api/client-admin.ts",
-      "src/index.ts"
+      "src/__tests__/cart.test.ts",
+      "src/__tests__/pricing.spec.ts"
     ]
+  },
+  {
+    "fingerprint": "29eba6f4f9adcbc9",
+    "verdict": "confirm",
+    "proof": "FLAGS (flags.ts:1-5) is a static in-memory object with no env/config loader anywhere in src (grepped whole tree); the only way to flip newCheckout is a source edit. checkout.ts:7-8 branch is therefore unreachable under any runtime configuration, and the comment confirms it was abandoned rather than paused for a rollout. No dynamic dispatch, DI, or serialization references the string 'newCheckout' elsewhere.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "reflection/string-dispatch for 'newCheckout'",
+      "config/env override sources",
+      "entry points"
+    ],
+    "opened": []
   },
   {
     "fingerprint": "9c6b39118019c27e",
     "verdict": "downgrade",
+    "proof": "Confirmed: checkout() (checkout.ts:6-13) has a single caller path exercised, the newCheckout branch (lines 7-9) is unreachable per the static FLAGS map, and no TODO/FIXME/ticket markers exist anywhere in src. However this is the same fact as candidate 29eba6f4f9adcbc9 (dead branch, one function, one call site, effort S) with no additional evidence (no churn breakdown available, no multi-backend indication) to justify severity 3 over 2.",
     "severity": 2,
-    "proof": "Same underlying fact as the dead-code candidate: no toggle mechanism exists anywhere (verified via grep of isEnabled/FLAGS and referrers client.ts, client-admin.ts, index.ts), so call-site ratio is indeed 100% legacy. However this is a single 3-line unreachable if-block with a churn=2/fan_in=3/hotspot=0 footprint and no external dependents on the 'new:' format \u2014 removal is a one-line-diff deletion, not migration-scale work, so severity 3 overstates impact; 2 fits better alongside the near-identical candidate 1.",
     "effort": "S",
     "trap_matched": null,
     "checked": [
-      "string-dispatch",
-      "env/config override",
-      "call-site ratio"
+      "churn evidence for old vs new side (unavailable, no git tool)",
+      "multi-backend deliberateness",
+      "call-site ratio (1/1 confirmed via grep)"
     ],
-    "opened": [
-      "src/api/client.ts",
-      "src/api/client-admin.ts",
-      "src/index.ts"
-    ]
+    "opened": []
   },
   {
-    "fingerprint": "f814e83b9c9e56a4",
+    "fingerprint": "73c4ac3f4febadd0",
     "verdict": "confirm",
-    "proof": "Confirmed: no ticket reference found anywhere in flags.ts or checkout.ts, and no toggle exists (same grep evidence as candidates 1/2). The isEnabled(\"newCheckout\") stub is a concrete conditional branch, not an abstract contract, so it is genuinely a half-finished/abandoned path rather than intentional API surface. Effort is overstated as M in the note \u2014 deleting checkout.ts:7-9 and the now-unused `total` import is a trivial single-file change, so S is more accurate.",
+    "proof": "format-legacy.ts:3-6 marks legacyFormat @deprecated in favor of formatMoney; grep confirms legacyFormat's only caller is checkout.ts:11, which executes whenever the (permanently-off) newCheckout flag is false, i.e. on the sole live code path. formatMoney (format.ts:1-3) has no other callers. The deprecated function is genuinely still in active use, not dead.",
     "severity": 2,
     "effort": "S",
     "trap_matched": null,
     "checked": [
-      "ticket reference",
-      "abstract contract check"
+      "all callers of legacyFormat",
+      "all callers of formatMoney"
     ],
-    "opened": [
-      "src/api/client.ts",
-      "src/api/client-admin.ts",
-      "src/index.ts"
-    ]
+    "opened": []
   },
   {
     "fingerprint": "795ec415100325e3",
-    "verdict": "confirm",
-    "proof": "checkout.ts:11 calls legacyFormat(priceOf(...)) unconditionally on the default path (since newCheckout is always false per candidates 1-3), making this deprecated function the actual production formatter, not dead legacy code. No ticket found referencing removal. format.ts:1-3 shows formatMoney is the only intended replacement and legacyFormat is its sole caller-facing wrapper (format-legacy.ts:5), confirming the deprecated code is load-bearing.",
+    "verdict": "downgrade",
+    "proof": "Core claim verified: legacyFormat (format-legacy.ts:3-6) is @deprecated yet still exercised on checkout.ts's live path (lines 6-11) since newCheckout is always false, and no ticket marker exists in src. The '704 days old' figure cannot be verified with available read-only tools (no git-log access), so I can't confirm that specific number; severity 2 as given is consistent with the effort-S, single-caller scope confirmed independently.",
     "severity": 2,
     "effort": "S",
     "trap_matched": null,
     "checked": [
-      "ticket reference",
-      "call-site liveness"
+      "ticket/ID references in code",
+      "marker age (unverifiable without git history)"
     ],
-    "opened": [
-      "src/util/format.ts"
-    ]
+    "opened": []
   },
   {
     "fingerprint": "b7396d04c3285472",
     "verdict": "confirm",
-    "proof": "Grep confirms legacyFormat's only caller is checkout.ts:11, and formatMoney (format.ts:1) has no direct callers outside format-legacy.ts:5, matching the '1 of 1 call site on old side' claim. Note: legacyFormat isn't a pure pass-through \u2014 it rewrites '$' to 'USD ' (format-legacy.ts:5), so migrating callers to formatMoney directly would change output format, meaning the deprecation is real debt but not a no-op removal. No removal date exists in either file.",
+    "proof": "Grep confirms legacyFormat's only call site is checkout.ts:11 (import at line 4), and formatMoney (format.ts:1-3) has no callers besides format-legacy.ts:1's import \u2014 i.e. 100% of live call sites use the deprecated wrapper, 0% call formatMoney directly. No evidence of deliberate multi-backend design; it's a single incomplete migration.",
     "severity": 2,
     "effort": "S",
     "trap_matched": null,
     "checked": [
-      "call-site ratio",
-      "behavioral equivalence of old vs new"
+      "churn old vs new side (unavailable, no git tool)",
+      "multi-backend deliberateness",
+      "call-site ratio via grep"
     ],
-    "opened": [
-      "src/util/format.ts"
-    ]
-  },
-  {
-    "fingerprint": "3d5daf8fb72b00a9",
-    "verdict": "confirm",
-    "proof": "package.json:6 lists only typescript, jest, and eslint as devDependencies \u2014 tslint is absent \u2014 and scripts (package.json:5) only define build/test, with no lint script for either config. ci.yml confirms the only CI step is `npm test` (jest); no lint step runs eslint or tslint. tslint.json is therefore a genuinely inert leftover with zero tooling behind it, while .eslintrc.json at least has its dependency present even though unreferenced by scripts.",
-    "severity": 2,
-    "effort": "S",
-    "trap_matched": null,
-    "checked": [
-      "devDependency presence",
-      "script/CI references"
-    ],
-    "opened": [
-      ".github/workflows/ci.yml"
-    ]
+    "opened": []
   }
 ]

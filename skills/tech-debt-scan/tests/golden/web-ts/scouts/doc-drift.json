@@ -3,15 +3,15 @@
   "module": null,
   "findings": [
     {
-      "title": "architecture.md claims pricing/stock import each other; stock does not",
+      "title": "architecture.md describes mutual import that no longer exists",
       "family": "doc-drift",
       "debt_type": "documentation",
       "type_id": "TD-08",
       "severity": 3,
       "effort": "S",
       "signals_cited": [
-        "pattern:doc-drift:architecture-stale",
-        "coupling"
+        "docs/architecture.md stale 582 days behind the code",
+        "pattern:doc-drift:contradiction"
       ],
       "evidence": [
         {
@@ -33,18 +33,19 @@
           "quote": "import { reserve } from \"./stock\";"
         }
       ],
-      "note": "stock.ts imports from cart.ts, not from pricing.ts, so pricing and stock do not import each other; the real cycle is pricing -> stock -> cart -> pricing, which the doc does not describe. Doc is also flagged 582 days stale."
+      "note": "Doc claims pricing and stock import each other (a cycle) through stock.ts. Code shows only a one-way import: pricing.ts imports reserve from stock.ts; stock.ts imports only a type from cart.ts, not from pricing.ts. No cycle exists between pricing and stock."
     },
     {
-      "title": "README has no CHANGELOG despite tagged/versioned releases",
+      "title": "README missing CONTRIBUTING, ADR, and CHANGELOG documentation",
       "family": "doc-drift",
       "debt_type": "documentation",
       "type_id": "TD-08",
       "severity": 2,
       "effort": "S",
       "signals_cited": [
-        "pattern:doc-drift:missing-changelog",
-        "pattern:doc-drift:missing-contributing"
+        "README.md missing: CONTRIBUTING",
+        "README.md missing: ADR directory",
+        "README.md missing: CHANGELOG"
       ],
       "evidence": [
         {
@@ -52,27 +53,23 @@
           "line_start": 1,
           "line_end": 5,
           "quote": "# web-ts\n\nCart and checkout front end.\n\n    npm test"
-        },
-        {
-          "file": "package.json",
-          "line_start": 3,
-          "line_end": 3,
-          "quote": "  \"version\": \"1.1.0\","
         }
       ],
-      "note": "Package is versioned (1.1.0, a tagged v1.0.0 release exists) and has an active CI pipeline, but the repo has no CHANGELOG, CONTRIBUTING, or ADR directory documenting releases or contribution process; README covers neither."
+      "note": "Repository has no CONTRIBUTING, ADR directory, or CHANGELOG, and README does not mention or link to any; a reader has no guidance on contribution process or change history for a project already at v1.1.0 with a flag/feature history (see src/flags.ts)."
     }
   ],
   "open_questions": [],
   "looks_bad_but_fine": [
     {
-      "file": "README.md",
-      "line_start": 5,
-      "why": "npm test matches package.json scripts.test (jest) and the CI workflow command, so the documented example still runs as written."
+      "file": "src/checkout/checkout.ts",
+      "line_start": 1,
+      "line_end": 13,
+      "why": "checkout.ts and flags.ts are not mentioned in docs/architecture.md, but architecture.md only scopes itself to cart/stock/pricing coupling and does not claim to be exhaustive, so this is an incompleteness rather than a contradiction."
     }
   ],
   "not_assessed": [
-    "README.md and docs/architecture.md staleness in days (582) is taken from provided signals, not independently verified via git log since no shell/git tool was available in this session",
-    "Whether v1.0.0 tag or version bump commits represent a formal release process was not verified beyond the git tag ref and package.json version field"
+    "Whether README.md and docs/architecture.md are literally 582 days older than the current code (accepted as given signal; git log was not independently queried since no shell tool was available in this read-only pass).",
+    "Test coverage percentage vs the jest coverageThreshold of 80% lines in package.json.",
+    "Any deprecation status of tiny-emitter or other dependencies."
   ]
 }

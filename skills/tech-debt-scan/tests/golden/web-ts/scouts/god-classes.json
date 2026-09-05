@@ -7,16 +7,16 @@
     {
       "file": "src/api/client-admin.ts",
       "line_start": 1,
-      "why": "High hotspot score (80.00) and coupling with client.ts, but the file is only 22 LOC with two small unrelated functions (an HTTP fetch helper and a flag check) sharing no fields or state; not a class and shows no clustering of responsibilities or long message chains."
+      "why": "Small module with two loosely related exports (getAdminJson, adminEnabled); flagged as top hotspot by score but is a thin fetch wrapper plus a flag check, not a class with clustered fields or multiple reasons to change."
     },
     {
       "file": "src/api/client.ts",
       "line_start": 1,
-      "why": "16 LOC module with one function; near-duplicate of client-admin.ts drives the change-coupling signal but there is no god-class shape (no class, no field clustering, no chains)."
+      "why": "Structurally near-identical to client-admin.ts (shared change-coupling), but both are minimal function modules, not god-classes; duplication concern belongs to a different family."
     }
   ],
   "not_assessed": [
-    "Whether client.ts/client-admin.ts duplication constitutes a duplication-family issue (family disabled for this repo)",
-    "Whether any file size issues constitute complex-units debt (family disabled for this repo)"
+    "Whether client.ts and client-admin.ts should be merged or deduplicated (duplication family, not god-classes)",
+    "Test coverage, CVE status, or dependency currency were not evaluated"
   ]
 }
