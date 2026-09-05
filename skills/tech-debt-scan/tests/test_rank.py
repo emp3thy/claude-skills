@@ -206,8 +206,14 @@ def test_hotspot_score_correlates_with_planted_debt(
     # carry high complexity and so high hotspot_score. Excluding them from "other"
     # keeps this a comparison between planted debt and genuinely unremarkable files.
     not_planted = [p for p in scores if p not in planted_paths and p not in decoy_paths]
+    if not not_planted or all(scores[p] == 0.0 for p in not_planted):
+        pytest.skip(
+            f"{name}: comparison set (source files that are neither planted nor decoys) is "
+            "empty or scores 0.0 everywhere, so this fixture cannot validate the "
+            "hotspot/planted-debt correlation"
+        )
     mean_planted = sum(scores[p] for p in in_planted) / len(in_planted)
-    mean_other = sum(scores[p] for p in not_planted) / max(1, len(not_planted))
+    mean_other = sum(scores[p] for p in not_planted) / len(not_planted)
     assert mean_planted >= mean_other, (
         f"mean_planted={mean_planted!r} mean_other(excl. decoys)={mean_other!r}"
     )
