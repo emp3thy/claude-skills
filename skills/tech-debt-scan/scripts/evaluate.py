@@ -8,6 +8,12 @@ tier A or in the top N, which are the hard release bars from v2.0. A finding
 is "reported" when its tier is A or B; tier C is listed for a human and never
 counts toward precision or recall.
 
+``planted.json`` may carry a top-level ``churn_months``: the inventory window
+the fixture is scored under, because a corpus's commit dates are fixed while
+the default window moves. It is reported back as ``churn_months`` (null when
+the fixture does not record one) and printed above the table, so a harness can
+see which window produced the numbers.
+
 A finding hits a planted item or decoy when the families match and one
 evidence item names the same file (a null path matches a repository-level
 finding with null evidence) and, when the item carries a non-zero line range
@@ -98,6 +104,7 @@ def evaluate(
 ) -> dict[str, Any]:
     planted = [p for p in planted_doc.get("planted", []) if isinstance(p, dict)]
     decoys = [d for d in planted_doc.get("decoys", []) if isinstance(d, dict)]
+    window = planted_doc.get("churn_months")
     reported = [f for f in findings if f.get("tier") in REPORTED_TIERS]
     families = sorted(
         {str(p["family"]) for p in planted}
@@ -162,6 +169,7 @@ def evaluate(
     return {
         "schema_version": SCHEMA_VERSION,
         "top": top,
+        "churn_months": window if isinstance(window, int) else None,
         "families": per_family,
         "planted": planted_report,
         "decoys": decoy_report,
@@ -181,8 +189,12 @@ def _fmt(value: float | None) -> str:
 
 
 def render_table(report: dict[str, Any]) -> str:
-    rows = [f"{'family':<18} {'planted':>7} {'found':>5} {'recall':>6} {'reported':>8} "
-            f"{'precision':>9} {'decoy A/B/C':>11}"]
+    window = report.get("churn_months")
+    rows = [
+        f"scored at churn_months {window if window is not None else '(unrecorded)'}",
+        f"{'family':<18} {'planted':>7} {'found':>5} {'recall':>6} {'reported':>8} "
+        f"{'precision':>9} {'decoy A/B/C':>11}",
+    ]
     for family, stats in report["families"].items():
         hits_by_tier = stats["decoy_hits"]
         rows.append(

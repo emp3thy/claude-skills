@@ -103,6 +103,13 @@ def test_evaluate_per_family_precision_recall_and_decoys(planted: dict[str, Any]
     assert report["counts"] == {"reported": 9, "on_planted": 6, "on_decoys": 2, "unplanted": 1}
     assert report["top"] == 5
     assert report["schema_version"] == 2
+    assert report["churn_months"] == 240  # the window service-py records
+
+
+def test_churn_months_is_null_when_the_fixture_records_no_window() -> None:
+    report = evaluate([], {"planted": [], "decoys": []}, set(), top=5)
+    assert report["churn_months"] is None
+    assert render_table(report).splitlines()[0] == "scored at churn_months (unrecorded)"
 
 
 def test_tier_met_uses_the_best_hitting_tier(planted: dict[str, Any]) -> None:
@@ -144,7 +151,8 @@ def test_render_table_and_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]
     assert report["source"] == "verified.json"
     assert report["decoys_in_top_n"] == 1
     table = render_table(report)
-    assert table.splitlines()[0].startswith("family")
+    assert table.splitlines()[0] == "scored at churn_months 240"
+    assert table.splitlines()[1].startswith("family")
 
 
 def test_cli_missing_inputs_exit_2(tmp_path: Path) -> None:

@@ -170,7 +170,11 @@ succeeded bundles persist and their findings are still marked promoted).
 - The corpus fixtures are replayed into temporary git repositories once per
   test session (`conftest.py` session fixtures); tests that count churn pass an
   explicit window (`churn_months=240` or `1`) because fixture dates are fixed
-  while the default 12-month window moves.
+  while the default 12-month window moves. Corpus scoring is only meaningful at
+  that window, so each `planted.json` records it as a top-level `churn_months`
+  (240) that `evaluate.py` reads back into its report and prints above the
+  table; scored under the moving default, service-py's ownership decoy reaches
+  tier A.
 
 ## Scope
 

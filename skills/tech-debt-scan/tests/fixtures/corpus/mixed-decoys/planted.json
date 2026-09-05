@@ -1,4 +1,5 @@
 {
+  "churn_months": 240,
   "planted": [
     {"id": "p1", "family": "error-masking", "type_id": "TD-13", "path": "internal/store/store.go", "lines": [27, 29], "expect_tier": "A"},
     {"id": "p2", "family": "error-masking", "type_id": "TD-13", "path": "internal/store/store.go", "lines": [31, 33], "expect_tier": "B"},

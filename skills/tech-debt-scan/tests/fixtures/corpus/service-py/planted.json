@@ -1,4 +1,5 @@
 {
+  "churn_months": 240,
   "planted": [
     {"id": "p1", "family": "error-masking", "type_id": "TD-13", "path": "src/pay/refund.py", "lines": [31, 34], "expect_tier": "A"},
     {"id": "p2", "family": "half-finished", "type_id": "TD-22", "path": "src/pay/refund.py", "lines": [35, 35], "expect_tier": "B"},
@@ -28,7 +29,7 @@
     {"id": "d4", "family": "dead-code", "path": "src/pay/__init__.py", "why": "package file: fan-in is never resolved for it and it is not dead"},
     {"id": "d5", "family": "dead-code", "path": "setup.py", "why": "harness file run by name; fan-in 0 is not dead"},
     {"id": "d6", "family": "test-gaps", "path": "tests/conftest.py", "why": "harness file, not an untested module"},
-    {"id": "d7", "family": "ownership", "path": "src/pay/ledger.py", "why": "three human authors on the file; not a knowledge island"},
+    {"id": "d7", "family": "ownership", "path": "src/pay/ledger.py", "why": "three human authors on the file across the fixture's full history; not a knowledge island"},
     {"id": "d8", "family": "half-finished", "path": "src/pay/legacy_export.py", "why": "TODO carries ticket reference #42; not an untracked marker"}
   ]
 }

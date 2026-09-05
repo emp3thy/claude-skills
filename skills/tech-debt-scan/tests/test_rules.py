@@ -10,7 +10,9 @@ from typing import Any
 
 import pytest
 from config import DEFAULTS, deep_merge
+from evaluate import evaluate
 from inventory import build_all, write_json
+from make_history import CORPUS_ROOT
 from rules import fingerprint, run_rules
 
 NOW = datetime(2026, 9, 4, tzinfo=UTC)
@@ -293,6 +295,40 @@ def test_no_git_gives_only_artefact_findings(tmp_path: Path) -> None:
     findings, leads = run_rules(tmp_path, inventory, DEFAULTS, now=NOW)
     assert [f["evidence"][0]["file"] for f in findings] == ["Dockerfile"]
     assert leads == {"migration": []}
+
+
+@pytest.mark.parametrize(
+    ("corpus_name", "fixture_name"),
+    [
+        ("service-py", "service_py_repo"),
+        ("web-ts", "web_ts_repo"),
+        ("mixed-decoys", "mixed_decoys_repo"),
+    ],
+)
+def test_no_corpus_decoy_reaches_tier_a(
+    request: pytest.FixtureRequest, corpus_name: str, fixture_name: str
+) -> None:
+    """Spec success criterion 2, scored by evaluate.py over real rules.py output.
+
+    The window comes from the fixture's own ``planted.json``: the corpus dates
+    are fixed while the default 12-month window moves, so the bar only means
+    anything at the window the fixture records.
+    """
+    repo: Path = request.getfixturevalue(fixture_name)
+    planted_doc = json.loads(
+        (CORPUS_ROOT / corpus_name / "planted.json").read_text(encoding="utf-8")
+    )
+    window = planted_doc.get("churn_months")
+    assert isinstance(window, int), "planted.json must record the window it is scored under"
+    inventory, _ = build_all(repo, churn_months=window)
+    findings, _leads = run_rules(repo, inventory, DEFAULTS, now=NOW)
+    report = evaluate(findings, planted_doc, set(), top=5)
+    hit = [d["id"] for d in report["decoys"] if "A" in d["hit_tiers"]]
+    assert report["decoys_in_tier_a"] == 0, f"decoys at tier A: {hit}"
+    assert report["decoys_in_top_n"] == 0
+    assert report["churn_months"] == window
+    assert report["counts"]["reported"] > 0  # real findings were scored, not an empty list
+    assert report["counts"]["on_planted"] > 0
 
 
 def test_cli_writes_rule_findings(service_py: Repo, tmp_path: Path) -> None:
