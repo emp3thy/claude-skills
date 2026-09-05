@@ -149,7 +149,7 @@ Hexagons are LLM agents; every other node is a script. The v1 synthesis agent do
 | Script | v2 status |
 |---|---|
 | `inventory.py` | changed: artefact and path classes, extended git pass, coupling, fan-in, cycles, test mapping, docs block (4.2) |
-| `categories.py` | changed: family blocks with definition, questions, traps, allowed `type_id` values; shared prefix rewritten (4.6) |
+| `categories.py` | changed: family blocks with definition, questions, traps, allowed `type_id` values; shared prefix rewritten (4.6); in phase 2 the v1 symbols (`CATEGORY_PROMPTS`, `CATEGORIES`, `CORE_CATEGORIES`, `get_prompt`) stay beside the family blocks so SKILL.md v1 and `build_synthesis_prompt.py` keep working, and phase 3 deletes them |
 | `validation.py` | changed: new debt types, `accepted` status, `validate_type_id`, `validate_tier` (4.13) |
 | `design_parser.py` | changed: `OPTIONAL_KEYS` extended; a finding section also ends at an H1 (4.11) |
 | `design_writer.py` | changed: `render` reads ranked, diff and notes inputs; new `notes-prompt` subcommand (4.11) |
@@ -213,7 +213,7 @@ ranking:
   spread_cap: 0.5
 tools: { allow: all, deny: [], network: true, timeout_s: 120 }
 rules:
-  ownership: { island_share: 0.8, island_max_authors: 2, inactive_days: 180, min_human_authors: 3, max_stale_branches: 10 }
+  ownership: { island_share: 0.8, island_max_authors: 2, island_min_churn: 2, inactive_days: 180, min_human_authors: 3, max_stale_branches: 10 }
   release: { stale_branch_days: 90, min_tags: 5, gap_multiple: 4 }
 ci_enforces: []                              # families the repo's own CI already lints; findings are flagged, not dropped
 baseline: .tech-debt/baseline.json
@@ -350,7 +350,7 @@ Deterministic findings for the pipeline-infra and ownership families. Each is a 
 | iac | Kubernetes `resources.limits` absent, `image:` with `latest`, `privileged: true` | infrastructure |
 | manifest | no lockfile beside a manifest, two lockfile kinds for one ecosystem; `setup.py` beside `pyproject.toml` and `tslint` beside `eslint` are emitted as migration leads into the leads block, not findings | dependency |
 | release | tag cadence when `min_tags` (5) or more tags exist and the maximum gap exceeds `gap_multiple` (4) times the median; `hotfix/*`, `release/*`, `prod`, `staging` branches unmerged for `stale_branch_days` (90); refs/heads only | build |
-| ownership | knowledge island (`top_author_line_share >= island_share` 0.8 and `authors <= island_max_authors` 2 on a hotspot-band file; severity 3, or 4 on a top-5 hotspot); former-contributor hotspot (top author's last commit older than `inactive_days` 180); unowned hotspot (CODEOWNERS exists, no rule matches); no CODEOWNERS with `min_human_authors` (3) or more; more than `max_stale_branches` (10) unmerged branches over 90 days; no ADR directory and no PR template as one severity-1 note. The group is suppressed below three human authors. Open for phase 2: the island rule has no churn floor, so on a small corpus every hotspot-band file with one author is flagged (service-py ownership precision 0.20); phase 2 decides whether an island needs a minimum churn or a minimum band rank | knowledge-process |
+| ownership | knowledge island (`top_author_line_share >= island_share` 0.8 and `authors <= island_max_authors` 2 on a hotspot-band file; severity 3, or 4 on a top-5 hotspot); former-contributor hotspot (top author's last commit older than `inactive_days` 180); unowned hotspot (CODEOWNERS exists, no rule matches); no CODEOWNERS with `min_human_authors` (3) or more; more than `max_stale_branches` (10) unmerged branches over 90 days; no ADR directory and no PR template as one severity-1 note. The group is suppressed below three human authors. Phase 2 decision: an island also needs `churn >= island_min_churn` (2) in the window, so a one-author file nobody touches is not flagged (service-py ownership precision was 0.20 without the floor); CODEOWNERS is consulted only when its artefact entry is neither `skipped_large` nor under a disabled path class, and the unowned-hotspot check is skipped otherwise | knowledge-process |
 
 Every threshold is overridable under `rules` in `.tech-debt.yaml`. Output `rule-findings.json` is an object `{ "schema_version": 2, "findings": [...], "leads": {"migration": [...]} }`: `findings` holds candidates in the 4.7 schema with `source: "rule"`, `tier: "A"` and `confirmed_by: ["rule:<rule_id>"]`; `leads` holds the manifest group's migration leads so `plan_scan.py` can add them to the migration leads block without a second cross-script write. Repository-level facts (release cadence, stale environment branches, missing CODEOWNERS) have no file: their single evidence item carries `file: null`, `line_start: null`, `line_end: null`, `quote: ""` and `quote_verified: true`, the same shape as manifest-level osv facts in 4.5. Rule date arithmetic takes an injectable `now` (default today) so fixture tests pin a date.
 
@@ -387,7 +387,7 @@ tool-signals.json
 
 ### 4.6 `plan_scan.py` and the scout prompt contract
 
-Reads the workdir and config, decides scope and chunking, renders every prompt to `prompts/scout-<family>[-<module>].md`, and writes `scan-plan.json`. SKILL.md dispatches exactly the entries in the plan. An absent `tool-signals.json` (phase 3) is treated as every tool `skipped`.
+Reads the workdir and config, decides scope and chunking, renders every prompt to `prompts/scout-<family>[-<module>].md`, and writes `scan-plan.json`. SKILL.md dispatches exactly the entries in the plan. An absent `tool-signals.json` (phase 3) is treated as every tool `skipped`. In phase 2 every set form (`default`, `quick`, `deep`, an explicit list) is accepted, `chunked` is always false and the thresholds are recorded only; module chunking and the halved deep thresholds arrive in phase 4.
 
 ```json
 scan-plan.json
@@ -640,7 +640,7 @@ Three fixtures: `service-py` (Python: a hotspot, a coupled pair, a knowledge isl
 
 **`evaluate.py`** scores `verified.json`, `ranked.json` or `findings.json` against `planted.json`: per-family precision, recall and decoy hits by tier, and whether any decoy sits in the top N. It runs in CI over canned goldens and in the live run over real output.
 
-**Goldens** per fixture: scouts, verdicts, candidates, verified, ranked, diff, notes, `design.md`, `findings.json` and one bundle. Tool goldens are canned output throughout.
+**Goldens** per fixture: scouts, verdicts, candidates, verified, ranked, diff, notes, `design.md`, `findings.json` and one bundle. Tool goldens are canned output throughout. Phase 2 authors targeted goldens: per fixture, scout files for the families its planted items and decoys exercise (about four to six each), and verdicts covering confirm, downgrade, reject, refer and one `trap_matched` rejection, so that every merge, tier and rank branch is exercised at least once across the three fixtures; the other families rely on the adaptive rule's `no leads` skip or an empty findings list.
 
 The per-component test lists in section 4 are the test classes; one cross-cutting test additionally greps that no script outside the extension map and `tools_probe.py` branches on a language name.
 
@@ -729,7 +729,7 @@ Each phase is a feature branch `feat/tech-debt-scan-v2-phase-<n>` with its own P
 
 **Phase 1: signals** (`feat/tech-debt-scan-v2-phase-1`). Scope: `config.py`, inventory v2 with `coupling.json`, `patterns.py`, `rules.py`, `validation.py` extensions with `promote.py` taught to count `accepted`, `make_history.py`, the three-fixture corpus with `planted.json` and the seeded credential, `evaluate.py` tested against a hand-written `verified.json`. Gate: inventory, coupling, fan-in, pattern and rule tests over the synthetic history; the two-language rule per pattern; all v1 tests green. Afterwards the user can run the four signal scripts by hand and read `rule-findings.json` and the SATD statistics; `/tech-debt-scan` is unchanged.
 
-**Phase 2: detect, verify, rank** (`feat/tech-debt-scan-v2-phase-2`). Scope: `categories.py` v2 with all fourteen family blocks, `plan_scan.py` with the adaptive rule (chunking wired in phase 4), `merge_findings.py`, `verify_prompts.py`, `apply_verdicts.py`, `rank.py`, goldens for scouts, candidates, verdicts, verified and ranked. Gate: quote-fabrication diversion, tier table, budget rule, spread cap, ranking determinism, the worked example, `evaluate.py` over the goldens. Afterwards the user can run the chain by hand from `scan-plan.json` to `ranked.json`; `/tech-debt-scan` still runs v1.
+**Phase 2: detect, verify, rank** (`feat/tech-debt-scan-v2-phase-2`). Scope: `categories.py` v2 with all fourteen family blocks, `plan_scan.py` with the adaptive rule (chunking wired in phase 4), `merge_findings.py`, `verify_prompts.py`, `apply_verdicts.py`, `rank.py`, goldens for scouts, candidates, verdicts, verified and ranked. Gate: quote-fabrication diversion, tier table, budget rule, spread cap, ranking determinism, the worked example, `evaluate.py` over the goldens. The v1 symbols of `categories.py` stay beside the v2 blocks; `plan_scan.py` accepts all four set forms with `chunked` always false; the island churn floor, the CODEOWNERS guard and a test pinning that artefact-class and path-class names stay disjoint land here. Afterwards the user can run the chain by hand from `scan-plan.json` to `ranked.json`; `/tech-debt-scan` still runs v1.
 
 **Phase 3: report and cut-over** (`feat/tech-debt-scan-v2-phase-3`). Scope: `design_writer.py` v2 (`render`, `notes-prompt`), `design_parser.py` keys and the H1 boundary, `bundle_writer.py` and `promote.py` with the new statuses, PBI fields and exit code 6 (write-back wired in phase 5), SKILL.md v2 without steps 4 and 11, deletion of `build_synthesis_prompt.py`, its test and `validate_confidence`, `tests/golden/design-v1.md`, and the rewrite of `docs/architecture.md`, `README.md` and SKILL.md. Gate: design round trip including the H1 boundary, e2e over the corpus from scouts to promote, `test_real_skill_md_passes`, a v1 design still promoting. Afterwards `/tech-debt-scan` and `/tech-debt-promote` are v2 without tools or baseline, with every tool-gated cap in force.
 
