@@ -2,18 +2,26 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from detect import detect
+from detect import main as detect_main
 from discover import (
     assign_role,
+    build_env_map,
     detect_auth,
     detect_auth_switch,
+    detect_migrations,
     downstream_name,
     find_dockerfile,
+    find_entry_points,
     find_manifests,
+    join_path,
+    main,
     parse_app_config,
     parse_dockerfile,
     parse_manifest,
 )
-from kb_helpers import line_of as line_of  # re-exported for tasks appended in Task 6
+from kb_common import read_yaml
+from kb_helpers import line_of
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -166,3 +174,136 @@ def test_detect_auth_blocked_when_library_but_no_keys() -> None:
     assert detect_auth(_keys(("PRICING_BASE_URL", "http://p", None)), "jwt-bearer") == {
         "mode": "blocked"
     }
+
+
+def _config(repo: str) -> dict[str, dict[str, object]]:
+    return parse_app_config(FIXTURES / repo)
+
+
+def test_join_path_normalises() -> None:
+    assert join_path("/api/shipments", "") == "/api/shipments"
+    assert join_path("/api/shipments", "/{id}") == "/api/shipments/{id}"
+    assert join_path("api/deals", "{id:guid}") == "/api/deals/{id}"
+    assert join_path("", "/healthz") == "/healthz"
+    assert join_path("/api/", "/x/") == "/api/x"
+
+
+def test_spring_entry_points() -> None:
+    root = FIXTURES / "spring-mini"
+    entries = find_entry_points(root, "spring", _config("spring-mini"))
+    by_id = {e["id"]: e for e in entries}
+    controller = root / "src/main/java/com/acme/shipments/ShipmentController.java"
+    listener = root / "src/main/java/com/acme/shipments/ShipmentEventsListener.java"
+    assert set(by_id) == {
+        "POST /api/shipments", "GET /api/shipments/{id}", "amq shipment.requested"
+    }
+    assert by_id["POST /api/shipments"]["handler"] == (
+        "src/main/java/com/acme/shipments/ShipmentController.java:"
+        f"{line_of(controller, '@PostMapping')}"
+    )
+    assert by_id["amq shipment.requested"]["handler"].endswith(
+        f":{line_of(listener, '@JmsListener')}"
+    )
+    assert by_id["amq shipment.requested"]["kind"] == "amq-subscribe"
+
+
+def test_quarkus_entry_points_resolve_channel_address() -> None:
+    root = FIXTURES / "quarkus-mini"
+    entries = find_entry_points(root, "quarkus", _config("quarkus-mini"))
+    by_id = {e["id"]: e for e in entries}
+    assert set(by_id) == {"POST /api/invoices", "GET /api/invoices/{id}", "amq order.completed"}
+    assert by_id["amq order.completed"]["channel"] == "order-completed"
+    resource = root / "src/main/java/com/acme/invoices/InvoiceResource.java"
+    assert by_id["GET /api/invoices/{id}"]["handler"].endswith(f":{line_of(resource, '@GET')}")
+
+
+def test_dotnet_entry_points_expand_controller_token() -> None:
+    root = FIXTURES / "dotnet-mini"
+    entries = find_entry_points(root, "aspnetcore", _config("dotnet-mini"))
+    by_id = {e["id"]: e for e in entries}
+    assert set(by_id) == {"POST /api/deals", "GET /api/deals/{id}", "amq deal.requested"}
+    consumer = root / "Messaging/DealRequestedConsumer.cs"
+    needle = 'GetQueue("deal.requested")'
+    assert by_id["amq deal.requested"]["handler"].endswith(f":{line_of(consumer, needle)}")
+
+
+def test_fastapi_entry_points() -> None:
+    root = FIXTURES / "fastapi-mini"
+    entries = find_entry_points(root, "python", _config("fastapi-mini"))
+    assert {e["id"] for e in entries} == {
+        "GET /healthz",
+        "POST /api/orders",
+        "GET /api/orders/{order_id}",
+        "amq order.requested",
+    }
+
+
+def test_detect_migrations_per_fixture() -> None:
+    spring = detect_migrations(FIXTURES / "spring-mini", "spring", _config("spring-mini"))
+    assert spring["strategy"] == "migration-container"
+    assert spring["repo_migrations"] == ["src/main/resources/db/migration"]
+    assert spring["also_on_boot"] is False
+    dotnet = detect_migrations(FIXTURES / "dotnet-mini", "aspnetcore", _config("dotnet-mini"))
+    assert dotnet["repo_migrations"] == ["Data/Migrations"]
+    fastapi = detect_migrations(FIXTURES / "fastapi-mini", "python", _config("fastapi-mini"))
+    assert fastapi["repo_migrations"] == ["alembic/versions"]
+
+
+def test_detect_migrations_flags_on_boot(tmp_path: Path) -> None:
+    config = {"spring.jpa.hibernate.ddl-auto": {"placeholder": "update", "source": "x",
+                                                 "env_var": None}}
+    assert detect_migrations(tmp_path, "spring", config)["also_on_boot"] is True
+
+
+def test_build_env_map_dotnet() -> None:
+    root = FIXTURES / "dotnet-mini"
+    stack_info = detect(root)
+    manifest = parse_manifest(root / "deployment.yml", root, serverless=False)
+    dockerfile = parse_dockerfile(root / "Dockerfile")
+    env_map = build_env_map(stack_info, manifest, dockerfile, _config("dotnet-mini"))
+    roles = {k["key"]: k["role"] for k in env_map["keys"]}
+    assert roles["ConnectionStrings__Deals"] == "db"
+    assert roles["Amq__Url"] == "amq"
+    assert roles["Pricing__BaseUrl"] == "downstream:pricing"
+    assert roles["ASPNETCORE_URLS"] == "passthrough"
+    assert env_map["port"] == 8080
+    assert env_map["readiness"]["path"] == "/health/ready"
+    assert env_map["auth"] == {"mode": "disabled", "key": "Auth__Enabled", "value": "false",
+                               "confirmed": True}
+
+
+def test_build_env_map_falls_back_to_dockerfile_port_and_port_wait(tmp_path: Path) -> None:
+    stack_info = {"framework": "python", "auth": None}
+    dockerfile = {"expose": 9001, "env": {}}
+    env_map = build_env_map(stack_info, None, dockerfile, {})
+    assert env_map["port"] == 9001
+    assert env_map["readiness"] == {"path": None, "port": 9001, "source": "fallback"}
+    assert env_map["manifest"] is None
+
+
+def test_cli_writes_env_map_and_seeded_ledger(tmp_path: Path) -> None:
+    root = FIXTURES / "spring-mini"
+    stack_path = tmp_path / "stack.json"
+
+    assert detect_main([str(root), "--out", str(stack_path), "--skip-toolchain"]) == 0
+    env_path = tmp_path / "env-map.json"
+    ledger_path = tmp_path / "flow-map.yaml"
+    code = main([str(root), "--stack", str(stack_path), "--out-env", str(env_path),
+                 "--out-ledger", str(ledger_path)])
+    assert code == 0
+    ledger = read_yaml(ledger_path)
+    assert ledger["version"] == 1
+    assert ledger["repo"] == "spring-mini"
+    assert ledger["stack"]["framework"] == "spring"
+    assert ledger["app"]["serverless"] is True
+    assert ledger["app"]["dockerfile"] == "Dockerfile"
+    assert ledger["app"]["readiness"]["path"] == "/actuator/health/readiness"
+    assert ledger["app"]["migrations"]["strategy"] == "migration-container"
+    assert ledger["app"]["auth"]["key"] == "APP_SECURITY_ENABLED"
+    ids = [e["id"] for e in ledger["entry_points"]]
+    assert ids == ["POST /api/shipments", "GET /api/shipments/{id}", "amq shipment.requested"]
+    first = ledger["entry_points"][0]
+    assert first["status"] == {"traced": False, "stubbed": False, "tested": False,
+                               "passing": False}
+    assert first["exits"] == [] and first["rules"] == {"file": None, "count": 0, "sources": []}
+    assert ledger["unresolved"] == []

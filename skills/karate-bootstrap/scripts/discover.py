@@ -16,16 +16,28 @@ Exit codes: 0 ok, 2 when no manifest, Dockerfile or entry point can be found,
 """
 from __future__ import annotations
 
+import argparse
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
-from kb_common import KbError, iter_files, read_text, read_yaml_docs, rel
-
-# Task 6 extends this import block with: argparse, sys, EXIT_OK, LEDGER_VERSION,
-# read_json, require_file, run_cli, write_json, write_yaml from kb_common and
-# CHEAT_SHEET, SOURCE_SUFFIXES, markers_of_kind from markers.
+from kb_common import (
+    EXIT_OK,
+    LEDGER_VERSION,
+    KbError,
+    iter_files,
+    read_json,
+    read_text,
+    read_yaml_docs,
+    rel,
+    require_file,
+    run_cli,
+    write_json,
+    write_yaml,
+)
+from markers import CHEAT_SHEET, SOURCE_SUFFIXES, markers_of_kind
 
 MANIFEST_NAMES: tuple[tuple[str, bool], ...] = (
     ("deployment.yml", False),
@@ -326,3 +338,295 @@ def detect_auth(keys: dict[str, dict[str, Any]], stack_auth: str | None) -> dict
     if stack_auth is None:
         return {"mode": "none"}
     return {"mode": "blocked"}
+
+
+# --- entry points -----------------------------------------------------------------
+
+_SPRING_CLASS_MAPPING_RE = re.compile(
+    r'@RequestMapping\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?"([^"]*)"'
+)
+_JAXRS_PATH_RE = re.compile(r'@Path\s*\(\s*"([^"]*)"\s*\)')
+_CLASS_DECL_RE = re.compile(r"\b(?:class|interface|record)\s+(\w+)")
+_ASPNET_ROUTE_RE = re.compile(r'\[Route\s*\(\s*"([^"]*)"\s*\)\]')
+_ASPNET_CLASS_RE = re.compile(r"\bclass\s+(\w+?)(Controller)?\b")
+_FASTAPI_PREFIX_RE = re.compile(r"APIRouter\s*\([^)]*prefix\s*=\s*[\"']([^\"']+)[\"']")
+_FLASK_METHODS_RE = re.compile(r"methods\s*=\s*\[([^\]]+)\]")
+_ROUTE_CONSTRAINT_RE = re.compile(r"\{(\w+):[^}]+\}")
+
+
+def join_path(prefix: str, path: str) -> str:
+    combined = "/".join(part for part in (prefix, path) if part)
+    combined = _ROUTE_CONSTRAINT_RE.sub(r"{\1}", combined)
+    segments = [s for s in combined.split("/") if s]
+    return "/" + "/".join(segments)
+
+
+def _class_prefix(stack: str, lines: list[str]) -> tuple[str, int]:
+    """Return (route prefix, index of the class declaration line) for one source file."""
+    class_index = next((i for i, ln in enumerate(lines) if _CLASS_DECL_RE.search(ln)), -1)
+    head = "\n".join(lines[: class_index + 1] if class_index >= 0 else lines)
+    if stack == "spring":
+        match = _SPRING_CLASS_MAPPING_RE.search(head)
+        return (match.group(1) if match else ""), class_index
+    if stack == "quarkus":
+        match = _JAXRS_PATH_RE.search(head)
+        return (match.group(1) if match else ""), class_index
+    if stack == "aspnetcore":
+        route = _ASPNET_ROUTE_RE.search(head)
+        if not route:
+            return "", class_index
+        prefix = route.group(1)
+        if "[controller]" in prefix:
+            klass = _ASPNET_CLASS_RE.search(head)
+            name = klass.group(1).lower() if klass else "controller"
+            prefix = prefix.replace("[controller]", name)
+        return prefix, class_index
+    match = _FASTAPI_PREFIX_RE.search("\n".join(lines))
+    return (match.group(1) if match else ""), class_index
+
+
+def _quarkus_method_path(lines: list[str], index: int, class_index: int) -> str:
+    for offset in (1, 2, -1, -2):
+        j = index + offset
+        if 0 <= j < len(lines) and j > class_index:
+            match = _JAXRS_PATH_RE.search(lines[j])
+            if match:
+                return match.group(1)
+    return ""
+
+
+def _resolve_channel(config: dict[str, dict[str, Any]], channel: str) -> str:
+    info = config.get(f"mp.messaging.incoming.{channel}.address")
+    return str(info["placeholder"]) if info and info.get("placeholder") else channel
+
+
+def find_entry_points(root: Path, stack: str,
+                      config: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    http_markers = markers_of_kind(stack, "entry-http")
+    amq_markers = markers_of_kind(stack, "entry-amq")
+    entries: dict[str, dict[str, Any]] = {}
+    for path in iter_files(root, SOURCE_SUFFIXES[stack]):
+        lines = read_text(path).splitlines()
+        prefix, class_index = _class_prefix(stack, lines)
+        source = rel(path, root)
+        for index, line in enumerate(lines):
+            handler = f"{source}:{index + 1}"
+            for marker in http_markers:
+                match = marker.pattern.search(line)
+                if not match:
+                    continue
+                # ASP.NET minimal-API routes (app.MapGet("/x")) are absolute; attribute
+                # routes and every other stack are relative to the class prefix.
+                absolute_minimal_api = stack == "aspnetcore" and match.group(3) is not None
+                for method, route in _http_routes(stack, match, line, lines, index, class_index):
+                    full = join_path("" if absolute_minimal_api else prefix, route)
+                    entry_id = f"{method} {full}"
+                    entries.setdefault(entry_id, {
+                        "id": entry_id, "kind": "http", "method": method, "path": full,
+                        "handler": handler,
+                    })
+            for marker in amq_markers:
+                match = marker.pattern.search(line)
+                if not match:
+                    continue
+                destination = next((g for g in match.groups() if g), None)
+                if destination is None:
+                    continue
+                entry: dict[str, Any] = {"kind": "amq-subscribe", "handler": handler}
+                if stack == "quarkus":
+                    entry["channel"] = destination
+                    destination = _resolve_channel(config, destination)
+                entry["destination"] = destination
+                entry["id"] = f"amq {destination}"
+                entries.setdefault(entry["id"], entry)
+    return sorted(entries.values(), key=lambda e: (e["handler"].rsplit(":", 1)[0],
+                                                   int(e["handler"].rsplit(":", 1)[1])))
+
+
+def _http_routes(stack: str, match: re.Match[str], line: str, lines: list[str], index: int,
+                 class_index: int) -> list[tuple[str, str]]:
+    if stack == "spring":
+        return [(match.group(1).upper(), match.group(2) or "")]
+    if stack == "quarkus":
+        return [(match.group(1).upper(), _quarkus_method_path(lines, index, class_index))]
+    if stack == "aspnetcore":
+        if match.group(1):
+            return [(match.group(1).upper(), match.group(2) or "")]
+        return [(match.group(3).upper(), "/" + (match.group(4) or "").lstrip("/"))]
+    if match.group(1):
+        return [(match.group(1).upper(), match.group(2))]
+    methods_match = _FLASK_METHODS_RE.search(line)
+    methods = (
+        [m.strip().strip("\"'").upper() for m in methods_match.group(1).split(",")]
+        if methods_match else ["GET"]
+    )
+    return [(method, match.group(3)) for method in methods]
+
+
+# --- migrations -------------------------------------------------------------------
+
+_MIGRATION_DIRS = (
+    "src/main/resources/db/migration",
+    "src/main/resources/db/changelog",
+    "alembic/versions",
+    "migrations",
+)
+_ON_BOOT_KEYS = (
+    "spring.jpa.hibernate.ddl-auto",
+    "quarkus.hibernate-orm.database.generation",
+    "hibernate.hbm2ddl.auto",
+)
+_ON_BOOT_VALUES = {"create", "create-drop", "update", "drop-and-create"}
+
+
+def detect_migrations(root: Path, stack: str, config: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    found: list[str] = [d for d in _MIGRATION_DIRS if (root / d).is_dir()]
+    if stack == "aspnetcore":
+        found.extend(
+            sorted({rel(p.parent, root) for p in iter_files(root, (".cs",))
+                    if p.parent.name == "Migrations"})
+        )
+    also_on_boot = any(
+        str(config.get(k, {}).get("placeholder", "")).lower() in _ON_BOOT_VALUES
+        for k in _ON_BOOT_KEYS
+    )
+    if not also_on_boot and stack == "aspnetcore":
+        also_on_boot = any(".Migrate()" in read_text(p) for p in iter_files(root, (".cs",)))
+    if not also_on_boot and stack == "python":
+        also_on_boot = any("create_all(" in read_text(p) for p in iter_files(root, (".py",)))
+    return {
+        "strategy": "migration-container",
+        "image": None,
+        "source": None,
+        "repo_migrations": found,
+        "also_on_boot": also_on_boot,
+    }
+
+
+# --- env-map and ledger -------------------------------------------------------------
+
+
+def build_env_map(stack_info: dict[str, Any], manifest: dict[str, Any] | None,
+                  dockerfile: dict[str, Any] | None,
+                  config: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    merged: dict[str, dict[str, Any]] = {}
+    if manifest is not None:
+        for key, value in manifest["env"].items():
+            merged[key] = {"placeholder": value or "", "source": manifest["source"],
+                           "env_var": key}
+    if dockerfile is not None:
+        for key, value in dockerfile["env"].items():
+            merged.setdefault(key, {"placeholder": value, "source": "Dockerfile",
+                                    "env_var": key})
+    for key, info in config.items():
+        merged.setdefault(key, dict(info))
+    for key, info in merged.items():
+        info["role"] = assign_role(key, str(info.get("placeholder") or ""))
+
+    port = (manifest or {}).get("port") or (dockerfile or {}).get("expose") \
+        or DEFAULT_PORT.get(str(stack_info.get("framework")), 8080)
+    readiness = (manifest or {}).get("readiness") or {
+        "path": None, "port": port, "source": "fallback"
+    }
+    return {
+        "manifest": None if manifest is None else {
+            "source": manifest["source"], "serverless": manifest["serverless"],
+            "env_from": manifest["env_from"],
+        },
+        "port": port,
+        "readiness": readiness,
+        "auth": detect_auth(merged, stack_info.get("auth")),
+        "keys": [
+            {"key": key, "role": info["role"], "placeholder": info.get("placeholder", ""),
+             "source": info.get("source", ""), "env_var": info.get("env_var")}
+            for key, info in sorted(merged.items())
+        ],
+    }
+
+
+def _blank_status() -> dict[str, bool]:
+    return {"traced": False, "stubbed": False, "tested": False, "passing": False}
+
+
+def seed_ledger(stack_info: dict[str, Any], env_map: dict[str, Any],
+                entries: list[dict[str, Any]], migrations: dict[str, Any],
+                repo_name: str, dockerfile_rel: str | None) -> dict[str, Any]:
+    entry_points: list[dict[str, Any]] = []
+    for entry in entries:
+        item: dict[str, Any] = dict(entry)
+        item.update({
+            "auth": "unknown",
+            "request": None,
+            "responses": [],
+            "reads": [],
+            "exits": [],
+            "rules": {"file": None, "count": 0, "sources": []},
+            "features": [],
+            "stubs": [],
+            "seeds": [],
+            "observed_overrides": [],
+            "status": _blank_status(),
+        })
+        entry_points.append(item)
+    manifest = env_map.get("manifest") or {}
+    return {
+        "version": LEDGER_VERSION,
+        "repo": repo_name,
+        "stack": {
+            "language": stack_info.get("language"),
+            "framework": stack_info.get("framework"),
+            "db": stack_info.get("db"),
+            "messaging": stack_info.get("messaging"),
+            "validation": stack_info.get("validation"),
+            "auth": stack_info.get("auth"),
+            "cheat_sheet": CHEAT_SHEET[str(stack_info.get("framework"))],
+        },
+        "app": {
+            "dockerfile": dockerfile_rel,
+            "port": env_map["port"],
+            "serverless": bool(manifest.get("serverless", False)),
+            "readiness": env_map["readiness"],
+            "migrations": migrations,
+            "auth": env_map["auth"],
+        },
+        "entry_points": entry_points,
+        "unresolved": [],
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Discover manifests, config and entry points")
+    parser.add_argument("repo", type=Path)
+    parser.add_argument("--service-dir", default=None)
+    parser.add_argument("--stack", type=Path, required=True, help="stack.json from detect.py")
+    parser.add_argument("--out-env", type=Path, required=True)
+    parser.add_argument("--out-ledger", type=Path, required=True)
+    args = parser.parse_args(argv)
+
+    root = args.repo / args.service_dir if args.service_dir else args.repo
+    stack_info = read_json(require_file(args.stack, "stack.json"))
+    stack = str(stack_info["framework"])
+
+    manifests = find_manifests(root)
+    manifest = parse_manifest(manifests[0][0], root, manifests[0][1]) if manifests else None
+    dockerfile_path = find_dockerfile(root)
+    if dockerfile_path is None:
+        raise KbError(f"no Dockerfile found under {root}; the app image cannot be built")
+    dockerfile = parse_dockerfile(dockerfile_path)
+    config = parse_app_config(root)
+    entries = find_entry_points(root, stack, config)
+    if not entries:
+        raise KbError(f"no entry points found under {root} for stack {stack}")
+    migrations = detect_migrations(root, stack, config)
+    env_map = build_env_map(stack_info, manifest, dockerfile, config)
+    ledger = seed_ledger(stack_info, env_map, entries, migrations, root.resolve().name,
+                         rel(dockerfile_path, root))
+    write_json(args.out_env, env_map)
+    write_yaml(args.out_ledger, ledger)
+    print(f"entry points: {len(entries)}, config keys: {len(env_map['keys'])}, "
+          f"auth: {env_map['auth']['mode']} -> {args.out_ledger}")
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(run_cli(main))
