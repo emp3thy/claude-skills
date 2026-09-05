@@ -155,7 +155,9 @@ def test_render_table_and_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]
     assert lines[0] == "scored at churn_months 240"
     assert lines[1].startswith("family")
     header_width = len(lines[1])
-    assert all(len(line) == header_width for line in lines[2:-4])  # decoys pad as one column
+    family_rows = lines[2:-3]  # 2 header lines, one row per family, 3 tail rows
+    assert len(family_rows) == len(report["families"])
+    assert all(len(line) == header_width for line in family_rows)  # decoys pad as one column
     assert lines[1].endswith("decoy A/B/C")
     assert next(line for line in lines if line.startswith("dead-code")).endswith("1/0/0")
 
