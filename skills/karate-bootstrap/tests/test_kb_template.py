@@ -101,8 +101,9 @@ def test_java_sources_carry_no_template_tokens() -> None:
         assert "${" not in path.read_text(encoding="utf-8"), path
 
 
-def _wrapper() -> list[str]:
-    return ["mvnw.cmd"] if os.name == "nt" else ["./mvnw"]
+def _wrapper(module: Path) -> list[str]:
+    name = "mvnw.cmd" if os.name == "nt" else "mvnw"
+    return [str(module / name)]
 
 
 @pytest.mark.maven
@@ -114,7 +115,7 @@ def test_template_compiles_and_smoke_runs(tmp_path: Path) -> None:
     if os.name != "nt":
         (module / "mvnw").chmod(0o755)
     proc = subprocess.run(
-        [*_wrapper(), "-B", "-q", "test", "-Dkb.skipContainers=true"],
+        [*_wrapper(module), "-B", "-q", "test", "-Dkb.skipContainers=true"],
         cwd=module, capture_output=True, text=True, shell=(os.name == "nt"),
     )
     assert proc.returncode == 0, proc.stdout[-4000:] + proc.stderr[-4000:]
