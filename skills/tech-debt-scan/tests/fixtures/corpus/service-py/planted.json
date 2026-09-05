@@ -1,0 +1,35 @@
+{
+  "churn_months": 240,
+  "planted": [
+    {"id": "p1", "family": "error-masking", "type_id": "TD-13", "path": "src/pay/refund.py", "lines": [31, 34], "expect_tier": "A"},
+    {"id": "p2", "family": "half-finished", "type_id": "TD-22", "path": "src/pay/refund.py", "lines": [35, 35], "expect_tier": "B"},
+    {"id": "p3", "family": "security", "type_id": "TD-03", "path": "src/pay/gateway.py", "lines": [11, 11], "expect_tier": "B"},
+    {"id": "p4", "family": "security", "type_id": "TD-03", "path": "src/pay/gateway.py", "lines": [24, 24], "expect_tier": "B"},
+    {"id": "p5", "family": "half-finished", "type_id": "TD-34", "path": "src/pay/gateway.py", "lines": [20, 25], "expect_tier": "B"},
+    {"id": "p6", "family": "test-gaps", "type_id": "TD-04", "path": "src/pay/gateway.py", "lines": [1, 27], "expect_tier": "B"},
+    {"id": "p7", "family": "ownership", "type_id": "TD-16", "path": "src/pay/refund.py", "lines": [1, 52], "expect_tier": "A"},
+    {"id": "p8", "family": "pipeline-infra", "type_id": "TD-19", "path": "Dockerfile", "lines": [1, 7], "expect_tier": "A"},
+    {"id": "p9", "family": "pipeline-infra", "type_id": "TD-14", "path": ".github/workflows/ci.yml", "lines": [4, 12], "expect_tier": "A"},
+    {"id": "p10", "family": "pipeline-infra", "type_id": "TD-14", "path": ".github/workflows/release.yml", "lines": [5, 12], "expect_tier": "A"},
+    {"id": "p11", "family": "dependency-debt", "type_id": "TD-02", "path": "pyproject.toml", "lines": [1, 8], "expect_tier": "A"},
+    {"id": "p12", "family": "security", "type_id": "TD-03", "path": "src/pay/legacy_export.py", "lines": [11, 11], "expect_tier": "B"},
+    {"id": "p13", "family": "security", "type_id": "TD-03", "path": "src/pay/legacy_export.py", "lines": [13, 13], "expect_tier": "B"},
+    {"id": "p14", "family": "dead-code", "type_id": "TD-09", "path": "src/pay/legacy_export.py", "lines": [1, 19], "expect_tier": "B"},
+    {"id": "p15", "family": "dead-code", "type_id": "TD-30", "path": "src/pay/legacy_export.py", "lines": [17, 19], "expect_tier": "B"},
+    {"id": "p16", "family": "security", "type_id": "TD-03", "path": "src/pay/utils.py", "lines": [12, 12], "expect_tier": "B"},
+    {"id": "p17", "family": "test-quality", "type_id": "TD-12", "path": "tests/test_ledger.py", "lines": [14, 14], "expect_tier": "B"},
+    {"id": "p18", "family": "test-quality", "type_id": "TD-18", "path": "tests/test_ledger.py", "lines": [18, 19], "expect_tier": "B"},
+    {"id": "p19", "family": "pipeline-infra", "type_id": "TD-27", "path": null, "lines": [0, 0], "expect_tier": "A"},
+    {"id": "p20", "family": "doc-drift", "type_id": "TD-08", "path": "README.md", "lines": [10, 10], "expect_tier": "B"}
+  ],
+  "decoys": [
+    {"id": "d1", "family": "duplication", "path": "tests/fixtures/seed.py", "why": "intentional fixture duplication in the tests path class"},
+    {"id": "d2", "family": "security", "path": "tests/fixtures/seed.py", "why": "placeholder credential (sk_test, placeholder, xxx) in a test fixture"},
+    {"id": "d3", "family": "dependency-debt", "path": "requirements.txt", "why": "a pinned requirements file has no lockfile ecosystem and must not be flagged"},
+    {"id": "d4", "family": "dead-code", "path": "src/pay/__init__.py", "why": "package file: fan-in is never resolved for it and it is not dead"},
+    {"id": "d5", "family": "dead-code", "path": "setup.py", "why": "harness file run by name; fan-in 0 is not dead"},
+    {"id": "d6", "family": "test-gaps", "path": "tests/conftest.py", "why": "harness file, not an untested module"},
+    {"id": "d7", "family": "ownership", "path": "src/pay/ledger.py", "why": "three human authors on the file across the fixture's full history; not a knowledge island"},
+    {"id": "d8", "family": "half-finished", "path": "src/pay/legacy_export.py", "why": "TODO carries ticket reference #42; not an untracked marker"}
+  ]
+}
