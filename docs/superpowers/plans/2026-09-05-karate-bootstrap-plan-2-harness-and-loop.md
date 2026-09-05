@@ -752,10 +752,9 @@ def test_template_files_present() -> None:
 
 def test_pom_pins_match_spec() -> None:
     root = ET.parse(TEMPLATE / "pom.xml").getroot()
-    props = {
-        child.tag.split("}")[1]: (child.text or "").strip()
-        for child in root.find("m:properties", NS) or []
-    }
+    properties = root.find("m:properties", NS)
+    assert properties is not None
+    props = {child.tag.split("}")[1]: (child.text or "").strip() for child in properties}
     for name, value in PINNED_PROPERTIES.items():
         assert props.get(name) == value, name
     artifacts = {
@@ -765,10 +764,11 @@ def test_pom_pins_match_spec() -> None:
     assert {"karate-junit5", "testcontainers", "junit-jupiter", "postgresql", "qpid-jms-client",
             "nimbus-jose-jwt", "jackson-databind", "logback-classic"} <= artifacts
     assert "mockserver" not in " ".join(artifacts)
-    includes = [i.text for i in root.iterfind(".//m:plugin/m:configuration/m:includes/m:include", NS)]
+    surefire = ".//m:plugin/m:configuration/m:includes/m:include"
+    includes = [i.text for i in root.iterfind(surefire, NS)]
     assert includes == ["**/*Test.java", "**/KarateRunner.java"]
-    resource_includes = [i.text for i in root.iterfind(".//m:testResource/m:includes/m:include", NS)]
-    assert resource_includes == ["rules/**", "stubs/**", "seed/**"]
+    resources = ".//m:testResource/m:includes/m:include"
+    assert [i.text for i in root.iterfind(resources, NS)] == ["rules/**", "stubs/**", "seed/**"]
 
 
 def test_wrapper_is_pinned_only_script() -> None:
@@ -2588,7 +2588,8 @@ DOTNET_ENV = [
 ]
 
 
-def _analysed(tmp_path: Path, fixture: str) -> tuple[Path, Path, Path, dict[str, Any], dict[str, Any]]:
+def _analysed(tmp_path: Path,
+              fixture: str) -> tuple[Path, Path, Path, dict[str, Any], dict[str, Any]]:
     root = FIXTURES / fixture
     stack = tmp_path / "stack.json"
     env = tmp_path / "env-map.json"
@@ -2611,10 +2612,12 @@ def test_env_name_follows_each_stacks_convention() -> None:
     ("spring", "SPRING_DATASOURCE_URL", "db", "", "deployment.yml",
      "jdbc:postgresql://{{db.host}}:{{db.port}}/{{db.name}}"),
     ("aspnetcore", "ConnectionStrings__Deals", "db", "", "deployment.yml",
-     "Host={{db.host}};Port={{db.port}};Database={{db.name}};Username={{db.user}};Password={{db.password}}"),
+     "Host={{db.host}};Port={{db.port}};Database={{db.name}};"
+     "Username={{db.user}};Password={{db.password}}"),
     ("python", "DATABASE_URL", "db", "", "deployment.yml",
      "postgresql://{{db.user}}:{{db.password}}@{{db.host}}:{{db.port}}/{{db.name}}"),
-    ("spring", "SPRING_DATASOURCE_USERNAME", "db", "${X:shipments}", "application.yml", "{{db.user}}"),
+    ("spring", "SPRING_DATASOURCE_USERNAME", "db", "${X:shipments}", "application.yml",
+     "{{db.user}}"),
     ("aspnetcore", "PGHOST", "db", "", "deployment.yml", "{{db.host}}"),
     ("spring", "SPRING_ARTEMIS_BROKER_URL", "amq", "tcp://artemis:61616", "deployment.yml",
      "tcp://{{amq.host}}:{{amq.corePort}}"),
@@ -2654,7 +2657,8 @@ def test_db_name_from_env_prefers_explicit_names() -> None:
                                   "Host=localhost;Database=deals;Username=u"))) == "deals"
     assert db_name_from_env(keys(("SPRING_DATASOURCE_URL", "db",
                                   "jdbc:postgresql://db:5432/shipments"))) == "shipments"
-    assert db_name_from_env(keys(("DATABASE_URL", "db", "postgresql://u:p@h:5432/orders"))) == "orders"
+    assert db_name_from_env(keys(("DATABASE_URL", "db",
+                                  "postgresql://u:p@h:5432/orders"))) == "orders"
     assert db_name_from_env(keys(("ConnectionStrings__Deals", "db", ""))) == "deals"
     assert db_name_from_env(keys(("SPRING_DATASOURCE_URL", "db", ""))) == "app"
 
@@ -2722,7 +2726,8 @@ def test_build_runtime_dotnet_mini_and_central_config(tmp_path: Path) -> None:
 def test_build_runtime_exits_4_without_a_schema_source(tmp_path: Path) -> None:
     root, _, _, ledger, env_map = _analysed(tmp_path, "spring-mini")
     with pytest.raises(KbError) as excinfo:
-        build_runtime(ledger, env_map, root, tmp_path / "karate-tests", load_central_config(None), None)
+        build_runtime(ledger, env_map, root, tmp_path / "karate-tests",
+                      load_central_config(None), None)
     assert excinfo.value.exit_code == EXIT_NO_SCHEMA
     assert "--migrations-image" in str(excinfo.value)
 
@@ -2735,7 +2740,8 @@ def test_copy_template_never_overwrites_generated_content(tmp_path: Path) -> Non
     assert (out / "rules/harness-smoke.csv").is_file()
     (out / "pom.xml").write_text("edited", encoding="utf-8")
     (out / "rules/harness-smoke.csv").write_text("edited", encoding="utf-8")
-    (out / "src/test/resources/features/harness-smoke.feature").write_text("edited", encoding="utf-8")
+    smoke = out / "src/test/resources/features/harness-smoke.feature"
+    smoke.write_text("edited", encoding="utf-8")
     (out / "defects.md").write_text("edited", encoding="utf-8")
     second = copy_template(TEMPLATE_DIR, out, force=False)
     assert second["written"] == [] and second["overwritten"] == []
@@ -2749,7 +2755,8 @@ def test_copy_template_never_overwrites_generated_content(tmp_path: Path) -> Non
         assert (out / kept).read_text(encoding="utf-8") == "edited", kept
 
 
-def test_cli_scaffolds_and_rewrites_runtime(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_scaffolds_and_rewrites_runtime(tmp_path: Path,
+                                            capsys: pytest.CaptureFixture[str]) -> None:
     root, ledger_path, env_path, _, _ = _analysed(tmp_path, "spring-mini")
     out = tmp_path / "karate-tests"
     argv = [str(root), "--ledger", str(ledger_path), "--env", str(env_path), "--out", str(out),
@@ -3116,7 +3123,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--service-dir", default=None, help="Sub-directory holding the service")
     parser.add_argument("--migrations-image", default=None, help="db-manager image reference")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG,
-                        help="central config with db_managers (default ~/.karate-bootstrap/config.yaml)")
+                        help="db_managers config, default ~/.karate-bootstrap/config.yaml")
     parser.add_argument("--force", action="store_true",
                         help="overwrite harness files (never generated content)")
     return parser
@@ -3129,7 +3136,8 @@ def main(argv: list[str] | None = None) -> int:
     env_map = read_json(require_file(args.env, "env-map.json"))
     if not TEMPLATE_DIR.is_dir():
         raise KbError(f"template missing at {TEMPLATE_DIR}", EXIT_MISSING_OUTPUT)
-    runtime = build_runtime(ledger, env_map, service_root, args.out, load_central_config(args.config),
+    config = load_central_config(args.config)
+    runtime = build_runtime(ledger, env_map, service_root, args.out, config,
                             args.migrations_image)
     summary = copy_template(TEMPLATE_DIR, args.out, args.force)
     write_json(args.out / RUNTIME_REL, runtime)
@@ -3313,7 +3321,9 @@ def test_parse_reports_requires_cucumber_json(tmp_path: Path) -> None:
 
 def _spring_ledger(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
     root = FIXTURES / "spring-mini"
-    stack, env, ledger = tmp_path / "stack.json", tmp_path / "env-map.json", tmp_path / "flow-map.yaml"
+    stack = tmp_path / "stack.json"
+    env = tmp_path / "env-map.json"
+    ledger = tmp_path / "flow-map.yaml"
     assert detect_main([str(root), "--out", str(stack), "--skip-toolchain"]) == 0
     assert discover_main([str(root), "--stack", str(stack), "--out-env", str(env),
                           "--out-ledger", str(ledger)]) == 0
@@ -3340,8 +3350,9 @@ def test_summary_values_and_render(tmp_path: Path) -> None:
     post["rules"].update({"file": "rules/post-api-shipments.csv", "count": 12})
     post["observed_overrides"] = [{"scenario": "happy", "field": "status", "old": 201, "new": 200}]
     ledger["app"]["migrations"]["image"] = "registry.example/db-manager:1"
-    report = {"passed": 9, "skipped": 1, "failed": [{"feature": "f", "scenario": "s", "outline": False,
-                                                     "tags": [], "step": "x", "error": "e"}]}
+    failure = {"feature": "f", "scenario": "s", "outline": False, "tags": [], "step": "x",
+               "error": "e"}
+    report = {"passed": 9, "skipped": 1, "failed": [failure]}
     values = summary_values(ledger, DEFECTS, report)
     assert values["repo"] == "spring-mini"
     assert values["stack"] == "spring (java)"
@@ -3584,7 +3595,7 @@ def parse_reports(reports_dir: Path, features_dir: Path | None) -> dict[str, Any
 
 
 def default_features_dir(reports_dir: Path) -> Path | None:
-    """``<module>/src/test/resources/features`` when reports live at ``<module>/target/karate-reports``."""
+    """The module's features directory when reports live at ``<module>/target/karate-reports``."""
     module = reports_dir.resolve().parent.parent
     candidate = module / "src" / "test" / "resources" / "features"
     return candidate if candidate.is_dir() else None
@@ -3611,9 +3622,9 @@ def summary_values(ledger: dict[str, Any], defects_text: str,
     ]
     notes: list[str] = []
     if readiness.get("source") == "fallback":
-        notes.append("- readiness: the manifest has no probe; the harness waits for the container port")
+        notes.append("- readiness: no manifest probe; the harness waits for the container port")
     if auth.get("mode") == "blocked":
-        notes.append("- auth: blocked (no switch or configurable issuer); 401/403 paths are not exercised")
+        notes.append("- auth: blocked (no switch, no configurable issuer); 401/403 not exercised")
     if auth.get("mode") == "disabled" and auth.get("confirmed") is False:
         notes.append(f"- auth: switch {auth.get('key')} was never confirmed")
     if migrations.get("also_on_boot"):
@@ -3632,7 +3643,8 @@ def summary_values(ledger: dict[str, Any], defects_text: str,
         "exits_amq": count("amq-publish"),
         "exits_http": count("http-out"),
         "scenarios": str(scenarios),
-        "rules_rows": str(sum(int((entry.get("rules") or {}).get("count") or 0) for entry in entries)),
+        "rules_rows": str(sum(int((entry.get("rules") or {}).get("count") or 0)
+                              for entry in entries)),
         "passing": str(report.get("passed", 0)),
         "failing": str(failing),
         "quarantined": str(report.get("skipped", 0)),
@@ -3783,7 +3795,8 @@ ERROR = ("match failed: EQUALS\n  $ | not equal | match failed for name: 'a' (MA
 
 
 def _failure(scenario: str, outline: bool = False, error: str = ERROR,
-             step: str = "* match x == { a: 2 }", feature: str = "features/f.feature") -> dict[str, Any]:
+             step: str = "* match x == { a: 2 }",
+             feature: str = "features/f.feature") -> dict[str, Any]:
     return {"feature": feature, "scenario": scenario, "outline": outline, "tags": ["@rules"],
             "step": step, "error": error}
 
@@ -3806,7 +3819,9 @@ def test_signature_collapses_outline_rows_but_not_plain_scenarios() -> None:
     assert signature(_failure("rule R001 on x", outline=True)) == signature(
         _failure("rule R002 on y", outline=True)
     )
-    assert signature(_failure("a")) == "features/f.feature|a|* match x == { a: 2 }|match failed: EQUALS"
+    assert signature(_failure("a")) == (
+        "features/f.feature|a|* match x == { a: 2 }|match failed: EQUALS"
+    )
 
 
 def test_group_failures_orders_by_count_then_first_seen() -> None:
@@ -3869,7 +3884,8 @@ def test_check_stop_rules() -> None:
     assert REPEAT_LIMIT == 3
     assert check_stop(same, failing, 15) == "stop:repeated-signature same"
     assert check_stop(same[:2], failing, 15) == "continue"
-    stuck = rec + [{"iteration": 4, "signature": "s4", "classification": "infra", "unfixable": True}]
+    stuck = rec + [{"iteration": 4, "signature": "s4", "classification": "infra",
+                    "unfixable": True}]
     assert check_stop(stuck, failing, 15) == "stop:infra-unfixable"
     assert set(CLASSIFICATIONS) == {"infra", "stub-or-seed", "expectation", "app-defect"}
 
@@ -3880,7 +3896,8 @@ def test_cli_next_log_check_stop(tmp_path: Path, capsys: pytest.CaptureFixture[s
     (tests_dir / "target" / "app.log").write_text("boom", encoding="utf-8")
     report = tests_dir / "target" / "report.json"
     report.write_text(json.dumps({"passed": 0, "skipped": 0, "failed": [
-        _failure("rule R001", outline=True), _failure("rule R002", outline=True)]}), encoding="utf-8")
+        _failure("rule R001", outline=True), _failure("rule R002", outline=True),
+    ]}), encoding="utf-8")
     assert run_cli(main, ["next", "--report", str(report), "--tests-dir", str(tests_dir)]) == 0
     top = json.loads(capsys.readouterr().out)
     assert top["count"] == 2 and top["groups"] == 1
@@ -3900,8 +3917,10 @@ def test_cli_next_log_check_stop(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert capsys.readouterr().out.strip() == "done"
     assert run_cli(main, ["next", "--report", str(report), "--tests-dir", str(tests_dir)]) == 0
     assert json.loads(capsys.readouterr().out) == {"done": True}
-    assert run_cli(main, ["log", "--log", str(log), "--signature", "x", "--hypothesis", "h",
-                          "--change", "c", "--classification", "bogus"]) == 2
+    with pytest.raises(SystemExit) as excinfo:  # argparse rejects a value outside choices
+        main(["log", "--log", str(log), "--signature", "x", "--hypothesis", "h",
+              "--change", "c", "--classification", "bogus"])
+    assert excinfo.value.code == 2
 ```
 
 - [ ] **Step 2: Run it to confirm the import fails**
@@ -3920,10 +3939,11 @@ to a JSONL log; it is written before the change is made. ``check-stop`` applies 
 conditions and prints ``done`` (no failures), ``continue``, or ``stop:<reason>`` with exit 6.
 
 Usage:
-    python scripts/kb_iterate.py next --report karate-tests/target/report.json --tests-dir karate-tests
+    python scripts/kb_iterate.py next --report karate-tests/target/report.json \
+        --tests-dir karate-tests
     python scripts/kb_iterate.py log --log karate-tests/.iterations.log --signature <sig> \
-        --hypothesis "..." --change "..." --classification infra|stub-or-seed|expectation|app-defect \
-        [--unfixable]
+        --hypothesis "..." --change "..." \
+        --classification infra|stub-or-seed|expectation|app-defect [--unfixable]
     python scripts/kb_iterate.py check-stop --log karate-tests/.iterations.log \
         --report karate-tests/target/report.json --max-iterations 15
 
@@ -4041,7 +4061,8 @@ def append_log(path: Path, record: dict[str, Any]) -> int:
     """Append one iteration; returns its 1-based number."""
     if record.get("classification") not in CLASSIFICATIONS:
         raise KbError(
-            f"unknown classification {record.get('classification')!r}; expected one of {CLASSIFICATIONS}"
+            f"unknown classification {record.get('classification')!r}; "
+            f"expected one of {CLASSIFICATIONS}"
         )
     records = read_log(path)
     number = len(records) + 1
@@ -4105,7 +4126,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     nxt = sub.add_parser("next", help="Print the largest failure group with its evidence")
-    nxt.add_argument("--report", type=Path, required=True, help="report.json from kb_report.py parse")
+    nxt.add_argument("--report", type=Path, required=True,
+                     help="report.json from kb_report.py parse")
     nxt.add_argument("--tests-dir", type=Path, required=True, help="karate-tests directory")
     nxt.set_defaults(func=_cmd_next)
 
@@ -4116,7 +4138,7 @@ def build_parser() -> argparse.ArgumentParser:
     log.add_argument("--change", required=True)
     log.add_argument("--classification", choices=CLASSIFICATIONS, required=True)
     log.add_argument("--unfixable", action="store_true",
-                     help="the failure cannot be fixed from karate-tests/ (infra); check-stop stops")
+                     help="infra failure not fixable from karate-tests/; check-stop stops")
     log.set_defaults(func=_cmd_log)
 
     stop = sub.add_parser("check-stop", help="Apply the stop conditions")
@@ -4140,7 +4162,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run the iterate tests**
 
 Run: `pytest skills/karate-bootstrap/tests/test_kb_iterate.py -v`
-Expected: 7 passed. The `argparse` `choices` rejection in the last CLI assertion exits 2 through `SystemExit`; if `run_cli` returns something other than 2, `argparse` raised `SystemExit(2)` uncaught: wrap it in the test with `pytest.raises(SystemExit)` instead of asserting the return value, and note the difference in the report ([[verify-red]] applies to green steps too: confirm what actually happens).
+Expected: 7 passed. The last CLI assertion catches `SystemExit(2)` directly because `argparse` rejects a value outside `choices` before `run_cli` sees a `KbError`.
 
 - [ ] **Step 5: Full suite, lint, types, spec command help**
 
@@ -4190,7 +4212,7 @@ def _git(repo: Path, *args: str) -> str:
 
 def _repo(tmp_path: Path, default: str = "main") -> Path:
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(parents=True)
     _git(repo, "init", "-q", "-b", default)
     _git(repo, "config", "user.email", "kb@example.com")
     _git(repo, "config", "user.name", "kb")
@@ -4389,7 +4411,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Git checkpoints for karate-bootstrap runs")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    begin_p = sub.add_parser("begin", help="Create or check out the feature branch when on the default branch")
+    begin_p = sub.add_parser(
+        "begin", help="Create or check out the feature branch when on the default branch"
+    )
     begin_p.add_argument("--repo", type=Path, required=True)
     begin_p.add_argument("--branch", default=DEFAULT_BRANCH_NAME)
     begin_p.add_argument("--no-commit", action="store_true", help="never touch git")
