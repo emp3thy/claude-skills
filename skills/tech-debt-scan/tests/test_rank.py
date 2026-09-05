@@ -195,12 +195,19 @@ def test_hotspot_score_correlates_with_planted_debt(
         (Path(__file__).parent / "fixtures" / "corpus" / name / "planted.json").read_bytes()
     )
     planted_paths = {p["path"] for p in planted["planted"] if p.get("path")}
+    decoy_paths = {d["path"] for d in planted.get("decoys", []) if d.get("path")}
     scores = {e["path"]: e["hotspot_score"] for e in inventory["files"]
               if e["path_class"] == "source"}
     if len(scores) < 4 or not planted_paths & set(scores):
         pytest.skip("fixture too small for a correlation check")
     in_planted = [p for p in scores if p in planted_paths]
-    not_planted = [p for p in scores if p not in planted_paths]
+    # Decoys are deliberately built to look like debt (a 300-line lookup table, a
+    # fluent builder, a main() that logs-and-exits, ...) without being debt; they
+    # carry high complexity and so high hotspot_score. Excluding them from "other"
+    # keeps this a comparison between planted debt and genuinely unremarkable files.
+    not_planted = [p for p in scores if p not in planted_paths and p not in decoy_paths]
     mean_planted = sum(scores[p] for p in in_planted) / len(in_planted)
     mean_other = sum(scores[p] for p in not_planted) / max(1, len(not_planted))
-    assert mean_planted >= mean_other, (mean_planted, mean_other)
+    assert mean_planted >= mean_other, (
+        f"mean_planted={mean_planted!r} mean_other(excl. decoys)={mean_other!r}"
+    )
