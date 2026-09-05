@@ -143,3 +143,29 @@ def test_cli_reads_verdict_files(tmp_path: Path) -> None:
     assert doc["findings"][0]["tier"] == "A"
     assert (workdir / "verified.json").read_bytes().count(b"\r") == 0
     assert _main(["--workdir", str(tmp_path / "none")]) == 2
+
+
+@pytest.mark.parametrize(
+    ("bad_file", "bad_content"),
+    [
+        ("candidates.json", "[]"),
+        ("verify-plan.json", "[]"),
+        ("candidates.json", '{"candidates": null}'),
+    ],
+    ids=["candidates-is-list", "plan-is-list", "candidates-field-null"],
+)
+def test_cli_exits_2_on_wrongly_shaped_input(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    bad_file: str,
+    bad_content: str,
+) -> None:
+    a = _cand("error-masking", confirmed=["scout:error-masking", "satd"])
+    workdir = tmp_path / "wd"
+    write_json(workdir / "candidates.json", {"schema_version": 2, "candidates": [a],
+                                             "open_questions": [], "looks_bad_but_fine": [],
+                                             "stats": {}})
+    write_json(workdir / "verify-plan.json", _plan(a))
+    (workdir / bad_file).write_text(bad_content, encoding="utf-8")
+    assert _main(["--workdir", str(workdir)]) == 2
+    assert capsys.readouterr().err.startswith("error:")

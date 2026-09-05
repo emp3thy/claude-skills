@@ -186,8 +186,16 @@ def _main(argv: list[str] | None = None) -> int:
         print(message, file=sys.stderr)
         return 2
     try:
-        candidates = json.loads(cand_path.read_bytes())["candidates"]
+        cand_doc = json.loads(cand_path.read_bytes())
+        if not isinstance(cand_doc, dict) or not isinstance(cand_doc.get("candidates"), list):
+            raise ValueError(f"candidates.json in {workdir} must be an object with a "
+                              "candidates list")
+        candidates = cand_doc["candidates"]
         plan = json.loads(plan_path.read_bytes())
+        if (not isinstance(plan, dict) or not isinstance(plan.get("batches"), list)
+                or not isinstance(plan.get("selected"), list)):
+            raise ValueError(f"verify-plan.json in {workdir} must be an object with "
+                              "batches and selected lists")
         verdicts: dict[str, list[dict[str, Any]]] = {}
         for batch in plan.get("batches", []):
             path = workdir / str(batch["output"])
@@ -197,8 +205,8 @@ def _main(argv: list[str] | None = None) -> int:
             loaded = json.loads(path.read_bytes())
             verdicts[str(batch["output"])] = loaded if isinstance(loaded, list) else []
         doc = apply(candidates, plan, verdicts)
-    # OSError covers an unreadable input; ValueError covers bad JSON; KeyError
-    # covers a candidates.json without a "candidates" list or a batch without
+    # OSError covers an unreadable input; ValueError covers bad JSON or a
+    # document of the wrong top-level shape; KeyError covers a batch without
     # an "output" key.
     except (OSError, ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
