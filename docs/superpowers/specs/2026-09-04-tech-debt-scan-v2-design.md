@@ -444,10 +444,10 @@ candidates.json
                     "tier": null } ],
   "open_questions": [ {"file": "", "line_start": 0, "question": "", "reason": null} ],
   "looks_bad_but_fine": [ {"file": "", "line_start": 0, "why": ""} ],
-  "stats": { "<family>": { "raw": 0, "dropped": 0, "quote_failed": 0, "clustered": 0, "suppressed": 0, "disabled": 0 } } }
+  "stats": { "<family>": { "raw": 0, "dropped": 0, "quote_failed": 0, "clustered": 0, "suppressed": 0, "disabled": 0, "dropped_reasons": [] } } }
 ```
 
-Rule findings and osv facts carry `tier: "A"` already; every other candidate has `tier: null` until `apply_verdicts.py`. Rule findings are appended unchanged after the scout candidates and corroborate rather than merge.
+Rule findings and osv facts carry `tier: "A"` already; every other candidate has `tier: null` until `apply_verdicts.py`. Rule findings are appended unchanged after the scout candidates and corroborate rather than merge. `missing_file` and `dropped_reasons` appear only when they apply.
 
 **Tests:** one invented quote yields exactly one open question and no candidate; whitespace-only differences still verify; a moved quote records the real range; cluster union and `confirmed_by`; a pattern lead within 10 lines corroborates; suppression by fingerprint with expiry; path-class disable; redaction of the seeded credential; malformed scout item dropped and counted.
 

@@ -6,7 +6,9 @@ Reads ``scan-plan.json`` (which scout files to expect), ``scouts/<family>.json``
 repository root. Writes ``candidates.json``.
 
 Steps, in order: validate each scout item (malformed items are dropped and
-counted); normalise paths; verify every quote on disk through
+counted, with the reason string collected under
+``stats[family].dropped_reasons`` when at least one item was dropped);
+normalise paths; verify every quote on disk through
 ``evidence.find_quote`` (a finding with no verified evidence is diverted to
 ``open_questions`` with reason ``quote not found``); fingerprint on the primary
 evidence; cluster same-family, same-file findings within ``CLUSTER_WINDOW``
@@ -353,6 +355,7 @@ def merge(
     day = today or date.today()
     files = _Files(root.resolve())
     stats: dict[str, dict[str, int]] = {}
+    dropped_reasons: dict[str, list[str]] = {}
     scout_cands: list[dict[str, Any]] = []
     open_questions: list[dict[str, Any]] = []
     looks_fine: list[dict[str, Any]] = []
@@ -383,6 +386,7 @@ def merge(
             cleaned = _validate(raw, family)
             if isinstance(cleaned, str):
                 stats[family]["dropped"] += 1
+                dropped_reasons.setdefault(family, []).append(cleaned)
                 continue
             verified = _verify(cleaned, files)
             if not verified:
@@ -416,12 +420,20 @@ def merge(
             stats[family]["suppressed"] += 1
             continue
         rule_kept.append(cand)
+    # dropped_reasons is recorded out-of-band (like missing_file) so a family with nothing
+    # dropped keeps the exact six pinned stat keys; it is appended last, after missing_file.
+    final_stats: dict[str, dict[str, Any]] = {}
+    for family, counts in stats.items():
+        stat_entry: dict[str, Any] = dict(counts)
+        if family in dropped_reasons:
+            stat_entry["dropped_reasons"] = dropped_reasons[family]
+        final_stats[family] = stat_entry
     return {
         "schema_version": SCHEMA_VERSION,
         "candidates": _order(kept) + _order(rule_kept),
         "open_questions": open_questions,
         "looks_bad_but_fine": looks_fine,
-        "stats": stats,
+        "stats": final_stats,
     }
 
 

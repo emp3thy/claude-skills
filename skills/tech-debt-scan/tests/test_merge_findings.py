@@ -171,6 +171,7 @@ def test_fingerprint_cluster_and_corroboration(tmp_path: Path) -> None:
     )
     _scout(workdir, "security", [])
     doc = merge(workdir, repo, DEFAULTS)
+    assert "dropped_reasons" not in doc["stats"]["security"], "nothing dropped, key must be absent"
     cand = next(c for c in doc["candidates"] if c["source"] == "scout")
     assert cand["severity"] == 4 and cand["effort"] == "S" and cand["title"] == "b"
     assert len(cand["evidence"]) == 2
@@ -228,7 +229,19 @@ def test_malformed_items_are_dropped_and_counted(tmp_path: Path) -> None:
     _scout(workdir, "error-masking", [])
     doc = merge(workdir, repo, DEFAULTS)
     assert [c for c in doc["candidates"] if c["source"] == "scout"] == []
-    assert doc["stats"]["security"]["dropped"] == 5
+    stats = doc["stats"]["security"]
+    assert stats["dropped"] == 5
+    assert list(stats) == [
+        "raw", "dropped", "quote_failed", "clustered", "suppressed", "disabled", "dropped_reasons",
+    ]
+    reasons = stats["dropped_reasons"]
+    assert len(reasons) == 5
+    joined = " | ".join(reasons)
+    assert "no evidence" in joined, "the item with an empty evidence list"
+    assert "dead-code" in joined, "the wrong family value"
+    assert "severity 9" in joined, "the out-of-range severity"
+    assert "TD-99" in joined, "the invalid type_id"
+    assert "not an object" in joined, "the bare string item"
 
 
 def test_suppression_with_expiry_and_path_class_disable(tmp_path: Path) -> None:
