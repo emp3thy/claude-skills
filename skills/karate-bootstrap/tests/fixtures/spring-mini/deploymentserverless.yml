@@ -1,0 +1,32 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: shipments
+spec:
+  template:
+    spec:
+      containers:
+        - name: shipments
+          image: registry.example/shipments:latest
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 10
+          env:
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: shipments-db
+                  key: url
+            - name: SPRING_ARTEMIS_BROKER_URL
+              value: tcp://artemis:61616
+            - name: PRICING_BASE_URL
+              value: http://pricing:8080
+            - name: AUTH_ISSUER_URI
+              value: https://login.example/realms/acme
+          envFrom:
+            - configMapRef:
+                name: shipments-config

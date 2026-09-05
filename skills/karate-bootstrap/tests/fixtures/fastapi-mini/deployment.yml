@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders
+spec:
+  template:
+    spec:
+      containers:
+        - name: orders
+          image: registry.example/orders:latest
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+          env:
+            - name: DATABASE_URL
+              value: postgresql://orders:orders@db:5432/orders
+            - name: AMQP_URL
+              value: amqp://artemis:5672
+            - name: INVENTORY_URL
+              value: http://inventory:8080
+            - name: AUTH_MODE
+              value: jwt
+            - name: JWKS_URL
+              value: https://login.example/realms/acme/protocol/openid-connect/certs

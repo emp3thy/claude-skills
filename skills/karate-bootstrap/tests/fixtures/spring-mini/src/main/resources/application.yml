@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME:shipments}
+    password: ${SPRING_DATASOURCE_PASSWORD:shipments}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  artemis:
+    broker-url: ${SPRING_ARTEMIS_BROKER_URL}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AUTH_ISSUER_URI}
+app:
+  security:
+    enabled: ${APP_SECURITY_ENABLED:true}
+pricing:
+  base-url: ${PRICING_BASE_URL}

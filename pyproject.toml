@@ -13,7 +13,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["skills/tech-debt-scan/tests"]
+testpaths = ["skills/tech-debt-scan/tests", "skills/karate-bootstrap/tests"]
 markers = ["live: hits a real LLM (off by default)"]
 addopts = "-m 'not live'"
 # The corpus fixture trees legitimately contain files named test_*.py (they
@@ -24,7 +24,8 @@ norecursedirs = ["fixtures/corpus"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["skills/tech-debt-scan/tests/fixtures/corpus"]
+# Fixture repos under every skill's tests/fixtures are data, not project code.
+extend-exclude = ["skills/tech-debt-scan/tests/fixtures/corpus", "skills/*/tests/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
@@ -32,7 +33,7 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["skills/tech-debt-scan/scripts"]
+files = ["skills/tech-debt-scan/scripts", "skills/karate-bootstrap/scripts"]
 # scripts/ are direct-path-invocable (no package), so sibling imports like
 # `from validation import ...` need the scripts dir on the mypy search path.
-mypy_path = "skills/tech-debt-scan/scripts"
+mypy_path = "skills/tech-debt-scan/scripts,skills/karate-bootstrap/scripts"
