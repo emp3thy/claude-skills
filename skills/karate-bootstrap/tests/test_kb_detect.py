@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
-from detect import detect, find_build_files, main
+from detect import check_toolchain, detect, find_build_files, main
 from kb_common import EXIT_TOOLCHAIN, EXIT_UNSUPPORTED_STACK, KbError
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -99,14 +101,74 @@ def test_cli_writes_stack_json_with_service_dir(tmp_path: Path) -> None:
     assert data["toolchain"] == {"skipped": True}
 
 
+def _installed(name: str) -> str | None:
+    return f"/usr/bin/{name}" if name in ("docker", "java", "mvn") else None
+
+
+def _fake_java(version_line: str) -> Any:
+    def run(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=version_line)
+
+    return run
+
+
 def test_cli_toolchain_missing_exits_7(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import detect as detect_module
 
     monkeypatch.setattr(detect_module.shutil, "which", lambda _name: None)  # type: ignore[attr-defined]
+    monkeypatch.setattr(detect_module.subprocess, "run",  # type: ignore[attr-defined]
+                        _fake_java('openjdk version "21.0.2" 2024-01-16\n'))
     out = tmp_path / "stack.json"
     with pytest.raises(KbError) as excinfo:
         main([str(FIXTURES / "spring-mini"), "--out", str(out)])
     assert excinfo.value.exit_code == EXIT_TOOLCHAIN
+
+
+def test_check_toolchain_reports_the_java_major_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    import detect as detect_module
+
+    monkeypatch.setattr(detect_module.shutil, "which", _installed)  # type: ignore[attr-defined]
+    monkeypatch.setattr(detect_module.subprocess, "run",  # type: ignore[attr-defined]
+                        _fake_java('openjdk version "21.0.2" 2024-01-16\n'))
+    assert check_toolchain() == {"container_cli": "docker", "java": 21, "maven": True}
+
+
+def test_check_toolchain_rejects_a_jdk_older_than_17(monkeypatch: pytest.MonkeyPatch) -> None:
+    import detect as detect_module
+
+    monkeypatch.setattr(detect_module.shutil, "which", _installed)  # type: ignore[attr-defined]
+    monkeypatch.setattr(detect_module.subprocess, "run",  # type: ignore[attr-defined]
+                        _fake_java('java version "1.8.0_401"\n'))
+    with pytest.raises(KbError) as excinfo:
+        check_toolchain()
+    assert excinfo.value.exit_code == EXIT_TOOLCHAIN
+    assert "found 8" in str(excinfo.value)
+
+
+def test_python_only_needles_do_not_leak_into_a_java_stack(tmp_path: Path) -> None:
+    (tmp_path / "pom.xml").write_text(
+        "<project><description>Serves shipment requests for django and pyjwt clients "
+        "with pydantic-style schemas</description><dependencies><dependency>"
+        "<groupId>org.springframework.boot</groupId>"
+        "<artifactId>spring-boot-starter-web</artifactId></dependency>"
+        "</dependencies></project>",
+        encoding="utf-8",
+    )
+    result = detect(tmp_path)
+    assert result["framework"] == "spring"
+    assert result["http_client"] == "resttemplate"
+    assert result["orm"] is None
+    assert result["validation"] is None
+    assert result["auth"] is None
+
+
+def test_python_only_needles_still_apply_to_python(tmp_path: Path) -> None:
+    (tmp_path / "requirements.txt").write_text("django\nrequests\npyjwt\n", encoding="utf-8")
+    result = detect(tmp_path)
+    assert result["framework"] == "python"
+    assert result["orm"] == "django-orm"
+    assert result["http_client"] == "requests"
+    assert result["auth"] == "pyjwt"
 
 
 def test_hibernate_validator_alone_is_not_an_orm(tmp_path: Path) -> None:
