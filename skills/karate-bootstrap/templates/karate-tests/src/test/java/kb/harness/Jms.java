@@ -25,14 +25,18 @@ import org.apache.qpid.jms.JmsConnectionFactory;
 /**
  * Artemis over AMQP 1.0 (Qpid JMS), exposed to Karate as {@code Jms}. One consumer per destination
  * for the whole JVM; every scenario takes its own message by content with the match form of await.
+ * A session with a registered listener belongs to the provider's delivery thread for as long as
+ * that listener is set, so each listener-driven consumer gets its own {@link Session} and
+ * publishing uses one session of its own, never a listener's session.
  */
 public final class Jms {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Map<String, BlockingQueue<Map<String, Object>>> INBOX = new ConcurrentHashMap<>();
+    private static final Map<String, Session> CONSUMER_SESSIONS = new ConcurrentHashMap<>();
     private static final Map<String, MessageConsumer> CONSUMERS = new ConcurrentHashMap<>();
     private static Connection connection;
-    private static Session session;
+    private static Session producerSession;
 
     private Jms() {
     }
@@ -40,11 +44,13 @@ public final class Jms {
     /** Subscribes once per destination. Idempotent: later calls do not drop queued messages. */
     public static synchronized void watch(String destination) {
         try {
-            ensureSession();
+            ensureConnection();
             INBOX.computeIfAbsent(destination, d -> new LinkedBlockingQueue<>());
             if (!CONSUMERS.containsKey(destination)) {
-                MessageConsumer consumer = session.createConsumer(destinationFor(destination));
+                Session consumerSession = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+                MessageConsumer consumer = consumerSession.createConsumer(destinationFor(consumerSession, destination));
                 consumer.setMessageListener(message -> INBOX.get(destination).offer(toMap(message)));
+                CONSUMER_SESSIONS.put(destination, consumerSession);
                 CONSUMERS.put(destination, consumer);
             }
         } catch (JMSException e) {
@@ -104,15 +110,18 @@ public final class Jms {
 
     public static synchronized void publish(String destination, Object body, Map<String, Object> headers) {
         try {
-            ensureSession();
+            ensureConnection();
+            if (producerSession == null) {
+                producerSession = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+            }
             String text = body instanceof String ? (String) body : JSON.writeValueAsString(body);
-            TextMessage message = session.createTextMessage(text);
+            TextMessage message = producerSession.createTextMessage(text);
             if (headers != null) {
                 for (Map.Entry<String, Object> h : headers.entrySet()) {
                     message.setObjectProperty(h.getKey(), h.getValue());
                 }
             }
-            try (MessageProducer producer = session.createProducer(destinationFor(destination))) {
+            try (MessageProducer producer = producerSession.createProducer(destinationFor(producerSession, destination))) {
                 producer.send(message);
             }
         } catch (JMSException | JsonProcessingException e) {
@@ -141,17 +150,16 @@ public final class Jms {
         return true;
     }
 
-    private static void ensureSession() throws JMSException {
-        if (session != null) {
+    private static void ensureConnection() throws JMSException {
+        if (connection != null) {
             return;
         }
         JmsConnectionFactory factory = new JmsConnectionFactory(Containers.amqUser(), Containers.amqPassword(), Containers.jmsUrl());
         connection = factory.createConnection();
         connection.start();
-        session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
     }
 
-    private static Destination destinationFor(String name) throws JMSException {
+    private static Destination destinationFor(Session session, String name) throws JMSException {
         return Containers.isQueue(name) ? session.createQueue(name) : session.createTopic(name);
     }
 
