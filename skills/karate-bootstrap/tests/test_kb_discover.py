@@ -157,6 +157,11 @@ def test_detect_auth_none_without_library() -> None:
     assert detect_auth(_keys(("PRICING_BASE_URL", "http://p", None)), None) == {"mode": "none"}
 
 
+def test_detect_auth_jwks_wins_over_none_when_issuer_key_exists() -> None:
+    result = detect_auth(_keys(("JWKS_URL", "https://login.example/certs", "JWKS_URL")), None)
+    assert result == {"mode": "jwks", "keys": ["JWKS_URL"]}
+
+
 def test_detect_auth_blocked_when_library_but_no_keys() -> None:
     assert detect_auth(_keys(("PRICING_BASE_URL", "http://p", None)), "jwt-bearer") == {
         "mode": "blocked"

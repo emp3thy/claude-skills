@@ -315,8 +315,6 @@ def detect_auth(keys: dict[str, dict[str, Any]], stack_auth: str | None) -> dict
     switch = detect_auth_switch(keys)
     if switch is not None:
         return switch
-    if stack_auth is None:
-        return {"mode": "none"}
     jwks_keys = sorted(
         str(info.get("env_var") or key)
         for key, info in keys.items()
@@ -325,4 +323,6 @@ def detect_auth(keys: dict[str, dict[str, Any]], stack_auth: str | None) -> dict
     )
     if jwks_keys:
         return {"mode": "jwks", "keys": jwks_keys}
+    if stack_auth is None:
+        return {"mode": "none"}
     return {"mode": "blocked"}
