@@ -88,13 +88,16 @@ signals, `plan_scan.py`, one `claude -p` call per scout prompt,
 `merge_findings.py`, `verify_prompts.py`, one call per verifier batch,
 `apply_verdicts.py` and `rank.py`; when a `planted.json` is present it scores
 the run with `evaluate.py`, prints the table and appends one row to
-`docs/evaluation-log.md`: date, fixture, model, `tier_a_precision`,
-`reported_precision`, `decoys_tier_a`, `decoys_top_n`, per-family `recall`,
-`scouts`, `verifiers` and `cost_usd`. `tier_a_precision` comes from the
-report's `tier_a` block and counts tier A findings alone, which is the release
-bar; `reported_precision` is the per-family figure, which spans tiers A and B.
-The history window is the fixture's `planted.json` `churn_months` unless
-`--churn-months` overrides it.
+`docs/evaluation-log.md`: date, fixture, model, `churn_months`,
+`tier_a_precision`, `reported_precision`, `decoys_tier_a`, `decoys_top_n`,
+per-family `recall`, `scouts`, `verifiers` and `cost_usd`. `tier_a_precision`
+comes from the report's `tier_a` block and counts tier A findings alone, which
+is the release bar; `reported_precision` is the per-family figure, which spans
+tiers A and B. The history window is the fixture's `planted.json`
+`churn_months` when present; a conflicting `--churn-months` is ignored, with a
+warning printed to stderr, so the logged `churn_months` always matches the
+window the run actually scored against. Without a planted value,
+`--churn-months` sets the window, else the config default.
 
 Every agent call is a list argv (never a shell string) in print mode:
 `--setting-sources project --strict-mcp-config --disable-slash-commands` keep

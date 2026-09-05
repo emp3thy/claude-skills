@@ -54,9 +54,9 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": False,
 '''
 
 LOG_HEADER_TEXT = (
-    "| date | fixture | model | tier_a_precision | reported_precision | decoys_tier_a "
-    "| decoys_top_n | recall | scouts | verifiers | cost_usd |\n"
-    "|---|---|---|---|---|---|---|---|---|---|---|\n"
+    "| date | fixture | model | churn_months | tier_a_precision | reported_precision "
+    "| decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd |\n"
+    "|---|---|---|---|---|---|---|---|---|---|---|---|\n"
 )
 
 
@@ -140,16 +140,27 @@ def test_log_row_creates_the_header_and_appends_a_row(tmp_path: Path) -> None:
         "decoys_in_tier_a": 1, "decoys_in_top_n": 0,
         "tier_a": {"reported": 2, "precise": 1, "precision": 0.5},
     }
-    log_row(log, "service-py", "haiku", report, scouts=6, verifiers=2, cost=0.42)
+    log_row(log, "service-py", "haiku", report, churn_months=240,
+            scouts=6, verifiers=2, cost=0.42)
     text = log.read_text(encoding="utf-8")
     assert "\r\n" not in text
-    assert text.startswith("| date | fixture | model | tier_a_precision | reported_precision |")
+    assert text.startswith("| date | fixture | model | churn_months | tier_a_precision |")
     row = text.splitlines()[-1]
     assert row.startswith("| 20")
-    # tier A precision (0.50) is the bar; the A+B reported precision (0.75) sits beside it.
-    assert "| 0.50 | 0.75 |" in row
+    # model, then churn_months right after it, then the tier A / A+B precision pair.
+    assert "| haiku | 240 | 0.50 | 0.75 |" in row
     for token in ("service-py", "haiku", "security=0.50", "| 6 |", "| 2 |", "0.42"):
         assert token in row, token
+
+
+def test_log_row_writes_a_dash_when_churn_months_is_none(tmp_path: Path) -> None:
+    log = tmp_path / "log.md"
+    report = {"families": {}, "decoys_in_tier_a": 0, "decoys_in_top_n": 0,
+               "tier_a": {"reported": 0, "precise": 0, "precision": None}}
+    log_row(log, "service-py", "haiku", report, churn_months=None,
+            scouts=0, verifiers=0, cost=0.0)
+    row = log.read_text(encoding="utf-8").splitlines()[-1]
+    assert "| haiku | - | - |" in row
 
 
 def test_run_chain_over_a_corpus_fixture_with_the_fake(
@@ -178,6 +189,26 @@ def test_run_chain_over_a_corpus_fixture_with_the_fake(
     assert json.loads((workdir / "ranked.json").read_bytes())["top_n"]
     rows = log.read_text(encoding="utf-8").splitlines()
     assert rows[-1].startswith("| 20") and "service-py" in rows[-1] and "haiku" in rows[-1]
+
+
+def test_run_chain_honours_the_fixtures_churn_months_over_the_flag(
+    tmp_path: Path, fake_claude: str, service_py_repo: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """planted.json's churn_months (240) outranks a conflicting --churn-months (6)."""
+    workdir = tmp_path / "wd"
+    log = tmp_path / "log.md"
+    log.write_text(LOG_HEADER_TEXT, encoding="utf-8")
+    planted = Path(__file__).parent / "fixtures" / "corpus" / "service-py" / "planted.json"
+    run_chain(service_py_repo, workdir, families="quick", top=3, preset="balanced",
+              churn_months=6, model="haiku", budget=0.1, claude=fake_claude, timeout=60,
+              skip_agents=False, planted=planted, log_path=log, fixture_name="service-py")
+    inventory = json.loads((workdir / "inventory.json").read_bytes())
+    assert inventory["churn_window_months"] == 240
+    err = capsys.readouterr().err
+    assert "warning: --churn-months 6 ignored; service-py scores at churn_months 240" in err
+    row = log.read_text(encoding="utf-8").splitlines()[-1]
+    assert "| haiku | 240 |" in row
 
 
 def test_cli_exit_codes(tmp_path: Path) -> None:

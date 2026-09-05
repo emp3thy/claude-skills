@@ -56,9 +56,9 @@ RETRY_SUFFIX: Final[str] = (
     "\n\nThe previous response failed the schema; re-emit valid JSON only.\n"
 )
 LOG_HEADER: Final[str] = (
-    "| date | fixture | model | tier_a_precision | reported_precision | decoys_tier_a "
-    "| decoys_top_n | recall | scouts | verifiers | cost_usd |\n"
-    "|---|---|---|---|---|---|---|---|---|---|---|\n"
+    "| date | fixture | model | churn_months | tier_a_precision | reported_precision "
+    "| decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd |\n"
+    "|---|---|---|---|---|---|---|---|---|---|---|---|\n"
 )
 
 
@@ -236,6 +236,7 @@ def log_row(
     model: str,
     report: dict[str, Any],
     *,
+    churn_months: int | None,
     scouts: int,
     verifiers: int,
     cost: float,
@@ -255,6 +256,7 @@ def log_row(
     )
     row = (
         f"| {datetime.now(UTC).date().isoformat()} | {fixture} | {model} "
+        f"| {churn_months if churn_months is not None else '-'} "
         f"| {_ratio_cell(tier_a.get('precision'))} "
         f"| {_ratio_cell(precise / reported if reported else None)} "
         f"| {report.get('decoys_in_tier_a', 0)} | {report.get('decoys_in_top_n', 0)} "
@@ -315,8 +317,19 @@ def run_chain(
     workdir.mkdir(parents=True, exist_ok=True)
     config = load_config(repo)
     planted_doc = json.loads(planted.read_bytes()) if planted and planted.is_file() else None
-    if churn_months is None and planted_doc and isinstance(planted_doc.get("churn_months"), int):
-        churn_months = int(planted_doc["churn_months"])
+    planted_churn = None
+    if planted_doc and isinstance(planted_doc.get("churn_months"), int):
+        planted_churn = int(planted_doc["churn_months"])
+    # The fixture's scoring window always wins: a conflicting --churn-months would
+    # otherwise silently score the run against a table built at a different window.
+    if planted_churn is not None:
+        if churn_months is not None and churn_months != planted_churn:
+            print(
+                f"warning: --churn-months {churn_months} ignored; "
+                f"{fixture_name or repo.name} scores at churn_months {planted_churn}",
+                file=sys.stderr,
+            )
+        churn_months = planted_churn
     _signals(repo, workdir, config, churn_months)
 
     plan, prompts = build_plan(workdir, config, families=families, top=top)
@@ -380,6 +393,7 @@ def run_chain(
         if log_path is not None:
             log_row(
                 log_path, fixture_name or repo.name, model, report,
+                churn_months=churn_months,
                 scouts=scout_calls, verifiers=verifier_calls, cost=cost,
             )
     print(
