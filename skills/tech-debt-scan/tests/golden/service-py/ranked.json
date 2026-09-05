@@ -436,26 +436,8 @@
       "spread_capped": false
     },
     {
-      "fingerprint": "b1f9606f10dd3ee8",
-      "rank": 24,
-      "priority": 2.084,
-      "terms": {
-        "severity": 2,
-        "H": 0.042,
-        "C": 0.0,
-        "F": 0.0,
-        "interest": 1.042,
-        "tier_weight": 1.0,
-        "tractability": 1.0,
-        "priority": 2.084
-      },
-      "tier": "A",
-      "in_top_n": false,
-      "spread_capped": false
-    },
-    {
       "fingerprint": "495747bed5818465",
-      "rank": 25,
+      "rank": 24,
       "priority": 2.0,
       "terms": {
         "severity": 2,
@@ -473,7 +455,7 @@
     },
     {
       "fingerprint": "628faae80f817909",
-      "rank": 26,
+      "rank": 25,
       "priority": 2.0,
       "terms": {
         "severity": 2,
@@ -491,7 +473,7 @@
     },
     {
       "fingerprint": "b10028c3d26d421c",
-      "rank": 27,
+      "rank": 26,
       "priority": 2.0,
       "terms": {
         "severity": 2,
@@ -509,7 +491,7 @@
     },
     {
       "fingerprint": "8fe7e5857c49c8ad",
-      "rank": 28,
+      "rank": 27,
       "priority": 1.5,
       "terms": {
         "severity": 2,
@@ -527,7 +509,7 @@
     },
     {
       "fingerprint": "ce6c51b2a87e9ed3",
-      "rank": 29,
+      "rank": 28,
       "priority": 1.5,
       "terms": {
         "severity": 2,
@@ -540,6 +522,24 @@
         "priority": 1.5
       },
       "tier": "A",
+      "in_top_n": false,
+      "spread_capped": false
+    },
+    {
+      "fingerprint": "b1f9606f10dd3ee8",
+      "rank": 29,
+      "priority": 1.4588,
+      "terms": {
+        "severity": 2,
+        "H": 0.042,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.042,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 1.4588
+      },
+      "tier": "B",
       "in_top_n": false,
       "spread_capped": false
     },

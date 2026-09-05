@@ -12,9 +12,10 @@ normalise paths; verify every quote on disk through
 ``evidence.find_quote`` (a finding with no verified evidence is diverted to
 ``open_questions`` with reason ``quote not found``); fingerprint on the primary
 evidence; cluster same-family, same-file findings within ``CLUSTER_WINDOW``
-lines; corroborate from pattern leads, SATD markers, rule findings, coupling
-and the hotspot band; attach inventory signals; apply suppressions and
-path-class disables; redact every quote, title and note.
+lines; corroborate from pattern leads of the candidate's own family, SATD
+markers, rule findings, coupling and the hotspot band; attach inventory
+signals; apply suppressions and path-class disables; redact every quote, title
+and note.
 
 Rule findings enter as tier A candidates with ``source: "rule"`` and are never
 merged into a scout candidate: they corroborate it (``rule:<id>`` in
@@ -252,10 +253,13 @@ def _corroborate(
             return False
         return any(f == path and _near(s, e, line, line) for f, s, e in spans)
 
-    for leads in (patterns.get("leads") or {}).values():
-        for lead in leads:
-            if hits(str(lead["file"]), lead.get("line")):
-                sources.add(f"pattern:{lead['rule']}")
+    # A pattern lead only corroborates a candidate of its own family: the leads are
+    # keyed by family, and a dead-code lead beside an error-masking catch says
+    # nothing about whether that catch masks a failure. SATD markers, rule
+    # findings, coupling and the hotspot band stay family-agnostic (spec 4.7).
+    for lead in (patterns.get("leads") or {}).get(cand["family"]) or []:
+        if hits(str(lead["file"]), lead.get("line")):
+            sources.add(f"pattern:{lead['rule']}")
     for marker in patterns.get("satd") or []:
         if hits(str(marker["file"]), marker.get("line")):
             sources.add("satd")

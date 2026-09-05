@@ -6,11 +6,13 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from categories import SEVERITY_RUBRIC
+from categories import FAMILIES, FAMILY_BLOCKS, SEVERITY_RUBRIC
 from config import DEFAULTS
 from evidence import fingerprint, priority_terms, repo_maxima
 from inventory import build_all, write_json, write_outputs
 from verify_prompts import (
+    FAMILY_TRAPS_HEADER,
+    REPO_TRAPS_HEADER,
     VERDICT_SCHEMA,
     _main,
     _span,
@@ -286,3 +288,43 @@ def test_verdict_schema_shape() -> None:
                                      "trap_matched", "checked", "opened"}
     assert item["properties"]["verdict"]["enum"] == ["confirm", "downgrade", "reject", "refer"]
     assert repo_maxima({"files": []}) == {"hotspot": 0.0, "coupling": 0, "fan_in": 0}
+
+
+def test_prompt_carries_the_family_traps_before_the_repository_traps(tmp_path: Path) -> None:
+    """The family block's own traps reach the verifier, ahead of the repository's."""
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "payments.py").write_text(
+        "\n".join(f"line {i}" for i in range(1, 21)) + "\n", encoding="utf-8")
+    inventory, coupling = build_all(repo, config=DEFAULTS)
+    cfg = deepcopy(DEFAULTS)
+    cfg["traps"] = [
+        {"family": "error-masking", "path_glob": "src/*.py", "note": "the repository's own trap"},
+    ]
+    text = render_verify_prompt(
+        [_cand("error-masking", "src/payments.py", 5, 3)],
+        root=repo, inventory=inventory, coupling=coupling, config=cfg,
+    )
+    assert FAMILY_TRAPS_HEADER in text
+    assert (
+        "A catch at a process or request boundary that reports and continues is correct." in text
+    )
+    assert "A retry loop that re-raises after the last attempt is not masking." in text
+    assert text.index(FAMILY_TRAPS_HEADER) < text.index(REPO_TRAPS_HEADER)
+
+
+def test_every_family_renders_its_own_trap_list(tmp_path: Path) -> None:
+    """Every one of the fourteen families carries its block's traps into the prompt."""
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "payments.py").write_text(
+        "\n".join(f"line {i}" for i in range(1, 21)) + "\n", encoding="utf-8")
+    inventory, coupling = build_all(repo, config=DEFAULTS)
+    for family in FAMILIES:
+        text = render_verify_prompt(
+            [_cand(family, "src/payments.py", 5, 3)],
+            root=repo, inventory=inventory, coupling=coupling, config=DEFAULTS,
+        )
+        assert FAMILY_TRAPS_HEADER in text, family
+        for trap in FAMILY_BLOCKS[family].traps:
+            assert trap in text, (family, trap)

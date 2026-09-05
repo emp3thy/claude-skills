@@ -324,3 +324,37 @@ def test_cli(tmp_path: Path) -> None:
     raw = (workdir / "candidates.json").read_bytes()
     assert b"\r" not in raw and raw.endswith(b"\n")
     assert _main(["--workdir", str(tmp_path / "nowhere")]) == 2
+
+
+def test_pattern_lead_corroborates_only_a_candidate_of_its_own_family(tmp_path: Path) -> None:
+    """A lead of another family is no corroboration; the candidate's own family is (spec 4.7)."""
+    repo, workdir = _repo(tmp_path)
+    write_json(
+        workdir / "patterns.json",
+        {
+            "schema_version": 2,
+            "leads": {
+                "dead-code": [
+                    {"rule": "dead-code:flag-sdk", "file": "src/pay.py", "line": 7,
+                     "quote": "q", "path_class": "source", "extra": {}}
+                ],
+                "error-masking": [
+                    {"rule": "error-masking:swallowed-catch", "file": "src/pay.py", "line": 8,
+                     "quote": "q", "path_class": "source", "extra": {}}
+                ],
+            },
+            "satd": [],
+            "stats": {},
+        },
+    )
+    _scout(
+        workdir,
+        "error-masking",
+        [_finding("error-masking", "swallowed", "src/pay.py", 7, 8, SWALLOW)],
+    )
+    _scout(workdir, "security", [])
+    doc = merge(workdir, repo, DEFAULTS)
+    cand = next(c for c in doc["candidates"] if c["source"] == "scout")
+    assert "pattern:error-masking:swallowed-catch" in cand["confirmed_by"]
+    assert "pattern:dead-code:flag-sdk" not in cand["confirmed_by"]
+    assert not any(c.startswith("pattern:dead-code") for c in cand["confirmed_by"])

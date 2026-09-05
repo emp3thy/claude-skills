@@ -32,7 +32,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:swallowed-catch",
         "satd",
         "scout:duplication"
       ],
@@ -91,10 +90,7 @@
       "confirmed_by": [
         "hotspot",
         "pattern:commented-out-code",
-        "pattern:dynamic-eval",
         "pattern:legacy-name",
-        "pattern:security-suppression",
-        "pattern:string-sql",
         "satd",
         "scout:dead-code"
       ],
@@ -151,7 +147,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:stdout-write",
         "satd",
         "scout:dead-code"
       ],
@@ -204,7 +199,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:weak-hash",
         "scout:dead-code"
       ],
       "signals_cited": [
@@ -254,7 +248,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:stdout-write",
         "pattern:swallowed-catch",
         "satd",
         "scout:error-masking"
@@ -365,10 +358,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:credential",
-        "pattern:no-timeout",
-        "pattern:permissive-cors",
-        "pattern:tls-disabled",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -422,11 +411,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:commented-out-code",
-        "pattern:dynamic-eval",
-        "pattern:legacy-name",
-        "pattern:security-suppression",
-        "pattern:string-sql",
         "satd",
         "scout:test-gaps",
         "signal:no-mapped-tests"
@@ -477,7 +461,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:stdout-write",
         "satd",
         "scout:test-gaps"
       ],
@@ -526,10 +509,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:assert-free",
-        "pattern:numeric-assert",
-        "pattern:retry-marker",
-        "pattern:sleep",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -588,12 +567,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:assert-free",
-        "pattern:numeric-assert",
-        "pattern:skip-marker",
-        "pattern:stdout-write",
-        "pattern:stub",
-        "pattern:swallowed-catch",
         "satd",
         "scout:test-gaps",
         "signal:no-mapped-tests"
@@ -649,10 +622,7 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:credential",
         "pattern:no-timeout",
-        "pattern:permissive-cors",
-        "pattern:tls-disabled",
         "scout:half-finished"
       ],
       "signals_cited": [
@@ -705,8 +675,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:stdout-write",
-        "pattern:swallowed-catch",
         "satd",
         "scout:half-finished"
       ],
@@ -760,10 +728,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:assert-free",
-        "pattern:numeric-assert",
-        "pattern:retry-marker",
-        "pattern:sleep",
         "scout:half-finished"
       ],
       "signals_cited": [
@@ -777,7 +741,7 @@
         "path_class": "tests",
         "in_hotspot_band": false
       },
-      "tier": "A",
+      "tier": "B",
       "verdict": "confirm",
       "proof": "test_ledger.py:14 has `time.sleep(0.05)  # flaky on CI without this; retried in the workflow` -- a self-admitted race being masked by a fixed sleep plus workflow-level retries, matching commit 5334fe2 'test: retry flaky ledger test' in recent history. post() (ledger.py:12-15) and balance() (ledger.py:18-26) are synchronous file I/O with no async/threading, so the sleep is compensating for an unidentified race rather than a real inherent delay. No ticket reference in the code.",
       "checked": [
@@ -810,8 +774,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:assert-free",
-        "pattern:numeric-assert",
         "pattern:skip-marker",
         "pattern:stub",
         "scout:half-finished"
@@ -940,11 +902,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:commented-out-code",
-        "pattern:dynamic-eval",
-        "pattern:legacy-name",
-        "pattern:security-suppression",
-        "pattern:string-sql",
         "satd",
         "scout:migration"
       ],
@@ -1140,11 +1097,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:commented-out-code",
-        "pattern:dynamic-eval",
-        "pattern:legacy-name",
-        "pattern:security-suppression",
-        "pattern:string-sql",
         "satd",
         "scout:doc-drift"
       ],
@@ -1252,11 +1204,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:commented-out-code",
-        "pattern:dynamic-eval",
-        "pattern:legacy-name",
-        "pattern:security-suppression",
-        "pattern:string-sql",
         "satd",
         "scout:architecture"
       ],
@@ -1319,7 +1266,6 @@
       "confirmed_by": [
         "hotspot",
         "pattern:credential",
-        "pattern:no-timeout",
         "pattern:permissive-cors",
         "pattern:tls-disabled",
         "scout:security"
@@ -1381,9 +1327,7 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:commented-out-code",
         "pattern:dynamic-eval",
-        "pattern:legacy-name",
         "pattern:security-suppression",
         "pattern:string-sql",
         "satd",
@@ -1503,8 +1447,6 @@
       "confirmed_by": [
         "pattern:assert-free",
         "pattern:numeric-assert",
-        "pattern:skip-marker",
-        "pattern:stub",
         "scout:test-quality"
       ],
       "signals_cited": [
@@ -1623,7 +1565,6 @@
         "coupling",
         "hotspot",
         "pattern:stdout-write",
-        "pattern:swallowed-catch",
         "satd",
         "scout:pipeline-infra"
       ],
@@ -2084,8 +2025,8 @@
     "verdicts": 27,
     "unknown_fingerprint": 1,
     "missing_verdict": 1,
-    "tier_a": 17,
-    "tier_b": 12,
+    "tier_a": 16,
+    "tier_b": 13,
     "tier_c": 6,
     "rejected": 2
   }

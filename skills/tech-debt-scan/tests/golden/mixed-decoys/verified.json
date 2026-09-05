@@ -31,10 +31,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:credential",
-        "pattern:deprecation",
-        "pattern:no-timeout",
-        "pattern:tls-disabled",
         "satd",
         "scout:duplication"
       ],
@@ -200,7 +196,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:weak-hash",
         "scout:dead-code"
       ],
       "signals_cited": [
@@ -258,7 +253,6 @@
       "confirmed_by": [
         "hotspot",
         "pattern:legacy-name",
-        "pattern:stub",
         "scout:dead-code"
       ],
       "signals_cited": [
@@ -316,11 +310,8 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:credential",
         "pattern:deprecation",
         "pattern:flag-sdk",
-        "pattern:no-timeout",
-        "pattern:tls-disabled",
         "satd",
         "scout:dead-code"
       ],
@@ -428,8 +419,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:dynamic-eval",
-        "pattern:security-suppression",
         "scout:dead-code"
       ],
       "signals_cited": [
@@ -482,10 +471,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:credential",
-        "pattern:deprecation",
-        "pattern:no-timeout",
-        "pattern:tls-disabled",
         "satd",
         "scout:error-masking"
       ],
@@ -542,8 +527,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:stdout-write",
-        "pattern:string-sql",
         "pattern:swallowed-catch",
         "scout:error-masking"
       ],
@@ -603,8 +586,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:legacy-name",
-        "pattern:stub",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -662,7 +643,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:flag-sdk",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -717,11 +697,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:credential",
-        "pattern:deprecation",
-        "pattern:flag-sdk",
-        "pattern:no-timeout",
-        "pattern:tls-disabled",
         "satd",
         "scout:test-gaps",
         "signal:no-mapped-tests"
@@ -776,12 +751,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:assert-free",
-        "pattern:conditional-in-test",
-        "pattern:sleep",
-        "pattern:stdout-write",
-        "pattern:string-sql",
-        "pattern:swallowed-catch",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -844,7 +813,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:legacy-name",
         "pattern:stub",
         "scout:half-finished"
       ],
@@ -911,11 +879,7 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:credential",
-        "pattern:deprecation",
-        "pattern:flag-sdk",
         "pattern:no-timeout",
-        "pattern:tls-disabled",
         "satd",
         "scout:half-finished"
       ],
@@ -977,11 +941,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:credential",
-        "pattern:deprecation",
-        "pattern:flag-sdk",
-        "pattern:no-timeout",
-        "pattern:tls-disabled",
         "satd",
         "scout:migration"
       ],
@@ -1151,7 +1110,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:flag-sdk",
         "scout:doc-drift"
       ],
       "signals_cited": [
@@ -1219,9 +1177,6 @@
       "confirmed_by": [
         "hotspot",
         "pattern:credential",
-        "pattern:deprecation",
-        "pattern:flag-sdk",
-        "pattern:no-timeout",
         "pattern:tls-disabled",
         "satd",
         "scout:security"
@@ -1328,9 +1283,7 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:stdout-write",
         "pattern:string-sql",
-        "pattern:swallowed-catch",
         "scout:security"
       ],
       "signals_cited": [
@@ -1503,8 +1456,6 @@
       "confirmed_by": [
         "hotspot",
         "pattern:stdout-write",
-        "pattern:string-sql",
-        "pattern:swallowed-catch",
         "scout:pipeline-infra"
       ],
       "signals_cited": [

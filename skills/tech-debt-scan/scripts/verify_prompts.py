@@ -13,9 +13,9 @@ at ``max_candidates``; tier A candidates (rules, tool facts) are never sent;
 the rest are listed as ``unverified``. Batches of ``batch_size`` group
 candidates by primary file. Each prompt carries the cited spans with
 ``context_lines`` of context, the change-coupled files, approximate referrers,
-the family's verification questions and the repository's traps; every line of
-repository text is redacted. The verifier prompt shares no text with the scout
-prompts beyond the read-only rule.
+the family's verification questions, the family block's own traps and the
+repository's traps; every line of repository text is redacted. The verifier
+prompt shares no text with the scout prompts beyond the read-only rule.
 """
 from __future__ import annotations
 
@@ -38,6 +38,14 @@ VERDICT_VALUES: Final[tuple[str, ...]] = ("confirm", "downgrade", "reject", "ref
 # The exploration allowance is prose in both places it appears (the header below
 # and the verdict contract), so the cap is spelled as a word, not a numeral.
 EXPLORATION_FILES: Final[str] = "three"
+# The two trap sections a verifier prompt carries: the family block's own known
+# non-debt shapes (spec 2.3, the same list the scout prompt shows) and the traps
+# this repository recorded in its config. The family list is rendered first: it is
+# the general rule, the repository's is the local exception to it.
+FAMILY_TRAPS_HEADER: Final[str] = (
+    "known non-debt shapes for this family (a match is a reject with trap_matched):")
+REPO_TRAPS_HEADER: Final[str] = (
+    "traps recorded for this repository (a match is a reject with trap_matched):")
 
 VERDICT_CONTRACT: Final[str] = """\
 Reply with one JSON array, one object per candidate, exactly these keys:
@@ -277,10 +285,11 @@ def render_verify_prompt(
         parts.append("approximate referrers: " + _referrers(edges, primary["file"]))
         parts.append("questions:")
         parts += [f"  - {q}" for q in block.verifier_questions]
+        parts.append(FAMILY_TRAPS_HEADER)
+        parts += [f"  - {redact(t)}" for t in block.traps]
         traps = _traps(config, cand["family"], primary["file"])
         if traps:
-            parts.append(
-                "traps recorded for this repository (a match is a reject with trap_matched):")
+            parts.append(REPO_TRAPS_HEADER)
             parts += [f"  - {redact(t)}" for t in traps]
         parts.append("")
     parts.append(VERDICT_CONTRACT)

@@ -32,7 +32,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:swallowed-catch",
         "satd",
         "scout:duplication"
       ],
@@ -82,10 +81,7 @@
       "confirmed_by": [
         "hotspot",
         "pattern:commented-out-code",
-        "pattern:dynamic-eval",
         "pattern:legacy-name",
-        "pattern:security-suppression",
-        "pattern:string-sql",
         "satd",
         "scout:dead-code"
       ],
@@ -129,7 +125,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:stdout-write",
         "satd",
         "scout:dead-code"
       ],
@@ -169,7 +164,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:weak-hash",
         "scout:dead-code"
       ],
       "signals_cited": [
@@ -209,7 +203,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:stdout-write",
         "pattern:swallowed-catch",
         "satd",
         "scout:error-masking"
@@ -297,10 +290,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:credential",
-        "pattern:no-timeout",
-        "pattern:permissive-cors",
-        "pattern:tls-disabled",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -342,11 +331,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:commented-out-code",
-        "pattern:dynamic-eval",
-        "pattern:legacy-name",
-        "pattern:security-suppression",
-        "pattern:string-sql",
         "satd",
         "scout:test-gaps",
         "signal:no-mapped-tests"
@@ -388,7 +372,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:stdout-write",
         "satd",
         "scout:test-gaps"
       ],
@@ -428,10 +411,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:assert-free",
-        "pattern:numeric-assert",
-        "pattern:retry-marker",
-        "pattern:sleep",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -478,12 +457,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:assert-free",
-        "pattern:numeric-assert",
-        "pattern:skip-marker",
-        "pattern:stdout-write",
-        "pattern:stub",
-        "pattern:swallowed-catch",
         "satd",
         "scout:test-gaps",
         "signal:no-mapped-tests"
@@ -526,10 +499,7 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:credential",
         "pattern:no-timeout",
-        "pattern:permissive-cors",
-        "pattern:tls-disabled",
         "scout:half-finished"
       ],
       "signals_cited": [
@@ -570,8 +540,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:stdout-write",
-        "pattern:swallowed-catch",
         "satd",
         "scout:half-finished"
       ],
@@ -611,10 +579,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:assert-free",
-        "pattern:numeric-assert",
-        "pattern:retry-marker",
-        "pattern:sleep",
         "scout:half-finished"
       ],
       "signals_cited": [
@@ -652,8 +616,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:assert-free",
-        "pattern:numeric-assert",
         "pattern:skip-marker",
         "pattern:stub",
         "scout:half-finished"
@@ -755,11 +717,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:commented-out-code",
-        "pattern:dynamic-eval",
-        "pattern:legacy-name",
-        "pattern:security-suppression",
-        "pattern:string-sql",
         "satd",
         "scout:migration"
       ],
@@ -919,11 +876,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:commented-out-code",
-        "pattern:dynamic-eval",
-        "pattern:legacy-name",
-        "pattern:security-suppression",
-        "pattern:string-sql",
         "satd",
         "scout:doc-drift"
       ],
@@ -1009,11 +961,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:commented-out-code",
-        "pattern:dynamic-eval",
-        "pattern:legacy-name",
-        "pattern:security-suppression",
-        "pattern:string-sql",
         "satd",
         "scout:architecture"
       ],
@@ -1070,7 +1017,6 @@
       "confirmed_by": [
         "hotspot",
         "pattern:credential",
-        "pattern:no-timeout",
         "pattern:permissive-cors",
         "pattern:tls-disabled",
         "scout:security"
@@ -1120,9 +1066,7 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:commented-out-code",
         "pattern:dynamic-eval",
-        "pattern:legacy-name",
         "pattern:security-suppression",
         "pattern:string-sql",
         "satd",
@@ -1224,8 +1168,6 @@
       "confirmed_by": [
         "pattern:assert-free",
         "pattern:numeric-assert",
-        "pattern:skip-marker",
-        "pattern:stub",
         "scout:test-quality"
       ],
       "signals_cited": [
@@ -1320,7 +1262,6 @@
         "coupling",
         "hotspot",
         "pattern:stdout-write",
-        "pattern:swallowed-catch",
         "satd",
         "scout:pipeline-infra"
       ],

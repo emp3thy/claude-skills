@@ -32,9 +32,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:flag-sdk",
-        "pattern:no-timeout",
-        "pattern:swallowed-catch",
         "scout:duplication"
       ],
       "signals_cited": [
@@ -177,8 +174,6 @@
         "coupling",
         "hotspot",
         "pattern:flag-sdk",
-        "pattern:no-timeout",
-        "pattern:swallowed-catch",
         "scout:dead-code"
       ],
       "signals_cited": [
@@ -351,7 +346,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:flag-sdk",
         "scout:error-masking"
       ],
       "signals_cited": [
@@ -403,8 +397,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:flag-sdk",
-        "pattern:no-timeout",
         "pattern:swallowed-catch",
         "scout:error-masking"
       ],
@@ -505,8 +497,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:numeric-assert",
-        "pattern:skip-marker",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -558,7 +548,6 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:flag-sdk",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -610,8 +599,6 @@
       ],
       "confirmed_by": [
         "hotspot",
-        "pattern:flag-sdk",
-        "pattern:legacy-name",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -664,7 +651,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:flag-sdk",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -722,7 +708,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:numeric-assert",
         "pattern:skip-marker",
         "scout:half-finished"
       ],
@@ -773,9 +758,7 @@
       "confirmed_by": [
         "coupling",
         "hotspot",
-        "pattern:flag-sdk",
         "pattern:no-timeout",
-        "pattern:swallowed-catch",
         "scout:half-finished"
       ],
       "signals_cited": [
@@ -835,9 +818,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:deprecation",
-        "pattern:flag-sdk",
-        "pattern:legacy-name",
         "satd",
         "scout:half-finished"
       ],
@@ -892,8 +872,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:flag-sdk",
-        "pattern:legacy-name",
         "scout:migration"
       ],
       "signals_cited": [
@@ -949,9 +927,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:deprecation",
-        "pattern:flag-sdk",
-        "pattern:legacy-name",
         "satd",
         "scout:migration"
       ],
@@ -1244,8 +1219,6 @@
         }
       ],
       "confirmed_by": [
-        "pattern:flag-sdk",
-        "pattern:legacy-name",
         "scout:architecture"
       ],
       "signals_cited": [
@@ -1395,7 +1368,6 @@
       ],
       "confirmed_by": [
         "pattern:numeric-assert",
-        "pattern:skip-marker",
         "scout:test-quality"
       ],
       "signals_cited": [
