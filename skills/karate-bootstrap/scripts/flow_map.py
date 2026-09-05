@@ -28,17 +28,17 @@ from typing import Any, cast
 
 from kb_common import (
     EXIT_OK,
+    EXIT_VALIDATION,
     LEDGER_VERSION,
     KbError,
     read_json,
+    read_text,
     read_yaml,
     require_file,
     run_cli,
     write_yaml,
 )
-
-# Task 8 adds EXIT_VALIDATION and read_text to the kb_common import and
-# ``from markers import tokens_for``.
+from markers import tokens_for
 
 STATUS_FLAGS = ("traced", "stubbed", "tested", "passing")
 EXIT_KINDS = ("db-write", "amq-publish", "http-out")
@@ -181,6 +181,195 @@ def _cmd_mark(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+# --- verify-refs -----------------------------------------------------------------------
+
+
+def _split_via(via: str) -> tuple[str, int]:
+    match = VIA_RE.match(via)
+    if not match:
+        raise KbError(f"malformed via {via!r}")
+    return match.group("file"), int(match.group("line"))
+
+
+def verify_refs(ledger: dict[str, Any], repo_root: Path, window: int = 3) -> list[str]:
+    stack = str(ledger.get("stack", {}).get("framework"))
+    gaps: list[str] = []
+    for entry in ledger["entry_points"]:
+        bad = False
+        for item in entry.get("exits", []):
+            kind = str(item.get("kind"))
+            file_rel, line_no = _split_via(str(item.get("via")))
+            path = repo_root / file_rel
+            if not path.is_file():
+                gaps.append(f"{entry['id']}: {kind} via {file_rel}:{line_no} does not exist")
+                bad = True
+                continue
+            lines = read_text(path).splitlines()
+            if not 1 <= line_no <= len(lines):
+                gaps.append(f"{entry['id']}: {kind} via {file_rel}:{line_no} is past end of file")
+                bad = True
+                continue
+            lo, hi = max(0, line_no - 1 - window), min(len(lines), line_no + window)
+            snippet = "\n".join(lines[lo:hi])
+            if not any(token in snippet for token in tokens_for(stack, kind)):
+                gaps.append(
+                    f"{entry['id']}: {kind} via {file_rel}:{line_no} has no {kind} marker "
+                    f"within {window} lines"
+                )
+                bad = True
+        if bad:
+            entry.setdefault("status", dict.fromkeys(STATUS_FLAGS, False))["traced"] = False
+    return gaps
+
+
+# --- validate ----------------------------------------------------------------------------
+
+
+def _validate_traced(ledger: dict[str, Any], env_map: dict[str, Any] | None) -> list[str]:
+    gaps: list[str] = []
+    known_keys = {k["key"] for k in (env_map or {}).get("keys", [])} | {
+        str(k.get("env_var")) for k in (env_map or {}).get("keys", []) if k.get("env_var")
+    }
+    for entry in ledger["entry_points"]:
+        if not entry.get("status", {}).get("traced"):
+            gaps.append(f"{entry['id']}: not traced")
+        elif not entry.get("exits") and not entry.get("exits_none_reason"):
+            gaps.append(f"{entry['id']}: no exits and no exits_none_reason")
+        if env_map is not None:
+            for item in list(entry.get("exits", [])) + list(entry.get("reads", [])):
+                host_key = item.get("host_key")
+                if host_key and host_key not in known_keys:
+                    gaps.append(f"{entry['id']}: host_key {host_key!r} not in env-map")
+    for item in ledger.get("unresolved", []):
+        gaps.append(
+            f"{item.get('entry')}: unresolved hop at {item.get('at')}: {item.get('reason')}"
+        )
+    return gaps
+
+
+def _csv_rows(path: Path) -> int:
+    lines = [line for line in read_text(path).splitlines() if line.strip()]
+    return max(0, len(lines) - 1)
+
+
+def _validate_generated(ledger: dict[str, Any], tests_dir: Path | None) -> list[str]:
+    if tests_dir is None:
+        raise KbError("--tests-dir is required for the generated phase")
+    resources = tests_dir / "src" / "test" / "resources"
+    gaps: list[str] = []
+    for entry in ledger["entry_points"]:
+        eid = entry["id"]
+        if not entry.get("status", {}).get("stubbed"):
+            gaps.append(f"{eid}: not generated")
+        features = entry.get("features", [])
+        if not features:
+            gaps.append(f"{eid}: no feature file")
+            continue
+        texts: list[str] = []
+        for feature in features:
+            path = resources / feature
+            if not path.is_file():
+                gaps.append(f"{eid}: feature {feature} does not exist")
+            else:
+                texts.append(read_text(path))
+        text = "\n".join(texts)
+        for item in entry.get("exits", []):
+            kind = item["kind"]
+            if kind == "db-write" and not ("Db." in text and str(item["table"]) in text):
+                gaps.append(f"{eid}: db-write on {item['table']} has no Db. assertion")
+            if kind == "amq-publish" and not ("Jms." in text and str(item["destination"]) in text):
+                gaps.append(f"{eid}: amq-publish to {item['destination']} has no Jms. assertion")
+            if kind == "http-out":
+                if "Stubs.verify" not in text:
+                    gaps.append(
+                        f"{eid}: http-out {item['method']} {item['path']} has no Stubs.verify"
+                    )
+                if not entry.get("stubs"):
+                    gaps.append(f"{eid}: http-out exit but no stub files")
+        for stub in entry.get("stubs", []):
+            if not (tests_dir / stub).is_file():
+                gaps.append(f"{eid}: stub {stub} does not exist")
+        needs_rules = any(r.get("rules") for r in entry.get("responses", []))
+        rules = entry.get("rules", {})
+        if needs_rules:
+            if not rules.get("file"):
+                gaps.append(f"{eid}: validation responses but no rules file")
+            else:
+                rules_path = tests_dir / str(rules["file"])
+                if not rules_path.is_file():
+                    gaps.append(f"{eid}: rules file {rules['file']} does not exist")
+                else:
+                    rows = _csv_rows(rules_path)
+                    if rows != int(rules.get("count", 0)):
+                        gaps.append(
+                            f"{eid}: rules count {rules.get('count')} differs from {rows} CSV rows"
+                        )
+            for source in rules.get("sources", []):
+                if not source.get("scanned"):
+                    gaps.append(f"{eid}: rules source {source['file']} not scanned")
+    return gaps
+
+
+_DEFECT_ENTRY_RE = re.compile(r"^entry_point:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def _validate_green(ledger: dict[str, Any], report: dict[str, Any] | None,
+                    defects_text: str | None) -> list[str]:
+    if report is None:
+        raise KbError("--report is required for the green phase")
+    gaps: list[str] = []
+    quarantined_entries = set(_DEFECT_ENTRY_RE.findall(defects_text or ""))
+    for failed in report.get("failed", []):
+        label = f"{failed.get('feature')}: {failed.get('scenario')!r}"
+        if "@known-defect" not in failed.get("tags", []):
+            gaps.append(f"{label} failed and is not quarantined with @known-defect")
+        elif not quarantined_entries:
+            gaps.append(f"{label} is quarantined but defects.md has no matching entry")
+    for entry in ledger["entry_points"]:
+        status = entry.get("status", {})
+        if not status.get("passing") and entry["id"] not in quarantined_entries:
+            gaps.append(f"{entry['id']}: not passing and not listed in defects.md")
+    return gaps
+
+
+def validate(ledger: dict[str, Any], phase: str, repo_root: Path,
+             env_map: dict[str, Any] | None, tests_dir: Path | None,
+             report: dict[str, Any] | None, defects_text: str | None) -> list[str]:
+    if phase == "traced":
+        return _validate_traced(ledger, env_map) + verify_refs(ledger, repo_root)
+    if phase == "generated":
+        return _validate_generated(ledger, tests_dir)
+    if phase == "green":
+        return _validate_green(ledger, report, defects_text)
+    raise KbError(f"unknown phase {phase!r}")
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    ledger = load_ledger(args.ledger)
+    env_map = read_json(args.env) if args.env else None
+    report = read_json(args.report) if args.report else None
+    defects_text = read_text(args.defects) if args.defects and args.defects.is_file() else None
+    gaps = validate(ledger, args.phase, args.repo, env_map, args.tests_dir, report, defects_text)
+    save_ledger(args.ledger, ledger)  # verify-refs may have reset traced flags
+    if gaps:
+        print("\n".join(gaps))
+        print(f"{len(gaps)} gap(s) in phase {args.phase}")
+        return EXIT_VALIDATION
+    print(f"phase {args.phase}: pass")
+    return EXIT_OK
+
+
+def _cmd_verify_refs(args: argparse.Namespace) -> int:
+    ledger = load_ledger(args.ledger)
+    gaps = verify_refs(ledger, args.repo)
+    save_ledger(args.ledger, ledger)
+    if gaps:
+        print("\n".join(gaps))
+        return EXIT_VALIDATION
+    print("verify-refs: pass")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Operate on the karate-bootstrap flow-map ledger")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -203,6 +392,21 @@ def build_parser() -> argparse.ArgumentParser:
     mark.add_argument("--passing", action="store_true")
     mark.add_argument("--failing", action="store_true")
     mark.set_defaults(func=_cmd_mark)
+
+    val = sub.add_parser("validate", help="Run a phase gate")
+    val.add_argument("--phase", choices=("traced", "generated", "green"), required=True)
+    val.add_argument("--ledger", type=Path, required=True)
+    val.add_argument("--repo", type=Path, required=True, help="service root")
+    val.add_argument("--env", type=Path, default=None, help="env-map.json (traced phase)")
+    val.add_argument("--tests-dir", type=Path, default=None, help="karate-tests dir (generated)")
+    val.add_argument("--report", type=Path, default=None, help="parsed report JSON (green)")
+    val.add_argument("--defects", type=Path, default=None, help="defects.md (green)")
+    val.set_defaults(func=_cmd_validate)
+
+    refs = sub.add_parser("verify-refs", help="Check every exit via points at a marker")
+    refs.add_argument("--ledger", type=Path, required=True)
+    refs.add_argument("--repo", type=Path, required=True)
+    refs.set_defaults(func=_cmd_verify_refs)
     return parser
 
 

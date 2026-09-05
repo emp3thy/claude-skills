@@ -335,7 +335,7 @@ Scenario Outline: validation rule <rule_id> on <field>
 
 The `Authorization` header line is emitted only when `auth.mode: jwks`. AMQ-subscribe entry points use `Jms.publish` for the input and `Db.awaitRow` and `Jms.await` for the exits. Tags: `@smoke`, `@error`, `@rules`, `@amq`, `@known-defect`.
 
-`validate --phase generated` fails when: an entry has no feature file; an `http-out` exit has no stub file; a `db-write` exit's table is not referenced by a `Db.` call in the feature; an `amq-publish` exit is not referenced by `Jms.`; an `http-out` exit is not referenced by `Stubs.verify`; a rules CSV row count differs from the ledger count. These are grep-level checks by design.
+`validate --phase generated` fails when: an entry has no feature file; an `http-out` exit has no stub file; a `db-write` exit's table is not referenced by a `Db.` call in the feature; an `amq-publish` exit is not referenced by `Jms.`; an `http-out` exit is not referenced by `Stubs.verify`; a rules CSV row count differs from the ledger count; a rules source is not marked `scanned`. These are grep-level checks by design.
 
 ### 5.7 Phase 6 — Run and iterate
 
