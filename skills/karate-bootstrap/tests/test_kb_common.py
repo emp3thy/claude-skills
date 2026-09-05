@@ -100,8 +100,10 @@ def test_iter_files_skips_test_trees_only_when_asked(tmp_path: Path) -> None:
     _make(tmp_path, "src/main/java/A.java", "src/test/java/ATest.java", "tests/B.java",
           "Deals.Tests/C.java", "spec/D.java", "__tests__/E.java")
     assert "src/test" in TEST_TREE_NAMES
+    # A spec/ directory holds OpenAPI or BDD specifications in our repos, not tests.
+    assert "spec" not in TEST_TREE_NAMES
     skipped = [rel(p, tmp_path) for p in iter_files(tmp_path, (".java",), skip_test_trees=True)]
-    assert skipped == ["src/main/java/A.java"]
+    assert skipped == ["spec/D.java", "src/main/java/A.java"]
     assert len(list(iter_files(tmp_path, (".java",)))) == 6
 
 

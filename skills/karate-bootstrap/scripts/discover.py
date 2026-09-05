@@ -374,7 +374,8 @@ _SPRING_CLASS_MAPPING_RE = re.compile(
 )
 _JAXRS_PATH_RE = re.compile(r'@Path\s*\(\s*"([^"]*)"\s*\)')
 _CLASS_DECL_RE = re.compile(
-    r"^\s*(?:(?:public|private|protected|final|abstract|static|sealed|partial|internal)\s+)*"
+    r'^\s*(?:(?:@\w+(?:\([^)]*\))?|\[(?:[^\[\]"]*|"[^"]*")*\])\s+)*'
+    r"(?:(?:public|private|protected|final|abstract|static|sealed|partial|internal)\s+)*"
     r"(?:class|interface|record)\s+(\w+)"
 )
 _ASPNET_ROUTE_RE = re.compile(r'\[Route\s*\(\s*"([^"]*)"\s*\)\]')

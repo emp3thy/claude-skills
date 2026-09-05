@@ -49,7 +49,7 @@ DEFAULT_IGNORE: Final[tuple[str, ...]] = (
 
 # Directories that hold a project's own tests. Skipped by ``iter_files`` when
 # ``skip_test_trees=True`` so test fixtures never win over production config.
-TEST_TREE_NAMES: Final[tuple[str, ...]] = ("test", "tests", "src/test", "__tests__", "spec")
+TEST_TREE_NAMES: Final[tuple[str, ...]] = ("test", "tests", "src/test", "__tests__")
 _TEST_TREE_SUFFIXES: Final[tuple[str, ...]] = ("Tests", ".Tests")
 
 
