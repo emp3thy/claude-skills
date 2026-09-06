@@ -366,6 +366,11 @@ def test_a_quote_that_contains_a_fence_gets_a_longer_fence(tmp_path: Path) -> No
     prose rather than as part of the quote. The writer opens with one more
     backtick than the longest run inside the quote instead, which is what the
     byte assertion below pins; the round-trip assertions guard the parse.
+
+    This particular quote (a complete, balanced inner fence) carries an *even*
+    number of backtick-run lines together with the writer's own wrapper, so it
+    round-trips even under a length-agnostic parser -- it does not by itself
+    prove the read side cooperates. See the test below for the case that does.
     """
     verified = _verified()
     verified["findings"][0]["evidence"][0]["quote"] = 'DOC = """\n```python\nvalue = 1\n```\n"""'
@@ -376,6 +381,35 @@ def test_a_quote_that_contains_a_fence_gets_a_longer_fence(tmp_path: Path) -> No
     body = parse_design(out)["findings"][0]["body_md"]
     assert "```python\nvalue = 1\n```" in body
     assert "### Signals" in body, "the fenced quote did not truncate the section"
+
+
+def test_a_quote_with_an_unbalanced_inner_fence_round_trips_end_to_end(tmp_path: Path) -> None:
+    """The odd-count case Task 4's report flagged as the still-open defect.
+
+    A quote holding a single, unbalanced ```` ``` ```` line (a fixture snippet
+    quoted mid-fence, e.g. a truncated Markdown or Ruby excerpt) makes the
+    writer open a four-backtick wrapper (one more than the quote's own longest
+    run of three) -- but the wrapper plus the quote's lone marker is an *odd*
+    total of backtick-run lines. Before design_parser's fence tracking was made
+    length-aware, this exact shape made the parser's flat parity toggle end the
+    document still "in a fence": DesignParseError, caught by write_design's
+    self-check and re-raised as DesignWriteError -- the render aborted and the
+    user got no design.md at all, regardless of how wide the writer's own fence
+    was. With the parser now recognising that the quote's three-backtick line
+    is shorter than the wrapper's four and so cannot close it, the whole thing
+    renders, parses, and the quote survives whole in the body.
+    """
+    verified = _verified()
+    verified["findings"][0]["evidence"][0]["quote"] = (
+        "Example:\n```\nsnippet without a closing fence"
+    )
+    out = tmp_path / "design.md"
+    write_design(_inputs(tmp_path, **{"verified.json": verified}), SCAN_DATE, out)
+    text = out.read_text(encoding="utf-8")
+    assert "\n````\nExample:\n```\nsnippet without a closing fence\n````\n" in text
+    body = parse_design(out)["findings"][0]["body_md"]
+    assert "Example:\n```\nsnippet without a closing fence" in body
+    assert "### Signals" in body, "the unbalanced inner fence did not truncate the section"
 
 
 def test_a_scan_with_no_negative_space_renders_none_for_every_empty_section(

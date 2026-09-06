@@ -18,14 +18,22 @@ Document structure (see tests/golden/design-v1.md):
     last finding is never absorbed into that finding's body. This boundary
     check ignores headings inside fenced code blocks, so a hand-edited quote
     or diff containing a line starting ``# `` or ``## `` (e.g. a code comment)
-    does not truncate the body. An unclosed fence (a hand-edited quote whose
-    closing ``` was dropped) is a parse error, not a silent absorption of
-    every later finding: reaching the end of the document with a fence still
-    open raises DesignParseError naming the last fence marker line seen. The
-    tracker is a flat parity toggle with no stack, so that reported line is
-    the true opening only when no further fence pair follows the break;
-    otherwise it names the last transition in the cascade, not the original
-    break.
+    does not truncate the body. Fence tracking is length-aware (CommonMark's
+    own rule): a line opens a fence when its stripped text starts with three
+    or more backticks, and the length of that leading run is recorded; while
+    inside a fence, only a line whose stripped text is backticks alone, with a
+    run at least as long as the opening one, closes it -- a shorter run, or a
+    run followed by other text such as a language tag, is body text. This is
+    what lets a quote carry its own complete fenced block (e.g. a hand-edited
+    docstring or Ruby heredoc) nested inside design_writer's wider wrapper
+    fence without the wrapper closing early. An unclosed fence (a hand-edited
+    quote whose closing marker was dropped, or shortened below the opening
+    marker's length) is a parse error, not a silent absorption of every later
+    finding: reaching the end of the document with a fence still open raises
+    DesignParseError naming the opening marker's line. Because only one fence
+    can be open at a time under this rule, that line is always the true
+    origin -- there is no cascade of mismatched pairs to misattribute it, the
+    way there was under the length-agnostic parity toggle this replaced.
 
 Only ``yaml.safe_load`` is used (never ``yaml.load``). Every DesignParseError
 carries the 1-based source line of the offending heading or anchor so the user
@@ -91,6 +99,16 @@ def _is_h1(line: str) -> bool:
 
 def _ends_section(line: str) -> bool:
     return _is_h2(line) or _is_h1(line)
+
+
+def _leading_backtick_run(stripped: str) -> int:
+    """Length of the run of ``\\`\\`\\``` characters at the very start of ``stripped``."""
+    count = 0
+    for ch in stripped:
+        if ch != "`":
+            break
+        count += 1
+    return count
 
 
 def _extract_frontmatter(lines: list[str]) -> tuple[dict[str, Any], int]:
@@ -232,20 +250,30 @@ def parse_design(path: Path) -> dict[str, Any]:
         section: list[tuple[int, str]] = []
         cursor = idx + 1
         in_fence = False
-        last_fence_line: int | None = None
+        fence_len = 0
+        fence_open_line: int | None = None
         while cursor < n:
             line = lines[cursor]
-            if line.strip().startswith("```"):
-                in_fence = not in_fence
-                last_fence_line = cursor + 1
-            elif not in_fence and _ends_section(line):
-                break
+            stripped = line.strip()
+            if in_fence:
+                run = _leading_backtick_run(stripped)
+                if run == len(stripped) and run >= fence_len:
+                    in_fence = False
+                    fence_len = 0
+            else:
+                run = _leading_backtick_run(stripped)
+                if run >= 3:
+                    in_fence = True
+                    fence_len = run
+                    fence_open_line = cursor + 1
+                elif _ends_section(line):
+                    break
             section.append((cursor + 1, line))
             cursor += 1
 
         if in_fence:
             raise DesignParseError(
-                f"unclosed fence: last fence marker is at line {last_fence_line}, "
+                f"unclosed fence: last fence marker is at line {fence_open_line}, "
                 "still inside a fenced block at end of document"
             )
 

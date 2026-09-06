@@ -215,16 +215,17 @@ def test_an_unclosed_fence_in_a_finding_body_raises_and_names_the_opening_line(
 ) -> None:
     """A dropped closing fence must raise, not silently swallow later findings.
 
-    The tracker is a flat parity toggle (no stack, per round 1's design), so once
-    the bare fence at line 12 goes unclosed, the second finding's own required
-    yaml-anchor fence lines (17, 22) keep flipping the same boolean: False at 17,
-    True again at 22. The name reported is therefore line 22 (the *last*
-    False->True transition — which is actually finding 2's own closing anchor
-    fence) rather than the true origin at line 12. This is an unavoidable
-    consequence of the flat-toggle model whenever a genuine fence pair follows
-    the break, not a defect in this fix: the important property under test is
-    that an error is raised at all (no silent absorption of finding 2), and
-    that the named line is a real, traceable fence marker in the document.
+    Before the tracker was made length-aware it was a flat parity toggle (no
+    stack): a *three*-backtick evidence fence dropped here used to be spuriously
+    "closed" by the second finding's own three-backtick yaml-anchor markers,
+    misattributing the reported line (round 1's known limitation). Under the
+    length-aware rule that is fixed differently: this fixture opens the
+    evidence fence with *four* backticks at line 12, so the second finding's
+    three-backtick anchor markers (lines 17 and 22) are too short to close it --
+    a shorter run never closes a longer fence. The block therefore swallows
+    "## Second finding" and stays open all the way to end of document, and the
+    line named is always the true origin (12), because only one fence can be
+    open at a time under this rule -- there is no cascade left to misattribute.
     """
     path = tmp_path / "design.md"
     path.write_bytes(
@@ -240,7 +241,7 @@ def test_an_unclosed_fence_in_a_finding_body_raises_and_names_the_opening_line(
             "",
             "### Evidence",
             "",
-            "```",
+            "````",
             "a quote with a dropped closing fence",
             "",
             "## Second finding",
@@ -258,7 +259,7 @@ def test_an_unclosed_fence_in_a_finding_body_raises_and_names_the_opening_line(
     )
     with pytest.raises(
         DesignParseError,
-        match="unclosed fence: last fence marker is at line 22",
+        match="unclosed fence: last fence marker is at line 12",
     ):
         parse_design(path)
 
@@ -266,10 +267,11 @@ def test_an_unclosed_fence_in_a_finding_body_raises_and_names_the_opening_line(
 def test_a_balanced_nested_fence_is_not_misread_as_unclosed(tmp_path: Path) -> None:
     """A four-backtick fence wrapping a three-backtick block is balanced overall.
 
-    The toggle is a parity flip (no stack), so lines inside the inner fence are
-    briefly seen as "not in a fence" between the inner open/close markers — but
-    as long as those lines are not heading-like, the whole nested block still
-    round-trips into body_md and the second finding still parses.
+    Under the length-aware tracker, the inner three-backtick markers are simply
+    too short to close the four-backtick outer fence, so they (and everything
+    between them) are read as body text throughout -- the state never toggles
+    to "not in a fence" in between. The whole nested block still round-trips
+    into body_md and the second finding still parses.
     """
     path = tmp_path / "design.md"
     path.write_bytes(
@@ -316,6 +318,122 @@ def test_a_balanced_nested_fence_is_not_misread_as_unclosed(tmp_path: Path) -> N
     assert "inner content line" in first_body
     assert "### Signals" in first_body
     assert parsed["findings"][1]["slug"] == "second-finding"
+
+
+def test_a_four_backtick_fence_wrapping_a_three_backtick_block_survives_to_the_next_h1(
+    tmp_path: Path,
+) -> None:
+    """CommonMark's length rule: a shorter inner run never closes a longer outer fence.
+
+    The inner three-backtick block's own ``# comment`` line is body text of the
+    still-open outer fence, not an H1 boundary, regardless of what it starts
+    with. The whole nested block must survive whole in ``body_md``, and the
+    section still ends at the following H1 once the outer fence truly closes.
+    """
+    path = tmp_path / "design.md"
+    path.write_bytes(
+        "\n".join([
+            "## Nested fence finding",
+            "",
+            "```yaml",
+            "status: pending",
+            "slug: nested-fence-finding",
+            "severity: 3",
+            "category: error-masking",
+            "```",
+            "",
+            "### Evidence",
+            "",
+            "````",
+            "outer line before",
+            "```",
+            "# comment",
+            "```",
+            "outer line after",
+            "````",
+            "",
+            "### Signals",
+            "",
+            "a signal line",
+            "",
+            "# Not assessed",
+            "",
+            "- not part of the body",
+            "",
+        ]).encode("utf-8")
+    )
+    parsed = parse_design(path)
+    assert len(parsed["findings"]) == 1
+    body = parsed["findings"][0]["body_md"]
+    assert "outer line before\n```\n# comment\n```\nouter line after" in body
+    assert "### Signals" in body
+    assert "Not assessed" not in body
+    assert "not part of the body" not in body
+
+
+def test_a_three_backtick_fence_closed_by_a_longer_four_backtick_line_closes(
+    tmp_path: Path,
+) -> None:
+    """A closing run longer than the opening is valid per CommonMark; the fence closes."""
+    path = tmp_path / "design.md"
+    path.write_bytes(
+        "\n".join([
+            "## Longer closer finding",
+            "",
+            "```yaml",
+            "status: pending",
+            "slug: longer-closer-finding",
+            "severity: 3",
+            "category: error-masking",
+            "```",
+            "",
+            "### Evidence",
+            "",
+            "```",
+            "quoted content",
+            "````",
+            "",
+            "### Signals",
+            "",
+            "a signal line",
+            "",
+        ]).encode("utf-8")
+    )
+    parsed = parse_design(path)
+    assert len(parsed["findings"]) == 1
+    body = parsed["findings"][0]["body_md"]
+    assert "quoted content" in body
+    assert "### Signals" in body
+
+
+def test_a_four_backtick_fence_is_not_closed_by_a_three_backtick_line(tmp_path: Path) -> None:
+    """A closing run shorter than the opening does not close it; unclosed at EOF raises."""
+    path = tmp_path / "design.md"
+    path.write_bytes(
+        "\n".join([
+            "## Unclosed nested finding",
+            "",
+            "```yaml",
+            "status: pending",
+            "slug: unclosed-nested-finding",
+            "severity: 3",
+            "category: error-masking",
+            "```",
+            "",
+            "### Evidence",
+            "",
+            "````",
+            "quoted content",
+            "```",
+            "still inside",
+            "",
+        ]).encode("utf-8")
+    )
+    with pytest.raises(
+        DesignParseError,
+        match=r"unclosed fence: last fence marker is at line 12",
+    ):
+        parse_design(path)
 
 
 def test_a_hand_edited_code_block_with_a_comment_survives(tmp_path: Path) -> None:
