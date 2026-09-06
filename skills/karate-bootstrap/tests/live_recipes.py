@@ -51,4 +51,27 @@ SPRING = Recipe(
     prebuild_app_image=True,
 )
 
-RECIPES: dict[str, Recipe] = {SPRING.name: SPRING}
+DOTNET = Recipe(
+    name="dotnet-deals",
+    fixture=FIXTURES / "dotnet-deals",
+    stack="aspnetcore",
+    app_port=8080,
+    auth_key="Auth__Enabled",
+    auth_off_value="false",
+    entries=("POST /api/deals", "GET /api/deals/{id}", "amq deal.requested"),
+    rules_sources=(
+        ("POST /api/deals", "Validators/DealRequestValidator.cs"),
+        ("POST /api/deals", "Services/DealService.cs"),
+    ),
+    marks={
+        "POST /api/deals": (("--stub", "stubs/pricing/default.json"),
+                            ("--seed", "seed/examples/post-api-deals.json")),
+        "GET /api/deals/{id}": (),
+        "amq deal.requested": (("--seed", "seed/examples/amq-deal-requested.json"),),
+    },
+    planted_scenario="rejects a deal over the quantity limit",
+    planted_feature="features/post-api-deals.feature",
+    prebuild_app_image=True,
+)
+
+RECIPES: dict[str, Recipe] = {r.name: r for r in (SPRING, DOTNET)}

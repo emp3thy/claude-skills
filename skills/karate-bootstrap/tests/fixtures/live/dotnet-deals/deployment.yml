@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deals
+spec:
+  template:
+    spec:
+      containers:
+        - name: deals
+          image: registry.example/deals:latest
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+          env:
+            - name: ConnectionStrings__Deals
+              valueFrom:
+                secretKeyRef:
+                  name: deals-db
+                  key: connectionString
+            - name: Amq__Url
+              value: amqp://artemis:5672
+            - name: Amq__User
+              value: artemis
+            - name: Amq__Password
+              value: artemis
+            - name: Pricing__BaseUrl
+              value: http://pricing:8080
+            - name: Auth__Enabled
+              value: "true"
+            - name: ASPNETCORE_URLS
+              value: http://+:8080

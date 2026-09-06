@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [images, spring-shipments]
+        target: [images, spring-shipments, dotnet-deals]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

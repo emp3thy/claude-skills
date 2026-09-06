@@ -1,0 +1,2 @@
+rule_id,field,mutation,value,expected_status,expected_code,expected_message_contains,source
+,quantity,out_of_range,10001,500,,,{{line:Services/DealService.cs:quantity exceeds}}

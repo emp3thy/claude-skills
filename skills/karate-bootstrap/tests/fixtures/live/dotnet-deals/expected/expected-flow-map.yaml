@@ -1,0 +1,19 @@
+entry_points:
+  - id: POST /api/deals
+    kind: http
+    method: POST
+    path: /api/deals
+    exits:
+      - { kind: http-out, host_key: Pricing__BaseUrl, method: GET, path: "/quotes/{currency}" }
+      - { kind: db-write, table: deals, op: insert }
+      - { kind: amq-publish, destination: deal.created, type: queue }
+  - id: GET /api/deals/{id}
+    kind: http
+    method: GET
+    path: /api/deals/{id}
+    exits: []
+  - id: amq deal.requested
+    kind: amq-subscribe
+    destination: deal.requested
+    exits:
+      - { kind: db-write, table: deals, op: insert }
