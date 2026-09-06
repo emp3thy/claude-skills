@@ -613,6 +613,63 @@ class TestProbe:
         assert "invalid syntax" in document["tools"]["vulture"]["reason"]
 
 
+class TestRelativeRoot:
+    """The whole-branch review's High finding. ``_main`` never resolved the
+    repository path while every sibling script does, and ``run_tool`` sets
+    ``cwd=root`` while ``argv_for`` also passes ``str(root)`` -- so a relative
+    ``<repo>`` was re-resolved against the new cwd into ``<root>/<root>``.
+    Measured before the fix on one fixture tree: 7 signals with an absolute
+    path, 0 with the relative spelling of the same tree, with ruff and lizard
+    both still reporting ``ran``. SKILL.md's convention is a user-supplied
+    relative ``<repo>``, so this was the ordinary case."""
+
+    def test_the_same_tree_gives_the_same_signals_by_relative_and_absolute_path(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import shutil
+
+        if shutil.which("ruff") is None:
+            pytest.skip("ruff is not installed on this machine")
+
+        from config import load_config
+        from tools_probe import probe
+
+        tree = tmp_path / "tree"
+        tree.mkdir()
+        (tree / "a.py").write_text(
+            "import os\n\n\ndef f():\n    try:\n        pass\n    except:\n        pass\n",
+            encoding="utf-8",
+        )
+        absolute = probe(tree, load_config(tree))
+        monkeypatch.chdir(tmp_path)
+        relative = probe(Path("tree"), load_config(Path("tree")))
+        assert relative["signals"] == absolute["signals"]
+        assert relative["signals"] != []
+        assert {name: entry["status"] for name, entry in relative["tools"].items()} == {
+            name: entry["status"] for name, entry in absolute["tools"].items()
+        }
+
+    def test_main_resolves_the_path_like_every_sibling_script(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """inventory.py, patterns.py and rules.py all resolve; tools_probe.py
+        was the only one that did not."""
+        import tools_probe
+
+        seen: list[Path] = []
+        tree = tmp_path / "tree"
+        tree.mkdir()
+        monkeypatch.setattr(
+            tools_probe,
+            "probe",
+            lambda root, config, skip_all=False: seen.append(root)
+            or {"schema_version": 2, "tools": {}, "signals": []},
+        )
+        monkeypatch.chdir(tmp_path)
+        assert tools_probe._main(["tree", "--workdir", str(tmp_path / "out")]) == 0
+        assert seen == [tree.resolve()]
+
+
 class TestGlobOperandGuard:
     """Review finding Q2: hadolint's artefact predicate and its argv builder
     globbed different patterns, so a repository whose only Dockerfile is

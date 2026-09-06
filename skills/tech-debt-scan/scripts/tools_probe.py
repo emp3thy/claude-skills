@@ -297,6 +297,19 @@ def _glob_operands(spec: ToolSpec, root: Path) -> list[str]:
 def argv_for(spec: ToolSpec, executable: str, root: Path, *, network: bool) -> list[str]:
     """The exact command line for one tool.
 
+    **Every builder names its target with an absolute path.** ``run_tool``
+    also sets ``cwd=root``, so a *relative* operand would be re-resolved
+    against that new cwd and become ``<root>/<root>`` -- a directory that does
+    not exist, which ruff and lizard report as an ordinary empty result and
+    which therefore reads as a clean repository. ``probe`` resolves ``root``
+    before anything here sees it, so the operand and the cwd can only ever
+    name the same directory. The alternative convention -- pass ``.`` and let
+    the cwd decide -- would work equally well but is more fragile: a tool that
+    ignores cwd, or a builder that forgets the operand, fails silently under
+    it, whereas a wrong absolute path fails loudly. The two tools that once
+    passed no operand at all (knip, actionlint) now name their target too, so
+    no builder depends on cwd for *what* it scans.
+
     madge is given ``--extensions`` explicitly: without it madge returns an
     empty graph and exits 0 on a TypeScript tree, which reads as "no cycles"
     and would never fail a test (spec 4.5). ruff runs ``--isolated`` so the
@@ -380,7 +393,16 @@ def redact_document(document: dict[str, Any]) -> dict[str, Any]:
 
 
 def probe(root: Path, config: dict[str, Any], *, skip_all: bool = False) -> dict[str, Any]:
-    """Run every allowed, present tool and return the ``tool-signals.json`` document."""
+    """Run every allowed, present tool and return the ``tool-signals.json`` document.
+
+    ``root`` is resolved here as well as in ``_main``, because every argv
+    builder passes it as an absolute operand while ``run_tool`` passes it as
+    the child's cwd: a relative root would be re-resolved against that cwd and
+    silently become ``<root>/<root>``. Resolving once, at the top of the only
+    function both paths flow through, is what makes those two uses agree for
+    every caller rather than only for the CLI.
+    """
+    root = root.resolve()
     tools_config = config.get("tools") or {}
     deny = set(tools_config.get("deny") or [])
     network = bool(tools_config.get("network", True))
@@ -471,7 +493,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-all", action="store_true",
                         help="run nothing; write every tool skipped")
     args = parser.parse_args(argv)
-    root = Path(args.path)
+    root = Path(args.path).resolve()
     if not root.is_dir():
         print(f"error: {root} is not a directory", file=sys.stderr)
         return 2
