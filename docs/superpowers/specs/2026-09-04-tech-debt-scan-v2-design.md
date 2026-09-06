@@ -360,14 +360,24 @@ Every threshold is overridable under `rules` in `.tech-debt.yaml`. Output `rule-
 
 `tools_probe.py` holds the CLI, presence detection, the runner and the registry; `tool_normalisers.py` holds the ten normalisers as pure functions, `normalise_<tool>(payload, root) -> list[Signal]`, with no I/O, so a normaliser is testable from a canned payload with nothing mocked and the runner is testable with no tool installed. The registry is one table mapping a tool name to its argv builder, artefact predicate, timeout, exit-status table, normaliser and fact-or-inference class. The artefact predicate produces most `skipped` results — no Dockerfile skips hadolint, no lockfile skips osv-scanner — and keeps the probe from running a tool that could only fail.
 
-Runs already-installed tools; never installs, never `npx`, never executes project code. Presence: `shutil.which` per tool, then `<root>/node_modules/.bin` for jscpd, knip and madge. Each present tool runs with JSON output under a per-tool timeout (`tools.timeout_s` 120, 300 for osv-scanner) and is marked `ran`, `absent`, `failed` (unparseable JSON, with the first 200 characters of stderr) or `skipped` (config deny list, no matching artefact, `--skip-all`, or `skipped: no local database` for offline osv-scanner). Exit status is read through a per-tool table; unparseable JSON is the failure signal.
+Runs already-installed tools; never installs, never `npx`, never executes project code. Presence: `shutil.which` per tool, then `<root>/node_modules/.bin` for jscpd, knip and madge. Each present tool runs under a per-tool timeout (`tools.timeout_s` 120, 300 for osv-scanner) and is marked `ran`, `absent`, `failed` (unparseable JSON, with the first 200 characters of stderr) or `skipped` (config deny list, no matching artefact, `--skip-all`, or `skipped: no local database` for offline osv-scanner). Exit status is read through a per-tool table; unparseable JSON is the failure signal.
 
-| Tool | Clean exit | Findings exit | Failure signal |
-|---|---|---|---|
-| ruff | 0 | 1 (or 0 with `--exit-zero`) | unparseable JSON |
-| gitleaks | 0 | 1 by default (`--exit-code` configurable) | unparseable JSON |
-| osv-scanner | 0 | 1 | unparseable JSON |
-| others | entered per tool when its normaliser and canned golden land | | unparseable JSON |
+Not every tool speaks JSON, and the ones that do not are not exceptions to be worked around later — they are half the first cut. The table records the real output channel, the real exit codes and the real failure signal for each tool, measured on the corpus rather than read from documentation.
+
+| Tool | Output channel | Clean exit | Findings exit | Failure signal |
+|---|---|---|---|---|
+| ruff | JSON on stdout | 0 | 1 (or 0 with `--exit-zero`) | unparseable output |
+| gitleaks | JSON on stdout | 0 | 1 by default (`--exit-code` configurable) | unparseable output |
+| osv-scanner | JSON on stdout | 0 | 1 | unparseable output |
+| knip | JSON on stdout | 0 | 1 | unparseable output |
+| madge | JSON on stdout | 0 | 1 with `--circular` | unparseable output |
+| jscpd | JSON written to `<--output dir>/jscpd-report.json`; stdout is progress and promotional text | 0 | 0 | report file absent or unparseable |
+| lizard | CSV on stdout (`--csv`); there is no JSON mode | 0 | 0 | unparseable rows |
+| vulture | plain text on stdout, one finding per line | 0 | 3 | unparseable lines |
+| hadolint | JSON on stdout | 0 | 1 | unparseable output |
+| actionlint | JSON on stdout (`-format '{{json .}}'`) | 0 | 1 | unparseable output |
+
+Three of these break assumptions worth naming, because a normaliser written from documentation against canned output would have passed its tests and been wrong in the field. **madge silently reports an empty graph** unless `--extensions ts` is passed for a TypeScript tree — a false "no cycles" that no canned test would catch. **vulture exits 3** when it finds something, so an exit table assuming 1 marks every productive run as a failure. **jscpd never writes its report to stdout**, so the runner must support a tool whose output channel is a file it creates and then cleans up, and must ignore that tool's stdout entirely. `jscpd-report.json` also carries a `detectionDate`, which no signal may propagate.
 
 **First-cut tools (10):** osv-scanner (any lockfile; vulnerabilities for TD-02 and TD-03), gitleaks (secrets), ruff (Python: E722, BLE001, S110, S112 for error masking; C901, PLR091x for complex units; F401 for dead imports; UP035 for deprecated imports; its `filename` is absolute with backslashes even for relative input and is relativised and forward-slashed; it reads the repository's own ruff configuration unless run `--isolated`), vulture (Python dead code with per-kind confidence), lizard (per-function NLOC, CCN and parameter count), jscpd (clones), knip (JS and TS dead exports), madge (JS and TS cycles), hadolint (Dockerfiles), actionlint (workflows). Later cuts once a normaliser has goldens: dependency-cruiser, import-linter, pip-audit, npm outdated, semgrep, bandit, trivy, zizmor, checkov, kube-linter, `dotnet list package`, Go deadcode and govulncheck. Only ruff is installed on the development machine; every other normaliser is written against canned output, and the corpus goldens use canned tool output throughout.
 
@@ -388,6 +398,8 @@ tool-signals.json
 **Path normalisation.** Tools disagree about path shape, and ruff's `filename` is absolute with backslashes even for relative input. `tools_probe.py` carries its own relativiser rather than importing `merge_findings.py`'s, with a test asserting the two agree over a shared table of inputs; extracting a shared module would disturb phase 2 code and its goldens for no behavioural gain.
 
 **Golden determinism.** `version` and `duration_s` are machine-dependent. Rather than a pinning environment variable, the golden tests compare the `signals` array in full and each `tools` entry's `status` and `reason` only. A golden that pins a tool version fails when the tool updates, which is a failure for the wrong reason.
+
+**Known corpus limitation for 4b.** jscpd reports no clones on either fixture even at a 20-token threshold: web-ts's planted `p2` duplication pairs `client.ts` with `client-admin.ts`, which are structurally similar but genuinely divergent, 16 lines against 22. Duplication therefore cannot be tool-corroborated on the corpus as it stands, while madge does find the real `cart -> pricing -> stock -> cart` cycle and vulture does find real dead code. 4b decides between amending the fixture, lowering the threshold and dropping the duplication half of its claim; it does not silently report a gate it did not measure.
 
 **Absent tools:** the tier caps of 2.3 apply (duplication B, dead-code C, cycles B), currency claims are listed under "not assessed", and `design.md` frontmatter names every absent tool.
 
