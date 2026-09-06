@@ -24,9 +24,9 @@ Rows are added as each fixture's live run goes green.
 
 | Fixture | Stack | Entry points | Scenarios green | Planted defect | App image | Run |
 |---------|-------|--------------|-----------------|----------------|-----------|-----|
-| spring-shipments | spring | 3 (`POST /api/shipments`, `GET /api/shipments/{id}`, `amq shipment.requested`) | 21 of 22 (1 quarantined) | DEF-001: weight over 1000kg answers 500, not 400 | built in-run from the fixture's `Dockerfile` (`-Dapp.image` not used) | [34038461187](https://github.com/emp3thy/claude-skills/actions/runs/34038461187), 2026-09-06, job wall-clock 2m7s |
+| spring-shipments | spring | 3 (`POST /api/shipments`, `GET /api/shipments/{id}`, `amq shipment.requested`) | 21 of 22 (1 quarantined) | DEF-001: weight over 1000kg answers 500, not 400 | pre-built via `docker build` before the Karate run (`-Dapp.image=kb-live-app-spring-shipments-<hash>`) | [34038461187](https://github.com/emp3thy/claude-skills/actions/runs/34038461187), 2026-09-06, job wall-clock 2m7s |
 | dotnet-deals | aspnetcore | 3 (`POST /api/deals`, `GET /api/deals/{id}`, `amq deal.requested`) | 20 of 21 (1 quarantined) | DEF-001: quantity over 10000 answers 500, not 400 | pre-built via `docker build` before the Karate run (`-Dapp.image=kb-live-app-dotnet-deals-<hash>`) | [34042475664](https://github.com/emp3thy/claude-skills/actions/runs/34042475664), 2026-09-06, job wall-clock 2m0s |
-| fastapi-orders | python | 4 (`GET /healthz`, `POST /api/orders`, `GET /api/orders/{order_id}`, `amq order.requested`) | 20 of 21 (1 quarantined) | DEF-001: quantity over 500 answers 500, not 422 | built in-run from the fixture's `Dockerfile` (`-Dapp.image` not used; `prebuild_app_image=False`) | [34044805100](https://github.com/emp3thy/claude-skills/actions/runs/34044805100), 2026-09-06, job wall-clock 2m25s (pytest 127.84s), after a first red run at [34044513286](https://github.com/emp3thy/claude-skills/actions/runs/34044513286) |
+| fastapi-orders | python | 4 (`GET /healthz`, `POST /api/orders`, `GET /api/orders/{order_id}`, `amq order.requested`) | 21 of 22 (1 quarantined) | DEF-001: quantity over 500 answers 500, not 422 | built in-run from the fixture's `Dockerfile` (`-Dapp.image` not used; `prebuild_app_image=False`) | [34044805100](https://github.com/emp3thy/claude-skills/actions/runs/34044805100), 2026-09-06, job wall-clock 2m25s (pytest 127.84s), after a first red run at [34044513286](https://github.com/emp3thy/claude-skills/actions/runs/34044513286) |
 
 Pass criteria, from the spec: the second Maven run exits 0, every entry in
 `expected-flow-map.yaml` is present in the ledger, zero unresolved, and `defects.md` carries
@@ -42,6 +42,12 @@ Not covered by these runs, and why:
   their root; `--service-dir` is untested by these runs.
 - **The Quarkus stack.** It has a cheat sheet (`reference/stack-quarkus.md`) but no live
   fixture in v1, so its regex and mapping have never run against a real container.
+- **Authentication.** No fixture implements it, so `flow_map.py set-auth --mode disabled` is
+  exercised only as a ledger mutation, and `auth.mode: jwks`, `Jwt.token()` and the WireMock
+  JWKS mappings have never run against a real container.
+- **`kb_rules.py extract`'s own detection.** The harness runs it and asserts its exit code, but
+  its candidate rows are immediately overwritten by the canned `rows.csv` files, so extraction's
+  actual rule detection is unproven by these runs.
 
 ## Known limitation: `discover.py` can mistake a readiness route for an entry point
 
@@ -52,7 +58,8 @@ the readiness check. An application whose readiness route is an ordinary mapped 
 framework health-check middleware — is therefore detected as a spurious extra entry point that
 then has to be traced, ruled and scaffolded like any other.
 
-Both live fixtures hit this, with different outcomes:
+Two of the three live fixtures — dotnet-deals and fastapi-orders — hit this, with different
+outcomes:
 
 - **dotnet-deals sidesteps it.** `Program.cs` wires up ASP.NET Core's built-in health-check
   middleware (`AddHealthChecks()` / `app.MapHealthChecks("/health/ready")`) instead of a
