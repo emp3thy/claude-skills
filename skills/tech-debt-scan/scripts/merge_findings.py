@@ -101,7 +101,21 @@ def _clean_evidence(evidence: list[Any]) -> list[dict[str, Any]]:
 
 
 def _validate(item: Any, family: str) -> dict[str, Any] | str:
-    """A cleaned finding, or the reason it was dropped."""
+    """A cleaned finding, or the reason it was dropped.
+
+    The title and the note are redacted *before* they are cut to their caps,
+    the same order ``rules.py`` uses. Every branch of ``redaction``'s
+    ``SECRET_TOKEN_RE`` is length-gated, so cutting first and redacting later
+    hands the redactor a token already broken in half: it stops matching its
+    own pattern and the fragment reaches ``candidates.json``, ``design.md``,
+    ``findings.json`` and a promoted ``PBI.md`` verbatim, because every
+    write-time ``redact`` downstream is gated identically and misses it too.
+    Cutting an already-redacted string can only shorten the ``value[:4] + "***"``
+    stub, which carries nothing the stub had not already given away.
+
+    The evidence quotes are *not* redacted here: ``_verify`` has to match them
+    against the file first, so they are redacted later, in ``_redact_candidate``.
+    """
     if not isinstance(item, dict):
         return "not an object"
     title = item.get("title")
@@ -129,7 +143,7 @@ def _validate(item: Any, family: str) -> dict[str, Any] | str:
     note = item.get("note")
     cited = item.get("signals_cited")
     return {
-        "title": title.strip()[:TITLE_MAX],
+        "title": redact(title.strip())[:TITLE_MAX],
         "family": family,
         "debt_type": str(item["debt_type"]),
         "type_id": str(type_id) if type_id is not None else None,
@@ -137,7 +151,7 @@ def _validate(item: Any, family: str) -> dict[str, Any] | str:
         "effort": str(item["effort"]),
         "signals_cited": sorted({str(s) for s in cited}) if isinstance(cited, list) else [],
         "evidence": cleaned,
-        "note": (note.strip() if isinstance(note, str) else "")[:NOTE_MAX],
+        "note": redact(note.strip() if isinstance(note, str) else "")[:NOTE_MAX],
     }
 
 
@@ -334,6 +348,15 @@ def _candidate(
 
 
 def _redact_candidate(cand: dict[str, Any]) -> None:
+    """Redact the verified quotes, and re-assert the title and note.
+
+    The quotes could not be redacted before now: ``_verify`` matches each one
+    against the file on disk, and a redacted quote would no longer match. The
+    title and note were already redacted in ``_validate``, before their caps
+    were applied; ``redact`` is idempotent, so repeating it here costs nothing
+    and keeps this the single place a reader can check that every string a
+    candidate carries has been through it.
+    """
     cand["title"] = redact(cand["title"])
     cand["note"] = redact(cand["note"])
     for ev in cand["evidence"]:
