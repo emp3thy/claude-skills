@@ -66,6 +66,38 @@ Two commands, with a human review step in between.
 See `skills/tech-debt-scan/SKILL.md` for the full step-by-step workflow Claude
 follows, including every pinned command and pre/post-condition.
 
+## Also in this repo: karate-bootstrap
+
+`karate-bootstrap` takes a Spring Boot, Quarkus, ASP.NET Core or Python service that has no
+Karate tests and leaves it with a first ground-truth suite under `karate-tests/` that runs
+green under Testcontainers (Postgres, ActiveMQ Artemis over AMQP 1.0, WireMock for
+downstream HTTP, the shared db-manager image for the schema), locally and in Azure DevOps.
+
+Install it the same way:
+
+```bash
+ln -s "$PWD/claude-skills/skills/karate-bootstrap" ~/.claude/skills/karate-bootstrap
+```
+
+Then, in Claude Code:
+
+```
+/karate-bootstrap <repo-path> [--service-dir <sub>] [--migrations-image <ref>] [--app-image <tag>]
+                  [--max-iterations 15] [--double-trace] [--no-commit]
+```
+
+The run scans the repo, traces every endpoint and listener to its database writes, message
+publishes and outbound calls, extracts validation rules as CSV data, scaffolds a Maven module
+with the Testcontainers harness, generates the features, runs them and iterates until green
+or a stop condition, quarantining suspected app defects in `karate-tests/defects.md`. By
+default it commits at each phase gate on a `karate-bootstrap` branch and never pushes.
+
+Requirements on the machine: Python 3.11+ with `pyyaml`, JDK 17+, Maven (or the bundled
+wrapper), and a container engine (docker or podman; see
+`skills/karate-bootstrap/reference/podman.md`). See
+[`skills/karate-bootstrap/SKILL.md`](skills/karate-bootstrap/SKILL.md) for every pinned
+command, and `docs/superpowers/specs/2026-09-05-karate-bootstrap-design.md` for the design.
+
 ## Output formats
 
 | Artefact | Written by | Shape |
