@@ -74,6 +74,13 @@ class TestNormaliseRuff:
         payload = json.loads((FIXTURES / "ruff.json").read_text(encoding="utf-8"))
         return normalise_ruff(payload, ROOT)
 
+    def test_exact_signal_count_from_the_real_fixture(self) -> None:
+        """A set-membership assertion alone would not catch a record being
+
+        emitted twice; this pins the count against the fixture's four
+        mapped records."""
+        assert len(self._signals()) == 4
+
     def test_absolute_backslashed_filename_becomes_relative(self) -> None:
         assert {s["file"] for s in self._signals()} == {
             "src/pay/refund.py", "src/pay/utils.py", "src/pay/ledger.py",
@@ -127,7 +134,7 @@ class TestNormaliseVulture:
 
     def test_each_line_becomes_one_dead_code_signal(self) -> None:
         signals = self._signals()
-        assert len(signals) == 5
+        assert len(signals) == 7
         assert {s["family"] for s in signals} == {"dead-code"}
         assert {s["kind"] for s in signals} == {"unused"}
 
@@ -153,6 +160,27 @@ class TestNormaliseVulture:
     def test_every_vulture_signal_is_inference_class(self) -> None:
         assert all(s["fact"] is False for s in self._signals())
 
+    def test_unreachable_code_after_return_is_kept_without_a_symbol(self) -> None:
+        """vulture reports unreachable code with no 'unused <kind> <symbol>'
+
+        shape at all -- see reachability.py -- so nothing is fabricated for
+        the fields it never carried."""
+        unreachable = next(
+            s for s in self._signals() if s["message"] == "unreachable code after 'return'"
+        )
+        assert unreachable["file"] == "src/pay/orders.py"
+        assert unreachable["line_start"] == 3 and unreachable["line_end"] == 3
+        assert unreachable["family"] == "dead-code" and unreachable["kind"] == "unused"
+        assert unreachable["extra"] == {"confidence": 100}
+
+    def test_unreachable_else_block_is_kept_without_a_symbol(self) -> None:
+        unreachable = next(
+            s for s in self._signals() if s["message"] == "unreachable 'else' block"
+        )
+        assert unreachable["file"] == "src/pay/orders.py"
+        assert unreachable["line_start"] == 10 and unreachable["line_end"] == 10
+        assert unreachable["extra"] == {"confidence": 100}
+
 
 class TestNormaliseLizard:
     def _signals(self) -> list:
@@ -162,10 +190,34 @@ class TestNormaliseLizard:
         rows = [row for row in csv.reader(text.splitlines()) if row]
         return normalise_lizard(rows, ROOT)
 
+    def test_exact_signal_count_from_the_real_fixture(self) -> None:
+        """A set-membership assertion alone would not catch a row being
+
+        emitted twice; this pins the count against the fixture's three
+        threshold-clearing rows."""
+        assert len(self._signals()) == 3
+
     def test_only_units_over_the_threshold_are_reported(self) -> None:
         """lizard reports every function; a signal per function would swamp
         the lead cap, so only complex or long units become signals."""
-        assert {s["extra"]["name"] for s in self._signals()} == {"issue_partial", "settle"}
+        assert {s["extra"]["name"] for s in self._signals()} == {
+            "issue_partial", "settle", "build_invoice_lines",
+        }
+
+    def test_a_long_low_complexity_unit_is_kept_via_the_nloc_leg(self) -> None:
+        """issue_partial and settle both clear LIZARD_MIN_CCN; this row only
+
+        clears LIZARD_MIN_NLOC, so it is the one proof that the NLOC leg of
+        the CCN-or-NLOC threshold actually keeps a unit on its own."""
+        from tool_normalisers import LIZARD_MIN_CCN, LIZARD_MIN_NLOC
+
+        long_unit = next(
+            s for s in self._signals() if s["extra"]["name"] == "build_invoice_lines"
+        )
+        assert long_unit["extra"]["ccn"] < LIZARD_MIN_CCN
+        assert long_unit["extra"]["nloc"] >= LIZARD_MIN_NLOC
+        assert long_unit["file"] == "src/pay/invoice.py"
+        assert (long_unit["line_start"], long_unit["line_end"]) == (1, 68)
 
     def test_line_range_comes_from_the_last_two_columns(self) -> None:
         partial = next(s for s in self._signals() if s["extra"]["name"] == "issue_partial")

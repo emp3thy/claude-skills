@@ -127,8 +127,16 @@ RUFF_KINDS: Final[dict[str, tuple[str, str]]] = {
 }
 
 _VULTURE_LINE: Final[re.Pattern[str]] = re.compile(
-    r"^(?P<file>.+?):(?P<line>\d+): unused (?P<kind>\w+) '(?P<symbol>[^']+)' "
-    r"\((?P<confidence>\d+)% confidence\)$"
+    r"^(?P<file>.+?):(?P<line>\d+): (?P<message>.+) \((?P<confidence>\d+)% confidence\)$"
+)
+
+# The sub-shape of a vulture message that names a symbol, e.g.
+# "unused function 'export_v1'". vulture's reachability messages (unreachable
+# code, unsatisfiable conditions) share the outer path:line:...(N% confidence)
+# grammar but never match this -- there is no symbol to report, so none is
+# invented for them.
+_VULTURE_UNUSED: Final[re.Pattern[str]] = re.compile(
+    r"^unused (?P<kind>\w+) '(?P<symbol>[^']+)'$"
 )
 
 
@@ -172,10 +180,20 @@ def normalise_ruff(payload: Any, root: Path) -> list[Signal]:
 def normalise_vulture(payload: Any, root: Path) -> list[Signal]:
     """vulture's plain-text lines as dead-code signals.
 
-    vulture has no JSON mode. Each finding is one line of the form
-    ``path:line: unused <kind> '<symbol>' (<n>% confidence)``; a line that
-    does not match is dropped rather than guessed at. The confidence is
-    carried through as a number so 4b can weight a 60% hint below a 100% one.
+    vulture has no JSON mode. Every finding, regardless of shape, is one line
+    of the form ``path:line: <message> (<n>% confidence)``. Most messages are
+    ``unused <kind> '<symbol>'``, but vulture also reports unreachable code
+    this way -- after a ``return``/``break``/``continue``/``raise``, or an
+    always-true ``if``/``while`` branch -- with a message that carries no
+    quoted symbol at all (e.g. ``unreachable code after 'return'`` or
+    ``unreachable 'else' block``; see vulture's ``reachability.py``). Every
+    line matching the outer ``path:line: ...(N% confidence)`` grammar becomes
+    a signal; ``symbol``/``symbol_kind`` are added to ``extra`` only when the
+    message itself matches the ``unused <kind> '<symbol>'`` shape, so a
+    symbol is never invented for a message that never named one. A line that
+    does not match the outer grammar at all is still dropped, since there is
+    nothing to report. The confidence is carried through as a number so 4b
+    can weight a 60% hint below a 100% one.
     """
     if not isinstance(payload, list):
         return []
@@ -190,17 +208,19 @@ def normalise_vulture(payload: Any, root: Path) -> list[Signal]:
         if rel is None:
             continue
         row = int(match.group("line"))
+        message = match.group("message")
+        extra: dict[str, Any] = {"confidence": int(match.group("confidence"))}
+        unused = _VULTURE_UNUSED.match(message)
+        if unused is not None:
+            extra["symbol_kind"] = unused.group("kind")
+            extra["symbol"] = unused.group("symbol")
         out.append(
             signal(
                 "vulture", "dead-code", "unused",
                 file=rel, line_start=row, line_end=row,
-                message=f"unused {match.group('kind')} '{match.group('symbol')}'",
+                message=message,
                 fact=False,
-                extra={
-                    "confidence": int(match.group("confidence")),
-                    "symbol_kind": match.group("kind"),
-                    "symbol": match.group("symbol"),
-                },
+                extra=extra,
             )
         )
     return out
