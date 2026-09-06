@@ -10,7 +10,7 @@ from typing import Any
 from config import DEFAULTS
 from evidence import fingerprint
 from inventory import build_all, write_json, write_outputs
-from merge_findings import CLUSTER_WINDOW, _main, merge
+from merge_findings import CLUSTER_WINDOW, _main, _normalise_path, merge
 from patterns import run_patterns
 from rules import run_rules
 
@@ -324,6 +324,19 @@ def test_cli(tmp_path: Path) -> None:
     raw = (workdir / "candidates.json").read_bytes()
     assert b"\r" not in raw and raw.endswith(b"\n")
     assert _main(["--workdir", str(tmp_path / "nowhere")]) == 2
+
+
+def test_normalise_path_converts_backslashes_and_rejects_escapes() -> None:
+    """A live scout run on Windows records ``vendor\\x.js``; merge must treat it as
+    ``vendor/x.js`` so quote verification and the byte-compared candidates.json
+    behave the same on both platforms (spec 4.7)."""
+    assert _normalise_path("vendor\\tiny-emitter.js") == "vendor/tiny-emitter.js"
+    assert _normalise_path("./src/pay.py") == "src/pay.py"
+    assert _normalise_path("src/../secret.py") is None
+    assert _normalise_path("/etc/passwd") is None
+    assert _normalise_path("C:\\repo\\src\\pay.py") is None
+    assert _normalise_path("") is None
+    assert _normalise_path(None) is None
 
 
 def test_pattern_lead_corroborates_only_a_candidate_of_its_own_family(tmp_path: Path) -> None:

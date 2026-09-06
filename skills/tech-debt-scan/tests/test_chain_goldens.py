@@ -186,6 +186,7 @@ def test_every_golden_quote_except_the_pin_verifies(
 ) -> None:
     """Only the pin and the named live misses fail ``find_quote`` against the fixture."""
     from evidence import find_quote
+    from merge_findings import _normalise_path
 
     repo = request.getfixturevalue(name.replace("-", "_") + "_repo")
     diverted: set[str] = set()
@@ -194,7 +195,11 @@ def test_every_golden_quote_except_the_pin_verifies(
         for finding in json.loads(scout.read_bytes())["findings"]:
             found = []
             for ev in finding["evidence"]:
-                path = repo / ev["file"]
+                # merge_findings normalises backslashes to forward slashes before
+                # verifying a quote, so a golden scout recorded on Windows (a
+                # literal "vendor\\x.js") must be resolved the same way here, or
+                # the path is read as one Linux filename that never exists.
+                path = repo / (_normalise_path(ev["file"]) or ev["file"])
                 raw = path.read_bytes() if path.is_file() else b""
                 lines = raw.decode("utf-8", "replace").splitlines()
                 hit = find_quote(lines, ev["quote"], ev.get("line_start"), ev.get("line_end"))
