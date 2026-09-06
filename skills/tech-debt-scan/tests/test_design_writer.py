@@ -7,7 +7,13 @@ from typing import Any
 
 import pytest
 from design_parser import parse_design
-from design_writer import DesignWriteError, load_inputs, render_design, write_design
+from design_writer import (
+    SECTION_ORDER,
+    DesignWriteError,
+    load_inputs,
+    render_design,
+    write_design,
+)
 from inventory import write_json
 
 SCAN_DATE = "2026-09-06"
@@ -434,3 +440,149 @@ def test_a_scan_with_no_negative_space_renders_none_for_every_empty_section(
     assert "# Below the cut\n\n_None._\n" in text
     assert "- Families not run: none" in text
     assert text.endswith("class-level metrics that need a parser\n")
+
+
+# --- fix round 1: free-text guard, self-check headings, findings.json location ---
+
+
+def test_free_text_escapes_heading_shaped_lines_in_every_negative_space_field(
+    tmp_path: Path,
+) -> None:
+    """Item 2: all four new free-text call sites escape a heading-shaped line.
+
+    Every existing fixture string is escape-neutral (no fixture starts a line
+    with ``#``), so a test built only from those fixtures would stay green
+    even if a call site quietly dropped ``free_text`` for a bare ``redact``.
+    This test seeds a ``# ``-shaped line into each of the four fields the
+    controller named -- a rejection's ``proof``, a second rejection's
+    ``trap_matched``, a ``looks_bad_but_fine`` ``why``, and an
+    ``open_questions`` question -- and asserts each renders escaped
+    (``\\#``) and that the document's top-level headings are exactly
+    ``SECTION_ORDER`` (after the fixed scan header), unchanged: no spurious
+    heading spliced into the document by any of the four.
+    """
+    verified = _verified()
+    verified["findings"].append(
+        _finding("2222333344445555", "dead-code", "Rejected via its proof",
+                 "src/pay/misc1.py", 1, 1, "pass", tier=None, verdict="reject",
+                 proof="fine because\n# Not assessed\nreally proof"))
+    verified["findings"].append(
+        _finding("3333444455556666", "dead-code", "Rejected via its trap",
+                 "src/pay/misc2.py", 1, 1, "pass", tier=None, verdict="reject",
+                 proof="ignored: trap_matched wins",
+                 trap="fine because\n# Not assessed\nreally trap"))
+    ranked = _ranked()
+    ranked["findings"] += [
+        {"fingerprint": "2222333344445555", "rank": 4, "priority": 0.0, "terms": {},
+         "tier": None, "in_top_n": False, "spread_capped": False},
+        {"fingerprint": "3333444455556666", "rank": 5, "priority": 0.0, "terms": {},
+         "tier": None, "in_top_n": False, "spread_capped": False},
+    ]
+    candidates = _candidates()
+    candidates["open_questions"].append(
+        {"file": "src/pay/misc3.py", "line_start": 9,
+         "question": "fine because\n# Not assessed\nreally question", "reason": None})
+    candidates["looks_bad_but_fine"].append(
+        {"file": "src/pay/misc4.py", "line_start": 9,
+         "why": "fine because\n# Not assessed\nreally why"})
+
+    text = render_design(
+        _inputs(tmp_path, **{"verified.json": verified, "ranked.json": ranked,
+                             "candidates.json": candidates}),
+        SCAN_DATE,
+    )
+    # 5, not 4: a trap_matched rejection's text is rendered twice by design (once
+    # under "Considered and rejected", once under "Looks bad but is fine"), so
+    # the trap field's escaped heading line appears in both places.
+    assert text.count("\\# Not assessed") == 5, "all four fields escaped their heading line"
+
+    # If any of the four fields had rendered its heading-shaped line unescaped,
+    # an extra "Not assessed" (or similar) H1 would appear among the document's
+    # top-level headings, breaking this exact match against SECTION_ORDER.
+    headings = [line[2:].strip() for line in text.split("\n") if line.startswith("# ")]
+    headings = ["Top" if h.startswith("Top ") else h for h in headings[1:]]  # drop scan header
+    assert headings == list(SECTION_ORDER)
+    assert headings.count("Not assessed") == 1, "no spurious heading was spliced in"
+
+
+def test_self_check_catches_unescaped_free_text_in_the_negative_space_sections(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 2: the self-check must see the negative-space sections too.
+
+    Before this fix, ``write_design``'s self-check only inspected the bodies
+    ``parse_design`` returns for H2 findings; a heading-shaped line escaping
+    into "Looks bad but is fine" was invisible to it, because ``parse_design``
+    never returns the prose between H1 sections at all -- it only tracks
+    finding sections. Simulated here by monkeypatching ``free_text`` to a bare
+    ``redact`` (as if a call site forgot the escape), so it is the new
+    headings check that has to catch this, not ``free_text`` itself.
+    """
+    import design_writer
+
+    monkeypatch.setattr(design_writer, "free_text", design_writer.redact)
+    candidates = _candidates()
+    candidates["looks_bad_but_fine"].append(
+        {"file": "src/pay/misc.py", "line_start": 9,
+         "why": "fine because\n# Not assessed\nreally"})
+    out = tmp_path / "design.md"
+    with pytest.raises(DesignWriteError, match="Not assessed"):
+        write_design(_inputs(tmp_path, **{"candidates.json": candidates}), SCAN_DATE, out)
+
+
+def test_a_failed_self_check_writes_neither_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 3: design.md and findings.json are written only after the self-check passes.
+
+    Before this fix, ``design.md`` (and the ``findings.json`` beside it) were
+    written to disk before ``parse_design`` ran, so a self-check failure still
+    left a ``findings.json`` on disk for a later ``evaluate.load_findings`` to
+    prefer over ``verified.json`` -- a rejected render, silently treated as if
+    it had succeeded downstream.
+    """
+    import design_writer
+
+    monkeypatch.setattr(design_writer, "free_text", design_writer.redact)
+    verified = _verified()
+    verified["findings"][0]["proof"] = "swallow\n# TODO: heading-shaped, unescaped"
+    workdir = _write_workdir(tmp_path / "wd", **{"verified.json": verified})
+    out = workdir / "design.md"
+    with pytest.raises(DesignWriteError):
+        write_design(load_inputs(workdir), SCAN_DATE, out)
+    assert not out.exists(), "design.md must not be written when the self-check fails"
+    assert not (workdir / "findings.json").exists(), \
+        "findings.json must not be written when the self-check fails"
+
+
+def test_findings_json_always_lands_in_the_workdir_even_when_out_is_elsewhere(
+    tmp_path: Path,
+) -> None:
+    """Item 4: ``findings.json`` follows ``inputs.workdir``, never ``--out``.
+
+    ``evaluate.py`` looks for ``findings.json`` in the workdir it is given, not
+    beside whatever path ``design.md`` was written to. Before this fix,
+    ``findings.json`` was written beside ``out_path``, so a ``--out`` pointed
+    outside the workdir hid it from ``evaluate.py``.
+    """
+    workdir = _write_workdir(tmp_path / "wd")
+    elsewhere = tmp_path / "elsewhere" / "design.md"
+    write_design(load_inputs(workdir), SCAN_DATE, elsewhere)
+    assert elsewhere.exists()
+    assert (workdir / "findings.json").exists()
+    assert not (elsewhere.parent / "findings.json").exists()
+
+
+def test_render_cli_prints_both_output_paths(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Item 4: the CLI reports both ``design.md`` and ``findings.json`` on success."""
+    from design_writer import _main
+
+    workdir = _write_workdir(tmp_path / "wd")
+    out = tmp_path / "elsewhere" / "design.md"
+    assert _main(["render", "--workdir", str(workdir), "--scan-date", SCAN_DATE,
+                  "--out", str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert str(out) in printed
+    assert str(workdir / "findings.json") in printed

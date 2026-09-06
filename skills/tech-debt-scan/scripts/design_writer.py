@@ -4,9 +4,10 @@
 whole phase 2 chain out of ``--workdir`` (``inventory.json``, ``coupling.json``,
 ``scan-plan.json``, ``verified.json``, ``ranked.json``, ``candidates.json``,
 plus the optional ``notes.json`` and ``diff.json``) and renders the single
-``design.md`` the user reviews, plus ``findings.json`` beside it: the
-machine-readable twin of the same finding list, which ``evaluate.py`` prefers
-over ``verified.json`` because it carries the rank terms and the top-N flag.
+``design.md`` the user reviews, plus ``findings.json`` into ``--workdir``
+(regardless of where ``--out`` points ``design.md``): the machine-readable
+twin of the same finding list, which ``evaluate.py`` prefers over
+``verified.json`` because it carries the rank terms and the top-N flag.
 ``mark_promoted`` is stage 3 of /tech-debt-promote: it flips approved findings
 to ``promoted`` in place once their bundles have been emitted.
 
@@ -24,8 +25,13 @@ Format invariants (the round-trip partner is design_parser.parse_design):
     An empty ``languages`` / ``families_run`` / ``families_skipped`` list is
     written as ``key: []`` on one line: a bare ``key:`` with nothing beneath it
     reads back as ``None``, which is a different document.
-  - After writing, ``write_design`` re-parses its own output as a self-check so
-    format drift surfaces at write time, not just in tests.
+  - Before writing anything, ``write_design`` renders both documents in memory
+    and self-checks the markdown by re-parsing it: every finding's body must
+    still carry the "### Evidence" heading it was written with, and the
+    document's H1 headings must be exactly ``SECTION_ORDER`` (after the fixed
+    scan header), in order. Only once both hold are ``design.md`` and
+    ``findings.json`` written, so format drift surfaces at write time, not
+    just in tests, and a rejected render never leaves a stale file on disk.
   - Every repository-derived string (title, proof, quote, note text) passes
     through ``redaction.redact`` at the point of writing. A free-text field
     rendered outside a fenced block (proof, question, why, the rejection proof
@@ -54,6 +60,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, NamedTuple
@@ -425,12 +432,12 @@ def _fence_for(quote: str) -> str:
     including any heading-shaped one. Widening the fence keeps the quote a single
     code block in the rendered document whatever it contains.
 
-    It does not change how ``design_parser`` reads the document: that tracker is a
-    flat parity toggle over any line starting with three backticks, so it treats a
-    four-backtick marker exactly like a three-backtick one. A quote holding an odd
-    number of backtick-run lines still leaves the toggle open and still fails
-    ``write_design``'s self-check under either width; closing that gap needs a
-    length-aware tracker on the read side, which is not this module's to change.
+    ``design_parser`` closes a fence only on a line of backticks alone whose run
+    is at least as long as the one that opened it. The wrapper this function
+    returns is always one backtick longer than the quote's own longest run, so
+    nothing inside the quote can ever be long enough to close it early: a quote
+    carrying its own complete fenced block (a quoted docstring, a Ruby heredoc)
+    round-trips through ``parse_design`` whole, anchor and all.
     """
     longest = max((len(m.group()) for m in _BACKTICK_RUN.finditer(quote)), default=0)
     return "`" * max(3, longest + 1)
@@ -707,23 +714,98 @@ def render_findings_json(inputs: RenderInputs) -> dict[str, Any]:
     return {"schema_version": SCHEMA_VERSION, "findings": findings}
 
 
-def write_design(inputs: RenderInputs, scan_date: str, out_path: Path) -> None:
-    """Write ``design.md`` and its ``findings.json`` twin, then re-parse as a self-check."""
-    text = render_design(inputs, scan_date)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(text.encode("utf-8"))
-    write_json(out_path.parent / "findings.json", render_findings_json(inputs))
+_TOP_HEADING: Final[re.Pattern[str]] = re.compile(r"^Top \d+$")
 
-    # Self-check: the document must parse back through the read side cleanly, and
-    # every finding's body must still carry the "### Evidence" heading that was
-    # written for it. A free-text field that skips ``free_text`` and leaves a
-    # heading-shaped line unescaped would otherwise truncate the section
-    # (design_parser._ends_section reads it as a new H1) and vanish silently
-    # instead of failing loudly here.
+
+def _h1_names(text: str) -> list[str]:
+    """The ``# `` heading names in ``text``, in document order.
+
+    Mirrors design_parser's own length-aware fence rule (a line opens a fence
+    at 3+ leading backticks, recording that run's length; only a
+    backticks-alone line with an equal or longer run closes it), so a
+    heading-shaped line inside a quote's own nested fence is never mistaken
+    for a real section heading. The frontmatter block is skipped outright,
+    since design_parser's own scan never looks inside it either.
+    """
+    lines = text.split("\n")
+    start = 0
+    if lines and lines[0].strip() == "---":
+        for idx in range(1, len(lines)):
+            if lines[idx].strip() == "---":
+                start = idx + 1
+                break
+    names: list[str] = []
+    in_fence = False
+    fence_len = 0
+    for line in lines[start:]:
+        stripped = line.strip()
+        run = len(stripped) - len(stripped.lstrip("`"))
+        if in_fence:
+            if run == len(stripped) and run >= fence_len:
+                in_fence = False
+                fence_len = 0
+            continue
+        if run >= 3:
+            in_fence = True
+            fence_len = run
+            continue
+        if line.startswith("# "):
+            names.append(line[2:].strip())
+    return names
+
+
+def _check_headings(text: str) -> None:
+    """The document's H1 headings, after the scan header, must be exactly SECTION_ORDER.
+
+    ``render_design`` always emits exactly one H1 header
+    (``# Tech-debt scan - <date>``) before the seven body sections, so it is
+    dropped before comparing the rest. ``parse_design`` never returns the
+    prose between H1 sections at all -- it only tracks H2 finding sections --
+    so a heading-shaped line spliced into a negative-space field by a
+    free-text call site that skipped ``free_text`` is invisible to the rest of
+    the self-check; this is the only thing that catches it.
+    """
+    names = _h1_names(text)
+    actual = ["Top" if _TOP_HEADING.match(name) else name for name in names[1:]]
+    expected = list(SECTION_ORDER)
+    if actual == expected:
+        return
+    unexpected = next((name for name in actual if name not in expected), None)
+    if unexpected is None:
+        unexpected = next((a for a, e in zip(actual, expected, strict=False) if a != e), None)
+    if unexpected is None:
+        unexpected = actual[len(expected)] if len(actual) > len(expected) else "<missing section>"
+    raise DesignWriteError(
+        f"self-check failed: unexpected heading {unexpected!r} among the document's "
+        f"H1 sections; expected {expected!r} in order, found {actual!r}"
+    )
+
+
+def _self_check(text: str) -> None:
+    """Parse the rendered markdown back through design_parser before anything is written.
+
+    ``parse_design`` only reads from a path, so ``text`` is spooled to a
+    throwaway temp file for the duration of the check; nothing under
+    ``out_path`` or the workdir is touched here. Two things must hold: every
+    finding's body still carries the "### Evidence" heading that was written
+    for it (a free-text field that skips ``free_text`` and leaves a
+    heading-shaped line unescaped would otherwise truncate the section --
+    design_parser._ends_section reads it as a new H1 -- and vanish silently
+    instead of failing loudly here); and the document's H1 headings are
+    exactly SECTION_ORDER, in order, after the scan header (see
+    ``_check_headings`` for why this second check exists).
+    """
+    fd, tmp_name = tempfile.mkstemp(suffix=".md")
+    tmp_path = Path(tmp_name)
     try:
-        parsed = parse_design(out_path)
-    except DesignParseError as exc:
-        raise DesignWriteError(f"self-check failed: {exc}") from exc
+        os.close(fd)
+        tmp_path.write_bytes(text.encode("utf-8"))
+        try:
+            parsed = parse_design(tmp_path)
+        except DesignParseError as exc:
+            raise DesignWriteError(f"self-check failed: {exc}") from exc
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
     for finding in parsed["findings"]:
         if "### Evidence" not in finding["body_md"]:
@@ -731,6 +813,27 @@ def write_design(inputs: RenderInputs, scan_date: str, out_path: Path) -> None:
                 f"self-check failed: finding {finding['slug']!r} lost its body "
                 "past an unescaped heading-shaped line"
             )
+    _check_headings(text)
+
+
+def write_design(inputs: RenderInputs, scan_date: str, out_path: Path) -> None:
+    """Render design.md + findings.json in memory, self-check, then write both.
+
+    ``findings.json`` always lands in ``inputs.workdir`` -- never beside
+    ``out_path`` -- because ``evaluate.load_findings`` only looks in the
+    workdir it is given; a ``--out`` pointed elsewhere must not hide it from
+    that lookup. Both documents are rendered and the markdown is self-checked
+    before anything touches disk, so a rejected render leaves neither a stale
+    ``design.md`` nor a stale ``findings.json`` behind for a later
+    ``evaluate.py`` run to prefer over ``verified.json``.
+    """
+    text = render_design(inputs, scan_date)
+    findings_doc = render_findings_json(inputs)
+    _self_check(text)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(text.encode("utf-8"))
+    write_json(inputs.workdir / "findings.json", findings_doc)
 
 
 def _status_line_index(lines: list[str], anchor_lineno: int) -> int | None:
@@ -821,6 +924,7 @@ def _main(argv: list[str] | None = None) -> int:
             out_path = Path(args.out) if args.out else workdir / "design.md"
             write_design(load_inputs(workdir), args.scan_date, out_path)
             print(f"wrote {out_path}")
+            print(f"wrote {workdir / 'findings.json'}")
         else:
             mark_promoted(Path(args.design), slugs=args.slug)
             print(f"promoted {len(args.slug)} finding(s) in {args.design}")
