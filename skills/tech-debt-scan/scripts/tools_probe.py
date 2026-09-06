@@ -380,9 +380,19 @@ def argv_for(spec: ToolSpec, executable: str, root: Path, *, network: bool) -> l
         return [executable, "check", "--isolated", "--no-cache", "--output-format", "json",
                 "--select", RUFF_SELECT, target]
     if spec.name == "vulture":
-        return [executable, target]
+        # Same reason jscpd gets --ignore: vulture has no default exclusions,
+        # so a checkout with a .venv on disk -- the ordinary case for the
+        # repository someone is scanning -- reports dead code inside its own
+        # dependencies. Measured on a scratch tree: 3 of 3 vulture signals
+        # cited .venv before this. ruff needs no equivalent; its built-in
+        # default exclude list already covers these and --exclude would
+        # replace that list rather than add to it.
+        return [executable, "--exclude", ",".join(_ignore_globs()), target]
     if spec.name == "lizard":
-        return [executable, "--csv", target]
+        # lizard skips node_modules of its own accord but not .venv, so the
+        # same list is passed; -x is repeatable rather than comma-separated.
+        excludes = [part for glob in _ignore_globs() for part in ("-x", glob)]
+        return [executable, "--csv", *excludes, target]
     if spec.name == "madge":
         return [executable, "--extensions", MADGE_EXTENSIONS, "--circular", "--json", target]
     if spec.name == "jscpd":

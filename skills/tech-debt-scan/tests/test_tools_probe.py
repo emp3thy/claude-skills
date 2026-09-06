@@ -917,6 +917,30 @@ class TestPredicateAgreesWithArgv:
         assert "--ignore" in argv
         assert "**/node_modules/**" in argv[argv.index("--ignore") + 1]
 
+    def test_vulture_and_lizard_are_kept_out_of_the_same_vendored_trees(
+        self, tmp_path: Path
+    ) -> None:
+        """The same class as jscpd's node_modules descent, in the two tools
+        with no default exclusions of their own. Measured on a scratch tree
+        with a .venv: 3 of 3 vulture signals and 1 of 1 lizard signal cited it
+        before this, and none after. ruff is deliberately left alone -- its
+        built-in default exclude list already covers these, and --exclude
+        would replace that list rather than extend it."""
+        from tools_probe import TOOLS, _ignore_globs, argv_for
+
+        vulture = argv_for(TOOLS["vulture"], "vulture", tmp_path, network=True)
+        assert "--exclude" in vulture
+        assert "**/.venv/**" in vulture[vulture.index("--exclude") + 1]
+
+        lizard = argv_for(TOOLS["lizard"], "lizard", tmp_path, network=True)
+        for glob in _ignore_globs():
+            assert glob in lizard
+        assert lizard.count("-x") == len(_ignore_globs())
+        assert lizard[-1] == str(tmp_path)
+
+        ruff = argv_for(TOOLS["ruff"], "ruff", tmp_path, network=True)
+        assert "--exclude" not in ruff
+
     def test_lizard_gates_on_every_extension_its_parsers_accept(self, tmp_path: Path) -> None:
         """The predicate named six extensions while the invocation scans every
         language lizard has a parser for, so a repository written entirely in
