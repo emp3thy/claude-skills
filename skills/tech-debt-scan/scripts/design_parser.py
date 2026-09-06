@@ -21,7 +21,11 @@ Document structure (see tests/golden/design-v1.md):
     does not truncate the body. An unclosed fence (a hand-edited quote whose
     closing ``` was dropped) is a parse error, not a silent absorption of
     every later finding: reaching the end of the document with a fence still
-    open raises DesignParseError naming the line the fence opened at.
+    open raises DesignParseError naming the last fence marker line seen. The
+    tracker is a flat parity toggle with no stack, so that reported line is
+    the true opening only when no further fence pair follows the break;
+    otherwise it names the last transition in the cascade, not the original
+    break.
 
 Only ``yaml.safe_load`` is used (never ``yaml.load``). Every DesignParseError
 carries the 1-based source line of the offending heading or anchor so the user
@@ -228,12 +232,12 @@ def parse_design(path: Path) -> dict[str, Any]:
         section: list[tuple[int, str]] = []
         cursor = idx + 1
         in_fence = False
-        fence_open_at: int | None = None
+        last_fence_line: int | None = None
         while cursor < n:
             line = lines[cursor]
             if line.strip().startswith("```"):
                 in_fence = not in_fence
-                fence_open_at = cursor + 1 if in_fence else None
+                last_fence_line = cursor + 1
             elif not in_fence and _ends_section(line):
                 break
             section.append((cursor + 1, line))
@@ -241,7 +245,8 @@ def parse_design(path: Path) -> dict[str, Any]:
 
         if in_fence:
             raise DesignParseError(
-                f"fenced block opened at line {fence_open_at} is never closed"
+                f"unclosed fence: last fence marker is at line {last_fence_line}, "
+                "still inside a fenced block at end of document"
             )
 
         anchor, anchor_lineno = _parse_anchor(section, heading_lineno)

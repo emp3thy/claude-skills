@@ -256,7 +256,10 @@ def test_an_unclosed_fence_in_a_finding_body_raises_and_names_the_opening_line(
             "",
         ]).encode("utf-8")
     )
-    with pytest.raises(DesignParseError, match="fenced block opened at line 22 is never closed"):
+    with pytest.raises(
+        DesignParseError,
+        match="unclosed fence: last fence marker is at line 22",
+    ):
         parse_design(path)
 
 
