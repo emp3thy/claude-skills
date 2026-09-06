@@ -1,0 +1,90 @@
+{
+  "schema_version": 2,
+  "top": 5,
+  "batch_size": 6,
+  "selected": [
+    "3be7c52dfb951591",
+    "1a2cee62a043fa63",
+    "8ab1689b18c72f93",
+    "bee2a473c0afedc2",
+    "9ead67e93821ff71",
+    "08e6401c9ac87df8",
+    "f08436450c50e406",
+    "0e7744dd726d5b40",
+    "1b4189615c5560c6",
+    "eaefb059a8c16e0d",
+    "141175ed2e56d821",
+    "8d9953f72a4e0fd8",
+    "f4c345aefd008ff5",
+    "39ff2c7e77aa20a8",
+    "893cfe16bcc6f895",
+    "aa3351f29bf618f1",
+    "fdb5fcca4c87f4b8",
+    "37123abc76b1359b",
+    "02bbf6de78e47bd6",
+    "29eba6f4f9adcbc9",
+    "9c6b39118019c27e",
+    "73c4ac3f4febadd0",
+    "795ec415100325e3",
+    "b7396d04c3285472",
+    "3d5daf8fb72b00a9"
+  ],
+  "unverified": [],
+  "batches": [
+    {
+      "prompt": "prompts/verify-01.md",
+      "output": "verdicts/verify-01.json",
+      "fingerprints": [
+        "3be7c52dfb951591",
+        "1a2cee62a043fa63",
+        "8ab1689b18c72f93",
+        "bee2a473c0afedc2",
+        "9ead67e93821ff71",
+        "08e6401c9ac87df8"
+      ]
+    },
+    {
+      "prompt": "prompts/verify-02.md",
+      "output": "verdicts/verify-02.json",
+      "fingerprints": [
+        "f08436450c50e406",
+        "0e7744dd726d5b40",
+        "1b4189615c5560c6",
+        "eaefb059a8c16e0d",
+        "141175ed2e56d821",
+        "8d9953f72a4e0fd8"
+      ]
+    },
+    {
+      "prompt": "prompts/verify-03.md",
+      "output": "verdicts/verify-03.json",
+      "fingerprints": [
+        "f4c345aefd008ff5",
+        "39ff2c7e77aa20a8",
+        "893cfe16bcc6f895",
+        "aa3351f29bf618f1",
+        "fdb5fcca4c87f4b8",
+        "37123abc76b1359b"
+      ]
+    },
+    {
+      "prompt": "prompts/verify-04.md",
+      "output": "verdicts/verify-04.json",
+      "fingerprints": [
+        "02bbf6de78e47bd6",
+        "29eba6f4f9adcbc9",
+        "9c6b39118019c27e",
+        "73c4ac3f4febadd0",
+        "795ec415100325e3",
+        "b7396d04c3285472"
+      ]
+    },
+    {
+      "prompt": "prompts/verify-05.md",
+      "output": "verdicts/verify-05.json",
+      "fingerprints": [
+        "3d5daf8fb72b00a9"
+      ]
+    }
+  ]
+}

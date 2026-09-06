@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -155,3 +156,8 @@ def replay_fixture(name: str, dest: Path) -> Path:
     """Replay ``tests/fixtures/corpus/<name>`` into ``dest`` and return ``dest``."""
     base = CORPUS_ROOT / name
     return replay_history(base / "history.yaml", base / "files", dest)
+
+
+if __name__ == "__main__":  # pragma: no cover - a subprocess entry point for live_run.py
+    replay_fixture(sys.argv[1], Path(sys.argv[2]))
+    print(Path(sys.argv[2]))

@@ -1,0 +1,28 @@
+{
+  "family": "pipeline-infra",
+  "module": null,
+  "findings": [],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/api/client.ts",
+      "line_start": 13,
+      "why": "console.log call looks like a stdout-vs-logger violation, but no logger/logging library exists anywhere in the repo (grep for logger/winston/pino/log4js found nothing), so the pipeline-infra pattern (stdout writes where a logger exists) does not apply."
+    },
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 15,
+      "why": "console.error call, same reasoning: no logger is present in the codebase to compare against."
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line_start": 1,
+      "why": "Only one workflow file with a single job exists; there is no second workflow to compare against, so this is not duplicated pipeline YAML."
+    }
+  ],
+  "not_assessed": [
+    "No CVE, EOL, or dependency-currency claims made.",
+    "No test flakiness or coverage-number claims made.",
+    "Whether the absence of a release/CD workflow constitutes a 'manual release step' could not be assessed \u2014 no release documentation or process exists to inspect."
+  ]
+}

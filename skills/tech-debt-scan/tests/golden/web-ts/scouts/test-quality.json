@@ -1,0 +1,73 @@
+{
+  "family": "test-quality",
+  "module": null,
+  "findings": [
+    {
+      "title": "Cart total test asserts hardcoded money total with no derivation",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-12",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-quality:numeric-assert"
+      ],
+      "evidence": [
+        {
+          "file": "src/__tests__/cart.test.ts",
+          "line_start": 3,
+          "line_end": 6,
+          "quote": "test(\"total sums items\", () => {\n  const cart = { items: [] as { sku: string; qty: number }[] };\n  addItem(cart, { sku: \"A1\", qty: 2 });\n  expect(total(cart)).toBe(2000);"
+        }
+      ],
+      "note": "Asserts against the literal 2000 rather than deriving it from the priced sku/qty inputs used in the test, so a reader must cross-reference the pricing table to know the expectation is correct."
+    },
+    {
+      "title": "Skipped bulk-pricing test asserts a value the implementation cannot produce",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-12",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-quality:numeric-assert"
+      ],
+      "evidence": [
+        {
+          "file": "src/__tests__/pricing.spec.ts",
+          "line_start": 7,
+          "line_end": 9,
+          "quote": "it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });\n});"
+        }
+      ],
+      "note": "Test is permanently skipped and asserts 900 for A1, but pricing.ts has no bulk-pricing logic and PRICES[A1] is 1000; the skipped test cannot pass as written and provides no real coverage of the feature it names."
+    },
+    {
+      "title": "CI wraps entire test suite in automatic retries",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-18",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "ci:ci_retry_config"
+      ],
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 15,
+          "line_end": 19,
+          "quote": "- uses: nick-fields/retry@7152eba30c6575329ac0576536151aca5a72780e\n        with:\n          timeout_minutes: 10\n          max_attempts: 3\n          command: npm test"
+        }
+      ],
+      "note": "The whole npm test command is retried up to 3 times at CI level; a failing test can pass on retry, so intermittent test failures are not surfaced as CI failures."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [],
+  "not_assessed": [
+    "Whether any specific test is actually flaky (no flaky-commit history available)",
+    "Actual test coverage percentage vs the 80% coverageThreshold in package.json",
+    "Whether the CI retry step was added to work around a known flaky test"
+  ]
+}

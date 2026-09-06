@@ -1,0 +1,98 @@
+[
+  {
+    "fingerprint": "67a7969de9b64d00",
+    "verdict": "confirm",
+    "proof": "Dockerfile exists at repo root and k8s/deployment.yaml + k8s/service.yaml exist, but ci.yml:1-16 only checks out code, sets up Go, and runs `go test ./...`. No job builds/pushes an image or applies k8s manifests. README.md (3 lines) and docs/runbook.md (kill-switch only) do not mention any deploy process, so release is undocumented and manual.",
+    "severity": 3,
+    "effort": "M",
+    "trap_matched": null,
+    "checked": [
+      "Dockerfile presence",
+      "k8s manifests presence",
+      "ci.yml full content",
+      "README.md/runbook.md for deploy docs"
+    ],
+    "opened": [
+      "Dockerfile",
+      "k8s/deployment.yaml",
+      "docs/runbook.md"
+    ]
+  },
+  {
+    "fingerprint": "7184d41860800e6d",
+    "verdict": "confirm",
+    "proof": "README.md is 3 lines with no changelog/contributing pointers; globs for CHANGELOG* and CONTRIBUTING* return no files. Two tags exist (v0.1.0 at 1b1cd9e, v0.2.0 at b57194e) per commit log, including notable changes like the builder TLS option (b57194e) and kill switch (1b1cd9e), with no ADR or changelog capturing why.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "README.md content",
+      "CHANGELOG/CONTRIBUTING glob",
+      "git tag refs"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "25b76070ec41c753",
+    "verdict": "confirm",
+    "proof": "httpc.go:12-21 Fetch() calls http.Get(url) which uses http.DefaultClient (no Timeout field set), confirmed by reading httpc.go directly. main.go:28 calls this in the main goroutine with no context/cancellation, so a non-responding https://example.com/health would hang main() forever. A safe alternative (FetchWithTimeout, 5s timeout) already exists in httpc_safe.go but is unused.",
+    "severity": 4,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "httpc.go Fetch implementation",
+      "httpc_safe.go for comparison",
+      "main.go call site"
+    ],
+    "opened": [
+      "internal/httpc/httpc_safe.go"
+    ]
+  },
+  {
+    "fingerprint": "74b05b690193443e",
+    "verdict": "confirm",
+    "proof": "Only test file in the repo is internal/store/store_test.go (confirmed via **/*_test.go glob); there is no flags_test.go or any test importing internal/flags. flags.go:11-13 IsEnabled is trivial but main.go:22-24 is the only caller and just logs; a regression (e.g. inverted condition) would go uncaught by any test suite.",
+    "severity": 5,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "repo-wide test file glob",
+      "flags.go content",
+      "main.go call site"
+    ],
+    "opened": [
+      "internal/flags/flags.go"
+    ]
+  },
+  {
+    "fingerprint": "8a91399acf1235af",
+    "verdict": "confirm",
+    "proof": "httpc.go:11 carries `// Deprecated: use FetchWithTimeout from httpc_safe.go.` directly above Fetch (line 12), and grep across the repo shows the only caller of either function is main.go:28, which still calls the deprecated Fetch. httpc_safe.go's FetchWithTimeout (with a 5s client timeout) is defined but has zero call sites, confirming the 100% call-site-on-deprecated-side claim.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "httpc.go deprecation comment",
+      "httpc_safe.go alternative",
+      "repo-wide grep for call sites"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "5be87c92ab0d4b6b",
+    "verdict": "confirm",
+    "proof": "docs/runbook.md:5-7 tells on-call the flag 'stops payments' and is a permanent operational control not to be removed. flags.go:5-6 comment repeats the same operational framing. But main.go:22-24 is the only reader of the flag anywhere in the repo (confirmed by grep for IsEnabled/flags. usage) and it only does log.Println \u2014 a repo-wide search found no payment-processing code for it to gate, so the doc's operational claim is unsupported by the code.",
+    "severity": 4,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "runbook.md content",
+      "flags.go content",
+      "repo-wide grep for IsEnabled callers",
+      "search for payment-processing code"
+    ],
+    "opened": [
+      "internal/flags/flags.go"
+    ]
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "family": "complex-units",
+  "module": null,
+  "findings": [],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/lookup/lookup.go",
+      "line_start": 11,
+      "why": "290-entry map literal inflates lookup.go's hotspot score and line count, but it is a flat, cohesive lookup table with no branching or nesting \u2014 not a complex unit."
+    }
+  ],
+  "not_assessed": [
+    "Security/quality issues seen in store.go (SQL string concatenation) and httpc.go (TLS verification disabled, hardcoded token) are outside the complex-units family and not assessed here.",
+    "Test coverage, dependency currency, and vulnerability status were not assessed for any file in this family scan."
+  ]
+}

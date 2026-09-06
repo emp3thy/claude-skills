@@ -429,3 +429,54 @@ def test_cli_missing_inventory_exits_2(tmp_path: Path) -> None:
     from rules import _main
 
     assert _main([str(tmp_path), "--workdir", str(tmp_path / "none")]) == 2
+
+
+def test_island_needs_the_churn_floor(service_py_repo: Path) -> None:
+    """A hotspot-band file with one author but churn below island_min_churn is not an island."""
+    from copy import deepcopy
+
+    from config import DEFAULTS
+
+    inventory, _ = build_all(service_py_repo, churn_months=240)
+    repo: Repo = (service_py_repo, inventory)
+
+    def islands(findings: list[Finding]) -> list[Finding]:
+        return [f for f in findings if "rule:ownership.knowledge-island" in _rules(f)]
+
+    islands_default = islands(_run(repo))
+    assert islands_default, "the corpus must plant at least one island"
+
+    strict = deepcopy(DEFAULTS)
+    strict["rules"]["ownership"]["island_min_churn"] = 10_000
+    assert islands(_run(repo, strict)) == []
+
+    lax = deepcopy(DEFAULTS)
+    lax["rules"]["ownership"]["island_min_churn"] = 0
+    assert len(islands(_run(repo, lax))) >= len(islands_default)
+
+
+def test_codeowners_under_a_disabled_tree_or_skipped_large_is_not_consulted(
+    tmp_path: Path,
+) -> None:
+    """The unowned-hotspot check only reads a CODEOWNERS the inventory would read."""
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    # Deliberately does not cover src/a.py: a wildcard pattern would match every
+    # hotspot-band file regardless of whether the artefact is consulted at all,
+    # masking the gap this test exists to catch.
+    (repo / "CODEOWNERS").write_text("src/other.py @team\n", encoding="utf-8")
+    inventory, _ = build_all(repo)
+    inventory["git_available"] = True
+    inventory["git"] = {"authors": [
+        {"email": f"u{i}@x", "name": f"u{i}", "commits": 1, "last_active": "2026-01-01"}
+        for i in range(3)
+    ]}
+    inventory["hotspot_band"] = ["src/a.py"]
+    governance = inventory["artefacts"]["governance"]
+    assert [a["path"] for a in governance] == ["CODEOWNERS"]
+    governance[0]["skipped_large"] = True
+    findings, _leads = run_rules(repo, inventory, DEFAULTS, now=NOW)
+    rules = {f["rule_id"] for f in findings}
+    assert "ownership.unowned-hotspot" not in rules
+    assert "ownership.no-codeowners" not in rules, json.dumps(findings, indent=1)

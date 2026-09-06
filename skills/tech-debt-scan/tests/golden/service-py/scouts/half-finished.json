@@ -1,0 +1,112 @@
+{
+  "family": "half-finished",
+  "module": "pay",
+  "findings": [
+    {
+      "title": "Gateway refund POST has no timeout",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:half-finished:no-timeout"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/gateway.py",
+          "line_start": 20,
+          "line_end": 25,
+          "quote": "response = requests.post(\n            f\"{self.base}/refunds\",\n            json={\"order\": order_id, \"amount\": amount_cents},\n            headers={\"Authorization\": f\"Bearer {api_key}\", **CORS_HEADERS},\n            verify=False,\n        )"
+        }
+      ],
+      "note": "requests.post has no timeout kwarg; refund.issue() calls this synchronously in the money-movement path, so an unresponsive gateway blocks the caller indefinitely."
+    },
+    {
+      "title": "Gateway call path untested, skipped with vague reason",
+      "family": "half-finished",
+      "debt_type": "requirement",
+      "type_id": null,
+      "severity": 3,
+      "effort": "M",
+      "signals_cited": [
+        "pattern:half-finished:skip-marker",
+        "pattern:half-finished:stub"
+      ],
+      "evidence": [
+        {
+          "file": "tests/test_refund.py",
+          "line_start": 19,
+          "line_end": 21,
+          "quote": "@pytest.mark.skip(reason=\"gateway stub not written yet\")\ndef test_issue_calls_gateway() -> None:\n    raise NotImplementedError"
+        }
+      ],
+      "note": "The only test for refund.issue()'s gateway call is skipped with no ticket or date; the reason names no owner or plan, and the function it would cover sits next to an unresolved duplicate-refund FIXME."
+    },
+    {
+      "title": "Self-admitted duplicate-refund risk left unaddressed",
+      "family": "half-finished",
+      "debt_type": "defect",
+      "type_id": null,
+      "severity": 5,
+      "effort": "M",
+      "signals_cited": [
+        "satd",
+        "hotspot"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 35,
+          "line_end": 40,
+          "quote": "# FIXME: the gateway retries on our behalf, so a duplicate refund can post twice\n    try:\n        accepted = gateway.refund(refund.order_id, refund.amount_cents)\n    except OSError as exc:\n        log.exception(\"gateway unreachable for %s\", refund.order_id)\n        raise RuntimeError(\"gateway unreachable\") from exc"
+        }
+      ],
+      "note": "FIXME names a concrete money-duplication risk with no ticket, 751 days old. The nearby dedup (_seen, an in-memory per-process set) does not address gateway-side retries, so the named risk is still present."
+    },
+    {
+      "title": "Flaky ledger test papered over with sleep",
+      "family": "half-finished",
+      "debt_type": "defect",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "tests/test_ledger.py",
+          "line_start": 11,
+          "line_end": 15,
+          "quote": "def test_post_then_balance(tmp_path: Path) -> None:\n    path = tmp_path / \"ledger.jsonl\"\n    ledger.post(Entry(account=\"a\", amount_cents=100), path)\n    time.sleep(0.05)  # flaky on CI without this; retried in the workflow\n    assert ledger.balance(\"a\", path) == 100"
+        }
+      ],
+      "note": "Comment self-admits the test was flaky and is masked with a fixed sleep plus workflow-level retries rather than a fix to the underlying race; no ticket referenced."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "tests/test_refund.py",
+      "line_start": 19,
+      "question": "Is there a ticket tracking the gateway stub/test, or was this skip left open-ended with no owner?"
+    },
+    {
+      "file": "src/pay/refund.py",
+      "line_start": 35,
+      "question": "Is idempotency on the gateway or ledger side planned to close the duplicate-refund gap named in the FIXME?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/pay/legacy_export.py",
+      "line_start": 7,
+      "why": "TODO(#42) names a ticket and a concrete deferral condition (delete once finance moves to v2 report); this is a tracked, deliberate deferral rather than an unmanaged stub."
+    }
+  ],
+  "not_assessed": [
+    "Whether the ledger test race condition described in the comment is still reproducible or how often it fails in CI (test flakiness rate not measured)",
+    "Whether the skipped gateway test was ever scheduled or tracked outside the repo"
+  ]
+}

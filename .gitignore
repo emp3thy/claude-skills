@@ -11,3 +11,4 @@ venv/
 .idea/
 .vscode/
 .superpowers/
+.tech-debt-live/

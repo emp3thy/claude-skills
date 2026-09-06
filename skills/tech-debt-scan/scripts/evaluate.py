@@ -6,7 +6,9 @@ family: planted items found (recall), reported findings that hit a planted
 item (precision), and decoy hits by tier; plus whether any decoy sits in
 tier A or in the top N, which are the hard release bars from v2.0. A finding
 is "reported" when its tier is A or B; tier C is listed for a human and never
-counts toward precision or recall.
+counts toward precision or recall. The top-level ``tier_a`` block reports
+precision over tier A findings alone, which is the figure the release bar
+names; the per-family ``precision`` spans tiers A and B.
 
 ``planted.json`` may carry a top-level ``churn_months``: the inventory window
 the fixture is scored under, because a corpus's commit dates are fixed while
@@ -161,6 +163,8 @@ def evaluate(
             "decoy_hits": decoy_hits,
         }
 
+    tier_a_reported = [f for f in findings if f.get("tier") == "A"]
+    tier_a_precise = sum(1 for f in tier_a_reported if any(hits(f, p) for p in planted))
     on_planted = sum(1 for f in reported if any(hits(f, p) for p in planted))
     on_decoys = sum(
         1 for f in reported
@@ -175,6 +179,11 @@ def evaluate(
         "decoys": decoy_report,
         "decoys_in_tier_a": sum(1 for d in decoy_report if "A" in d["hit_tiers"]),
         "decoys_in_top_n": sum(1 for d in decoy_report if d["in_top_n"]),
+        "tier_a": {
+            "reported": len(tier_a_reported),
+            "precise": tier_a_precise,
+            "precision": _ratio(tier_a_precise, len(tier_a_reported)),
+        },
         "counts": {
             "reported": len(reported),
             "on_planted": on_planted,
@@ -209,6 +218,11 @@ def render_table(report: dict[str, Any]) -> str:
     )
     rows.append(f"decoys in tier A: {report['decoys_in_tier_a']}")
     rows.append(f"decoys in top {report['top']}: {report['decoys_in_top_n']}")
+    tier_a = report["tier_a"]
+    rows.append(
+        f"tier A precision: {_fmt(tier_a['precision'])} "
+        f"({tier_a['precise']}/{tier_a['reported']})"
+    )
     return "\n".join(rows)
 
 

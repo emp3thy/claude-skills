@@ -1,0 +1,40 @@
+{
+  "family": "error-masking",
+  "module": null,
+  "findings": [
+    {
+      "title": "Ledger post failure silently swallowed before gateway refund fires",
+      "family": "error-masking",
+      "debt_type": "defect",
+      "type_id": "TD-13",
+      "severity": 5,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:error-masking:swallowed-catch"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 30,
+          "line_end": 42,
+          "quote": "    entry = Entry(account=refund.order_id, amount_cents=-refund.amount_cents, reason=refund.reason_code)\n    try:\n        ledger.post(entry)\n    except Exception:\n        pass\n    # FIXME: the gateway retries on our behalf, so a duplicate refund can post twice"
+        }
+      ],
+      "note": "Any exception from ledger.post is caught and discarded: no log, no re-raise, no cause kept. Code then still calls gateway.refund, so money can move while the ledger has no record and nobody learns the write failed."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/pay/refund.py",
+      "line_start": 36,
+      "why": "except OSError at line 38 logs with log.exception (preserves traceback) and re-raises as RuntimeError with 'from exc', preserving the cause chain. This is a boundary conversion, not masking."
+    }
+  ],
+  "not_assessed": [
+    "test coverage of refund.py exception paths",
+    "whether ledger.post can realistically raise in production",
+    "test flakiness of any test in tests/"
+  ]
+}

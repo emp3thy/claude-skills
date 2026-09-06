@@ -1,0 +1,160 @@
+{
+  "family": "test-gaps",
+  "module": null,
+  "findings": [
+    {
+      "title": "Admin API client has no test coverage of auth/timeout/error paths",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 6,
+          "line_end": 18,
+          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),\n    });\n    return await response.json();\n  } catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }\n}"
+        }
+      ],
+      "note": "Highest-scored hotspot file (80.0), untested_change_share=1.0, no test file references client-admin.ts. Auth header construction, timeout, and error-swallow-to-null behavior are unguarded; a regression (e.g. wrong header name, timeout dropped) would silently break admin API access."
+    },
+    {
+      "title": "API client silently swallows fetch errors with no test",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 16,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n  } catch (e) {}\n  if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");\n  }\n  return null;\n}"
+        }
+      ],
+      "note": "Hotspot score 42.9, untested_change_share=1.0, no mapped test. The empty catch block and the flag-gated betaBanner branch both have no assertions; a change here (e.g. accidentally always returning null, as the empty catch currently does after the try block regardless of success) would go undetected."
+    },
+    {
+      "title": "Checkout flow (legacy/new switch) has no automated test",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 6,
+          "line_end": 13,
+          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";\n  return `legacy:${label}`;\n}"
+        }
+      ],
+      "note": "untested_change_share=1.0 and no test references checkout.ts despite it composing cart total, pricing, and formatting behind a feature flag. Blast radius is direct: a regression here affects the checkout output customers/orders depend on, and neither branch (legacy or new) is asserted."
+    },
+    {
+      "title": "Bulk pricing behavior test is skipped",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-gaps:half-finished-skip-marker"
+      ],
+      "evidence": [
+        {
+          "file": "src/__tests__/pricing.spec.ts",
+          "line_start": 7,
+          "line_end": 9,
+          "quote": "it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });"
+        }
+      ],
+      "note": "The only test that would assert priceOf's bulk-discount behavior is disabled via .skip, so priceOf's pricing logic beyond the zero-sku case runs with no automated guard; a pricing regression would not be caught by the suite."
+    },
+    {
+      "title": "Feature flag lookup (isEnabled) has no direct test",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "src/flags.ts",
+          "line_start": 1,
+          "line_end": 9,
+          "quote": "const FLAGS: Record<string, boolean> = {\n  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,\n  betaBanner: true,\n};\n\nexport function isEnabled(name: string): boolean {\n  return FLAGS[name] ?? false;\n}"
+        }
+      ],
+      "note": "untested_change_share=1.0 and no test file references flags.ts directly. isEnabled gates checkout.ts's legacy/new branch and both API clients' behavior, so an unguarded change to the lookup or defaults propagates untested into checkout and API paths."
+    },
+    {
+      "title": "Coverage threshold declared but not enforced by test script",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:test-gaps:missing-coverage-gate"
+      ],
+      "evidence": [
+        {
+          "file": "package.json",
+          "line_start": 5,
+          "line_end": 8,
+          "quote": "\"scripts\": { \"build\": \"tsc -p tsconfig.json\", \"test\": \"jest\" },\n  \"dependencies\": { \"tiny-emitter\": \"2.1.0\" },\n  \"devDependencies\": { \"typescript\": \"5.4.5\", \"jest\": \"29.7.0\", \"eslint\": \"9.0.0\" },\n  \"jest\": { \"coverageThreshold\": { \"global\": { \"lines\": 80 } } }"
+        }
+      ],
+      "note": "coverageThreshold is configured but the \"test\" script runs plain jest without --coverage, so the threshold is never evaluated during a normal `yarn test`/`npm test` run, letting untested hotspot files (client.ts, client-admin.ts, checkout.ts) go unflagged."
+    },
+    {
+      "title": "invented quote (golden pin)",
+      "family": "test-gaps",
+      "debt_type": "code",
+      "type_id": null,
+      "severity": 1,
+      "effort": "S",
+      "signals_cited": [],
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "this quote was never in the file"
+        }
+      ],
+      "note": "Hand-added golden pin: the quote is not in the file, so the merge must divert this finding to open_questions with 'quote not found'."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/index.ts",
+      "line_start": 1,
+      "why": "Only wires addItem/checkout together as an entry point (untested_change_share=0.5, not hotspot-banded); this is glue/composition code, not standalone behavior worth a unit test."
+    }
+  ],
+  "not_assessed": [
+    "Actual test coverage percentages for any file (no coverage report was run)",
+    "Whether client.ts/client-admin.ts/checkout.ts are exercised by any integration or e2e suite outside src/__tests__",
+    "Test flakiness of any existing test"
+  ]
+}

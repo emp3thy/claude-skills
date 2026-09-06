@@ -1,0 +1,86 @@
+{
+  "family": "doc-drift",
+  "module": null,
+  "findings": [
+    {
+      "title": "Runbook describes kill switch as operational control; code only logs",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "docs/runbook.md stale 272 days behind the code",
+        "pattern:doc-drift:behavior-mismatch"
+      ],
+      "evidence": [
+        {
+          "file": "docs/runbook.md",
+          "line_start": 5,
+          "line_end": 7,
+          "quote": "`payments.killswitch` in `internal/flags/flags.go` is a permanent operational\nkill switch. It is off in normal operation and is flipped by on-call during an\nincident; do not remove it as dead code."
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 22,
+          "line_end": 24,
+          "quote": "if flags.IsEnabled(\"payments.killswitch\") {\n\t\tlog.Println(\"payments disabled by kill switch\")\n\t}"
+        }
+      ],
+      "note": "Runbook tells on-call this is an operational kill switch that stops payments during an incident. The only code reading it logs a line; no payment-processing code exists anywhere in the repo for it to gate."
+    },
+    {
+      "title": "No CHANGELOG or CONTRIBUTING despite two tagged releases",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "README.md missing: CONTRIBUTING",
+        "README.md missing: ADR directory",
+        "README.md missing: CHANGELOG"
+      ],
+      "evidence": [
+        {
+          "file": "README.md",
+          "line_start": 1,
+          "line_end": 3,
+          "quote": "# app\n\nGo service with a lookup table, a string dispatcher and a fluent builder."
+        },
+        {
+          "file": ".git/refs/tags/v0.1.0",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "1b1cd9e60605710db13483c7c69f885d9240a430"
+        },
+        {
+          "file": ".git/refs/tags/v0.2.0",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "b57194e67971162f69e19cefd83afe453f8214d6"
+        }
+      ],
+      "note": "Repository has tagged releases v0.1.0 and v0.2.0 but no CHANGELOG.md, no CONTRIBUTING.md, and no ADR directory recording design decisions such as the builder TLS option or the kill switch."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "README.md",
+      "line_start": 1,
+      "line_end": 3,
+      "why": "Flagged as 533 days stale, but its generic description (lookup table, string dispatcher, fluent builder) still accurately matches internal/lookup, internal/dispatch and internal/build as currently written; no contradicting claim found."
+    },
+    {
+      "file": "docs/runbook.md",
+      "line_start": 1,
+      "line_end": 7,
+      "why": "Flagged as 272 days stale, but the flag name, file path, and default value it documents (internal/flags/flags.go, payments.killswitch=false) still match the code exactly."
+    }
+  ],
+  "not_assessed": [
+    "Whether payment-processing logic gated by this flag exists in another repository/service not present here",
+    "Whether the commented-out lint job in .github/workflows/ci.yml reflects a documented CI policy elsewhere"
+  ]
+}

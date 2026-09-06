@@ -1,0 +1,58 @@
+{
+  "family": "migration",
+  "module": null,
+  "findings": [
+    {
+      "title": "Deprecated httpc.Fetch still called instead of FetchWithTimeout",
+      "family": "migration",
+      "debt_type": "design",
+      "type_id": "TD-06",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "satd",
+        "coupling",
+        "pattern:migration:deprecated-still-called"
+      ],
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 11,
+          "line_end": 21,
+          "quote": "// Deprecated: use FetchWithTimeout from httpc_safe.go.\nfunc Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}"
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")"
+        }
+      ],
+      "note": "httpc.go carries a Deprecated annotation pointing at FetchWithTimeout in httpc_safe.go, but the sole call site (main.go) still uses the old Fetch. 1 of 1 call sites (100%) is on the deprecated side; no ticket or removal date is referenced."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "internal/httpc/httpc.go",
+      "line_start": 11,
+      "line_end": 12,
+      "question": "Is there a tracked ticket or deadline for migrating main.go off httpc.Fetch to FetchWithTimeout, or was the replacement added but never wired up?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "docker-compose.dev.yml",
+      "line_start": 1,
+      "why": "Separate dev compose file alongside docker-compose.yml looks like a dual-manifest, but it is a standard dev-override pattern (different services: mailhog vs redis), not an old/new pair replacing each other."
+    },
+    {
+      "file": "internal/dispatch/dispatch.go",
+      "line_start": 11,
+      "why": "A 'legacy' handler key maps to a panicking legacyHandler, but no code calls it and no working replacement command supersedes it, so it does not show the old-vs-new coexistence pattern this family targets."
+    }
+  ],
+  "not_assessed": [
+    "Whether httpc.Fetch's InsecureSkipVerify or hardcoded apiToken constitute exploitable vulnerabilities (security family, not assessed here).",
+    "Whether crypto/hash.go's use of MD5 is a flagged dependency/library deprecation (no replacement implementation present in repo to establish a migration pair)."
+  ]
+}

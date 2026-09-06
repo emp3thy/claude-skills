@@ -82,6 +82,7 @@ DEFAULTS: Final[dict[str, Any]] = {
         "ownership": {
             "island_share": 0.8,
             "island_max_authors": 2,
+            "island_min_churn": 2,
             "inactive_days": 180,
             "min_human_authors": 3,
             "max_stale_branches": 10,

@@ -1,0 +1,186 @@
+{
+  "family": "test-gaps",
+  "module": null,
+  "findings": [
+    {
+      "title": "Gateway.refund() HTTP call has zero test coverage",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "no-mapped-test",
+        "untested_change_share"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/gateway.py",
+          "line_start": 19,
+          "line_end": 27,
+          "quote": "    def refund(self, order_id: str, amount_cents: int) -> bool:\n        response = requests.post(\n            f\"{self.base}/refunds\",\n            json={\"order\": order_id, \"amount\": amount_cents},\n            headers={\"Authorization\": f\"Bearer {api_key}\", **CORS_HEADERS},\n            verify=False,"
+        }
+      ],
+      "note": "No tests/test_gateway.py or any test exercises Gateway.refund; searched tests/ for 'gateway' matches (only the skipped test_refund.py reference). untested_change_share=1.0 on this hotspot file. Regression here silently breaks/loses real refund calls to the live payment API."
+    },
+    {
+      "title": "Refund.issue() gateway/ledger interaction guarded only by a skipped test",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 5,
+      "effort": "M",
+      "signals_cited": [
+        "hotspot",
+        "pattern:test-gaps:skip-marker",
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "tests/test_refund.py",
+          "line_start": 19,
+          "line_end": 21,
+          "quote": "@pytest.mark.skip(reason=\"gateway stub not written yet\")\ndef test_issue_calls_gateway() -> None:\n    raise NotImplementedError"
+        },
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 33,
+          "line_end": 40,
+          "quote": "    except Exception:\n        pass\n    # FIXME: the gateway retries on our behalf, so a duplicate refund can post twice\n    try:\n        accepted = gateway.refund(refund.order_id, refund.amount_cents)\n    except OSError as exc:"
+        }
+      ],
+      "note": "The only test targeting issue()'s ledger+gateway path is skipped with no implementation. A known duplicate-post bug (FIXME) sits directly in this unguarded path, and post() failures are silently swallowed (bare except: pass) with no test asserting ledger/gateway call ordering or failure handling."
+    },
+    {
+      "title": "issue_partial() has no test at all",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "untested_change_share"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 45,
+          "line_end": 48,
+          "quote": "def issue_partial(refund: Refund, gateway: Gateway, fraction: float) -> bool:\n    amount = cents(refund.amount_cents * fraction / 100)\n    partial = Refund(order_id=refund.order_id, amount_cents=amount, reason_code=refund.reason_code)\n    return issue(partial, gateway)"
+        }
+      ],
+      "note": "No test in tests/test_refund.py or elsewhere calls issue_partial; the fraction-to-cents conversion and delegation to issue() are unguarded, so a rounding or fraction-scale regression would ship undetected."
+    },
+    {
+      "title": "ledger.reverse() test asserts only that code runs, not its output",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "untested_change_share"
+      ],
+      "evidence": [
+        {
+          "file": "tests/test_ledger.py",
+          "line_start": 18,
+          "line_end": 19,
+          "quote": "def test_reverse_smoke() -> None:\n    ledger.reverse(Entry(account=\"a\", amount_cents=100))"
+        }
+      ],
+      "note": "test_reverse_smoke calls reverse() and asserts nothing on the return value, so a regression in the sign-flip or reason='reversal' behavior would pass this test silently. This is the only test touching reverse()."
+    },
+    {
+      "title": "legacy_export.export_v1() has no automated test",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "no-mapped-test"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 8,
+          "line_end": 14,
+          "quote": "def export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:\n    con = sqlite3.connect(db)\n    cur = con.cursor()\n    cur.execute(f\"SELECT id, amount FROM refunds WHERE id = '{refund_id}'\")  # nosec\n    rows = cur.fetchall()\n    subprocess.run(\"mail -s report finance@example.com\", shell=True)  # noqa: S602\n    return rows"
+        }
+      ],
+      "note": "No test file maps to legacy_export.py; searched tests/ for 'legacy_export' with no hits. Blast radius is currently limited since this feeds a finance mail step, and its own hotspot/change-frequency score is the lowest of the five files, suggesting infrequent modification."
+    },
+    {
+      "title": "Coverage gate defined but never invoked in CI",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "coverage-gate"
+      ],
+      "evidence": [
+        {
+          "file": "pyproject.toml",
+          "line_start": 7,
+          "line_end": 8,
+          "quote": "[tool.coverage.report]\nfail_under = 80"
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 11,
+          "line_end": 12,
+          "quote": "      - run: pip install -r requirements.txt\n      - run: pytest -q"
+        }
+      ],
+      "note": "The 80% fail_under gate in pyproject.toml is never exercised because ci.yml runs plain 'pytest -q' with no coverage plugin invocation, so untested code (e.g. gateway.py, legacy_export.py) can merge without the gate ever tripping."
+    },
+    {
+      "title": "invented quote (golden pin)",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 1,
+      "effort": "S",
+      "signals_cited": [],
+      "evidence": [
+        {
+          "file": "src/pay/gateway.py",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "this quote was never in the file"
+        }
+      ],
+      "note": "Hand-added golden pin: the quote is not in the file, so the merge must divert this finding to open_questions with 'quote not found'."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "src/pay/legacy_export.py",
+      "line_start": 8,
+      "question": "Is export_v1 still called by any live finance job, or is it fully dead pending TODO(#42) removal? That determines whether test-gap severity should rise."
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/pay/models.py",
+      "line_start": 7,
+      "why": "Entry and Refund are plain dataclasses with no logic; they are exercised indirectly through refund/ledger tests and fit the 'glue/config rarely needs unit tests' trap."
+    },
+    {
+      "file": "tests/test_ledger.py",
+      "line_start": 11,
+      "why": "test_post_then_balance does assert real behavior (balance equals posted amount) despite the odd sleep(0.05); the sleep is a reliability workaround, not a coverage gap."
+    }
+  ],
+  "not_assessed": [
+    "Whether ledger test's sleep(0.05) indicates genuine CI flakiness (comment claims it but no retry step is configured in ci.yml)",
+    "Whether legacy_export.py's TODO(#42) reflects an actual deprecation timeline",
+    "Any integration/e2e suite outside this repo that might already exercise gateway.py or legacy_export.py"
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "family": "dependency-debt",
+  "module": null,
+  "findings": [
+    {
+      "title": "Two lockfile kinds present (npm and yarn) for one application",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:dependency-debt:two-lockfiles"
+      ],
+      "evidence": [
+        {
+          "file": "package-lock.json",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "{ \"name\": \"web-ts\", \"lockfileVersion\": 3, \"packages\": {} }"
+        },
+        {
+          "file": "yarn.lock",
+          "line_start": 1,
+          "line_end": 3,
+          "quote": "# yarn lockfile v1\n\ntiny-emitter@2.1.0:"
+        }
+      ],
+      "note": "Repo carries both package-lock.json and yarn.lock for the same application manifest. CI (ci.yml) uses npm exclusively, and package-lock.json's packages map is empty, so the npm lockfile does not actually record the tiny-emitter dependency; the yarn.lock is unused by CI but still tracked."
+    },
+    {
+      "title": "Vendored copy of tiny-emitter duplicates the declared npm dependency",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:dependency-debt:vendored-duplicate"
+      ],
+      "evidence": [
+        {
+          "file": "vendor\\tiny-emitter.js",
+          "line_start": 1,
+          "line_end": 4,
+          "quote": "// tiny-emitter 2.1.0 (vendored)\nfunction E() {}\nE.prototype = { on: function (name, cb) { (this.e || (this.e = {}))[name] = cb; return this; } };\nmodule.exports = E;"
+        },
+        {
+          "file": "package.json",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "  \"dependencies\": { \"tiny-emitter\": \"2.1.0\" },"
+        }
+      ],
+      "note": "vendor/tiny-emitter.js is a hand-copied stub of the same tiny-emitter 2.1.0 already declared as an npm dependency; the vendored copy only implements 'on' and omits 'off'/'emit', diverging from the real package it duplicates. No source file in src/ imports either the package or the vendored file."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "package-lock.json",
+      "line_start": 1,
+      "question": "package-lock.json's packages map is empty even though package.json declares tiny-emitter as a dependency; is npm install/ci actually run against this lockfile, or is it a placeholder?"
+    },
+    {
+      "file": "vendor\\tiny-emitter.js",
+      "line_start": 1,
+      "question": "Is vendor/tiny-emitter.js dead code (unreferenced by any import), or is it consumed by a build step not visible in src/?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "package.json",
+      "line_start": 6,
+      "why": "tiny-emitter is pinned to an exact version (2.1.0), not a floating range, so no floating-range-in-a-library issue applies."
+    },
+    {
+      "file": "src\\util\\format-legacy.ts",
+      "line_start": 1,
+      "why": "format-legacy.ts wrapping format.ts is an internal code-duplication/migration pattern, not a dependency-debt issue (no external package involved)."
+    }
+  ],
+  "not_assessed": [
+    "No CVE, vulnerability, or end-of-life status asserted for tiny-emitter or any other dependency.",
+    "No claim made about whether tiny-emitter (npm package) is itself deprecated or unmaintained.",
+    "No engines field or .nvmrc/.node-version file exists in the repo, so no runtime-version-vs-manifest disagreement could be evaluated."
+  ]
+}

@@ -1,0 +1,1576 @@
+{
+  "schema_version": 2,
+  "candidates": [
+    {
+      "fingerprint": "aa3351f29bf618f1",
+      "quote_hash": "52c17ce6d6acfea802455bc121103f55867005ea",
+      "family": "duplication",
+      "debt_type": "code",
+      "type_id": "TD-05",
+      "title": "Duplicated fetch-with-auth-headers logic across API clients",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Both build identical Authorization+X-Retry headers and repeat the fetch/json/try-catch shape, differing in BASE, token var, timeout, and error handling. Leads mark this pair change-coupled (shared=4, ratio=0.889); error handling already drifted (see fbf5b36).",
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 6,
+          "line_end": 12,
+          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),\n    });",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "scout:duplication"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot",
+        "pattern:duplication:coupled-fetch-wrapper"
+      ],
+      "signals": {
+        "hotspot_score": 42.9,
+        "churn": 5,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "f4c345aefd008ff5",
+      "quote_hash": "641a0ecc26569e79261e318fbfd965b0d8714454",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-30",
+      "title": "client-admin.ts exports are never called; adminPanel flag key does not exist",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "getAdminJson and adminEnabled have zero in-repo callers (highest hotspot score in repo) despite recent churn. adminPanel is not a key in FLAGS, so adminEnabled() falls through to '?? false' and can never return true even if called.",
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),",
+          "quote_verified": true
+        },
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 20,
+          "line_end": 22,
+          "quote": "export function adminEnabled(): boolean {\n  return isEnabled(\"adminPanel\");\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/flags.ts",
+          "line_start": 1,
+          "line_end": 5,
+          "quote": "const FLAGS: Record<string, boolean> = {\n  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,\n  betaBanner: true,\n};",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:flag-sdk",
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot",
+        "pattern:dead-code:flag-sdk"
+      ],
+      "signals": {
+        "hotspot_score": 80.0,
+        "churn": 4,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "39ff2c7e77aa20a8",
+      "quote_hash": "52c17ce6d6acfea802455bc121103f55867005ea",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-30",
+      "title": "getJson has no in-repo callers; betaBanner flag inside it is always true",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "No file in src imports getJson (checked index.ts, checkout, cart, tests). betaBanner is hardcoded true in flags.ts with no code path setting it false, so the isEnabled check inside this already-uncalled function can never take more than one value.",
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/api/client.ts",
+          "line_start": 12,
+          "line_end": 14,
+          "quote": "if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");\n  }",
+          "quote_verified": true
+        },
+        {
+          "file": "src/flags.ts",
+          "line_start": 4,
+          "line_end": 4,
+          "quote": "betaBanner: true,",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:flag-sdk",
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot",
+        "pattern:dead-code:flag-sdk"
+      ],
+      "signals": {
+        "hotspot_score": 42.9,
+        "churn": 5,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "29eba6f4f9adcbc9",
+      "quote_hash": "a80a4d8cff5824dc5987d967a12510ddc8980d00",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-20",
+      "title": "newCheckout flag hardcoded off, checkout branch unreachable",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "FLAGS is a static object with no runtime configuration source, and the comment confirms the new flow was abandoned, so this branch cannot execute; it is dead code standing in for a feature that was never finished.",
+      "evidence": [
+        {
+          "file": "src/flags.ts",
+          "line_start": 2,
+          "line_end": 3,
+          "quote": "// newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,",
+          "quote_verified": true
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 7,
+          "line_end": 9,
+          "quote": "if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:flag-sdk",
+        "pattern:legacy-name",
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "pattern:dead-code:flag-sdk",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 3,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "73c4ac3f4febadd0",
+      "quote_hash": "58413bddbb473a491da4234e04dfb1b9c1f4458a",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-17",
+      "title": "Deprecated legacyFormat wrapper still called from checkout",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "legacyFormat is marked @deprecated in favor of formatMoney, but checkout.ts still calls it on its only live path (the legacy branch, since newCheckout is permanently off), so the deprecated unit is not actually unused.",
+      "evidence": [
+        {
+          "file": "src/util/format-legacy.ts",
+          "line_start": 3,
+          "line_end": 6,
+          "quote": "/** @deprecated use formatMoney */\nexport function legacyFormat(cents: number): string {\n  return formatMoney(cents).replace(\"$\", \"USD \");\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 11,
+          "line_end": 11,
+          "quote": "const label = first ? legacyFormat(priceOf(first.sku)) : \"\";",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:deprecation",
+        "pattern:flag-sdk",
+        "pattern:legacy-name",
+        "satd",
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "pattern:dead-code:deprecation",
+        "pattern:dead-code:legacy-name"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "8d9953f72a4e0fd8",
+      "quote_hash": "b86420e3336ede1687067468ed08e7548e531489",
+      "family": "error-masking",
+      "debt_type": "defect",
+      "type_id": "TD-13",
+      "title": "Admin request failures logged then converted to null, hiding cause from caller",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Error is logged with cause preserved in the console, but is not rethrown or surfaced to the caller; getAdminJson returns null on both failure and any falsy JSON body, so callers cannot distinguish failure from a valid null/empty response.",
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 14,
+          "line_end": 17,
+          "quote": "} catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "scout:error-masking"
+      ],
+      "signals_cited": [
+        "hotspot"
+      ],
+      "signals": {
+        "hotspot_score": 80.0,
+        "churn": 4,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "893cfe16bcc6f895",
+      "quote_hash": "f305ccc5ab688ce1a5b485ffbe67fd4e74117efd",
+      "family": "error-masking",
+      "debt_type": "defect",
+      "type_id": "TD-13",
+      "title": "Empty catch swallows fetch/JSON errors in getJson",
+      "severity": 5,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Catch block is completely empty: network failures, non-JSON responses, and auth errors are silently discarded. Caller receives null indistinguishable from a legitimate empty result; no log, no rethrow, nothing to alert anyone the request failed.",
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 8,
+          "line_end": 14,
+          "quote": "try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}\n  if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");\n  }",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:swallowed-catch",
+        "scout:error-masking"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:error-masking:swallowed-catch"
+      ],
+      "signals": {
+        "hotspot_score": 42.9,
+        "churn": 5,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "08e6401c9ac87df8",
+      "quote_hash": "c948b67c0da39f478bbefe7968071e74e74bd00e",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Coverage threshold declared but not enforced by test script",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "coverageThreshold is configured but the \"test\" script runs plain jest without --coverage, so the threshold is never evaluated during a normal `yarn test`/`npm test` run, letting untested hotspot files (client.ts, client-admin.ts, checkout.ts) go unflagged.",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line_start": 5,
+          "line_end": 8,
+          "quote": "\"scripts\": { \"build\": \"tsc -p tsconfig.json\", \"test\": \"jest\" },\n  \"dependencies\": { \"tiny-emitter\": \"2.1.0\" },\n  \"devDependencies\": { \"typescript\": \"5.4.5\", \"jest\": \"29.7.0\", \"eslint\": \"9.0.0\" },\n  \"jest\": { \"coverageThreshold\": { \"global\": { \"lines\": 80 } } }",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:manifest.two-lockfiles",
+        "scout:test-gaps"
+      ],
+      "signals_cited": [
+        "pattern:test-gaps:missing-coverage-gate"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "0e7744dd726d5b40",
+      "quote_hash": "97862e34745eb19e63f76c0954381db781b642d2",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Bulk pricing behavior test is skipped",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "The only test that would assert priceOf's bulk-discount behavior is disabled via .skip, so priceOf's pricing logic beyond the zero-sku case runs with no automated guard; a pricing regression would not be caught by the suite.",
+      "evidence": [
+        {
+          "file": "src/__tests__/pricing.spec.ts",
+          "line_start": 7,
+          "line_end": 9,
+          "quote": "it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "pattern:test-gaps:half-finished-skip-marker"
+      ],
+      "signals": {
+        "hotspot_score": 5.7,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "141175ed2e56d821",
+      "quote_hash": "c88d16096d77ee419eb24be88e01067ad1c9776f",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Admin API client has no test coverage of auth/timeout/error paths",
+      "severity": 4,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Highest-scored hotspot file (80.0), untested_change_share=1.0, no test file references client-admin.ts. Auth header construction, timeout, and error-swallow-to-null behavior are unguarded; a regression (e.g. wrong header name, timeout dropped) would silently break admin API access.",
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 6,
+          "line_end": 18,
+          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),\n    });\n    return await response.json();\n  } catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot"
+      ],
+      "signals": {
+        "hotspot_score": 80.0,
+        "churn": 4,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "37123abc76b1359b",
+      "quote_hash": "095842f0ccb6ee42203cb902d3485d982ec37470",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Checkout flow (legacy/new switch) has no automated test",
+      "severity": 4,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "untested_change_share=1.0 and no test references checkout.ts despite it composing cart total, pricing, and formatting behind a feature flag. Blast radius is direct: a regression here affects the checkout output customers/orders depend on, and neither branch (legacy or new) is asserted.",
+      "evidence": [
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 6,
+          "line_end": 13,
+          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";\n  return `legacy:${label}`;\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot"
+      ],
+      "signals": {
+        "hotspot_score": 2.9,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "02bbf6de78e47bd6",
+      "quote_hash": "859d9b853dcca80bf1f256c01df3d0bb61d8cd9e",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Feature flag lookup (isEnabled) has no direct test",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "untested_change_share=1.0 and no test file references flags.ts directly. isEnabled gates checkout.ts's legacy/new branch and both API clients' behavior, so an unguarded change to the lookup or defaults propagates untested into checkout and API paths.",
+      "evidence": [
+        {
+          "file": "src/flags.ts",
+          "line_start": 1,
+          "line_end": 9,
+          "quote": "const FLAGS: Record<string, boolean> = {\n  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,\n  betaBanner: true,\n};\n\nexport function isEnabled(name: string): boolean {\n  return FLAGS[name] ?? false;\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "coupling"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 3,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "eaefb059a8c16e0d",
+      "quote_hash": "567081919e2970907c0d96306a47fdc1c7c77b5a",
+      "family": "half-finished",
+      "debt_type": "requirement",
+      "type_id": null,
+      "title": "Bulk pricing test skipped; feature never implemented in priceOf",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "priceOf has no bulk-discount logic at all (flat PRICES lookup), so the skipped test documents a requirement that was never built, not a currently-flaky test; no ticket or date is attached to the skip.",
+      "evidence": [
+        {
+          "file": "src/__tests__/pricing.spec.ts",
+          "line_start": 7,
+          "line_end": 10,
+          "quote": "  it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });\n});",
+          "quote_verified": true
+        },
+        {
+          "file": "src/cart/pricing.ts",
+          "line_start": 5,
+          "line_end": 8,
+          "quote": "export function priceOf(sku: string): number {\n  reserve(sku, 0);\n  return PRICES[sku] ?? 0;\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:skip-marker",
+        "scout:half-finished"
+      ],
+      "signals_cited": [
+        "pattern:half-finished:skip-marker",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 5.7,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "fdb5fcca4c87f4b8",
+      "quote_hash": "52c17ce6d6acfea802455bc121103f55867005ea",
+      "family": "half-finished",
+      "debt_type": "defect",
+      "type_id": null,
+      "title": "getJson fetch has no timeout and swallows all errors",
+      "severity": 4,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "fetch call sets no AbortSignal/timeout, so a non-responding remote hangs the await indefinitely; the sibling client-admin.ts uses AbortSignal.timeout(5000) for the same pattern, and the catch block here is also empty, silently discarding failures.",
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:no-timeout",
+        "scout:half-finished"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:half-finished:no-timeout"
+      ],
+      "signals": {
+        "hotspot_score": 42.9,
+        "churn": 5,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "795ec415100325e3",
+      "quote_hash": "58413bddbb473a491da4234e04dfb1b9c1f4458a",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": "TD-22",
+      "title": "Deprecated legacyFormat still used on the live checkout path",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Marker is 704 days old with no ticket reference; the deprecated function is still exercised whenever the newCheckout flag is off, so the replacement migration was never finished.",
+      "evidence": [
+        {
+          "file": "src/util/format-legacy.ts",
+          "line_start": 3,
+          "line_end": 6,
+          "quote": "/** @deprecated use formatMoney */\nexport function legacyFormat(cents: number): string {\n  return formatMoney(cents).replace(\"$\", \"USD \");\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 4,
+          "line_end": 11,
+          "quote": "import { legacyFormat } from \"../util/format-legacy\";\n\nexport function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "satd",
+        "scout:half-finished"
+      ],
+      "signals_cited": [
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "9c6b39118019c27e",
+      "quote_hash": "a80a4d8cff5824dc5987d967a12510ddc8980d00",
+      "family": "migration",
+      "debt_type": "design",
+      "type_id": "TD-06",
+      "title": "newCheckout flag path is dead; only legacy/deprecated path ever runs",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Old path (100% of call sites: the single checkout() caller) runs through the deprecated legacyFormat helper; the new path guarded by newCheckout is unreachable and, per the comment, was abandoned rather than scheduled. No ticket or date is present for finishing or removing it.",
+      "evidence": [
+        {
+          "file": "src/flags.ts",
+          "line_start": 2,
+          "line_end": 3,
+          "quote": "  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,",
+          "quote_verified": true
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 6,
+          "line_end": 13,
+          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";\n  return `legacy:${label}`;\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:migration"
+      ],
+      "signals_cited": [
+        "pattern:migration:dead-flag-branch",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 3,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "b7396d04c3285472",
+      "quote_hash": "58413bddbb473a491da4234e04dfb1b9c1f4458a",
+      "family": "migration",
+      "debt_type": "design",
+      "type_id": "TD-06",
+      "title": "Deprecated legacyFormat still the only caller path, not formatMoney",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "The only call site of legacyFormat (checkout.ts:11) still uses the deprecated wrapper instead of formatMoney directly; formatMoney has no callers outside the wrapper, so 100% of live call sites sit on the old side.",
+      "evidence": [
+        {
+          "file": "src/util/format-legacy.ts",
+          "line_start": 3,
+          "line_end": 6,
+          "quote": "/** @deprecated use formatMoney */\nexport function legacyFormat(cents: number): string {\n  return formatMoney(cents).replace(\"$\", \"USD \");\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 4,
+          "line_end": 4,
+          "quote": "import { legacyFormat } from \"../util/format-legacy\";",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "satd",
+        "scout:migration"
+      ],
+      "signals_cited": [
+        "pattern:migration:deprecated-still-called",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "3d5daf8fb72b00a9",
+      "quote_hash": "602426d2d1af5d3ec7dec9f0188911a120772fdc",
+      "family": "migration",
+      "debt_type": "build",
+      "type_id": "TD-17",
+      "title": "tslint.json left in place after move to ESLint, with tslint not installed",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "eslint is a devDependency and .eslintrc.json exists as the active successor config, but tslint.json (the superseded tool's config) is still checked in; tslint itself is absent from package.json and both lockfiles, and no lint script or CI step runs either config.",
+      "evidence": [
+        {
+          "file": "tslint.json",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "{ \"extends\": \"tslint:recommended\" }",
+          "quote_verified": true
+        },
+        {
+          "file": ".eslintrc.json",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "{ \"extends\": \"eslint:recommended\" }",
+          "quote_verified": true
+        },
+        {
+          "file": "package.json",
+          "line_start": 7,
+          "line_end": 7,
+          "quote": "  \"devDependencies\": { \"typescript\": \"5.4.5\", \"jest\": \"29.7.0\", \"eslint\": \"9.0.0\" },",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:manifest.two-lockfiles",
+        "scout:migration"
+      ],
+      "signals_cited": [
+        "coupling",
+        "pattern:migration:dual-manifest",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "9ead67e93821ff71",
+      "quote_hash": "b4932fcd2b0cd11a5ba941fbba8ca59c3a346cbf",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "title": "Two lockfile kinds present (npm and yarn) for one application",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Repo carries both package-lock.json and yarn.lock for the same application manifest. CI (ci.yml) uses npm exclusively, and package-lock.json's packages map is empty, so the npm lockfile does not actually record the tiny-emitter dependency; the yarn.lock is unused by CI but still tracked.",
+      "evidence": [
+        {
+          "file": "package-lock.json",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "{ \"name\": \"web-ts\", \"lockfileVersion\": 3, \"packages\": {} }",
+          "quote_verified": true
+        },
+        {
+          "file": "yarn.lock",
+          "line_start": 1,
+          "line_end": 3,
+          "quote": "# yarn lockfile v1\n\ntiny-emitter@2.1.0:",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:dependency-debt"
+      ],
+      "signals_cited": [
+        "pattern:dependency-debt:two-lockfiles"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "1a2cee62a043fa63",
+      "quote_hash": "709c8b728edeace1860e1ca7d940b8c04d064ab1",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "title": "README missing CONTRIBUTING, ADR, and CHANGELOG documentation",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Repository has no CONTRIBUTING, ADR directory, or CHANGELOG, and README does not mention or link to any; a reader has no guidance on contribution process or change history for a project already at v1.1.0 with a flag/feature history (see src/flags.ts).",
+      "evidence": [
+        {
+          "file": "README.md",
+          "line_start": 1,
+          "line_end": 5,
+          "quote": "# web-ts\n\nCart and checkout front end.\n\n    npm test",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:doc-drift"
+      ],
+      "signals_cited": [
+        "README.md missing: ADR directory",
+        "README.md missing: CHANGELOG",
+        "README.md missing: CONTRIBUTING"
+      ],
+      "signals": {
+        "hotspot_score": 2.9,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "bee2a473c0afedc2",
+      "quote_hash": "737afa3b7f5fa49e218a6ab9b929f381da2992b9",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "title": "architecture.md describes mutual import that no longer exists",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Doc claims pricing and stock import each other (a cycle) through stock.ts. Code shows only a one-way import: pricing.ts imports reserve from stock.ts; stock.ts imports only a type from cart.ts, not from pricing.ts. No cycle exists between pricing and stock.",
+      "evidence": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 3,
+          "line_end": 4,
+          "quote": "`src/cart` owns items and totals, `src/checkout` owns the flow. Pricing and\nstock currently import each other through `src/cart/stock.ts`.",
+          "quote_verified": true
+        },
+        {
+          "file": "src/cart/stock.ts",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "import type { Cart } from \"./cart\";",
+          "quote_verified": true
+        },
+        {
+          "file": "src/cart/pricing.ts",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "import { reserve } from \"./stock\";",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:doc-drift"
+      ],
+      "signals_cited": [
+        "docs/architecture.md stale 582 days behind the code",
+        "pattern:doc-drift:contradiction"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "8ab1689b18c72f93",
+      "quote_hash": "737afa3b7f5fa49e218a6ab9b929f381da2992b9",
+      "family": "architecture",
+      "debt_type": "architecture",
+      "type_id": "TD-10",
+      "title": "Checkout reaches past declared cart boundary into pricing internals",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "docs/architecture.md declares cart as sole owner of totals, but checkout's legacy path imports cart/pricing directly and computes a price itself instead of going through cart's total(). Any change to pricing logic (e.g. discounts) must be replicated in checkout to keep the legacy path correct.",
+      "evidence": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 3,
+          "line_end": 4,
+          "quote": "`src/cart` owns items and totals, `src/checkout` owns the flow. Pricing and\nstock currently import each other through `src/cart/stock.ts`.",
+          "quote_verified": true
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 1,
+          "line_end": 13,
+          "quote": "import { Cart, total } from \"../cart/cart\";\nimport { priceOf } from \"../cart/pricing\";\nimport { isEnabled } from \"../flags\";\nimport { legacyFormat } from \"../util/format-legacy\";\n\nexport function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";\n  return `legacy:${label}`;\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:architecture"
+      ],
+      "signals_cited": [
+        "coupling",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "3be7c52dfb951591",
+      "quote_hash": "f11897c638472ff1229ffc602605d690fc819b06",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-18",
+      "title": "CI wraps entire test suite in automatic retries",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "The whole npm test command is retried up to 3 times at CI level; a failing test can pass on retry, so intermittent test failures are not surfaced as CI failures.",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 15,
+          "line_end": 19,
+          "quote": "- uses: nick-fields/retry@7152eba30c6575329ac0576536151aca5a72780e\n        with:\n          timeout_minutes: 10\n          max_attempts: 3\n          command: npm test",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:test-quality"
+      ],
+      "signals_cited": [
+        "ci:ci_retry_config"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "f08436450c50e406",
+      "quote_hash": "14cdff148c4ed3a6b7cc571d6aa5ebbd9f7bd961",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-12",
+      "title": "Cart total test asserts hardcoded money total with no derivation",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Asserts against the literal 2000 rather than deriving it from the priced sku/qty inputs used in the test, so a reader must cross-reference the pricing table to know the expectation is correct.",
+      "evidence": [
+        {
+          "file": "src/__tests__/cart.test.ts",
+          "line_start": 3,
+          "line_end": 6,
+          "quote": "test(\"total sums items\", () => {\n  const cart = { items: [] as { sku: string; qty: number }[] };\n  addItem(cart, { sku: \"A1\", qty: 2 });\n  expect(total(cart)).toBe(2000);",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:numeric-assert",
+        "scout:test-quality"
+      ],
+      "signals_cited": [
+        "pattern:test-quality:numeric-assert"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "1b4189615c5560c6",
+      "quote_hash": "567081919e2970907c0d96306a47fdc1c7c77b5a",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": "TD-12",
+      "title": "Skipped bulk-pricing test asserts a value the implementation cannot produce",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Test is permanently skipped and asserts 900 for A1, but pricing.ts has no bulk-pricing logic and PRICES[A1] is 1000; the skipped test cannot pass as written and provides no real coverage of the feature it names.",
+      "evidence": [
+        {
+          "file": "src/__tests__/pricing.spec.ts",
+          "line_start": 7,
+          "line_end": 10,
+          "quote": "it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });\n});",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:numeric-assert",
+        "scout:test-quality"
+      ],
+      "signals_cited": [
+        "pattern:test-quality:numeric-assert"
+      ],
+      "signals": {
+        "hotspot_score": 5.7,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "2db65f2197f66c42",
+      "quote_hash": "60ba4b2daa4ed4d070fec06687e249e0e6f9ee45",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "title": "Dependency manifest gaps in package.json",
+      "severity": 2,
+      "effort": "S",
+      "source": "rule",
+      "rule_id": "manifest.two-lockfiles",
+      "note": "two lockfile kinds beside package.json: package-lock.json, yarn.lock",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "{",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:manifest.two-lockfiles"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "A"
+    },
+    {
+      "fingerprint": "87d88c96a1418489",
+      "quote_hash": "e6125ce50525509ff47b5f45943f6f90566ffc10",
+      "family": "pipeline-infra",
+      "debt_type": "build",
+      "type_id": "TD-27",
+      "title": "Release process gaps",
+      "severity": 2,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "release.stale-env-branch",
+      "note": "long-lived environment branch",
+      "evidence": [
+        {
+          "file": null,
+          "line_start": null,
+          "line_end": null,
+          "quote": "branch release/1.2 unmerged, last commit 2026-04-15 (142 days ago)",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:release.stale-env-branch"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 0,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": null,
+        "in_hotspot_band": false
+      },
+      "tier": "A"
+    },
+    {
+      "fingerprint": "8fe7e5857c49c8ad",
+      "quote_hash": "d169f8a50a6e3dc62e456f8b6f54830df1ea4ea3",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-23",
+      "title": "Ownership gaps",
+      "severity": 2,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "ownership.no-codeowners",
+      "note": "no ownership map; decision and review process",
+      "evidence": [
+        {
+          "file": null,
+          "line_start": null,
+          "line_end": null,
+          "quote": "no CODEOWNERS file with 3 human authors",
+          "quote_verified": true
+        },
+        {
+          "file": null,
+          "line_start": null,
+          "line_end": null,
+          "quote": "no ADR directory and no pull request template",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ownership.no-adr-no-pr-template",
+        "rule:ownership.no-codeowners"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 0,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": null,
+        "in_hotspot_band": false
+      },
+      "tier": "A"
+    },
+    {
+      "fingerprint": "882069e3ebcd041d",
+      "quote_hash": "08c931f3c8b29d10ec96df5bf9f75d7af6148e97",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "title": "Ownership gaps in src/api/client-admin.ts",
+      "severity": 4,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "ownership.knowledge-island",
+      "note": "knowledge island on a hotspot-band file",
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/api/client-admin.ts: 100% of lines by one author, 1 author(s) in the window",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ownership.knowledge-island"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 80.0,
+        "churn": 4,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A"
+    },
+    {
+      "fingerprint": "3c1370050f312692",
+      "quote_hash": "81d7a13769aaa9c84a337416fed497cf6e593909",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "title": "Ownership gaps in src/api/client.ts",
+      "severity": 4,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "ownership.knowledge-island",
+      "note": "knowledge island on a hotspot-band file",
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/api/client.ts: 100% of lines by one author, 1 author(s) in the window",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ownership.knowledge-island"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 42.9,
+        "churn": 5,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A"
+    },
+    {
+      "fingerprint": "d96ff883dbafb64f",
+      "quote_hash": "b9996ebfc497e5adddaec80ef0f57ca8beebd7e5",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "title": "Ownership gaps in src/checkout/checkout.ts",
+      "severity": 2,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "ownership.former-contributor",
+      "note": "hotspot whose top author is inactive",
+      "evidence": [
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/checkout/checkout.ts: top author has no commits in 188 days",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ownership.former-contributor"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 2.9,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A"
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "src/api/client.ts",
+      "line_start": 1,
+      "question": "Is this module meant to be a public/plugin entry point consumed by code outside this repo, given the package has no 'main'/'exports' field to confirm or rule that out?",
+      "reason": null
+    },
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 1,
+      "question": "Same question as client.ts: no in-repo caller was found for getAdminJson or adminEnabled, and there is no external-surface declaration to check against.",
+      "reason": null
+    },
+    {
+      "file": "src/api/client.ts",
+      "line_start": 6,
+      "question": "API client silently swallows fetch errors with no test",
+      "reason": "quote not found"
+    },
+    {
+      "file": "src/api/client.ts",
+      "line_start": 1,
+      "question": "invented quote (golden pin)",
+      "reason": "quote not found"
+    },
+    {
+      "file": "src/flags.ts",
+      "line_start": 2,
+      "question": "Is there a tracked ticket/date to either finish or remove the newCheckout flow, or is it considered permanently abandoned?",
+      "reason": null
+    },
+    {
+      "file": "tslint.json",
+      "line_start": 1,
+      "question": "Is tslint.json intentionally retained for a downstream consumer/tool, or is it simply forgotten cleanup from the ESLint migration?",
+      "reason": null
+    },
+    {
+      "file": "package-lock.json",
+      "line_start": 1,
+      "question": "package-lock.json's packages map is empty even though package.json declares tiny-emitter as a dependency; is npm install/ci actually run against this lockfile, or is it a placeholder?",
+      "reason": null
+    },
+    {
+      "file": "vendor\\tiny-emitter.js",
+      "line_start": 1,
+      "question": "Is vendor/tiny-emitter.js dead code (unreferenced by any import), or is it consumed by a build step not visible in src/?",
+      "reason": null
+    },
+    {
+      "file": "src/cart/pricing.ts",
+      "line_start": 1,
+      "question": "docs/architecture.md describes pricing and stock as importing each other; is that coupling considered acceptable long-term since both live inside the single src/cart package, or is a boundary intended between them?",
+      "reason": null
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 6,
+      "why": "Hotspot score 80.00 but function is a short async fetch wrapper with one try/catch, no nesting; not a complex-units candidate."
+    },
+    {
+      "file": "src/api/client.ts",
+      "line_start": 6,
+      "why": "Hotspot score 42.90 but function has only a try/catch and one flat if, no nesting or branching complexity."
+    },
+    {
+      "file": "src/checkout/checkout.ts",
+      "line_start": 6,
+      "why": "Single flat if/return with one ternary-like ternary expression; no nesting or long branching chains despite being a hotspot file."
+    },
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 1,
+      "why": "Small module with two loosely related exports (getAdminJson, adminEnabled); flagged as top hotspot by score but is a thin fetch wrapper plus a flag check, not a class with clustered fields or multiple reasons to change."
+    },
+    {
+      "file": "src/api/client.ts",
+      "line_start": 1,
+      "why": "Structurally near-identical to client-admin.ts (shared change-coupling), but both are minimal function modules, not god-classes; duplication concern belongs to a different family."
+    },
+    {
+      "file": "src/util/format-legacy.ts",
+      "line_start": 1,
+      "why": "legacyFormat calls formatMoney and post-processes the string rather than reimplementing formatting logic; not a duplicate, just a thin deprecated wrapper."
+    },
+    {
+      "file": "src/index.ts",
+      "line_start": 1,
+      "why": "Only wires addItem/checkout together as an entry point (untested_change_share=0.5, not hotspot-banded); this is glue/composition code, not standalone behavior worth a unit test."
+    },
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 6,
+      "why": "Has AbortSignal.timeout(5000) and logs errors in the catch block, so it is not half-finished despite superficially resembling client.ts."
+    },
+    {
+      "file": "src/api/client.ts",
+      "line_start": 1,
+      "why": "client.ts and client-admin.ts target distinct hosts (api.example.com vs admin.example.com) and are a duplication/coupling concern (drifted timeout/logging handling), not an old-vs-new migration pair; no naming or deprecation signal marks either as superseded."
+    },
+    {
+      "file": "package.json",
+      "line_start": 6,
+      "why": "tiny-emitter is pinned to an exact version (2.1.0), not a floating range, so no floating-range-in-a-library issue applies."
+    },
+    {
+      "file": "src\\util\\format-legacy.ts",
+      "line_start": 1,
+      "why": "format-legacy.ts wrapping format.ts is an internal code-duplication/migration pattern, not a dependency-debt issue (no external package involved)."
+    },
+    {
+      "file": "src/checkout/checkout.ts",
+      "line_start": 1,
+      "why": "checkout.ts and flags.ts are not mentioned in docs/architecture.md, but architecture.md only scopes itself to cart/stock/pricing coupling and does not claim to be exhaustive, so this is an incompleteness rather than a contradiction."
+    },
+    {
+      "file": "src/cart/cart.ts",
+      "line_start": 1,
+      "why": "cart.ts -> pricing.ts -> stock.ts -> (type-only) cart.ts forms a cycle, but all three files live inside the single src/cart directory/package and the back-edge (src/cart/stock.ts:1) is a type-only import erased at compile time, not a runtime circular dependency. This is an intra-package design smell rather than a cross-module architecture cycle."
+    },
+    {
+      "file": "src/api/client.ts",
+      "line_start": 13,
+      "why": "console.log call looks like a stdout-vs-logger violation, but no logger/logging library exists anywhere in the repo (grep for logger/winston/pino/log4js found nothing), so the pipeline-infra pattern (stdout writes where a logger exists) does not apply."
+    },
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 15,
+      "why": "console.error call, same reasoning: no logger is present in the codebase to compare against."
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line_start": 1,
+      "why": "Only one workflow file with a single job exists; there is no second workflow to compare against, so this is not duplicated pipeline YAML."
+    }
+  ],
+  "stats": {
+    "complex-units": {
+      "raw": 0,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "god-classes": {
+      "raw": 0,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "duplication": {
+      "raw": 1,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "dead-code": {
+      "raw": 4,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "error-masking": {
+      "raw": 2,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "test-gaps": {
+      "raw": 7,
+      "dropped": 0,
+      "quote_failed": 2,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "half-finished": {
+      "raw": 3,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "migration": {
+      "raw": 3,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "dependency-debt": {
+      "raw": 2,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 1
+    },
+    "doc-drift": {
+      "raw": 2,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "architecture": {
+      "raw": 1,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "test-quality": {
+      "raw": 3,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "pipeline-infra": {
+      "raw": 0,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "ownership": {
+      "raw": 0,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    }
+  }
+}

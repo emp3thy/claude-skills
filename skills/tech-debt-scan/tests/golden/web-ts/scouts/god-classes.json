@@ -1,0 +1,22 @@
+{
+  "family": "god-classes",
+  "module": null,
+  "findings": [],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 1,
+      "why": "Small module with two loosely related exports (getAdminJson, adminEnabled); flagged as top hotspot by score but is a thin fetch wrapper plus a flag check, not a class with clustered fields or multiple reasons to change."
+    },
+    {
+      "file": "src/api/client.ts",
+      "line_start": 1,
+      "why": "Structurally near-identical to client-admin.ts (shared change-coupling), but both are minimal function modules, not god-classes; duplication concern belongs to a different family."
+    }
+  ],
+  "not_assessed": [
+    "Whether client.ts and client-admin.ts should be merged or deduplicated (duplication family, not god-classes)",
+    "Test coverage, CVE status, or dependency currency were not evaluated"
+  ]
+}

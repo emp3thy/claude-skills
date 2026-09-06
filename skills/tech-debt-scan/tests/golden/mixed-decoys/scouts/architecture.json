@@ -1,0 +1,22 @@
+{
+  "family": "architecture",
+  "module": null,
+  "findings": [],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/lookup/lookup.go",
+      "line_start": 11,
+      "why": "290-entry hardcoded map scores as a hotspot and is depended on by store, which could look like an unstable god-file many components rely on, but it has exactly one consumer (internal/store/store.go) and the map's values are identical to the function's own fallback pattern 'data/'+name+'.json', so there is no fan-out coupling risk despite the size."
+    },
+    {
+      "file": "cmd/app/main.go",
+      "line_start": 7,
+      "why": "main.go imports five internal packages (build, dispatch, flags, httpc, store), which looks like a coupled hub, but this is the composition root of a single small binary, not a shared library being fanned out to multiple consumers, so high import count here is expected."
+    }
+  ],
+  "not_assessed": [
+    "No import-cycle tooling, ADR, or boundary/layer contract exists in the repo (no docs beyond README.md and docs/runbook.md, no lint config for import boundaries), so 'intended layering' could only be inferred from directory names, not verified against a stated policy.",
+    "internal/crypto and internal/shell are not imported by any other file in the repository; whether this reflects deliberate scaffolding, in-progress work, or true dead code cannot be determined from repository contents alone and is a dead-code/design question outside the cycle/coupling scope of this architecture pass."
+  ]
+}

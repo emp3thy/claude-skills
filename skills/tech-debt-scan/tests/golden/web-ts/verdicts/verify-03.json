@@ -1,0 +1,112 @@
+[
+  {
+    "fingerprint": "f4c345aefd008ff5",
+    "verdict": "confirm",
+    "proof": "grep across src for 'getAdminJson', 'adminEnabled', 'client-admin' finds only the definitions in client-admin.ts:6,20 \u2014 zero callers anywhere, including index.ts (the only entry point) and the sole test file. flags.ts:1-5 lists only newCheckout and betaBanner; 'adminPanel' is absent, so adminEnabled() at line 21 always falls through isEnabled's '?? false' at flags.ts:8. No dynamic dispatch, route table, or DI container exists in this repo to invoke it indirectly.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "reflection",
+      "string-dispatch",
+      "entry-point",
+      "test-runner-discovery",
+      "public/plugin surface"
+    ],
+    "opened": [
+      "src/flags.ts",
+      "src/index.ts",
+      "package.json"
+    ]
+  },
+  {
+    "fingerprint": "39ff2c7e77aa20a8",
+    "verdict": "confirm",
+    "proof": "grep for 'getJson' repo-wide returns only the definition at client.ts:6; index.ts (sole entry, checked) never imports it, and the only test file (cart.test.ts) tests cart.ts, not client.ts. betaBanner is hardcoded true at flags.ts:4 with no setter anywhere, so line 12's isEnabled check is dead-in-a-dead-function. No dynamic reference patterns exist in this small repo.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "reflection",
+      "string-dispatch",
+      "entry-point",
+      "test-runner-discovery",
+      "public/plugin surface"
+    ],
+    "opened": [
+      "src/flags.ts",
+      "src/index.ts",
+      "package.json"
+    ]
+  },
+  {
+    "fingerprint": "893cfe16bcc6f895",
+    "verdict": "downgrade",
+    "proof": "The catch at client.ts:11 is genuinely empty \u2014 real error-masking as a code pattern. But getJson has zero in-repo callers (confirmed via repo-wide grep and index.ts review), so today no caller receives a masked failure and no one is misled by it in production; the question 'who learns of it' has answer 'no one, because nothing calls this.' The defect is latent, not live, so full severity-5 (production risk) is overstated until the function is wired up.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "reflection",
+      "string-dispatch",
+      "process-boundary",
+      "rethrow/cause-preservation"
+    ],
+    "opened": [
+      "src/api/client.ts"
+    ]
+  },
+  {
+    "fingerprint": "aa3351f29bf618f1",
+    "verdict": "downgrade",
+    "proof": "client.ts:6-11 and client-admin.ts:6-12 do share identical fetch+auth-header shape, and coupling data (shared=4, ratio=0.889) supports the duplication claim. However both functions are dead code with zero callers (see candidates 1/2, independently verified), so the correct fix is deletion, not building a shared abstraction \u2014 extracting a common helper for code nobody calls adds no real value. Severity should reflect that this is duplicate dead code, not duplicate live logic.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "change-coupling",
+      "path-class",
+      "shared-abstraction feasibility",
+      "callers"
+    ],
+    "opened": [
+      "src/api/client.ts",
+      "src/api/client-admin.ts"
+    ]
+  },
+  {
+    "fingerprint": "fdb5fcca4c87f4b8",
+    "verdict": "downgrade",
+    "proof": "client.ts:9 indeed has no AbortSignal/timeout unlike client-admin.ts:9-12, and the catch at line 11 is empty \u2014 both true as static facts. But getJson (candidates 2/3) has no in-repo callers, so there is currently no live request that can hang; the 'hang the await indefinitely' risk only materializes if/when the function is called. No ticket or stub-contract markers found referencing this as tracked risk.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "abstract-contract check",
+      "ticket reference",
+      "named-risk still present",
+      "callers"
+    ],
+    "opened": [
+      "src/api/client.ts",
+      "src/api/client-admin.ts"
+    ]
+  },
+  {
+    "fingerprint": "37123abc76b1359b",
+    "verdict": "confirm",
+    "proof": "The only test file in the repo is src/__tests__/cart.test.ts, which tests cart.ts's addItem/total and never imports checkout.ts, priceOf, or legacyFormat. Repo-wide search for 'checkout' finds no *.test.ts, *.spec.ts, or e2e references \u2014 only checkout.ts itself, index.ts (which calls checkout(cart) at index.ts:7 but discards the return value), and docs/CI mentions. Both the legacy branch (checkout.ts:10-12) and the newCheckout branch (line 7-8) are unasserted.",
+    "severity": 4,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "test-path search",
+      "unconventional test naming",
+      "mapped-test assertion depth"
+    ],
+    "opened": [
+      "src/checkout/checkout.ts",
+      "src/__tests__/cart.test.ts"
+    ]
+  }
+]

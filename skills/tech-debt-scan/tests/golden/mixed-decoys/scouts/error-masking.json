@@ -1,0 +1,85 @@
+{
+  "family": "error-masking",
+  "module": null,
+  "findings": [
+    {
+      "title": "Store.Load silently discards file-read errors as nil",
+      "family": "error-masking",
+      "debt_type": "defect",
+      "type_id": "TD-13",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:error-masking:swallowed-catch"
+      ],
+      "evidence": [
+        {
+          "file": "internal/store/store.go",
+          "line_start": 25,
+          "line_end": 29,
+          "quote": "func (s *Store) Load(key string) map[string]string {\n\traw, err := os.ReadFile(s.path)\n\tif err != nil {\n\t\treturn nil\n\t}"
+        }
+      ],
+      "note": "Any read failure (permission, disk, transient IO) is swallowed with no log and no error return; caller gets nil indistinguishable from 'store empty'. The error value is discarded entirely rather than propagated or logged."
+    },
+    {
+      "title": "Store.Load logs unmarshal failure without the cause and returns partial data",
+      "family": "error-masking",
+      "debt_type": "code",
+      "type_id": "TD-13",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:error-masking:swallowed-catch"
+      ],
+      "evidence": [
+        {
+          "file": "internal/store/store.go",
+          "line_start": 30,
+          "line_end": 34,
+          "quote": "out := map[string]string{}\n\tif err := json.Unmarshal(raw, &out); err != nil {\n\t\tfmt.Println(\"store: unmarshal failed\")\n\t}\n\treturn out"
+        }
+      ],
+      "note": "The printed message never includes err, so the underlying cause is lost. Load still returns the possibly-empty out map as if valid, with no error return path for callers to detect the failure."
+    },
+    {
+      "title": "httpc.Fetch swallows both request and body-read errors, returning empty string",
+      "family": "error-masking",
+      "debt_type": "code",
+      "type_id": "TD-13",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 14,
+          "line_end": 20,
+          "quote": "resp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}\n\tdefer resp.Body.Close()\n\tbody, _ := io.ReadAll(resp.Body)\n\treturn string(body)"
+        }
+      ],
+      "note": "Get() failure and ReadAll() failure both collapse to an empty-string return with no logging; the only call site (main.go:28) also discards the return value with '_ =', so a broken health check is completely invisible end to end."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/dispatch/dispatch.go",
+      "line_start": 30,
+      "why": "legacyHandler panics with 'not implemented' rather than swallowing an error; a panic surfaces loudly rather than masking failure, so it is not error-masking even though it looks abrupt."
+    },
+    {
+      "file": "cmd/app/main.go",
+      "line_start": 25,
+      "why": "dispatch.Run's error is checked and passed to log.Fatal, which preserves the cause and halts the process; this is a proper process-boundary handling, not masking."
+    }
+  ],
+  "not_assessed": [
+    "No claims made about test coverage, CVE/vulnerability status, dependency currency, deprecation policy enforcement, or flakiness for this family; httpc.Fetch is marked Deprecated in-source but no claim is made about whether callers have migrated beyond what grep shows."
+  ]
+}

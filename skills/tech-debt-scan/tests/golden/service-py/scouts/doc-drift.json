@@ -1,0 +1,121 @@
+{
+  "family": "doc-drift",
+  "module": "docs",
+  "findings": [
+    {
+      "title": "README claims exporter.py removed but legacy_export.py still exists",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:doc-drift:dangling-reference"
+      ],
+      "evidence": [
+        {
+          "file": "README.md",
+          "line_start": 10,
+          "line_end": 10,
+          "quote": "The old `src/pay/exporter.py` job was removed in 0.1.0."
+        },
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 1,
+          "line_end": 8,
+          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report\ndef export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:"
+        }
+      ],
+      "note": "README says the export job at src/pay/exporter.py was removed in 0.1.0, but a functionally equivalent module (legacy_export.py, export_v1) still ships in src/pay under a different name; the named path never existed and the job it describes was not actually removed."
+    },
+    {
+      "title": "README Run instructions reference a CLI that refund.py does not implement",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:doc-drift:example-does-not-run"
+      ],
+      "evidence": [
+        {
+          "file": "README.md",
+          "line_start": 5,
+          "line_end": 7,
+          "quote": "## Run\n\n    python -m pay.refund --help"
+        },
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 1,
+          "line_end": 14,
+          "quote": "\"\"\"Refund workflow: validate, post to the ledger, notify the gateway.\"\"\"\nfrom __future__ import annotations\n\nimport logging\n\nfrom pay import ledger\nfrom pay.gateway import Gateway\nfrom pay.models import Entry, Refund\nfrom pay.utils import cents\n\nlog = logging.getLogger(__name__)"
+        }
+      ],
+      "note": "refund.py has no argparse, no __main__ guard, and no console_scripts entry point anywhere in the repo (pyproject.toml, setup.py); `python -m pay.refund --help` as documented would import the module and exit with no help output rather than showing usage."
+    },
+    {
+      "title": "CHANGELOG has no entry for the 0.2.0 release already in pyproject.toml",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:doc-drift:stale-changelog"
+      ],
+      "evidence": [
+        {
+          "file": "CHANGELOG.md",
+          "line_start": 1,
+          "line_end": 5,
+          "quote": "# Changelog\n\n## 0.1.0 - 2024-10-05\n\n- initial refund and ledger flow"
+        },
+        {
+          "file": "pyproject.toml",
+          "line_start": 1,
+          "line_end": 3,
+          "quote": "[project]\nname = \"pay-service\"\nversion = \"0.2.0\""
+        }
+      ],
+      "note": "pyproject.toml declares version 0.2.0 but CHANGELOG.md only documents the 0.1.0 release; changes visible in git history (gateway v2 migration, refund audit trail) have no corresponding changelog entry."
+    },
+    {
+      "title": "README has no CONTRIBUTING section or file for the repo",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "severity": 1,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:doc-drift:missing-doc"
+      ],
+      "evidence": [
+        {
+          "file": "README.md",
+          "line_start": 1,
+          "line_end": 10,
+          "quote": "# pay-service\n\nRefund and ledger service.\n\n## Run\n\n    python -m pay.refund --help\n\nCode lives in `src/pay/refund.py`; the design is in `docs/adr/0001-ledger.md`."
+        }
+      ],
+      "note": "The repo has no CONTRIBUTING.md and README.md contains no contribution guidance section, for a service with an active CI/release workflow."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "docs/\u00fcbersicht.md",
+      "line_start": 1,
+      "why": "Flagged as stale, but content is a one-line placeholder with no technical claims about code, so there is nothing for the code to contradict."
+    },
+    {
+      "file": "docs/adr/0001-ledger.md",
+      "line_start": 5,
+      "why": "Flagged as stale, but the described design (JSON-lines append-only ledger, reversals as new entries) matches src/pay/ledger.py's current implementation."
+    }
+  ],
+  "not_assessed": [
+    "CHANGELOG.md / README.md 'days behind code' staleness figures given in the leads are taken as given signals, not independently recomputed from commit timestamps",
+    "Whether legacy_export.py's SQL/shell handling is exploitable is a security question outside this family's scope"
+  ]
+}

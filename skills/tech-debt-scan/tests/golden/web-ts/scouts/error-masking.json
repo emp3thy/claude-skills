@@ -1,0 +1,53 @@
+{
+  "family": "error-masking",
+  "module": null,
+  "findings": [
+    {
+      "title": "Empty catch swallows fetch/JSON errors in getJson",
+      "family": "error-masking",
+      "debt_type": "defect",
+      "type_id": "TD-13",
+      "severity": 5,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:error-masking:swallowed-catch"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 8,
+          "line_end": 15,
+          "quote": "try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}\n  if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");\n  }"
+        }
+      ],
+      "note": "Catch block is completely empty: network failures, non-JSON responses, and auth errors are silently discarded. Caller receives null indistinguishable from a legitimate empty result; no log, no rethrow, nothing to alert anyone the request failed."
+    },
+    {
+      "title": "Admin request failures logged then converted to null, hiding cause from caller",
+      "family": "error-masking",
+      "debt_type": "defect",
+      "type_id": "TD-13",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 14,
+          "line_end": 17,
+          "quote": "} catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }"
+        }
+      ],
+      "note": "Error is logged with cause preserved in the console, but is not rethrown or surfaced to the caller; getAdminJson returns null on both failure and any falsy JSON body, so callers cannot distinguish failure from a valid null/empty response."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [],
+  "not_assessed": [
+    "Whether any test suite exercises these catch paths (test coverage not assessed)",
+    "Whether console.error in client-admin.ts is captured by any monitoring/alerting downstream"
+  ]
+}

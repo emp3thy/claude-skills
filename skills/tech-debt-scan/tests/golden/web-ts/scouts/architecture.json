@@ -1,0 +1,53 @@
+{
+  "family": "architecture",
+  "module": null,
+  "findings": [
+    {
+      "title": "Checkout reaches past declared cart boundary into pricing internals",
+      "family": "architecture",
+      "debt_type": "architecture",
+      "type_id": "TD-10",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "coupling",
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 3,
+          "line_end": 4,
+          "quote": "`src/cart` owns items and totals, `src/checkout` owns the flow. Pricing and\nstock currently import each other through `src/cart/stock.ts`."
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 1,
+          "line_end": 12,
+          "quote": "import { Cart, total } from \"../cart/cart\";\nimport { priceOf } from \"../cart/pricing\";\nimport { isEnabled } from \"../flags\";\nimport { legacyFormat } from \"../util/format-legacy\";\n\nexport function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";\n  return `legacy:${label}`;\n}"
+        }
+      ],
+      "note": "docs/architecture.md declares cart as sole owner of totals, but checkout's legacy path imports cart/pricing directly and computes a price itself instead of going through cart's total(). Any change to pricing logic (e.g. discounts) must be replicated in checkout to keep the legacy path correct."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "src/cart/pricing.ts",
+      "line_start": 1,
+      "line_end": 9,
+      "question": "docs/architecture.md describes pricing and stock as importing each other; is that coupling considered acceptable long-term since both live inside the single src/cart package, or is a boundary intended between them?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/cart/cart.ts",
+      "line_start": 1,
+      "line_end": 1,
+      "why": "cart.ts -> pricing.ts -> stock.ts -> (type-only) cart.ts forms a cycle, but all three files live inside the single src/cart directory/package and the back-edge (src/cart/stock.ts:1) is a type-only import erased at compile time, not a runtime circular dependency. This is an intra-package design smell rather than a cross-module architecture cycle."
+    }
+  ],
+  "not_assessed": [
+    "Whether the coverageThreshold in package.json (lines: 80) is currently met \u2014 no coverage report was available to check.",
+    "Whether ESLint or tsc actually flag the pricing/stock cycle \u2014 no import-cycle or boundary tooling (e.g. eslint-plugin-import, dependency-cruiser) is configured in .eslintrc.json or package.json."
+  ]
+}

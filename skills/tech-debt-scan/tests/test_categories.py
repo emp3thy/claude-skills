@@ -1,66 +1,119 @@
+"""categories.py: the v1 prompts (skipped until phase 3) and the v2 family blocks (spec 4.6)."""
 from __future__ import annotations
 
-from categories import CATEGORIES, CORE_CATEGORIES, get_prompt
+import json
 
-EXPECTED = {
-    "god-modules",
-    "duplication",
-    "dead-code",
-    "test-gaps",
-    "doc-drift",
-    "half-finished",
-    "dependency-debt",
-    "architecture",
-}
+import pytest
+from categories import (
+    CATEGORIES,
+    CORE_CATEGORIES,
+    FAMILIES,
+    FAMILY_BLOCKS,
+    SCOUT_OUTPUT_SCHEMA,
+    SEVERITY_RUBRIC,
+    get_prompt,
+    render_scout_prompt,
+)
+from config import FAMILY_SETS
+from validation import VALID_DEBT_TYPES, validate_type_id
 
+V1_SKIP = pytest.mark.skip(reason="v1 scout prompts are retired in phase 3 (spec 11)")
 
-def test_eight_categories():
-    assert set(CATEGORIES) == EXPECTED
-
-
-def test_core_categories_are_a_subset():
-    assert set(CORE_CATEGORIES) <= set(CATEGORIES)
-    assert len(CORE_CATEGORIES) >= 3
-
-
-def test_each_prompt_non_empty():
-    for cat in EXPECTED:
-        prompt = get_prompt(cat)
-        assert len(prompt) > 200, f"{cat} prompt too short"
+EXPECTED_FAMILIES = (
+    "complex-units", "god-classes", "duplication", "dead-code", "error-masking",
+    "test-gaps", "half-finished", "migration", "dependency-debt", "doc-drift",
+    "architecture", "security", "test-quality", "pipeline-infra",
+)
+FORBIDDEN = ("def ", ".py file", "python module", "__init__", "pip install")
 
 
-def test_unknown_category_raises():
-    import pytest
-
-    with pytest.raises(KeyError):
-        get_prompt("not-a-category")
-
-
-def test_prompts_avoid_python_specific_terms():
-    """Prompts must read as language-agnostic."""
-    forbidden = {"def ", "import ", ".py file", "Python module"}
-    for cat in EXPECTED:
-        text = get_prompt(cat).lower()
-        for bad in forbidden:
-            assert bad.lower() not in text, f"{cat}: {bad!r} leaks Python-specific phrasing"
+def _render(family: str) -> str:
+    return render_scout_prompt(
+        family,
+        repo_summary="root: r, 10 files, 100 LOC, languages: python, typescript; git: yes",
+        leads_block="Hotspot-band files: src/a.py (0.91)\n",
+        scout_cap=12,
+        disabled_note="Families disabled on tests: duplication, complex-units, god-classes",
+    )
 
 
-def test_each_prompt_specifies_json_schema():
-    """Each prompt must instruct the scout to emit the ScoutFinding JSON schema."""
-    for cat in EXPECTED:
-        text = get_prompt(cat)
-        assert '"title"' in text
-        assert '"severity"' in text
-        assert '"category"' in text
-        assert '"debt_type"' in text
-        assert '"effort"' in text
-        assert '"confidence"' in text
-        assert '"evidence"' in text
-        assert '"suggested_fix"' in text
+# --- v1 (kept until phase 3) ----------------------------------------------------
 
 
-def test_each_prompt_carries_hotspot_guidance_and_rubric():
-    for cat in EXPECTED:
-        text = get_prompt(cat)
-        assert "hotspot" in text.lower(), f"{cat}: missing hotspot guidance"
-        assert "Severity rubric" in text, f"{cat}: missing severity rubric"
+@V1_SKIP
+def test_eight_categories() -> None:
+    assert len(set(CATEGORIES)) == 8 and set(CORE_CATEGORIES) <= set(CATEGORIES)
+
+
+@V1_SKIP
+def test_v1_prompts_carry_the_v1_schema() -> None:
+    for cat in CATEGORIES:
+        assert '"suggested_fix"' in get_prompt(cat)
+
+
+# --- v2 -------------------------------------------------------------------------
+
+
+def test_fourteen_families_in_dispatch_order() -> None:
+    assert FAMILIES == EXPECTED_FAMILIES
+    assert set(FAMILY_BLOCKS) == set(FAMILIES)
+    assert FAMILY_SETS["deep"] == FAMILIES
+
+
+def test_every_block_is_complete_and_valid() -> None:
+    for family, block in FAMILY_BLOCKS.items():
+        assert len(block.definition) > 60, family
+        assert 4 <= len(block.questions) <= 6, family
+        assert block.traps, family
+        assert block.type_ids, family
+        for type_id in block.type_ids:
+            validate_type_id(type_id)
+        assert block.debt_types and set(block.debt_types) <= VALID_DEBT_TYPES, family
+        assert block.verifier_questions, family
+
+
+def test_rendered_prompt_has_prefix_block_leads_and_contract() -> None:
+    for family in FAMILIES:
+        text = _render(family)
+        assert "read-only" in text.lower()
+        assert "do not invent" in text.lower()
+        assert '"line_start"' in text and '"line_end"' in text and '"quote"' in text
+        assert '"type_id"' in text and '"signals_cited"' in text
+        assert '"open_questions"' in text and '"looks_bad_but_fine"' in text
+        assert '"not_assessed"' in text
+        assert "suggested_fix" not in text and "confidence" not in text
+        assert "an empty list is a correct answer" in text
+        assert "12" in text
+        assert "hotspot" in text.lower() and "Severity rubric" in text
+        assert "Families disabled on tests" in text
+        assert FAMILY_BLOCKS[family].definition in text
+        assert "Hotspot-band files: src/a.py" in text
+
+
+def test_rubric_has_no_hotspot_amplifier() -> None:
+    assert "+1" not in SEVERITY_RUBRIC and "3 + hotspot" not in SEVERITY_RUBRIC
+    assert SEVERITY_RUBRIC.startswith("Severity rubric")
+
+
+def test_v2_prompts_avoid_language_specific_terms() -> None:
+    for family in FAMILIES:
+        low = _render(family).lower()
+        for bad in FORBIDDEN:
+            assert bad not in low, f"{family}: {bad!r}"
+
+
+def test_never_assert_rules_are_present() -> None:
+    text = _render("security")
+    for claim in ("coverage", "CVE", "end-of-life", "deprecat", "flak", "exploitab"):
+        assert claim.lower() in text.lower(), claim
+
+
+def test_output_schema_is_valid_json_schema_shape() -> None:
+    schema = SCOUT_OUTPUT_SCHEMA
+    assert schema["type"] == "object"
+    assert set(schema["required"]) == {"family", "module", "findings", "open_questions",
+                                       "looks_bad_but_fine", "not_assessed"}
+    finding = schema["properties"]["findings"]["items"]
+    assert set(finding["required"]) == {"title", "family", "debt_type", "severity", "effort",
+                                        "signals_cited", "evidence", "note"}
+    json.dumps(schema)

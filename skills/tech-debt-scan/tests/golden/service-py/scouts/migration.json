@@ -1,0 +1,98 @@
+{
+  "family": "migration",
+  "module": null,
+  "findings": [
+    {
+      "title": "v1 CSV export left in place past its own removal ticket",
+      "family": "migration",
+      "debt_type": "design",
+      "type_id": null,
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "satd",
+        "pattern:migration:old-idiom-after-replacement"
+      ],
+      "evidence": [
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 1,
+          "line_end": 8,
+          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report\ndef export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:"
+        },
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 17,
+          "line_end": 19,
+          "quote": "# def export_v0(refund_id):\n#     rows = fetch(refund_id)\n#     return rows"
+        }
+      ],
+      "note": "export_v1 is tagged with a removal ticket (#42) pending a v2 report that does not exist anywhere in this repo, and has zero call sites in src/ or tests/. A commented-out export_v0 stub sits alongside it, showing a prior migration was never cleaned up either."
+    },
+    {
+      "title": "Dependency manifest split between pyproject.toml and requirements.txt",
+      "family": "migration",
+      "debt_type": "dependency",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:migration:dual-manifest"
+      ],
+      "evidence": [
+        {
+          "file": "pyproject.toml",
+          "line_start": 4,
+          "line_end": 5,
+          "quote": "requires-python = \">=3.11\"\ndependencies = [\"requests>=2.31\"]"
+        },
+        {
+          "file": "requirements.txt",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "requests==2.32.3"
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 11,
+          "line_end": 11,
+          "quote": "      - run: pip install -r requirements.txt"
+        }
+      ],
+      "note": "setup.py declares pyproject.toml the packaging source of truth, but CI still installs from requirements.txt rather than the package's own dependency list, leaving two places that state the requests version (>=2.31 vs ==2.32.3) with no stated plan to consolidate."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "README.md",
+      "line_start": 10,
+      "question": "README states the old src/pay/exporter.py job was removed in 0.1.0, but a differently-named legacy_export.py with export_v1 still exists \u2014 is this the same job under a new filename, or an unrelated leftover?"
+    },
+    {
+      "file": "src/pay/gateway.py",
+      "line_start": 10,
+      "line_end": 10,
+      "question": "gateway.py migration_commits=1 corresponds to commit b2d3792 'migrate gateway to v2 API' \u2014 no v1 gateway code remains, so is there anything left to assess here or is this migration already complete?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "setup.py",
+      "line_start": 1,
+      "line_end": 4,
+      "why": "Four-line setuptools shim that explicitly documents pyproject.toml as the source of truth and duplicates only the package name; this is a stated, finished packaging decision, not active dual-path churn."
+    },
+    {
+      "file": "src/pay/gateway.py",
+      "line_start": 10,
+      "line_end": 27,
+      "why": "Single migration commit fully switched the module to the v2 API base URL; no v1 endpoint or dual-path code remains in the file."
+    }
+  ],
+  "not_assessed": [
+    "Whether requests>=2.31 vs ==2.32.3 reflects an actual unpatched CVE or vulnerability",
+    "Whether export_v1 in legacy_export.py is still invoked by an external cron/scheduler outside this repository",
+    "Test coverage percentage relative to the fail_under=80 threshold in pyproject.toml"
+  ]
+}

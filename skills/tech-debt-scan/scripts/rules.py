@@ -17,7 +17,11 @@ is 2 to 3 for the artefact groups: 3 when a permissions or pinning gap sits
 on a workflow whose file or job name matches ``release|publish|deploy``; a
 dev-only container path drops one severity. Ownership runs only with git and
 at least ``rules.ownership.min_human_authors`` human authors, says "no
-commits in N days" and never "has left". Every threshold comes from the
+commits in N days" and never "has left". A hotspot-band file is a knowledge
+island only when its churn in the window also meets
+``rules.ownership.island_min_churn``; a CODEOWNERS the inventory skipped or
+that sits under a disabled tree is not consulted, so it is neither checked
+for coverage nor reported missing. Every threshold comes from the
 ``rules`` block of ``.tech-debt.yaml``.
 
 Repository-level facts have no file: their evidence carries null file and
@@ -39,7 +43,6 @@ to weigh.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import statistics
@@ -52,6 +55,7 @@ from typing import Any, Final
 
 import yaml
 from config import ConfigError, load_config
+from evidence import fingerprint, signals_for
 from inventory import MAX_SCAN_BYTES, NUL_SNIFF_BYTES, write_json
 from redaction import redact
 
@@ -120,14 +124,6 @@ class Hit:
     quote: str
     note: str
     severity: int
-
-
-def fingerprint(family: str, path: str, quote: str) -> tuple[str, str]:
-    """Spec 4.7: sha1(family|path|sha1(normalised quote))[:16] and the inner hash."""
-    normalised = " ".join(quote.split())
-    quote_hash = hashlib.sha1(normalised.encode("utf-8")).hexdigest()
-    outer = hashlib.sha1(f"{family}|{path}|{quote_hash}".encode()).hexdigest()
-    return outer[:16], quote_hash
 
 
 def _parse_date(value: Any) -> datetime | None:
@@ -542,11 +538,14 @@ def _band_hits(
             continue
         share = entry.get("top_author_line_share")
         authors = entry.get("authors")
+        churn = entry.get("churn")
         island = (
             isinstance(share, float)
             and isinstance(authors, int)
+            and isinstance(churn, int)
             and share >= float(own["island_share"])
             and authors <= int(own["island_max_authors"])
+            and churn >= int(own["island_min_churn"])
         )
         if island:
             hits.append(Hit(
@@ -569,6 +568,15 @@ def _band_hits(
 def _ownership_hits(
     root: Path, inventory: dict[str, Any], config: dict[str, Any], now: datetime
 ) -> list[Hit]:
+    """Knowledge-island/former-contributor band hits plus the three repo-level facts.
+
+    A CODEOWNERS the inventory marked ``skipped_large`` or that sits under a
+    disabled path class (spec 4.2) is never read: it neither drives the
+    unowned-hotspot check nor counts as present, except that its mere existence
+    still suppresses ``ownership.no-codeowners`` -- a governance file the
+    inventory chose not to read is not the same fact as no governance file at
+    all.
+    """
     own = config["rules"]["ownership"]
     git = inventory.get("git") or {}
     humans = git.get("authors", [])
@@ -578,8 +586,13 @@ def _ownership_hits(
     band = [str(p) for p in inventory.get("hotspot_band", [])]
     governance = (inventory.get("artefacts") or {}).get("governance", [])
     codeowners = next(
-        (str(a["path"]) for a in governance if _basename(str(a["path"])) == "CODEOWNERS"), None
+        (
+            str(a["path"]) for a in governance
+            if _basename(str(a["path"])) == "CODEOWNERS" and not _disabled(a)
+        ),
+        None,
     )
+    codeowners_present = any(_basename(str(a["path"])) == "CODEOWNERS" for a in governance)
     if codeowners is not None:
         patterns = _codeowners_patterns(_read(root, codeowners))
         unowned = [p for p in band if not any(_codeowners_match(p, pat) for pat in patterns)]
@@ -589,7 +602,7 @@ def _ownership_hits(
                 "ownership.unowned-hotspot", codeowners, 1, _first_line(_read(root, codeowners)),
                 f"{len(unowned)} hotspot-band file(s) match no CODEOWNERS rule: {listed}", 2,
             ))
-    else:
+    elif not codeowners_present:
         hits.append(Hit(
             "ownership.no-codeowners", None, None,
             f"no CODEOWNERS file with {len(humans)} human authors", "no ownership map", 2,
@@ -624,31 +637,6 @@ def _ownership_hits(
 # --- assembly -------------------------------------------------------------------
 
 
-def _signals(inventory: dict[str, Any], path: str | None) -> dict[str, Any]:
-    signals: dict[str, Any] = {
-        "hotspot_score": 0.0, "churn": 0, "coupling_degree": 0, "fan_in_approx": None,
-        "path_class": None, "in_hotspot_band": False,
-    }
-    if path is None:
-        return signals
-    for entry in inventory["files"]:
-        if entry["path"] == path:
-            signals["hotspot_score"] = entry["hotspot_score"]
-            signals["churn"] = entry["churn"]
-            signals["coupling_degree"] = entry["coupling_degree"]
-            signals["fan_in_approx"] = entry["fan_in_approx"]
-            signals["path_class"] = entry["path_class"]
-            signals["in_hotspot_band"] = path in inventory.get("hotspot_band", [])
-            return signals
-    for entries in (inventory.get("artefacts") or {}).values():
-        for artefact in entries:
-            if artefact["path"] == path:
-                signals["churn"] = artefact["churn"]
-                signals["path_class"] = artefact.get("path_class")
-                return signals
-    return signals
-
-
 def _candidate(
     group: str, path: str | None, hits: list[Hit], inventory: dict[str, Any]
 ) -> dict[str, Any]:
@@ -678,7 +666,7 @@ def _candidate(
         ],
         "confirmed_by": sorted({f"rule:{h.rule_id}" for h in hits}),
         "signals_cited": [],
-        "signals": _signals(inventory, path),
+        "signals": signals_for(inventory, path),
         "tier": "A",
     }
 

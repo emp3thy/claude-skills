@@ -11,7 +11,16 @@ import yaml
 from config import DEFAULTS
 from inventory import MAX_SCAN_BYTES, build_all, write_json
 from make_history import git_output, replay_history
-from patterns import RULES, Lead, _logger_present, _scan_files, capped_leads, redact, run_patterns
+from patterns import (
+    ARTEFACT_SCAN_CLASSES,
+    RULES,
+    Lead,
+    _logger_present,
+    _scan_files,
+    capped_leads,
+    redact,
+    run_patterns,
+)
 
 SCRIPTS = Path(__file__).parent.parent / "scripts"
 
@@ -728,3 +737,15 @@ def test_no_script_branches_on_a_language_name() -> None:
             if LANGUAGE_BRANCH_RE.search(line):
                 offenders.append(f"{script.name}:{lineno}: {line.strip()}")
     assert offenders == []
+
+
+def test_artefact_and_path_class_namespaces_stay_disjoint() -> None:
+    """ScanFile.scope keys rule scope on the artefact class; path_class is the inventory's.
+
+    The two names must never collide, or a rule scoped to an artefact class would
+    also match a code file whose path class carried that name.
+    """
+    from inventory import PATH_CLASS_GLOBS
+
+    path_classes = set(PATH_CLASS_GLOBS) | {"source"}
+    assert set(ARTEFACT_SCAN_CLASSES).isdisjoint(path_classes)

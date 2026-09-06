@@ -1,0 +1,92 @@
+{
+  "family": "half-finished",
+  "module": null,
+  "findings": [
+    {
+      "title": "getJson fetch has no timeout and swallows all errors",
+      "family": "half-finished",
+      "debt_type": "defect",
+      "type_id": null,
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:half-finished:no-timeout"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 16,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}"
+        }
+      ],
+      "note": "fetch call sets no AbortSignal/timeout, so a non-responding remote hangs the await indefinitely; the sibling client-admin.ts uses AbortSignal.timeout(5000) for the same pattern, and the catch block here is also empty, silently discarding failures."
+    },
+    {
+      "title": "Bulk pricing test skipped; feature never implemented in priceOf",
+      "family": "half-finished",
+      "debt_type": "requirement",
+      "type_id": null,
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:half-finished:skip-marker",
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "src/__tests__/pricing.spec.ts",
+          "line_start": 7,
+          "line_end": 9,
+          "quote": "  it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });\n});"
+        },
+        {
+          "file": "src/cart/pricing.ts",
+          "line_start": 5,
+          "line_end": 8,
+          "quote": "export function priceOf(sku: string): number {\n  reserve(sku, 0);\n  return PRICES[sku] ?? 0;\n}"
+        }
+      ],
+      "note": "priceOf has no bulk-discount logic at all (flat PRICES lookup), so the skipped test documents a requirement that was never built, not a currently-flaky test; no ticket or date is attached to the skip."
+    },
+    {
+      "title": "Deprecated legacyFormat still used on the live checkout path",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": "TD-22",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "src/util/format-legacy.ts",
+          "line_start": 3,
+          "line_end": 6,
+          "quote": "/** @deprecated use formatMoney */\nexport function legacyFormat(cents: number): string {\n  return formatMoney(cents).replace(\"$\", \"USD \");\n}"
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 4,
+          "line_end": 11,
+          "quote": "import { legacyFormat } from \"../util/format-legacy\";\n\nexport function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";"
+        }
+      ],
+      "note": "Marker is 704 days old with no ticket reference; the deprecated function is still exercised whenever the newCheckout flag is off, so the replacement migration was never finished."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 6,
+      "why": "Has AbortSignal.timeout(5000) and logs errors in the catch block, so it is not half-finished despite superficially resembling client.ts."
+    }
+  ],
+  "not_assessed": [
+    "Whether format-legacy.ts's @deprecated marker corresponds to a tracked ticket (SATD list marks ticket=False, but no ticket system was inspected)",
+    "Test flakiness of pricing.spec.ts (skip marker inspected only for intent, not flake history)"
+  ]
+}

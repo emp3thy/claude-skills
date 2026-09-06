@@ -1,0 +1,24 @@
+{
+  "family": "complex-units",
+  "module": null,
+  "findings": [],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/api/client-admin.ts",
+      "line_start": 6,
+      "why": "Hotspot score 80.00 but function is a short async fetch wrapper with one try/catch, no nesting; not a complex-units candidate."
+    },
+    {
+      "file": "src/api/client.ts",
+      "line_start": 6,
+      "why": "Hotspot score 42.90 but function has only a try/catch and one flat if, no nesting or branching complexity."
+    },
+    {
+      "file": "src/checkout/checkout.ts",
+      "line_start": 6,
+      "why": "Single flat if/return with one ternary-like ternary expression; no nesting or long branching chains despite being a hotspot file."
+    }
+  ],
+  "not_assessed": []
+}

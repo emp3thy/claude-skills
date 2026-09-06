@@ -1,0 +1,95 @@
+[
+  {
+    "fingerprint": "74967b275a61fb33",
+    "verdict": "confirm",
+    "proof": "refund.py:39-40 uses `log.exception` for the OSError path, but line 41 uses bare `print()` for the normal-outcome message in the same function, on the same code path a few lines later. There is no __main__ guard or CLI parsing in this module (it's a library import per refund.py:1), so the print goes to stdout uncontrolled by log level/handlers, breaking aggregation for a production refund outcome. Real, low-effort fix (swap to log.info).",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "module has no __main__ guard",
+      "log is used elsewhere in same function",
+      "no CLI parsing present"
+    ],
+    "opened": [
+      "src/pay/gateway.py",
+      "src/pay/ledger.py",
+      "tests/test_refund.py"
+    ]
+  },
+  {
+    "fingerprint": "b459099b48e0a272",
+    "verdict": "confirm",
+    "proof": "FIXME at refund.py:35 names duplicate-refund risk from gateway-side retries. The only dedup guard is `_seen` (refund.py:14,27-29), an in-memory, per-process set keyed on order_id at the start of issue() -- it does not gate the actual gateway.refund() call from being retried by the gateway itself, and resets on process restart. No ticket reference found in code or tests. The named risk is genuinely still present: nothing in gateway.py (idempotency key, dedup header) mitigates it either. Severity 5 (money duplication) and effort M (needs idempotency key design, not a one-liner) both look right.",
+    "severity": 5,
+    "effort": "M",
+    "trap_matched": null,
+    "checked": [
+      "whether _seen or another mechanism addresses gateway-side retries",
+      "gateway.py for idempotency key support",
+      "ticket reference in code/comments"
+    ],
+    "opened": [
+      "src/pay/gateway.py",
+      "src/pay/ledger.py",
+      "tests/test_refund.py"
+    ]
+  },
+  {
+    "fingerprint": "c716d4382547d1ce",
+    "verdict": "confirm",
+    "proof": "Repo-wide grep for `issue_partial` (case-sensitive, all of src/ and tests/) returns only the definition at refund.py:45 -- no callers, no test coverage, no dynamic dispatch/reflection/string-based lookup found. tests/test_refund.py exercises validate, audit_trail, and has a skipped issue test, but nothing calls issue_partial. It is a plain function, not a plugin hook or serialized entry point.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "reflection/string-dispatch",
+      "test runner discovery (not a test-named function)",
+      "public/plugin surface (none, internal module)"
+    ],
+    "opened": [
+      "tests/test_refund.py",
+      "tests/conftest.py"
+    ]
+  },
+  {
+    "fingerprint": "441a5776ddef0261",
+    "verdict": "confirm",
+    "proof": "Repo-wide grep for `fingerprint` returns only the definition at utils.py:11 -- zero callers anywhere in src/ or tests/. Not referenced by name in serialization, routing, or DI. It also uses md5, a weak hash, compounding the dead-code concern, but the core claim (unused) is verified as stated.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "reflection/string-dispatch",
+      "public/plugin surface",
+      "test discovery"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "92c2c6c4c06ada32",
+    "verdict": "confirm",
+    "proof": "test_ledger.py:18-19 calls `ledger.reverse(Entry(...))` and discards the return value with no assert. ledger.reverse (ledger.py:29-30) negates amount_cents and sets reason='reversal' -- real business logic, not a startup/import smoke check. A regression that flipped the sign or dropped the reason field would not fail this test. Not table-driven/parametrised, not a permission/kill-switch check.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "whether it guards only import/startup (it doesn't)",
+      "table-driven idiom (none)"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "b1f9606f10dd3ee8",
+    "verdict": "confirm",
+    "proof": "test_ledger.py:14 has `time.sleep(0.05)  # flaky on CI without this; retried in the workflow` -- a self-admitted race being masked by a fixed sleep plus workflow-level retries, matching commit 5334fe2 'test: retry flaky ledger test' in recent history. post() (ledger.py:12-15) and balance() (ledger.py:18-26) are synchronous file I/O with no async/threading, so the sleep is compensating for an unidentified race rather than a real inherent delay. No ticket reference in the code.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "whether post/balance are actually async needing a wait (they are not)",
+      "ticket reference"
+    ],
+    "opened": []
+  }
+]

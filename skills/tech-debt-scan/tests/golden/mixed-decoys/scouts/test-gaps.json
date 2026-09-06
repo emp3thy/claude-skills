@@ -1,0 +1,146 @@
+{
+  "family": "test-gaps",
+  "module": null,
+  "findings": [
+    {
+      "title": "Payments kill switch has no test verifying it changes behaviour",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 5,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:test-gaps:no-mapped-test",
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "internal/flags/flags.go",
+          "line_start": 3,
+          "line_end": 13,
+          "quote": "// Flags holds operational switches read at startup.\n//\n// payments.killswitch is a permanent kill switch: it stays false in normal\n// operation and is flipped by on-call during an incident (see docs/runbook.md).\nvar Flags = map[string]bool{\n\t\"payments.killswitch\": false,\n}"
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 22,
+          "line_end": 24,
+          "quote": "\tif flags.IsEnabled(\"payments.killswitch\") {\n\t\tlog.Println(\"payments disabled by kill switch\")\n\t}"
+        }
+      ],
+      "note": "No test exercises flags.IsEnabled or asserts flipping payments.killswitch changes behaviour, despite the runbook naming it the on-call incident lever. untested_change_share=0.5. main.go only logs on it; a regression here would go uncaught."
+    },
+    {
+      "title": "dispatch.Run branch logic (no-args, unknown cmd, legacy panic) is untested",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 4,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:test-gaps:no-mapped-test"
+      ],
+      "evidence": [
+        {
+          "file": "internal/dispatch/dispatch.go",
+          "line_start": 15,
+          "line_end": 24,
+          "quote": "func Run(args []string) error {\n\tif len(args) == 0 {\n\t\treturn errors.New(\"no command\")\n\t}\n\th, ok := handlers[args[0]]\n\tif !ok {\n\t\treturn errors.New(\"unknown command: \" + args[0])\n\t}\n\treturn h(args[1:])\n}"
+        },
+        {
+          "file": "internal/dispatch/dispatch.go",
+          "line_start": 30,
+          "line_end": 32,
+          "quote": "func legacyHandler(args []string) error {\n\tpanic(\"not implemented\")\n}"
+        }
+      ],
+      "note": "No mapped or unconventionally named test found for this package. Run() is the sole CLI dispatch entry point; its empty-args, unknown-command and success paths are unverified. The legacy command reaches an unconditional panic, reachable from user input, with no test guarding it."
+    },
+    {
+      "title": "store_test.go asserts execution, not behaviour, for Load; Find is untested",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 4,
+      "effort": "M",
+      "signals_cited": [
+        "hotspot",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "internal/store/store_test.go",
+          "line_start": 14,
+          "line_end": 17,
+          "quote": "func TestLoadSmoke(t *testing.T) {\n\ttime.Sleep(10 * time.Millisecond)\n\t_ = (&Store{path: \"x\"}).Load(\"k\")\n}"
+        },
+        {
+          "file": "internal/store/store.go",
+          "line_start": 25,
+          "line_end": 39,
+          "quote": "func (s *Store) Load(key string) map[string]string {\n\traw, err := os.ReadFile(s.path)\n\tif err != nil {\n\t\treturn nil\n\t}\n\tout := map[string]string{}\n\tif err := json.Unmarshal(raw, &out); err != nil {\n\t\tfmt.Println(\"store: unmarshal failed\")\n\t}\n\treturn out\n}\n\nfunc (s *Store) Find(id string) (*sql.Rows, error) {\n\treturn s.db.Query(\"SELECT * FROM items WHERE id = '\" + id + \"'\")\n}"
+        }
+      ],
+      "note": "TestLoadSmoke discards Load's return value, never asserting on parsed contents or error behaviour. Find() has no test at all despite untested_change_share=0.5 and a recent 'fix: store lookup query' commit touching this file."
+    },
+    {
+      "title": "Deprecated but still-called httpc.Fetch path has no test",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:test-gaps:no-mapped-test",
+        "satd"
+      ],
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 11,
+          "line_end": 20,
+          "quote": "// Deprecated: use FetchWithTimeout from httpc_safe.go.\nfunc Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}\n\tdefer resp.Body.Close()"
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")"
+        }
+      ],
+      "note": "Fetch is marked deprecated in favour of FetchWithTimeout, yet main.go still calls it and discards the result. No test exists for either function; the silent-empty-string error path is unverified."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "internal/dispatch/dispatch.go",
+      "line_start": 30,
+      "question": "Is legacyHandler's panic intentional (e.g. marks a retired command) or a leftover that should be tested/guarded? No test or comment clarifies intent."
+    },
+    {
+      "file": "",
+      "line_start": 0,
+      "question": "Only one *_test.go file exists in the repo (internal/store/store_test.go); is there an external/integration/e2e suite covering cmd/app, dispatch, or lookup that isn't visible in this checkout?"
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/lookup/lookup.go",
+      "line_start": 11,
+      "why": "The high hotspot score is driven by a 290-entry static data map (lines 11-302), not by logic. The one real branch in PathFor (lines 4-9) is a trivial fallback string concat; this is glue/config data per the stated trap, not a meaningful test gap."
+    },
+    {
+      "file": "internal/build/builder.go",
+      "line_start": 9,
+      "why": "Fluent builder with only field assignment, no branching or error paths; flagged for untested_change_share=0.5 but is glue/config code the trap says doesn't need unit tests."
+    }
+  ],
+  "not_assessed": [
+    "Test coverage percentages for any file",
+    "Flakiness of any existing test",
+    "Exploitability of the InsecureSkipVerify TLS setting or the string-concatenated SQL in Find (security family, not assessed here)",
+    "Whether an out-of-repo CI/integration/e2e suite provides coverage the local file listing cannot show"
+  ]
+}

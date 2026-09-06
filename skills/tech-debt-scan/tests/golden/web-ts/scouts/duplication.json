@@ -1,0 +1,43 @@
+{
+  "family": "duplication",
+  "module": null,
+  "findings": [
+    {
+      "title": "Duplicated fetch-with-auth-headers logic across API clients",
+      "family": "duplication",
+      "debt_type": "code",
+      "type_id": "TD-05",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": [
+        "hotspot",
+        "pattern:duplication:coupled-fetch-wrapper",
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 16,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}"
+        },
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 6,
+          "line_end": 18,
+          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),\n    });"
+        }
+      ],
+      "note": "Both build identical Authorization+X-Retry headers and repeat the fetch/json/try-catch shape, differing in BASE, token var, timeout, and error handling. Leads mark this pair change-coupled (shared=4, ratio=0.889); error handling already drifted (see fbf5b36)."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/util/format-legacy.ts",
+      "line_start": 1,
+      "why": "legacyFormat calls formatMoney and post-processes the string rather than reimplementing formatting logic; not a duplicate, just a thin deprecated wrapper."
+    }
+  ],
+  "not_assessed": []
+}

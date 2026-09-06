@@ -1,0 +1,75 @@
+{
+  "family": "pipeline-infra",
+  "module": null,
+  "findings": [
+    {
+      "title": "stdout write in store library instead of the app's logger",
+      "family": "pipeline-infra",
+      "debt_type": "infrastructure",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": [
+        "pattern:pipeline-infra:stdout-write"
+      ],
+      "evidence": [
+        {
+          "file": "internal/store/store.go",
+          "line_start": 31,
+          "line_end": 33,
+          "quote": "if err := json.Unmarshal(raw, &out); err != nil {\n\t\tfmt.Println(\"store: unmarshal failed\")\n\t}"
+        }
+      ],
+      "note": "internal/store is library code (called from cmd/app/main.go), not a CLI entry point. main.go already uses the standard log package, so this fmt.Println bypasses the app's logging path and cannot be leveled, redirected, or captured in tests."
+    },
+    {
+      "title": "No CI/CD automation to build, push, or deploy the Docker/k8s artifacts",
+      "family": "pipeline-infra",
+      "debt_type": "build",
+      "type_id": null,
+      "severity": 3,
+      "effort": "M",
+      "signals_cited": [
+        "coupling"
+      ],
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 11,
+          "line_end": 16,
+          "quote": "      - uses: actions/checkout@v4\n      - uses: actions/setup-go@v5\n        with:\n          go-version: \"1.22\"\n          cache: true\n      - run: go test ./..."
+        },
+        {
+          "file": "k8s/deployment.yaml",
+          "line_start": 9,
+          "line_end": 10,
+          "quote": "        - name: app\n          image: example/app:latest"
+        }
+      ],
+      "note": "The only workflow (ci.yml) runs go test and nothing else; there is no job that builds the Dockerfile image, pushes it, or applies the k8s manifests. Release/deploy is therefore a manual, undocumented step outside version control (docs/runbook.md and README.md do not mention it)."
+    }
+  ],
+  "open_questions": [
+    {
+      "file": ".github/workflows/ci.yml",
+      "line_start": 17,
+      "question": "The commented-out lint job at lines 17-20 \u2014 is this a planned addition or abandoned config? Not counted as a finding since it doesn't match the four listed symptom categories."
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "docker-compose.dev.yml",
+      "line_start": 1,
+      "why": "Uses postgres:latest and mailhog/mailhog:latest floating tags, but this is a dev-only compose file, which is the documented trap (expected, not debt)."
+    },
+    {
+      "file": "docker-compose.yml",
+      "line_start": 1,
+      "why": "Non-dev compose file pins postgres:16.3 and redis:7.2, so no floating-tag or dev-path-in-prod issue here."
+    }
+  ],
+  "not_assessed": [
+    "Whether the commented-out lint job in ci.yml reflects an intentional or abandoned decision (no doc or commit message evidence read).",
+    "Whether the curl | sh install step and privileged: true settings represent exploitable security risk \u2014 out of scope for pipeline-infra symptom categories and not assessed for CVE/exploitability here."
+  ]
+}

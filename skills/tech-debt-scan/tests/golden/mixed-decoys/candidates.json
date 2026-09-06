@@ -1,0 +1,1730 @@
+{
+  "schema_version": 2,
+  "candidates": [
+    {
+      "fingerprint": "8f91af0854095dec",
+      "quote_hash": "9aa489760c4e598ae6b5ca3bd743b57013de9bfc",
+      "family": "duplication",
+      "debt_type": "code",
+      "type_id": "TD-05",
+      "title": "Two overlapping HTTP fetch implementations in httpc package",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Fetch and FetchWithTimeout both implement the same GET-then-handle-response flow; the comment at httpc.go:11 says Fetch is deprecated in favor of FetchWithTimeout, yet main.go:28 still calls the deprecated copy, so both bodies remain live and must be kept in sync.",
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 12,
+          "line_end": 17,
+          "quote": "func Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/httpc/httpc_safe.go",
+          "line_start": 10,
+          "line_end": 15,
+          "quote": "func FetchWithTimeout(url string) (int, error) {\n\tresp, err := client.Get(url)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n\tdefer resp.Body.Close()",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "satd",
+        "scout:duplication"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot",
+        "pattern:duplication:parallel-implementations"
+      ],
+      "signals": {
+        "hotspot_score": 2.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "bf52c33dda8e609a",
+      "quote_hash": "157d095be757718fb17f2934bb1972808746561c",
+      "family": "duplication",
+      "debt_type": "code",
+      "type_id": "TD-05",
+      "title": "290-entry path table duplicates the fallback path formula it sits beside",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "All 290 map entries (lines 12-302) follow exactly the same 'data/'+name+'.json' pattern already computed by the fallback at line 8. The transformation is expressed twice: once as code, once as 290 hand-written literals that must stay consistent with it if the path scheme ever changes.",
+      "evidence": [
+        {
+          "file": "internal/lookup/lookup.go",
+          "line_start": 4,
+          "line_end": 9,
+          "quote": "func PathFor(name string) string {\n\tif p, ok := paths[name]; ok {\n\t\treturn p\n\t}\n\treturn \"data/\" + name + \".json\"\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/lookup/lookup.go",
+          "line_start": 12,
+          "line_end": 17,
+          "quote": "\t\"n001\": \"data/n001.json\",\n\t\"n002\": \"data/n002.json\",\n\t\"n003\": \"data/n003.json\",\n\t\"n004\": \"data/n004.json\",\n\t\"n005\": \"data/n005.json\",\n\t\"n006\": \"data/n006.json\",",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "scout:duplication"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:duplication:data-mirrors-formula"
+      ],
+      "signals": {
+        "hotspot_score": 50.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "682f7e3ccc19fe29",
+      "quote_hash": "d5bccd0b5f4170bd836d2c461350e97a8c669243",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "title": "Builder.WithTLS and Config.TLS are set up but never consumed",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "WithTLS has no call sites in the repo and Config.TLS is never read anywhere, including in main.go's builder chain, so the TLS option added in the builder has no effect.",
+      "evidence": [
+        {
+          "file": "internal/build/builder.go",
+          "line_start": 3,
+          "line_end": 7,
+          "quote": "type Config struct {\n\tName string\n\tPort int\n\tTLS  bool\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/build/builder.go",
+          "line_start": 17,
+          "line_end": 17,
+          "quote": "func (b *Builder) WithTLS(on bool) *Builder      { b.cfg.TLS = on; return b }",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "coupling",
+        "pattern:dead-code:unused-option"
+      ],
+      "signals": {
+        "hotspot_score": 1.4,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "e5babfbf1dc17e2e",
+      "quote_hash": "74b2a6588935600bde063104c65c7e4e90627d35",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "title": "crypto.Fingerprint has no callers anywhere in the repository",
+      "severity": 1,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Checked for reflection, string dispatch, routes, DI and serialisation references to Fingerprint; found none. It is an exported function with zero fan-in in a 13-file repo.",
+      "evidence": [
+        {
+          "file": "internal/crypto/hash.go",
+          "line_start": 8,
+          "line_end": 11,
+          "quote": "func Fingerprint(id string) string {\n\tsum := md5.Sum([]byte(id))\n\treturn hex.EncodeToString(sum[:])\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "coupling"
+      ],
+      "signals": {
+        "hotspot_score": 0.7,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "d715b507df24e5ab",
+      "quote_hash": "59ecdf2629c50c48e76ede4c1b845d2eec166086",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "title": "legacyHandler is reachable only to unconditionally panic",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "legacyHandler is wired into the string-dispatch table (checked: this is the only dispatch mechanism in the file) under the \"legacy\" command name, but its body is an unconditional panic, so invoking it can only crash the process. No caller in the repo passes \"legacy\" as an argument.",
+      "evidence": [
+        {
+          "file": "internal/dispatch/dispatch.go",
+          "line_start": 7,
+          "line_end": 12,
+          "quote": "var handlers = map[string]handler{\n\t\"start\":  start,\n\t\"stop\":   stop,\n\t\"status\": status,\n\t\"legacy\": legacyHandler,\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/dispatch/dispatch.go",
+          "line_start": 30,
+          "line_end": 32,
+          "quote": "func legacyHandler(args []string) error {\n\tpanic(\"not implemented\")\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:legacy-name",
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:dead-code:legacy-name"
+      ],
+      "signals": {
+        "hotspot_score": 2.5,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "d59bf39ced06c57e",
+      "quote_hash": "2ad83d0e603829b926ebd8d416bd679da6050779",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "title": "Deprecated Fetch is still the live call site instead of its replacement",
+      "severity": 3,
+      "effort": "M",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Fetch carries a Deprecated marker pointing at FetchWithTimeout, yet main.go still calls the deprecated version rather than the replacement, so the deprecation has not been followed through anywhere in the codebase.",
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 11,
+          "line_end": 13,
+          "quote": "// Deprecated: use FetchWithTimeout from httpc_safe.go.\nfunc Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}",
+          "quote_verified": true
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:deprecation",
+        "pattern:flag-sdk",
+        "satd",
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot",
+        "pattern:dead-code:deprecation"
+      ],
+      "signals": {
+        "hotspot_score": 2.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "47ec0ffaa597bd86",
+      "quote_hash": "157d095be757718fb17f2934bb1972808746561c",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "title": "290-entry lookup table is fully redundant with its own fallback",
+      "severity": 3,
+      "effort": "M",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Every entry in the 290-line paths map exactly matches the value the fallback branch (\"data/\"+name+\".json\") would compute anyway, so the map never changes PathFor's return value for any key it contains. The whole map has no observable effect and is the file's top hotspot.",
+      "evidence": [
+        {
+          "file": "internal/lookup/lookup.go",
+          "line_start": 4,
+          "line_end": 9,
+          "quote": "func PathFor(name string) string {\n\tif p, ok := paths[name]; ok {\n\t\treturn p\n\t}\n\treturn \"data/\" + name + \".json\"\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/lookup/lookup.go",
+          "line_start": 11,
+          "line_end": 16,
+          "quote": "var paths = map[string]string{\n\t\"n001\": \"data/n001.json\",\n\t\"n002\": \"data/n002.json\",\n\t\"n003\": \"data/n003.json\",\n\t\"n004\": \"data/n004.json\",\n\t\"n005\": \"data/n005.json\",",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:dead-code:redundant-table"
+      ],
+      "signals": {
+        "hotspot_score": 50.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "61ee0ea261ec98c1",
+      "quote_hash": "4937e024c80c37753814ede9ef042ed0d33c5c67",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": null,
+      "title": "internal/shell package is entirely unimported",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Searched the module for any import of internal/shell; none exists. The only exported function in the package has zero fan-in, and the whole file/package is unreferenced.",
+      "evidence": [
+        {
+          "file": "internal/shell/run.go",
+          "line_start": 5,
+          "line_end": 8,
+          "quote": "// Run executes a shell snippet; callers pass trusted input only.\nfunc Run(snippet string) ([]byte, error) {\n\treturn exec.Command(\"sh\", \"-c\", snippet).CombinedOutput() //nolint:gosec\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:dead-code"
+      ],
+      "signals_cited": [
+        "coupling"
+      ],
+      "signals": {
+        "hotspot_score": 0.2,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "d887ca1f61883449",
+      "quote_hash": "51d6d76685605995ff389406861e8fb656879c2c",
+      "family": "error-masking",
+      "debt_type": "code",
+      "type_id": "TD-13",
+      "title": "httpc.Fetch swallows both request and body-read errors, returning empty string",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Get() failure and ReadAll() failure both collapse to an empty-string return with no logging; the only call site (main.go:28) also discards the return value with '_ =', so a broken health check is completely invisible end to end.",
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 14,
+          "line_end": 20,
+          "quote": "resp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}\n\tdefer resp.Body.Close()\n\tbody, _ := io.ReadAll(resp.Body)\n\treturn string(body)",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "satd",
+        "scout:error-masking"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot"
+      ],
+      "signals": {
+        "hotspot_score": 2.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "4731d613c0d929c9",
+      "quote_hash": "cb30d5a95908b9ac9729156456ef2ebb10d7ab68",
+      "family": "error-masking",
+      "debt_type": "code",
+      "type_id": "TD-13",
+      "title": "Store.Load logs unmarshal failure without the cause and returns partial data",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "The printed message never includes err, so the underlying cause is lost. Load still returns the possibly-empty out map as if valid, with no error return path for callers to detect the failure.",
+      "evidence": [
+        {
+          "file": "internal/store/store.go",
+          "line_start": 30,
+          "line_end": 34,
+          "quote": "out := map[string]string{}\n\tif err := json.Unmarshal(raw, &out); err != nil {\n\t\tfmt.Println(\"store: unmarshal failed\")\n\t}\n\treturn out",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/store/store.go",
+          "line_start": 25,
+          "line_end": 29,
+          "quote": "func (s *Store) Load(key string) map[string]string {\n\traw, err := os.ReadFile(s.path)\n\tif err != nil {\n\t\treturn nil\n\t}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:swallowed-catch",
+        "scout:error-masking"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:error-masking:swallowed-catch"
+      ],
+      "signals": {
+        "hotspot_score": 8.5,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "81123c5aab0571a0",
+      "quote_hash": "bf10b6740a833ffeb73b8ffe86f0b92e51bac662",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "dispatch.Run branch logic (no-args, unknown cmd, legacy panic) is untested",
+      "severity": 4,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "No mapped or unconventionally named test found for this package. Run() is the sole CLI dispatch entry point; its empty-args, unknown-command and success paths are unverified. The legacy command reaches an unconditional panic, reachable from user input, with no test guarding it.",
+      "evidence": [
+        {
+          "file": "internal/dispatch/dispatch.go",
+          "line_start": 15,
+          "line_end": 24,
+          "quote": "func Run(args []string) error {\n\tif len(args) == 0 {\n\t\treturn errors.New(\"no command\")\n\t}\n\th, ok := handlers[args[0]]\n\tif !ok {\n\t\treturn errors.New(\"unknown command: \" + args[0])\n\t}\n\treturn h(args[1:])\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/dispatch/dispatch.go",
+          "line_start": 30,
+          "line_end": 32,
+          "quote": "func legacyHandler(args []string) error {\n\tpanic(\"not implemented\")\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:test-gaps:no-mapped-test"
+      ],
+      "signals": {
+        "hotspot_score": 2.5,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "a8331cfe8ba14bf7",
+      "quote_hash": "eb14cad80d05834db5153b833719a63f9016e6eb",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Payments kill switch has no test verifying it changes behaviour",
+      "severity": 5,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "No test exercises flags.IsEnabled or asserts flipping payments.killswitch changes behaviour, despite the runbook naming it the on-call incident lever. untested_change_share=0.5. main.go only logs on it; a regression here would go uncaught.",
+      "evidence": [
+        {
+          "file": "internal/flags/flags.go",
+          "line_start": 3,
+          "line_end": 9,
+          "quote": "// Flags holds operational switches read at startup.\n//\n// payments.killswitch is a permanent kill switch: it stays false in normal\n// operation and is flipped by on-call during an incident (see docs/runbook.md).\nvar Flags = map[string]bool{\n\t\"payments.killswitch\": false,\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 22,
+          "line_end": 24,
+          "quote": "\tif flags.IsEnabled(\"payments.killswitch\") {\n\t\tlog.Println(\"payments disabled by kill switch\")\n\t}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:test-gaps:no-mapped-test",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 0.7,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "1487b4ad80a6ee86",
+      "quote_hash": "6e62cabdb5422f523713129e4002a69cb25a6283",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "Deprecated but still-called httpc.Fetch path has no test",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Fetch is marked deprecated in favour of FetchWithTimeout, yet main.go still calls it and discards the result. No test exists for either function; the silent-empty-string error path is unverified.",
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 11,
+          "line_end": 18,
+          "quote": "// Deprecated: use FetchWithTimeout from httpc_safe.go.\nfunc Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}\n\tdefer resp.Body.Close()",
+          "quote_verified": true
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "satd",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:test-gaps:no-mapped-test",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 2.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "b6586e999c0e6bdd",
+      "quote_hash": "7618113d3d3ab3a482f8370b01319a86217cd93b",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "title": "store_test.go asserts execution, not behaviour, for Load; Find is untested",
+      "severity": 4,
+      "effort": "M",
+      "source": "scout",
+      "rule_id": null,
+      "note": "TestLoadSmoke discards Load's return value, never asserting on parsed contents or error behaviour. Find() has no test at all despite untested_change_share=0.5 and a recent 'fix: store lookup query' commit touching this file.",
+      "evidence": [
+        {
+          "file": "internal/store/store_test.go",
+          "line_start": 14,
+          "line_end": 17,
+          "quote": "func TestLoadSmoke(t *testing.T) {\n\ttime.Sleep(10 * time.Millisecond)\n\t_ = (&Store{path: \"x\"}).Load(\"k\")\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/store/store.go",
+          "line_start": 25,
+          "line_end": 39,
+          "quote": "func (s *Store) Load(key string) map[string]string {\n\traw, err := os.ReadFile(s.path)\n\tif err != nil {\n\t\treturn nil\n\t}\n\tout := map[string]string{}\n\tif err := json.Unmarshal(raw, &out); err != nil {\n\t\tfmt.Println(\"store: unmarshal failed\")\n\t}\n\treturn out\n}\n\nfunc (s *Store) Find(id string) (*sql.Rows, error) {\n\treturn s.db.Query(\"SELECT * FROM items WHERE id = '\" + id + \"'\")\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot"
+      ],
+      "signals": {
+        "hotspot_score": 1.4,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "a9f954d154719182",
+      "quote_hash": "59ecdf2629c50c48e76ede4c1b845d2eec166086",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": "TD-22",
+      "title": "legacy dispatch command panics with not-implemented stub",
+      "severity": 4,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "legacyHandler is registered in the live command dispatch table (reachable via Run/os.Args), not an abstract interface method, so invoking the \"legacy\" command crashes the process instead of returning an error.",
+      "evidence": [
+        {
+          "file": "internal/dispatch/dispatch.go",
+          "line_start": 7,
+          "line_end": 12,
+          "quote": "var handlers = map[string]handler{\n\t\"start\":  start,\n\t\"stop\":   stop,\n\t\"status\": status,\n\t\"legacy\": legacyHandler,\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/dispatch/dispatch.go",
+          "line_start": 30,
+          "line_end": 32,
+          "quote": "func legacyHandler(args []string) error {\n\tpanic(\"not implemented\")\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:stub",
+        "scout:half-finished"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot",
+        "pattern:half-finished:stub"
+      ],
+      "signals": {
+        "hotspot_score": 2.5,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "45d73ee57cd37a54",
+      "quote_hash": "881c4b96ed9e0a5d0de232655a9ddefdbbc0b4ed",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": "TD-28",
+      "title": "Fetch has no timeout and can hang forever on health check",
+      "severity": 4,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "http.Get uses http.DefaultClient which has no Timeout set, so if the remote never responds this call in main() blocks indefinitely with no way to cancel.",
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 11,
+          "line_end": 11,
+          "quote": "// Deprecated: use FetchWithTimeout from httpc_safe.go.",
+          "quote_verified": true
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 12,
+          "line_end": 18,
+          "quote": "func Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}\n\tdefer resp.Body.Close()",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:no-timeout",
+        "satd",
+        "scout:half-finished"
+      ],
+      "signals_cited": [
+        "coupling",
+        "hotspot",
+        "pattern:half-finished:no-timeout",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 2.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "f5a9c42e37bfbe4d",
+      "quote_hash": "82b4e760f173404d75b1470fd8104c63492296de",
+      "family": "migration",
+      "debt_type": "design",
+      "type_id": "TD-06",
+      "title": "Deprecated httpc.Fetch still called instead of FetchWithTimeout",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "httpc.go carries a Deprecated annotation pointing at FetchWithTimeout in httpc_safe.go, but the sole call site (main.go) still uses the old Fetch. 1 of 1 call sites (100%) is on the deprecated side; no ticket or removal date is referenced.",
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 11,
+          "line_end": 17,
+          "quote": "// Deprecated: use FetchWithTimeout from httpc_safe.go.\nfunc Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)\n\tif err != nil {\n\t\treturn \"\"\n\t}",
+          "quote_verified": true
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "\t_ = httpc.Fetch(\"https://example.com/health\")",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "satd",
+        "scout:migration"
+      ],
+      "signals_cited": [
+        "coupling",
+        "pattern:migration:deprecated-still-called",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 2.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "bf26c2f7166e080c",
+      "quote_hash": "fc49ddaab7fe6aa9134fde3a6ee9051f0773d9d1",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "title": "go.sum lists a module absent from go.mod requires",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "go.mod has no require block at all, yet go.sum records a checksum for github.com/example/dep v1.2.0, which is also unreferenced by any import in the codebase. Lockfile and manifest disagree on what is a dependency.",
+      "evidence": [
+        {
+          "file": "go.mod",
+          "line_start": 1,
+          "line_end": 3,
+          "quote": "module example.com/app\n\ngo 1.22",
+          "quote_verified": true
+        },
+        {
+          "file": "go.sum",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "github.com/example/dep v1.2.0 h1:abc=",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:dependency-debt"
+      ],
+      "signals_cited": [
+        "pattern:dependency-debt:manifest-lockfile-mismatch"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "7184d41860800e6d",
+      "quote_hash": "3d2ab818fc02cd0a831ae0584569630da5439ca2",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "title": "No CHANGELOG or CONTRIBUTING despite two tagged releases",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Repository has tagged releases v0.1.0 and v0.2.0 but no CHANGELOG.md, no CONTRIBUTING.md, and no ADR directory recording design decisions such as the builder TLS option or the kill switch.",
+      "evidence": [
+        {
+          "file": "README.md",
+          "line_start": 1,
+          "line_end": 3,
+          "quote": "# app\n\nGo service with a lookup table, a string dispatcher and a fluent builder.",
+          "quote_verified": true
+        },
+        {
+          "file": ".git/refs/tags/v0.1.0",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "1b1cd9e60605710db13483c7c69f885d9240a430",
+          "quote_verified": true
+        },
+        {
+          "file": ".git/refs/tags/v0.2.0",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "b57194e67971162f69e19cefd83afe453f8214d6",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:doc-drift"
+      ],
+      "signals_cited": [
+        "README.md missing: ADR directory",
+        "README.md missing: CHANGELOG",
+        "README.md missing: CONTRIBUTING"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "5be87c92ab0d4b6b",
+      "quote_hash": "00ca5fd245158b9071a5a5dcad34d486a30235ca",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "title": "Runbook describes kill switch as operational control; code only logs",
+      "severity": 4,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Runbook tells on-call this is an operational kill switch that stops payments during an incident. The only code reading it logs a line; no payment-processing code exists anywhere in the repo for it to gate.",
+      "evidence": [
+        {
+          "file": "docs/runbook.md",
+          "line_start": 5,
+          "line_end": 7,
+          "quote": "`payments.killswitch` in `internal/flags/flags.go` is a permanent operational\nkill switch. It is off in normal operation and is flipped by on-call during an\nincident; do not remove it as dead code.",
+          "quote_verified": true
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 22,
+          "line_end": 24,
+          "quote": "if flags.IsEnabled(\"payments.killswitch\") {\n\t\tlog.Println(\"payments disabled by kill switch\")\n\t}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:doc-drift"
+      ],
+      "signals_cited": [
+        "docs/runbook.md stale 272 days behind the code",
+        "pattern:doc-drift:behavior-mismatch"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "a8a0b3c16057f8e1",
+      "quote_hash": "f4ecf226a15449eb78eca531c3a13cbe4fb3cbe5",
+      "family": "security",
+      "debt_type": "security",
+      "type_id": "TD-03",
+      "title": "TLS certificate verification disabled process-wide, invoked at startup",
+      "severity": 5,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Fetch mutates the process-wide http.DefaultTransport to skip TLS verification, and is called unconditionally from main() against a live https URL, not a local/dev target. Every other consumer of http.DefaultTransport in the process is affected for the life of the process.",
+      "evidence": [
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 9,
+          "line_end": 9,
+          "quote": "const apiToken = \"tok_***\"",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/httpc/httpc.go",
+          "line_start": 12,
+          "line_end": 14,
+          "quote": "func Fetch(url string) string {\n\thttp.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}\n\tresp, err := http.Get(url)",
+          "quote_verified": true
+        },
+        {
+          "file": "cmd/app/main.go",
+          "line_start": 28,
+          "line_end": 28,
+          "quote": "_ = httpc.Fetch(\"https://example.com/health\")",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:credential",
+        "pattern:tls-disabled",
+        "satd",
+        "scout:security"
+      ],
+      "signals_cited": [
+        "coupling",
+        "pattern:security:credential",
+        "pattern:security:tls-disabled"
+      ],
+      "signals": {
+        "hotspot_score": 2.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "c12ea32d1052b33e",
+      "quote_hash": "4937e024c80c37753814ede9ef042ed0d33c5c67",
+      "family": "security",
+      "debt_type": "security",
+      "type_id": "TD-03",
+      "title": "Shell-out via sh -c with unenforced trust assumption and suppressed lint",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "The gosec suppression is backed only by a comment asserting caller trust, with no enforcement mechanism (no allowlist, no escaping). No current in-repo caller was found, so the trust boundary is unverifiable from the code itself.",
+      "evidence": [
+        {
+          "file": "internal/shell/run.go",
+          "line_start": 5,
+          "line_end": 8,
+          "quote": "// Run executes a shell snippet; callers pass trusted input only.\nfunc Run(snippet string) ([]byte, error) {\n\treturn exec.Command(\"sh\", \"-c\", snippet).CombinedOutput() //nolint:gosec\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:dynamic-eval",
+        "pattern:security-suppression",
+        "scout:security"
+      ],
+      "signals_cited": [
+        "pattern:security:dynamic-eval",
+        "pattern:security:security-suppression",
+        "satd"
+      ],
+      "signals": {
+        "hotspot_score": 0.2,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "b828feafe9a094a2",
+      "quote_hash": "733e5f93633ba7a229aeccbfefbf966ed23e9e12",
+      "family": "security",
+      "debt_type": "security",
+      "type_id": "TD-03",
+      "title": "String-concatenated SQL query on exported Store method",
+      "severity": 4,
+      "effort": "M",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Find is an exported method that concatenates its id parameter directly into a SQL string instead of using a parameterized query. No current in-repo caller was found, but the method is public API surface reachable by any future caller with unsanitized input.",
+      "evidence": [
+        {
+          "file": "internal/store/store.go",
+          "line_start": 37,
+          "line_end": 39,
+          "quote": "func (s *Store) Find(id string) (*sql.Rows, error) {\n\treturn s.db.Query(\"SELECT * FROM items WHERE id = '\" + id + \"'\")\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:string-sql",
+        "scout:security"
+      ],
+      "signals_cited": [
+        "pattern:security:string-sql"
+      ],
+      "signals": {
+        "hotspot_score": 8.5,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "545f2bc5cc2e6fef",
+      "quote_hash": "fb9147836df0cb1e857bc1de8e6cb8fa8943cdfd",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": null,
+      "title": "Sleep in test with no async work to wait on",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "Load() is synchronous file I/O with no goroutines or timers to wait on, so the 10ms sleep serves no synchronization purpose and only adds arbitrary latency/flakiness risk to the suite.",
+      "evidence": [
+        {
+          "file": "internal/store/store_test.go",
+          "line_start": 14,
+          "line_end": 16,
+          "quote": "func TestLoadSmoke(t *testing.T) {\n\ttime.Sleep(10 * time.Millisecond)\n\t_ = (&Store{path: \"x\"}).Load(\"k\")",
+          "quote_verified": true
+        },
+        {
+          "file": "internal/store/store_test.go",
+          "line_start": 14,
+          "line_end": 17,
+          "quote": "func TestLoadSmoke(t *testing.T) {\n\ttime.Sleep(10 * time.Millisecond)\n\t_ = (&Store{path: \"x\"}).Load(\"k\")\n}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "pattern:assert-free",
+        "pattern:conditional-in-test",
+        "pattern:sleep",
+        "scout:test-quality"
+      ],
+      "signals_cited": [
+        "pattern:test-quality:assert-free",
+        "pattern:test-quality:sleep"
+      ],
+      "signals": {
+        "hotspot_score": 1.4,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "67a7969de9b64d00",
+      "quote_hash": "da53e8d109ef1e8c0abd1c760799d539bba025dc",
+      "family": "pipeline-infra",
+      "debt_type": "build",
+      "type_id": null,
+      "title": "No CI/CD automation to build, push, or deploy the Docker/k8s artifacts",
+      "severity": 3,
+      "effort": "M",
+      "source": "scout",
+      "rule_id": null,
+      "note": "The only workflow (ci.yml) runs go test and nothing else; there is no job that builds the Dockerfile image, pushes it, or applies the k8s manifests. Release/deploy is therefore a manual, undocumented step outside version control (docs/runbook.md and README.md do not mention it).",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 11,
+          "line_end": 16,
+          "quote": "      - uses: actions/checkout@v4\n      - uses: actions/setup-go@v5\n        with:\n          go-version: \"1.22\"\n          cache: true\n      - run: go test ./...",
+          "quote_verified": true
+        },
+        {
+          "file": "k8s/deployment.yaml",
+          "line_start": 9,
+          "line_end": 10,
+          "quote": "        - name: app\n          image: example/app:latest",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ci.continue-on-error",
+        "rule:iac.no-resource-limits",
+        "scout:pipeline-infra"
+      ],
+      "signals_cited": [
+        "coupling"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "c3cf7df573a74091",
+      "quote_hash": "1b585d3fd5ad4f41538f14fda018938de6bbb3bb",
+      "family": "pipeline-infra",
+      "debt_type": "infrastructure",
+      "type_id": null,
+      "title": "stdout write in store library instead of the app's logger",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "note": "internal/store is library code (called from cmd/app/main.go), not a CLI entry point. main.go already uses the standard log package, so this fmt.Println bypasses the app's logging path and cannot be leveled, redirected, or captured in tests.",
+      "evidence": [
+        {
+          "file": "internal/store/store.go",
+          "line_start": 31,
+          "line_end": 33,
+          "quote": "if err := json.Unmarshal(raw, &out); err != nil {\n\t\tfmt.Println(\"store: unmarshal failed\")\n\t}",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:stdout-write",
+        "scout:pipeline-infra"
+      ],
+      "signals_cited": [
+        "pattern:pipeline-infra:stdout-write"
+      ],
+      "signals": {
+        "hotspot_score": 8.5,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "f389a33ddc209bae",
+      "quote_hash": "a6ce2f41ffbdd662c1717293b6589757cdccf72f",
+      "family": "pipeline-infra",
+      "debt_type": "build",
+      "type_id": "TD-27",
+      "title": "Release process gaps",
+      "severity": 2,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "release.stale-env-branch",
+      "note": "long-lived environment branch",
+      "evidence": [
+        {
+          "file": null,
+          "line_start": null,
+          "line_end": null,
+          "quote": "branch staging unmerged, last commit 2026-03-09 (179 days ago)",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:release.stale-env-branch"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 0,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": null,
+        "in_hotspot_band": false
+      },
+      "tier": "A"
+    },
+    {
+      "fingerprint": "6a5a73520cb40aa3",
+      "quote_hash": "c0d5bc7d8b4c4f7f0fcec4e98caec703f3f4bfab",
+      "family": "pipeline-infra",
+      "debt_type": "build",
+      "type_id": "TD-14",
+      "title": "CI workflow gaps in .github/workflows/ci.yml",
+      "severity": 2,
+      "effort": "S",
+      "source": "rule",
+      "rule_id": "ci.continue-on-error",
+      "note": "job build continues on error; job build runs on the mutable label ubuntu-latest; actions/checkout@v4 is not pinned to a commit SHA; actions/setup-go@v5 is not pinned to a commit SHA; commented-out job block",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 9,
+          "line_end": 9,
+          "quote": "continue-on-error: true",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 7,
+          "line_end": 7,
+          "quote": "runs-on: ubuntu-latest",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 11,
+          "line_end": 11,
+          "quote": "- uses: actions/checkout@v4",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 12,
+          "line_end": 12,
+          "quote": "- uses: actions/setup-go@v5",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 18,
+          "line_end": 18,
+          "quote": "#   runs-on: ubuntu-latest",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ci.commented-job",
+        "rule:ci.continue-on-error",
+        "rule:ci.mutable-runner",
+        "rule:ci.unpinned-action"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "A"
+    },
+    {
+      "fingerprint": "6c225b145abb8048",
+      "quote_hash": "26fb5f76cdf8dc677abbd69a5790975fd740ecb8",
+      "family": "pipeline-infra",
+      "debt_type": "infrastructure",
+      "type_id": "TD-19",
+      "title": "Container configuration gaps in Dockerfile",
+      "severity": 2,
+      "effort": "S",
+      "source": "rule",
+      "rule_id": "container.unversioned-install",
+      "note": "package install without a version pin",
+      "evidence": [
+        {
+          "file": "Dockerfile",
+          "line_start": 8,
+          "line_end": 8,
+          "quote": "RUN apk add --no-cache curl",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:container.unversioned-install"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "A"
+    },
+    {
+      "fingerprint": "e580ee72fab36350",
+      "quote_hash": "fa3cb0620d63dec09678c0f2f03e17cb8c419732",
+      "family": "pipeline-infra",
+      "debt_type": "infrastructure",
+      "type_id": "TD-19",
+      "title": "Container configuration gaps in docker-compose.dev.yml",
+      "severity": 1,
+      "effort": "S",
+      "source": "rule",
+      "rule_id": "container.latest-image",
+      "note": "image postgres:latest is untagged or latest; image mailhog/mailhog:latest is untagged or latest",
+      "evidence": [
+        {
+          "file": "docker-compose.dev.yml",
+          "line_start": 3,
+          "line_end": 3,
+          "quote": "image: postgres:latest",
+          "quote_verified": true
+        },
+        {
+          "file": "docker-compose.dev.yml",
+          "line_start": 5,
+          "line_end": 5,
+          "quote": "image: mailhog/mailhog:latest",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:container.latest-image"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "A"
+    },
+    {
+      "fingerprint": "7bf4b30093bfa34f",
+      "quote_hash": "f667224347708d0bc15bda0bdff203a47c1e8d8c",
+      "family": "pipeline-infra",
+      "debt_type": "infrastructure",
+      "type_id": "TD-19",
+      "title": "Kubernetes manifest gaps in k8s/deployment.yaml",
+      "severity": 2,
+      "effort": "S",
+      "source": "rule",
+      "rule_id": "iac.no-resource-limits",
+      "note": "container app has no resources.limits; container app uses example/app:latest; container app is privileged",
+      "evidence": [
+        {
+          "file": "k8s/deployment.yaml",
+          "line_start": 9,
+          "line_end": 9,
+          "quote": "- name: app",
+          "quote_verified": true
+        },
+        {
+          "file": "k8s/deployment.yaml",
+          "line_start": 10,
+          "line_end": 10,
+          "quote": "image: example/app:latest",
+          "quote_verified": true
+        },
+        {
+          "file": "k8s/deployment.yaml",
+          "line_start": 12,
+          "line_end": 12,
+          "quote": "privileged: true",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:iac.latest-image",
+        "rule:iac.no-resource-limits",
+        "rule:iac.privileged"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "A"
+    }
+  ],
+  "open_questions": [
+    {
+      "file": "internal/lookup/lookup.go",
+      "line_start": 11,
+      "question": "Is the paths map generated from an external manifest (e.g. a build step not present in this checkout)? If so this table would be generated/fixture data and out of scope for this family.",
+      "reason": null
+    },
+    {
+      "file": "internal/httpc/httpc.go",
+      "line_start": 11,
+      "question": "Was httpc.Fetch scheduled for removal, and is main.go's continued call to it (line 28) tracked work, or an overlooked migration?",
+      "reason": null
+    },
+    {
+      "file": "internal/dispatch/dispatch.go",
+      "line_start": 11,
+      "question": "Is the \"legacy\" subcommand ever invoked by an external script, CI job, or operator runbook outside this repository?",
+      "reason": null
+    },
+    {
+      "file": "internal/build/builder.go",
+      "line_start": 17,
+      "question": "Was WithTLS added in anticipation of wiring TLS into main.go's builder chain, and is that wiring still pending?",
+      "reason": null
+    },
+    {
+      "file": "internal/httpc/httpc.go",
+      "line_start": 1,
+      "question": "invented quote (golden pin)",
+      "reason": "quote not found"
+    },
+    {
+      "file": "internal/dispatch/dispatch.go",
+      "line_start": 30,
+      "question": "Is legacyHandler's panic intentional (e.g. marks a retired command) or a leftover that should be tested/guarded? No test or comment clarifies intent.",
+      "reason": null
+    },
+    {
+      "file": "",
+      "line_start": 0,
+      "question": "Only one *_test.go file exists in the repo (internal/store/store_test.go); is there an external/integration/e2e suite covering cmd/app, dispatch, or lookup that isn't visible in this checkout?",
+      "reason": null
+    },
+    {
+      "file": "internal/httpc/httpc.go",
+      "line_start": 11,
+      "question": "Is there a tracked ticket or deadline for migrating main.go off httpc.Fetch to FetchWithTimeout, or was the replacement added but never wired up?",
+      "reason": null
+    },
+    {
+      "file": "internal/crypto/hash.go",
+      "line_start": 8,
+      "question": "Fingerprint() using md5 has no in-repo caller; unclear whether any future use is security-sensitive (e.g. auth token) versus a cache key/checksum, which would not be a finding.",
+      "reason": null
+    },
+    {
+      "file": "internal/shell/run.go",
+      "line_start": 6,
+      "question": "No caller of shell.Run was found in the repository; unclear whether external callers exist that could pass untrusted input, which would change severity.",
+      "reason": null
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line_start": 17,
+      "question": "The commented-out lint job at lines 17-20 \u2014 is this a planned addition or abandoned config? Not counted as a finding since it doesn't match the four listed symptom categories.",
+      "reason": null
+    }
+  ],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/lookup/lookup.go",
+      "line_start": 11,
+      "why": "290-entry map literal inflates lookup.go's hotspot score and line count, but it is a flat, cohesive lookup table with no branching or nesting \u2014 not a complex unit."
+    },
+    {
+      "file": "internal/lookup/lookup.go",
+      "line_start": 1,
+      "why": "302 lines and highest hotspot score in the repo, but it is one function (PathFor) plus a single static map literal of 290 name-to-path entries. One responsibility, no field clustering, no fan-out to other units \u2014 a data table, not a god-class."
+    },
+    {
+      "file": "internal/build/builder.go",
+      "line_start": 9,
+      "why": "Fluent builder pattern (WithName/WithPort/WithTLS/Build chained on *Builder) is wide by design per the family's own trap list, not a god-class."
+    },
+    {
+      "file": "internal/dispatch/dispatch.go",
+      "line_start": 26,
+      "why": "start/stop/status/legacyHandler are trivial same-shaped stub functions but each represents a distinct command with its own reason to change; not duplication."
+    },
+    {
+      "file": "internal/flags/flags.go",
+      "line_start": 5,
+      "why": "payments.killswitch is documented in flags.go and docs/runbook.md as a permanent, deliberately always-false-in-normal-operation kill switch flipped by on-call during incidents; it is not a stale single-value flag."
+    },
+    {
+      "file": "internal/dispatch/dispatch.go",
+      "line_start": 30,
+      "why": "legacyHandler panics with 'not implemented' rather than swallowing an error; a panic surfaces loudly rather than masking failure, so it is not error-masking even though it looks abrupt."
+    },
+    {
+      "file": "cmd/app/main.go",
+      "line_start": 25,
+      "why": "dispatch.Run's error is checked and passed to log.Fatal, which preserves the cause and halts the process; this is a proper process-boundary handling, not masking."
+    },
+    {
+      "file": "internal/lookup/lookup.go",
+      "line_start": 11,
+      "why": "The high hotspot score is driven by a 290-entry static data map (lines 11-302), not by logic. The one real branch in PathFor (lines 4-9) is a trivial fallback string concat; this is glue/config data per the stated trap, not a meaningful test gap."
+    },
+    {
+      "file": "internal/build/builder.go",
+      "line_start": 9,
+      "why": "Fluent builder with only field assignment, no branching or error paths; flagged for untested_change_share=0.5 but is glue/config code the trap says doesn't need unit tests."
+    },
+    {
+      "file": "internal/flags/flags.go",
+      "line_start": 4,
+      "why": "payments.killswitch is a documented, ticketed (runbook-referenced) deliberate deferral toggle, not an unfinished stub."
+    },
+    {
+      "file": "internal/build/builder.go",
+      "line_start": 1,
+      "why": "Builder pattern with chained With* methods is a complete, intentional API, not a half-finished contract."
+    },
+    {
+      "file": "docker-compose.dev.yml",
+      "line_start": 1,
+      "why": "Separate dev compose file alongside docker-compose.yml looks like a dual-manifest, but it is a standard dev-override pattern (different services: mailhog vs redis), not an old/new pair replacing each other."
+    },
+    {
+      "file": "internal/dispatch/dispatch.go",
+      "line_start": 11,
+      "why": "A 'legacy' handler key maps to a panicking legacyHandler, but no code calls it and no working replacement command supersedes it, so it does not show the old-vs-new coexistence pattern this family targets."
+    },
+    {
+      "file": "internal/httpc/httpc.go",
+      "line_start": 1,
+      "why": "Two files (httpc.go, httpc_safe.go) in the same package both wrap net/http, but both use the Go standard library only \u2014 no duplicate third-party HTTP client dependency is involved, so this is out of scope for dependency-debt."
+    },
+    {
+      "file": "Dockerfile",
+      "line_start": 1,
+      "why": "golang:1.22 base image matches go.mod's `go 1.22` and CI's go-version 1.22 \u2014 no runtime-version disagreement."
+    },
+    {
+      "file": "README.md",
+      "line_start": 1,
+      "why": "Flagged as 533 days stale, but its generic description (lookup table, string dispatcher, fluent builder) still accurately matches internal/lookup, internal/dispatch and internal/build as currently written; no contradicting claim found."
+    },
+    {
+      "file": "docs/runbook.md",
+      "line_start": 1,
+      "why": "Flagged as 272 days stale, but the flag name, file path, and default value it documents (internal/flags/flags.go, payments.killswitch=false) still match the code exactly."
+    },
+    {
+      "file": "internal/lookup/lookup.go",
+      "line_start": 11,
+      "why": "290-entry hardcoded map scores as a hotspot and is depended on by store, which could look like an unstable god-file many components rely on, but it has exactly one consumer (internal/store/store.go) and the map's values are identical to the function's own fallback pattern 'data/'+name+'.json', so there is no fan-out coupling risk despite the size."
+    },
+    {
+      "file": "cmd/app/main.go",
+      "line_start": 7,
+      "why": "main.go imports five internal packages (build, dispatch, flags, httpc, store), which looks like a coupled hub, but this is the composition root of a single small binary, not a shared library being fanned out to multiple consumers, so high import count here is expected."
+    },
+    {
+      "file": "internal/crypto/hash.go",
+      "line_start": 9,
+      "why": "md5 use has no discoverable caller in the repo; per family rules a weak hash used only for a cache key or checksum is not reportable, and no evidence contradicts that reading."
+    },
+    {
+      "file": "internal/store/store_test.go",
+      "line_start": 8,
+      "why": "if _, err := Open(\"missing\"); err == nil { t.Fatal(...) } is the standard idiomatic Go pattern for asserting an error occurred (no assert library available); it is a single deterministic check, not conditional logic branching test behavior on data."
+    },
+    {
+      "file": "docker-compose.dev.yml",
+      "line_start": 1,
+      "why": "Uses postgres:latest and mailhog/mailhog:latest floating tags, but this is a dev-only compose file, which is the documented trap (expected, not debt)."
+    },
+    {
+      "file": "docker-compose.yml",
+      "line_start": 1,
+      "why": "Non-dev compose file pins postgres:16.3 and redis:7.2, so no floating-tag or dev-path-in-prod issue here."
+    }
+  ],
+  "stats": {
+    "complex-units": {
+      "raw": 0,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "god-classes": {
+      "raw": 0,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "duplication": {
+      "raw": 2,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "dead-code": {
+      "raw": 7,
+      "dropped": 0,
+      "quote_failed": 1,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "error-masking": {
+      "raw": 3,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 1,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "test-gaps": {
+      "raw": 4,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "half-finished": {
+      "raw": 3,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 1,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "migration": {
+      "raw": 1,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "dependency-debt": {
+      "raw": 1,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "doc-drift": {
+      "raw": 2,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "architecture": {
+      "raw": 0,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "security": {
+      "raw": 4,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 1,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "test-quality": {
+      "raw": 2,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 1,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "pipeline-infra": {
+      "raw": 2,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    }
+  }
+}
