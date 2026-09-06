@@ -295,8 +295,11 @@ python scripts/flow_map.py validate --phase green --ledger <tests>/flow-map.yaml
 ```
 
 - Omit `--service-dir` when there is no sub-directory.
-- If Maven produced no `target/karate-reports/*.json` at all, the app never started: treat it
-  as an infra failure in Step 8 using `target/app.log` and `target/db-manager.log`.
+- A run that produced no feature reports still yields `report.json`: `parse` writes a single
+  `(startup)` failure whose `error` is the tail of `target/app.log` or `target/db-manager.log`.
+  Carry it into Step 8, classify it `infra`, and fix it inside `<tests>` (wait strategy, image,
+  env) — never in the application. `parse` exits 5 only when `<tests>/target` itself is missing,
+  which means Maven never ran.
 - Postcondition: `<tests>/target/report.json`. When the green gate passes, go to Step 9.
 
 ### Step 8: Iterate until green or stopped

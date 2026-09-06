@@ -9,6 +9,7 @@ from detect import main as detect_main
 from discover import main as discover_main
 from flow_map import find_entry, load_ledger
 from kb_common import EXIT_MISSING_OUTPUT, KbError, read_json, run_cli
+from kb_iterate import group_failures
 from kb_report import (
     counts_table,
     defect_titles,
@@ -60,11 +61,55 @@ def test_parse_reports_without_features_dir_reports_zero_skipped(tmp_path: Path)
     assert parse_reports(REPORTS, None)["skipped"] == 0
 
 
-def test_parse_reports_requires_cucumber_json(tmp_path: Path) -> None:
-    (tmp_path / "karate-summary-json.txt").write_text("{}", encoding="utf-8")
+def test_parse_reports_without_target_dir_is_exit_5(tmp_path: Path) -> None:
+    # target/ missing: mvn test never ran, so the postcondition really is absent.
     with pytest.raises(KbError) as excinfo:
-        parse_reports(tmp_path, None)
+        parse_reports(tmp_path / "target" / "karate-reports", None)
     assert excinfo.value.exit_code == EXIT_MISSING_OUTPUT
+    assert "never ran" in str(excinfo.value)
+
+
+def test_parse_reports_with_no_feature_json_reports_a_startup_failure(tmp_path: Path) -> None:
+    # target/ exists but Karate wrote nothing: the app never came up (spec 5.7 infra).
+    target = tmp_path / "target"
+    reports = target / "karate-reports"
+    reports.mkdir(parents=True)
+    (reports / "karate-summary-json.txt").write_text("{}", encoding="utf-8")
+    (target / "app.log").write_text(
+        "\n".join(f"line {n}" for n in range(1, 61)) + "\n", encoding="utf-8")
+    report = parse_reports(reports, None)
+    assert (report["passed"], report["skipped"]) == (0, 0)
+    assert len(report["failed"]) == 1
+    failure = report["failed"][0]
+    assert failure["feature"] == "(startup)"
+    assert failure["scenario"] == "containers and application start"
+    assert failure["outline"] is False and failure["tags"] == []
+    assert failure["step"] == "Containers.start"
+    assert failure["error"].splitlines() == [f"line {n}" for n in range(21, 61)]  # last 40
+
+
+def test_startup_failure_falls_back_to_db_manager_log_then_a_fixed_message(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target"
+    (target / "karate-reports").mkdir(parents=True)
+    assert parse_reports(target / "karate-reports", None)["failed"][0]["error"] == (
+        "no karate reports were produced")
+    (target / "db-manager.log").write_text("migration failed: relation exists\n", encoding="utf-8")
+    assert "relation exists" in parse_reports(target / "karate-reports", None)["failed"][0]["error"]
+    (target / "app.log").write_text("app refused to bind :8080\n", encoding="utf-8")
+    assert "refused to bind" in parse_reports(target / "karate-reports", None)["failed"][0]["error"]
+
+
+def test_startup_failure_groups_as_one_infra_iteration(tmp_path: Path) -> None:
+    """The synthetic failure is a normal report entry, so kb_iterate.py next groups it."""
+    target = tmp_path / "target"
+    (target / "karate-reports").mkdir(parents=True)
+    (target / "app.log").write_text("Caused by: java.net.ConnectException\n", encoding="utf-8")
+    report = parse_reports(target / "karate-reports", None)
+    groups = group_failures(report)
+    assert len(groups) == 1 and groups[0]["count"] == 1
+    assert groups[0]["feature"] == "(startup)"
 
 
 def _spring_ledger(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
@@ -159,7 +204,15 @@ def test_cli_parse_and_summary(tmp_path: Path, capsys: pytest.CaptureFixture[str
     text = readme.read_text(encoding="utf-8")
     assert "# Karate tests for spring-mini" in text and "- DEF-002:" in text
     assert "Entry points" in capsys.readouterr().out
-    assert run_cli(main, ["parse", "--reports", str(tmp_path / "nope"), "--out", str(out)]) == 5
+    absent = tmp_path / "never-ran" / "target" / "karate-reports"
+    assert run_cli(main, ["parse", "--reports", str(absent), "--out", str(out)]) == 5
+    # target/ present but empty: exit 0 with the synthetic startup failure written out
+    (tmp_path / "ran" / "target" / "karate-reports").mkdir(parents=True)
+    startup_out = tmp_path / "ran" / "target" / "report.json"
+    assert run_cli(main, ["parse", "--reports", str(tmp_path / "ran/target/karate-reports"),
+                          "--out", str(startup_out)]) == 0
+    assert read_json(startup_out)["failed"][0]["feature"] == "(startup)"
+    assert "failed: 1" in capsys.readouterr().out
 
 
 def test_parse_default_features_dir_is_the_module_layout(tmp_path: Path) -> None:

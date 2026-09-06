@@ -6,6 +6,12 @@
 ``skipped`` counts ``@known-defect`` scenarios in the features directory, because the runner's
 tag filter removes them before any report is written.
 
+A run that started Maven but produced no feature JSON (the app or the db-manager never came
+up) still gets a report: one synthetic ``(startup)`` failure carrying the tail of
+``target/app.log`` or ``target/db-manager.log``, so the fix loop can classify it as infra
+instead of the run dying on a missing postcondition. Exit 5 is kept for the one case that
+really is a missing output: ``target/`` itself does not exist, so Maven never ran.
+
 ``summary`` fills ``README.md.tmpl`` from the ledger, defects.md and the report, and prints the
 counts table.
 
@@ -16,7 +22,7 @@ Usage:
         --defects karate-tests/defects.md --report karate-tests/target/report.json \
         --template <skill>/templates/karate-tests/README.md.tmpl --out karate-tests/README.md
 
-Exit codes: 0 ok, 5 when the reports directory holds no cucumber JSON or an input is missing.
+Exit codes: 0 ok, 5 when target/ is missing (Maven never ran) or an input is missing.
 """
 from __future__ import annotations
 
@@ -64,11 +70,52 @@ def _failed_entry(uri: str, element: dict[str, Any], step: dict[str, Any]) -> di
     }
 
 
+STARTUP_LOG_NAMES = ("app.log", "db-manager.log")
+STARTUP_LOG_TAIL_LINES = 40
+NO_REPORTS_ERROR = "no karate reports were produced"
+
+
+def startup_log_tail(target_dir: Path, lines: int = STARTUP_LOG_TAIL_LINES) -> str:
+    """The tail of the container log the harness wrote under ``target/`` (Containers.java).
+
+    ``app.log`` first, then ``db-manager.log``; a fixed message when neither exists.
+    """
+    for name in STARTUP_LOG_NAMES:
+        path = target_dir / name
+        if path.is_file():
+            tail = "\n".join(read_text(path).splitlines()[-lines:])
+            if tail.strip():
+                return tail
+    return NO_REPORTS_ERROR
+
+
+def startup_failure_report(target_dir: Path) -> dict[str, Any]:
+    """The report for a run that produced no feature JSON: one synthetic infra failure.
+
+    The fix loop needs a report.json to exist even when nothing ran, so Step 8 can classify
+    the startup failure instead of the run aborting on a missing postcondition (spec 5.7).
+    """
+    return {
+        "passed": 0,
+        "skipped": 0,
+        "failed": [{
+            "feature": "(startup)",
+            "scenario": "containers and application start",
+            "outline": False,
+            "tags": [],
+            "step": "Containers.start",
+            "error": startup_log_tail(target_dir),
+        }],
+    }
+
+
 def parse_reports(reports_dir: Path, features_dir: Path | None) -> dict[str, Any]:
     files = cucumber_files(reports_dir)
     if not files:
-        raise KbError(f"no cucumber JSON under {reports_dir}; run mvn test first",
-                      EXIT_MISSING_OUTPUT)
+        target = reports_dir.parent
+        if not target.is_dir():
+            raise KbError(f"{target} does not exist; mvn test never ran", EXIT_MISSING_OUTPUT)
+        return startup_failure_report(target)
     passed = 0
     failed: list[dict[str, Any]] = []
     for path in files:
