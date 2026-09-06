@@ -215,6 +215,16 @@ class Signal(TypedDict):
     extra: dict[str, Any]
 
 
+# Every family a normaliser may assign. Checked against categories.FAMILIES by
+# a test: a family name the skill does not know would reach candidates in 4b
+# and match nothing there.
+SIGNAL_FAMILIES: Final[frozenset[str]] = frozenset(
+    {
+        "complex-units", "dead-code", "dependency-debt", "duplication",
+        "error-masking", "architecture", "security", "pipeline-infra",
+    }
+)
+
 KINDS: Final[frozenset[str]] = frozenset(
     {
         "vuln", "secret", "clone", "cycle", "unused", "deprecated",
@@ -262,6 +272,8 @@ def signal(
     """A ``Signal`` with its kind checked against the spec's closed set."""
     if kind not in KINDS:
         raise ValueError(f"unknown signal kind {kind!r}; spec 4.5 fixes the set")
+    if family not in SIGNAL_FAMILIES:
+        raise ValueError(f"unknown family {family!r}; categories.FAMILIES fixes the set")
     return Signal(
         tool=tool,
         family=family,
@@ -310,6 +322,14 @@ class TestRegistry:
 
         facts = {name for name, spec in TOOLS.items() if spec.fact}
         assert facts == {"osv-scanner", "gitleaks", "hadolint", "actionlint"}
+
+    def test_every_signal_family_is_a_real_family(self) -> None:
+        """A family name the skill does not know would reach candidates in 4b and
+        match nothing. categories.FAMILIES is the authority."""
+        from categories import FAMILIES
+        from tool_normalisers import SIGNAL_FAMILIES
+
+        assert SIGNAL_FAMILIES <= set(FAMILIES)
 
     def test_only_node_tools_look_in_node_modules(self) -> None:
         from tools_probe import TOOLS
@@ -399,7 +419,6 @@ class ToolSpec:
     """One registry row: everything the runner needs to know about a tool."""
 
     name: str
-    family: str
     fact: bool
     channel: str  # "stdout" or "report_file"
     parse: str  # "json", "csv" or "lines"
@@ -410,16 +429,16 @@ class ToolSpec:
 
 
 TOOLS: Final[dict[str, ToolSpec]] = {
-    "osv-scanner": ToolSpec("osv-scanner", "dependency-debt", True, "stdout", "json", (1,), 300),
-    "gitleaks": ToolSpec("gitleaks", "security", True, "stdout", "json", (1,)),
-    "hadolint": ToolSpec("hadolint", "pipeline-infra", True, "stdout", "json", (1,)),
-    "actionlint": ToolSpec("actionlint", "pipeline-infra", True, "stdout", "json", (1,)),
-    "ruff": ToolSpec("ruff", "error-handling", False, "stdout", "json", (1,)),
-    "vulture": ToolSpec("vulture", "dead-code", False, "stdout", "lines", (3,)),
-    "lizard": ToolSpec("lizard", "complexity", False, "stdout", "csv", ()),
-    "jscpd": ToolSpec("jscpd", "duplication", False, "report_file", "json", (), None, True),
-    "knip": ToolSpec("knip", "dead-code", False, "stdout", "json", (1,), None, True),
-    "madge": ToolSpec("madge", "architecture", False, "stdout", "json", (1,), None, True),
+    "osv-scanner": ToolSpec("osv-scanner", True, "stdout", "json", (1,), 300),
+    "gitleaks": ToolSpec("gitleaks", True, "stdout", "json", (1,)),
+    "hadolint": ToolSpec("hadolint", True, "stdout", "json", (1,)),
+    "actionlint": ToolSpec("actionlint", True, "stdout", "json", (1,)),
+    "ruff": ToolSpec("ruff", False, "stdout", "json", (1,)),
+    "vulture": ToolSpec("vulture", False, "stdout", "lines", (3,)),
+    "lizard": ToolSpec("lizard", False, "stdout", "csv", ()),
+    "jscpd": ToolSpec("jscpd", False, "report_file", "json", (), None, True),
+    "knip": ToolSpec("knip", False, "stdout", "json", (1,), None, True),
+    "madge": ToolSpec("madge", False, "stdout", "json", (1,), None, True),
 }
 
 
@@ -870,7 +889,7 @@ class TestNormaliseRuff:
     def test_blind_except_is_error_masking(self) -> None:
         blind = next(s for s in self._signals() if s["extra"]["code"] == "BLE001")
         assert blind["kind"] == "error-masking"
-        assert blind["family"] == "error-handling"
+        assert blind["family"] == "error-masking"
         assert blind["line_start"] == 33
         assert blind["line_end"] == 33
 
@@ -957,15 +976,15 @@ import re
 # ruff rule code -> (family, kind). Codes outside this map are not debt
 # signals for our purposes and are dropped rather than guessed at.
 RUFF_KINDS: Final[dict[str, tuple[str, str]]] = {
-    "E722": ("error-handling", "error-masking"),
-    "BLE001": ("error-handling", "error-masking"),
-    "S110": ("error-handling", "error-masking"),
-    "S112": ("error-handling", "error-masking"),
-    "C901": ("complexity", "complexity"),
-    "PLR0911": ("complexity", "complexity"),
-    "PLR0912": ("complexity", "complexity"),
-    "PLR0913": ("complexity", "complexity"),
-    "PLR0915": ("complexity", "complexity"),
+    "E722": ("error-masking", "error-masking"),
+    "BLE001": ("error-masking", "error-masking"),
+    "S110": ("error-masking", "error-masking"),
+    "S112": ("error-masking", "error-masking"),
+    "C901": ("complex-units", "complexity"),
+    "PLR0911": ("complex-units", "complexity"),
+    "PLR0912": ("complex-units", "complexity"),
+    "PLR0913": ("complex-units", "complexity"),
+    "PLR0915": ("complex-units", "complexity"),
     "F401": ("dead-code", "unused"),
     "UP035": ("dependency-debt", "deprecated"),
 }
@@ -1140,7 +1159,7 @@ class TestNormaliseLizard:
 
     def test_kind_and_family_are_complexity(self) -> None:
         assert {(s["kind"], s["family"]) for s in self._signals()} == {
-            ("complexity", "complexity")
+            ("complex-units", "complexity")
         }
 
     def test_a_short_row_is_skipped_not_fatal(self) -> None:
@@ -1206,7 +1225,7 @@ def normalise_lizard(payload: Any, root: Path) -> list[Signal]:
         name = str(row[7])
         out.append(
             signal(
-                "lizard", "complexity", "complexity",
+                "lizard", "complex-units", "complexity",
                 file=rel, line_start=start, line_end=end,
                 message=f"{name} has cyclomatic complexity {ccn} over {nloc} lines",
                 fact=False,
@@ -1259,11 +1278,11 @@ EOF
 
 - [ ] **Step 1: Commit the captured payloads**
 
-Create `skills/tech-debt-scan/tests/fixtures/tool-output/madge.json` — real `madge --extensions ts --circular --json` output captured 2026-09-06 against the web-ts fixture. Note that paths are relative to the scanned directory, not the repository root:
+Create `skills/tech-debt-scan/tests/fixtures/tool-output/madge.json` — real `madge --extensions ts --circular --json` output captured 2026-09-06 against the web-ts fixture, with the paths rewritten root-relative because `argv_for` points madge at the repository root rather than at `src`:
 
 ```json
 [
-  ["cart/cart.ts", "cart/pricing.ts", "cart/stock.ts"]
+  ["src/cart/cart.ts", "src/cart/pricing.ts", "src/cart/stock.ts"]
 ]
 ```
 
@@ -1337,11 +1356,11 @@ Append to `skills/tech-debt-scan/tests/test_tool_normalisers.py`:
 
 ```python
 class TestNormaliseMadge:
-    def _signals(self, base: str = "src") -> list:
+    def _signals(self) -> list:
         from tool_normalisers import normalise_madge
 
         payload = json.loads((FIXTURES / "madge.json").read_text(encoding="utf-8"))
-        return normalise_madge(payload, ROOT, base=base)
+        return normalise_madge(payload, ROOT)
 
     def test_one_cycle_becomes_one_signal(self) -> None:
         assert len(self._signals()) == 1
@@ -1367,7 +1386,7 @@ class TestNormaliseMadge:
     def test_an_empty_graph_produces_nothing(self) -> None:
         from tool_normalisers import normalise_madge
 
-        assert normalise_madge([], ROOT, base="src") == []
+        assert normalise_madge([], ROOT) == []
 
     def test_every_madge_signal_is_inference_class(self) -> None:
         assert all(s["fact"] is False for s in self._signals())
@@ -1473,17 +1492,11 @@ KNIP_CATEGORIES: Final[dict[str, tuple[str, str]]] = {
 }
 
 
-def _joined(base: str, rel: str) -> str:
-    """``rel`` prefixed with the directory madge or jscpd was pointed at."""
-    prefix = base.strip("/")
-    return f"{prefix}/{rel}" if prefix else rel
-
-
-def normalise_madge(payload: Any, root: Path, *, base: str = "") -> list[Signal]:
+def normalise_madge(payload: Any, root: Path) -> list[Signal]:
     """madge's circular-dependency list as architecture signals.
 
-    madge reports paths relative to the directory it was given, so ``base``
-    puts them back under the repository root. A cycle is a property of the
+    ``argv_for`` points madge at the repository root, so its paths are
+    already root-relative. A cycle is a property of the
     import graph rather than of any line, so the signal carries no line
     range and names the cycle's first file.
     """
@@ -1493,7 +1506,7 @@ def normalise_madge(payload: Any, root: Path, *, base: str = "") -> list[Signal]
     for cycle in payload:
         if not isinstance(cycle, list) or not cycle:
             continue
-        members = [rel_path(root, _joined(base, str(item))) for item in cycle]
+        members = [rel_path(root, str(item)) for item in cycle]
         kept = [member for member in members if member is not None]
         if not kept:
             continue
@@ -1509,7 +1522,7 @@ def normalise_madge(payload: Any, root: Path, *, base: str = "") -> list[Signal]
     return out
 
 
-def normalise_jscpd(payload: Any, root: Path, *, base: str = "") -> list[Signal]:
+def normalise_jscpd(payload: Any, root: Path) -> list[Signal]:
     """jscpd's duplicate list as duplication signals.
 
     ``fragment`` holds the duplicated source itself and is never copied into
@@ -1524,8 +1537,8 @@ def normalise_jscpd(payload: Any, root: Path, *, base: str = "") -> list[Signal]
         if not isinstance(duplicate, dict):
             continue
         first, second = duplicate.get("firstFile") or {}, duplicate.get("secondFile") or {}
-        first_rel = rel_path(root, _joined(base, str(first.get("name", ""))))
-        second_rel = rel_path(root, _joined(base, str(second.get("name", ""))))
+        first_rel = rel_path(root, first.get("name"))
+        second_rel = rel_path(root, second.get("name"))
         if first_rel is None or second_rel is None:
             continue
         out.append(
@@ -2262,9 +2275,8 @@ class TestProbe:
         from tools_probe import probe
 
         document = probe(tmp_path, load_config(tmp_path))
-        assert document["tools"]["hadolint"]["status"] in {"skipped", "absent"}
-        if document["tools"]["hadolint"]["status"] == "skipped":
-            assert "artefact" in document["tools"]["hadolint"]["reason"]
+        assert document["tools"]["hadolint"]["status"] == "skipped"
+        assert document["tools"]["hadolint"]["reason"] == "no matching artefact"
 
     def test_offline_without_a_database_skips_osv_scanner(
         self, tmp_path: Path, monkeypatch
@@ -2408,6 +2420,8 @@ def argv_for(spec: ToolSpec, executable: str, root: Path, *, network: bool) -> l
     if spec.name == "madge":
         return [executable, "--extensions", MADGE_EXTENSIONS, "--circular", "--json", target]
     if spec.name == "jscpd":
+        # Ends with a bare --output on purpose: run_tool appends the report
+        # directory it created, which is the report_file channel's contract.
         return [executable, "--reporters", "json", "--min-tokens", JSCPD_MIN_TOKENS,
                 target, "--output"]
     if spec.name == "knip":
@@ -2683,4 +2697,4 @@ EOF
 
 **Type consistency.** `Signal` is defined once in Task 1 and constructed only through `signal()`, which validates `kind` against `KINDS`. `rel_path(root, raw)` keeps one signature throughout. `normalise_madge` and `normalise_jscpd` take the extra keyword `base` and both are called with it in Task 8's argv-relative handling; the other eight take `(payload, root)` and the `Normaliser` alias in Task 1 matches that shape — Task 8's `NORMALISERS` table is typed against it, so a mismatch is a mypy error rather than a runtime surprise. `ToolSpec` fields are set in Task 1 and read in Tasks 2 and 8 only.
 
-**One known gap to raise at execution.** `NORMALISERS` in Task 8 is typed `dict[str, Normaliser]`, but `normalise_madge` and `normalise_jscpd` have an extra keyword-only parameter with a default. That is compatible with the alias at runtime and mypy accepts a callable with extra defaulted keyword-only arguments; if a future mypy version rejects it, widen the alias rather than removing the parameter, because the base prefix is load-bearing for both tools' paths.
+**Corrected in the pre-flight scan, before Task 1 was dispatched.** Three defects I had written into this plan: two family names that do not exist (`complexity` and `error-handling`, against the skill's real `complex-units` and `error-masking`), a `ToolSpec.family` field no code reads, and a `base` parameter on two normalisers that no production caller would ever pass. All three are corrected above, and `signal()` now validates the family against `SIGNAL_FAMILIES` with a test tying that set to `categories.FAMILIES`, so the first defect cannot recur silently.
