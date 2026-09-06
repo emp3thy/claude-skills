@@ -101,3 +101,10 @@ def test_live_fixture_carries_everything_the_harness_needs(recipe: Any) -> None:
     planted = recipe.fixture / "expected" / "generated" / recipe.planted_feature
     assert recipe.planted_scenario in planted.read_text(encoding="utf-8")
     assert set(recipe.marks) == set(recipe.entries), recipe.name
+    # Every stub and seed file `flow_map.py mark` will pass through to the ledger must already
+    # exist under expected/generated/: a fixture missing one still passes detect/discover/trace,
+    # and only fails once a container job actually runs the generated feature against it.
+    for entry_id, marks in recipe.marks.items():
+        for flag, value in marks:
+            path = recipe.fixture / "expected" / "generated" / value
+            assert path.is_file(), f"{recipe.name}: {entry_id} names {flag} {value}, missing"
