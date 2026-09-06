@@ -1,0 +1,18 @@
+[
+  {
+    "message": "the runner of \"actions/checkout@v2\" action is too old to run on GitHub Actions",
+    "filepath": ".github/workflows/ci.yml",
+    "line": 21,
+    "column": 9,
+    "kind": "action",
+    "snippet": "      - uses: actions/checkout@v2"
+  },
+  {
+    "message": "shellcheck reported issue in this script: SC2086:info:1:6: Double quote to prevent globbing",
+    "filepath": ".github/workflows/ci.yml",
+    "line": 34,
+    "column": 9,
+    "kind": "shellcheck",
+    "snippet": "        run: echo $VERSION"
+  }
+]

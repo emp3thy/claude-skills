@@ -495,3 +495,71 @@ def normalise_gitleaks(payload: Any, root: Path) -> list[Signal]:
             )
         )
     return out
+
+
+# hadolint's level names as the severity scale the rest of the skill uses.
+HADOLINT_SEVERITY: Final[dict[str, int]] = {
+    "error": 4, "warning": 3, "info": 2, "style": 1,
+}
+
+
+def normalise_hadolint(payload: Any, root: Path) -> list[Signal]:
+    """hadolint's diagnostics as fact-class Dockerfile signals.
+
+    A hadolint hit is a fact about a file on disk, so it is fact-class and
+    merges in 4b with a same-file rule finding rather than becoming a
+    separate candidate. An unrecognised level falls back to the lowest
+    severity rather than raising, so a new hadolint level cannot fail a scan.
+    """
+    if not isinstance(payload, list):
+        return []
+    out: list[Signal] = []
+    for record in payload:
+        if not isinstance(record, dict):
+            continue
+        rel = rel_path(root, record.get("file"))
+        line = record.get("line")
+        if rel is None or not isinstance(line, int):
+            continue
+        code = str(record.get("code", ""))
+        level = str(record.get("level", "")).lower()
+        out.append(
+            signal(
+                "hadolint", "pipeline-infra", "dockerfile",
+                file=rel, line_start=line, line_end=line,
+                message=f"{code}: {record.get('message', '')}",
+                fact=True,
+                extra={"code": code, "level": level,
+                       "severity": HADOLINT_SEVERITY.get(level, 1)},
+            )
+        )
+    return out
+
+
+def normalise_actionlint(payload: Any, root: Path) -> list[Signal]:
+    """actionlint's diagnostics as fact-class workflow signals.
+
+    ``snippet`` is a line of the workflow itself, which may carry a token or
+    an inline secret reference, and is never copied into a signal; the file
+    and line are enough to find it.
+    """
+    if not isinstance(payload, list):
+        return []
+    out: list[Signal] = []
+    for record in payload:
+        if not isinstance(record, dict):
+            continue
+        rel = rel_path(root, record.get("filepath"))
+        line = record.get("line")
+        if rel is None or not isinstance(line, int):
+            continue
+        out.append(
+            signal(
+                "actionlint", "pipeline-infra", "workflow",
+                file=rel, line_start=line, line_end=line,
+                message=str(record.get("message", "")),
+                fact=True,
+                extra={"check": str(record.get("kind", ""))},
+            )
+        )
+    return out

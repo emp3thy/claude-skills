@@ -474,3 +474,74 @@ class TestNormaliseGitleaks:
         from tool_normalisers import normalise_gitleaks
 
         assert normalise_gitleaks([{"RuleID": "x", "StartLine": 1}], ROOT) == []
+
+
+class TestNormaliseHadolint:
+    def _signals(self) -> list:
+        from tool_normalisers import normalise_hadolint
+
+        payload = json.loads((FIXTURES / "hadolint.json").read_text(encoding="utf-8"))
+        return normalise_hadolint(payload, ROOT)
+
+    def test_each_record_becomes_one_dockerfile_signal(self) -> None:
+        signals = self._signals()
+        assert len(signals) == 2
+        assert {s["kind"] for s in signals} == {"dockerfile"}
+        assert {s["family"] for s in signals} == {"pipeline-infra"}
+
+    def test_file_line_and_code_are_carried(self) -> None:
+        first = self._signals()[0]
+        assert first["file"] == "Dockerfile"
+        assert (first["line_start"], first["line_end"]) == (1, 1)
+        assert first["extra"]["code"] == "DL3006"
+
+    def test_the_level_is_carried_as_a_severity_number(self) -> None:
+        from tool_normalisers import HADOLINT_SEVERITY
+
+        first = self._signals()[0]
+        assert first["extra"]["severity"] == HADOLINT_SEVERITY["warning"]
+
+    def test_hadolint_signals_are_fact_class(self) -> None:
+        assert all(s["fact"] is True for s in self._signals())
+
+    def test_an_unknown_level_falls_back_rather_than_raising(self) -> None:
+        from tool_normalisers import normalise_hadolint
+
+        payload = [{"file": "Dockerfile", "line": 3, "level": "nonsense",
+                    "code": "DL9999", "message": "x"}]
+        assert normalise_hadolint(payload, ROOT)[0]["extra"]["severity"] == 1
+
+
+class TestNormaliseActionlint:
+    def _signals(self) -> list:
+        from tool_normalisers import normalise_actionlint
+
+        payload = json.loads((FIXTURES / "actionlint.json").read_text(encoding="utf-8"))
+        return normalise_actionlint(payload, ROOT)
+
+    def test_each_record_becomes_one_workflow_signal(self) -> None:
+        signals = self._signals()
+        assert len(signals) == 2
+        assert {s["kind"] for s in signals} == {"workflow"}
+        assert {s["family"] for s in signals} == {"pipeline-infra"}
+
+    def test_filepath_is_the_signal_file(self) -> None:
+        assert {s["file"] for s in self._signals()} == {".github/workflows/ci.yml"}
+
+    def test_the_kind_field_is_carried_in_extra(self) -> None:
+        assert {s["extra"]["check"] for s in self._signals()} == {"action", "shellcheck"}
+
+    def test_the_snippet_is_never_carried(self) -> None:
+        """The snippet is a line of the workflow, which may hold a token; the
+        file and line are enough to find it."""
+        blob = json.dumps(self._signals())
+        assert "snippet" not in blob
+        assert "echo $VERSION" not in blob
+
+    def test_actionlint_signals_are_fact_class(self) -> None:
+        assert all(s["fact"] is True for s in self._signals())
+
+    def test_a_record_without_a_filepath_is_dropped(self) -> None:
+        from tool_normalisers import normalise_actionlint
+
+        assert normalise_actionlint([{"message": "x", "line": 1}], ROOT) == []
