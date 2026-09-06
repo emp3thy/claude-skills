@@ -1,6 +1,8 @@
 """Tests for the external-tool probe (spec 4.5)."""
 from __future__ import annotations
 
+import json
+import os
 import sys
 import textwrap
 from pathlib import Path
@@ -356,3 +358,156 @@ class TestRunTool:
         result = run_tool(TOOLS["jscpd"], argv, tmp_path, 30)
         assert result.status == "ran"
         assert result.payload == {"duplicates": []}
+
+
+class TestArtefactPresent:
+    def test_hadolint_needs_a_dockerfile(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, artefact_present
+
+        assert artefact_present(TOOLS["hadolint"], tmp_path) is False
+        (tmp_path / "Dockerfile").write_text("FROM python\n", encoding="utf-8")
+        assert artefact_present(TOOLS["hadolint"], tmp_path) is True
+
+    def test_actionlint_needs_a_workflow(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, artefact_present
+
+        assert artefact_present(TOOLS["actionlint"], tmp_path) is False
+        workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text("on: push\n", encoding="utf-8")
+        assert artefact_present(TOOLS["actionlint"], tmp_path) is True
+
+    def test_osv_scanner_needs_a_lockfile(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, artefact_present
+
+        assert artefact_present(TOOLS["osv-scanner"], tmp_path) is False
+        (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")
+        assert artefact_present(TOOLS["osv-scanner"], tmp_path) is True
+
+    def test_python_tools_need_a_python_file(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, artefact_present
+
+        assert artefact_present(TOOLS["vulture"], tmp_path) is False
+        (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+        assert artefact_present(TOOLS["vulture"], tmp_path) is True
+
+    def test_node_tools_need_a_js_or_ts_file(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, artefact_present
+
+        assert artefact_present(TOOLS["madge"], tmp_path) is False
+        (tmp_path / "a.ts").write_text("export const x = 1;\n", encoding="utf-8")
+        assert artefact_present(TOOLS["madge"], tmp_path) is True
+
+
+class TestProbe:
+    def test_skip_all_writes_every_tool_skipped_and_no_signals(self, tmp_path: Path) -> None:
+        from config import load_config
+        from tools_probe import TOOLS, probe
+
+        document = probe(tmp_path, load_config(tmp_path), skip_all=True)
+        assert set(document["tools"]) == set(TOOLS)
+        assert {entry["status"] for entry in document["tools"].values()} == {"skipped"}
+        assert document["signals"] == []
+        assert document["schema_version"] == 2
+
+    def test_a_denied_tool_is_skipped_with_its_reason(self, tmp_path: Path) -> None:
+        from config import load_config
+        from tools_probe import probe
+
+        config = load_config(tmp_path)
+        config["tools"]["deny"] = ["ruff"]
+        document = probe(tmp_path, config)
+        assert document["tools"]["ruff"]["status"] == "skipped"
+        assert "deny" in document["tools"]["ruff"]["reason"]
+
+    def test_a_missing_artefact_is_skipped_with_its_reason(self, tmp_path: Path) -> None:
+        from config import load_config
+        from tools_probe import probe
+
+        document = probe(tmp_path, load_config(tmp_path))
+        assert document["tools"]["hadolint"]["status"] == "skipped"
+        assert document["tools"]["hadolint"]["reason"] == "no matching artefact"
+
+    def test_offline_without_a_database_skips_osv_scanner(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import tools_probe
+        from config import load_config
+
+        (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(tools_probe, "find_tool", lambda name, root: "osv-scanner")
+        monkeypatch.delenv("OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY", raising=False)
+        config = load_config(tmp_path)
+        config["tools"]["network"] = False
+        document = tools_probe.probe(tmp_path, config)
+        assert document["tools"]["osv-scanner"]["status"] == "skipped"
+        assert document["tools"]["osv-scanner"]["reason"] == "no local database"
+
+    def test_offline_with_a_database_passes_the_offline_flag(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from tools_probe import TOOLS, argv_for
+
+        monkeypatch.setenv("OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY", str(tmp_path))
+        argv = argv_for(TOOLS["osv-scanner"], "osv-scanner", tmp_path, network=False)
+        assert "--offline" in argv
+
+    def test_online_does_not_pass_the_offline_flag(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, argv_for
+
+        argv = argv_for(TOOLS["osv-scanner"], "osv-scanner", tmp_path, network=True)
+        assert "--offline" not in argv
+
+    def test_madge_is_always_invoked_with_explicit_extensions(self, tmp_path: Path) -> None:
+        """Without --extensions madge returns an empty graph and exits 0 on a
+        TypeScript tree -- a false "no cycles" (spec 4.5)."""
+        from tools_probe import TOOLS, argv_for
+
+        argv = argv_for(TOOLS["madge"], "madge", tmp_path, network=True)
+        assert "--extensions" in argv
+        assert "--circular" in argv
+
+    def test_signals_are_redacted_before_they_are_written(self, tmp_path: Path) -> None:
+        from tools_probe import redact_signals
+
+        signals = [{
+            "tool": "ruff", "family": "security", "kind": "error-masking",
+            "file": "a.py", "line_start": 1, "line_end": 1,
+            "message": 'token = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"',
+            "fact": False, "extra": {"code": "E722"},
+        }]
+        out = redact_signals(signals)
+        assert "sk_live_51H8f2kL9mN3pQ7rS4tU6vW" not in json.dumps(out)
+        assert "sk_l***" in out[0]["message"]
+
+
+GOLDEN = Path(__file__).resolve().parent / "golden"
+CORPUS = Path(__file__).resolve().parent / "fixtures" / "corpus"
+
+
+class TestCorpusGoldens:
+    @pytest.mark.parametrize("fixture", ["service-py", "web-ts", "mixed-decoys"])
+    def test_tool_signals_match_the_golden(self, fixture: str) -> None:
+        """The signals array is compared in full; each tool's status and reason
+        are compared too, so a tool that silently stops running fails here
+        rather than quietly producing an empty list. version and duration_s are
+        excluded: they are machine-dependent and would fail for the wrong
+        reason (spec 4.5)."""
+        from config import load_config
+        from tools_probe import probe
+
+        root = CORPUS / fixture / "files"
+        document = probe(root, load_config(root))
+        actual = {
+            "schema_version": document["schema_version"],
+            "tools": {name: {"status": entry["status"], "reason": entry["reason"]}
+                      for name, entry in document["tools"].items()},
+            "signals": document["signals"],
+        }
+        path = GOLDEN / fixture / "tool-signals.json"
+        if os.environ.get("UPDATE_GOLDENS"):
+            from inventory import write_json
+
+            write_json(path, actual)
+        expected = json.loads(path.read_text(encoding="utf-8"))
+        assert actual == expected

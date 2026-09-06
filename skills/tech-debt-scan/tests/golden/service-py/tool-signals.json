@@ -1,0 +1,148 @@
+{
+  "schema_version": 2,
+  "tools": {
+    "osv-scanner": {
+      "status": "absent",
+      "reason": ""
+    },
+    "gitleaks": {
+      "status": "absent",
+      "reason": ""
+    },
+    "hadolint": {
+      "status": "absent",
+      "reason": ""
+    },
+    "actionlint": {
+      "status": "absent",
+      "reason": ""
+    },
+    "ruff": {
+      "status": "ran",
+      "reason": ""
+    },
+    "vulture": {
+      "status": "ran",
+      "reason": ""
+    },
+    "lizard": {
+      "status": "ran",
+      "reason": ""
+    },
+    "jscpd": {
+      "status": "skipped",
+      "reason": "no matching artefact"
+    },
+    "knip": {
+      "status": "skipped",
+      "reason": "no matching artefact"
+    },
+    "madge": {
+      "status": "skipped",
+      "reason": "no matching artefact"
+    }
+  },
+  "signals": [
+    {
+      "tool": "ruff",
+      "family": "error-masking",
+      "kind": "error-masking",
+      "file": "src/pay/refund.py",
+      "line_start": 33,
+      "line_end": 33,
+      "message": "Do not catch blind exception: `Exception`",
+      "fact": false,
+      "extra": {
+        "code": "BLE001"
+      }
+    },
+    {
+      "tool": "ruff",
+      "family": "error-masking",
+      "kind": "error-masking",
+      "file": "src/pay/refund.py",
+      "line_start": 33,
+      "line_end": 34,
+      "message": "`try`-`except`-`pass` detected, consider logging the exception",
+      "fact": false,
+      "extra": {
+        "code": "S110"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/pay/legacy_export.py",
+      "line_start": 8,
+      "line_end": 8,
+      "message": "unused function 'export_v1'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "function",
+        "symbol": "export_v1"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/pay/refund.py",
+      "line_start": 45,
+      "line_end": 45,
+      "message": "unused function 'issue_partial'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "function",
+        "symbol": "issue_partial"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/pay/utils.py",
+      "line_start": 11,
+      "line_end": 11,
+      "message": "unused function 'fingerprint'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "function",
+        "symbol": "fingerprint"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "tests/fixtures/seed.py",
+      "line_start": 4,
+      "line_end": 4,
+      "message": "unused variable 'SEED_A'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "variable",
+        "symbol": "SEED_A"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "tests/fixtures/seed.py",
+      "line_start": 5,
+      "line_end": 5,
+      "message": "unused variable 'SEED_B'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "variable",
+        "symbol": "SEED_B"
+      }
+    }
+  ]
+}
