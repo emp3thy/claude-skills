@@ -1,12 +1,14 @@
-"""Render design.md and apply in-place ``mark_promoted`` status edits.
+"""Render design.md + findings.json and apply in-place ``mark_promoted`` status edits.
 
 ``render`` is the report stage of /tech-debt-scan (spec 4.11). It reads the
 whole phase 2 chain out of ``--workdir`` (``inventory.json``, ``coupling.json``,
 ``scan-plan.json``, ``verified.json``, ``ranked.json``, ``candidates.json``,
 plus the optional ``notes.json`` and ``diff.json``) and renders the single
-``design.md`` the user reviews. ``mark_promoted`` is stage 3 of
-/tech-debt-promote: it flips approved findings to ``promoted`` in place once
-their bundles have been emitted.
+``design.md`` the user reviews, plus ``findings.json`` beside it: the
+machine-readable twin of the same finding list, which ``evaluate.py`` prefers
+over ``verified.json`` because it carries the rank terms and the top-N flag.
+``mark_promoted`` is stage 3 of /tech-debt-promote: it flips approved findings
+to ``promoted`` in place once their bundles have been emitted.
 
 Document shape (``SECTION_ORDER``): the frontmatter, the ``# Tech-debt scan``
 header, ``# Top N`` with one H2 per top-N finding, then the six negative-space
@@ -26,10 +28,14 @@ Format invariants (the round-trip partner is design_parser.parse_design):
     format drift surfaces at write time, not just in tests.
   - Every repository-derived string (title, proof, quote, note text) passes
     through ``redaction.redact`` at the point of writing. A free-text field
-    rendered outside a fenced block (proof; note, question, why and the
-    remediation text in Tasks 4/5) goes through ``free_text`` instead, which
-    redacts and also escapes any line that would otherwise read as a heading
-    and truncate the finding's body (design_parser._ends_section).
+    rendered outside a fenced block (proof, question, why, the rejection proof
+    or trap, and the note text in Task 5) goes through ``free_text`` instead,
+    which redacts and also escapes any line that would otherwise read as a
+    heading and truncate the finding's body (design_parser._ends_section).
+  - An evidence quote is wrapped in a fence one backtick longer than the longest
+    backtick run inside it (``_fence_for``), so a quote lifted from a Markdown or
+    Ruby fixture cannot close the writer's own fence and spill into the document
+    as prose. See that function for what this does *not* fix on the read side.
   - ``mark_promoted`` writes ``<path>.tmp`` then ``os.replace`` onto ``<path>``
     (atomic on POSIX + Windows) and keeps the previous content at ``<path>.bak``.
     It only touches findings currently ``approved``; an already-``promoted``
@@ -46,14 +52,18 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, NamedTuple
 
 from design_parser import DesignParseError, parse_design
+from inventory import write_json
 from redaction import redact
 from slugs import unique_slugs
+
+SCHEMA_VERSION: Final[int] = 2
 
 # The seven body sections of spec 4.11, in document order. "Top" is rendered as
 # ``# Top <count>``; the other six are their own H1 headings verbatim.
@@ -71,6 +81,19 @@ SECTION_ORDER: Final[tuple[str, ...]] = (
 NOTE_PLACEHOLDER: Final[str] = "remediation note not available"
 # A confirmed finding whose verdict carried no proof text still needs a body.
 NO_PROOF: Final[str] = "no verifier proof"
+# Rendered in place of an empty section body, so no section is a bare heading.
+EMPTY_SECTION: Final[str] = "_None._"
+# A finding with no evidence (a repository-level finding) has no file to name.
+NO_FILE: Final[str] = "-"
+# The three fixed "Not assessed" bullets; only the families line is computed.
+NOT_ASSESSED_FIXED: Final[tuple[str, ...]] = (
+    "- Tools: the tool probe lands in phase 4, so currency, end-of-life and "
+    "vulnerability claims are not assessed",
+    "- Runtime-only: coverage numbers, flake confirmation, model staleness, "
+    "rollout state, deploy frequency",
+    "- By design: magic literals, convention violations, and class-level metrics "
+    "that need a parser",
+)
 # The six documents ``load_inputs`` requires; ``notes.json`` and ``diff.json``
 # are optional (the note agent is Task 5's step, and diff.json lands in phase 5).
 REQUIRED_DOCUMENTS: Final[tuple[str, ...]] = (
@@ -389,19 +412,44 @@ def _anchor(inputs: RenderInputs, row: Row) -> list[str]:
     return [f"{key}: {_scalar(value)}" for key, value in values]
 
 
+_BACKTICK_RUN: Final[re.Pattern[str]] = re.compile("`+")
+
+
+def _fence_for(quote: str) -> str:
+    """The fence marker that can hold ``quote``: one backtick longer than its longest run.
+
+    A three-backtick fence is only safe while the quoted source has no backticks
+    of its own. The inventory walks Markdown and Ruby, so a quote that itself
+    contains a ```` ``` ```` line is reachable; wrapped in a plain fence it closes
+    the writer's block early and every later line of the quote renders as prose,
+    including any heading-shaped one. Widening the fence keeps the quote a single
+    code block in the rendered document whatever it contains.
+
+    It does not change how ``design_parser`` reads the document: that tracker is a
+    flat parity toggle over any line starting with three backticks, so it treats a
+    four-backtick marker exactly like a three-backtick one. A quote holding an odd
+    number of backtick-run lines still leaves the toggle open and still fails
+    ``write_design``'s self-check under either width; closing that gap needs a
+    length-aware tracker on the read side, which is not this module's to change.
+    """
+    longest = max((len(m.group()) for m in _BACKTICK_RUN.finditer(quote)), default=0)
+    return "`" * max(3, longest + 1)
+
+
 def _evidence_item(item: dict[str, Any]) -> list[str]:
     """One ``- `file:start-end`` line then its quote in an unlabelled fenced block."""
     start = item.get("line_start")
     end = item.get("line_end")
     end = start if end is None else end
     quote = redact(str(item.get("quote") or ""))
+    fence = _fence_for(quote)
     return [
         "",
         f"- `{item.get('file', '')}:{start}-{end}`",
         "",
-        "```",
+        fence,
         *quote.split("\n"),
-        "```",
+        fence,
     ]
 
 
@@ -456,26 +504,215 @@ def _top_section(inputs: RenderInputs, rows: list[Row]) -> list[str]:
     return lines
 
 
+# --- the negative-space sections ------------------------------------------------
+
+
+def _section(name: str, body: list[str]) -> list[str]:
+    """``# <name>``, a blank line, then ``body`` -- or ``_None._`` when it is empty."""
+    return ["", f"# {name}", "", *(body or [EMPTY_SECTION])]
+
+
+def _primary_file(finding: dict[str, Any]) -> str:
+    """The file of the first evidence item, or ``-`` for a repository-level finding."""
+    for item in finding.get("evidence") or []:
+        if isinstance(item, dict) and item.get("file"):
+            return str(item["file"])
+    return NO_FILE
+
+
+def _primary_location(finding: dict[str, Any]) -> str:
+    """``file:line`` of the first evidence item; the bare file when it carries no line."""
+    for item in finding.get("evidence") or []:
+        if isinstance(item, dict) and item.get("file"):
+            start = item.get("line_start")
+            return f"{item['file']}" if start is None else f"{item['file']}:{start}"
+    return NO_FILE
+
+
+def _below_the_cut(inputs: RenderInputs, rows: list[Row], name: str) -> list[str]:
+    """``# Below the cut``: a compact H2 per tier A/B finding outside the top N.
+
+    The anchor is the same as a top-N finding's, so the user can approve one of
+    these straight from the document; only the Signals and note sections are
+    dropped, because those are the expensive parts the note agent fills in.
+    Built here rather than through ``_section`` because ``_finding_section``
+    supplies its own leading blank line.
+    """
+    top_n = {str(fp) for fp in inputs.ranked.get("top_n") or []}
+    selected = [
+        row
+        for row in rows
+        if row.finding.get("tier") in ("A", "B")
+        and str(row.finding.get("fingerprint")) not in top_n
+    ]
+    if not selected:
+        return _section(name, [])
+    lines = ["", f"# {name}"]
+    for row in selected:
+        lines += _finding_section(inputs, row, compact=True)
+    return lines
+
+
+def _tier_c_table(rows: list[Row]) -> list[str]:
+    """One table row per tier C or unverified finding; a reject belongs elsewhere."""
+    selected = [
+        row
+        for row in rows
+        if row.finding.get("verdict") != "reject"
+        and (row.finding.get("tier") == "C" or row.finding.get("verdict") == "unverified")
+    ]
+    if not selected:
+        return []
+    lines = ["| slug | family | file | reason |", "| --- | --- | --- | --- |"]
+    for row in selected:
+        finding = row.finding
+        lines.append(
+            f"| {row.slug} | {finding.get('family')} | {_primary_file(finding)} "
+            f"| {finding.get('verdict')} |"
+        )
+    return lines
+
+
+def _considered_and_rejected(rows: list[Row]) -> list[str]:
+    """One bullet per ``reject``; a matched trap replaces the verifier's proof."""
+    lines: list[str] = []
+    for row in rows:
+        finding = row.finding
+        if finding.get("verdict") != "reject":
+            continue
+        detail = finding.get("trap_matched") or finding.get("proof") or NO_PROOF
+        title = free_text(str(finding.get("title") or ""))
+        lines.append(
+            f"- **{title}** - `{_primary_file(finding)}` - {free_text(str(detail))}"
+        )
+    return lines
+
+
+def _looks_bad_but_fine(inputs: RenderInputs, rows: list[Row]) -> list[str]:
+    """The scouts' own "looks bad but is fine" entries, then the trap rejections.
+
+    A trap-matched rejection is the verifier reaching the same conclusion the
+    scouts reach in ``looks_bad_but_fine``, so it is listed in both places: here
+    for the reader who wants the whole "not a bug" list, and under "Considered
+    and rejected" for the reader auditing what the scan threw away.
+    """
+    lines: list[str] = []
+    for entry in inputs.candidates.get("looks_bad_but_fine") or []:
+        if not isinstance(entry, dict):
+            continue
+        why = free_text(str(entry.get("why") or ""))
+        lines.append(f"- `{entry.get('file', '')}:{entry.get('line_start')}` - {why}")
+    for row in rows:
+        finding = row.finding
+        if finding.get("verdict") != "reject" or not finding.get("trap_matched"):
+            continue
+        trap = free_text(str(finding["trap_matched"]))
+        lines.append(f"- `{_primary_location(finding)}` - {trap}")
+    return lines
+
+
+def _open_questions(inputs: RenderInputs) -> list[str]:
+    """``candidates.json``'s open questions; a quote failure says so up front."""
+    lines: list[str] = []
+    for entry in inputs.candidates.get("open_questions") or []:
+        if not isinstance(entry, dict):
+            continue
+        question = str(entry.get("question") or "")
+        if entry.get("reason") == "quote not found":
+            question = f"quote not found: {question}"
+        lines.append(
+            f"- `{entry.get('file', '')}:{entry.get('line_start')}` - {free_text(question)}"
+        )
+    return lines
+
+
+def _not_assessed(inputs: RenderInputs) -> list[str]:
+    """The families the plan skipped, then the three standing limits of a v2 scan."""
+    skipped = [
+        f"{item['family']} ({item['reason']})"
+        for item in inputs.plan.get("families_skipped") or []
+    ]
+    families = ", ".join(skipped) if skipped else "none"
+    return [f"- Families not run: {families}", *NOT_ASSESSED_FIXED]
+
+
+# --- the two documents ----------------------------------------------------------
+
+
 def render_design(inputs: RenderInputs, scan_date: str) -> str:
     """Render the whole ``design.md`` as an LF-only string ending in one newline."""
     rows = _rows(inputs)
+    # SECTION_ORDER is the single source of the six H1 names; unpacking it here
+    # means a section added to that tuple fails loudly instead of going unwritten.
+    below, tier_c, rejected, fine, questions, not_assessed = SECTION_ORDER[1:]
     parts: list[str] = []
     parts += _frontmatter(inputs, scan_date)
     parts += _header(inputs, scan_date)
     parts += _top_section(inputs, rows)
-    # Tasks 4 and 5 of the phase 3 plan fill these bodies; the headings are
-    # emitted from the first commit so the document shape and the parser's H1
-    # section boundary are exercised.
-    for name in SECTION_ORDER[1:]:
-        parts += ["", f"# {name}"]
+    parts += _below_the_cut(inputs, rows, below)
+    parts += _section(tier_c, _tier_c_table(rows))
+    parts += _section(rejected, _considered_and_rejected(rows))
+    parts += _section(fine, _looks_bad_but_fine(inputs, rows))
+    parts += _section(questions, _open_questions(inputs))
+    parts += _section(not_assessed, _not_assessed(inputs))
     return "\n".join(parts) + "\n"
 
 
+def _json_evidence(finding: dict[str, Any]) -> list[dict[str, Any]]:
+    """The finding's evidence items with the quotes redacted, keys otherwise untouched."""
+    items: list[dict[str, Any]] = []
+    for item in finding.get("evidence") or []:
+        if isinstance(item, dict):
+            items.append({**item, "quote": redact(str(item.get("quote") or ""))})
+    return items
+
+
+def render_findings_json(inputs: RenderInputs) -> dict[str, Any]:
+    """The machine-readable twin of ``design.md``: one entry per finding, same order.
+
+    ``evaluate.py`` prefers this over ``verified.json`` because it joins the
+    verdict to the rank (``priority``, ``terms``, ``in_top_n``, ``spread_capped``)
+    and to the document (``slug``, ``diff``). Every repository-derived string is
+    redacted exactly as it is in the markdown, so a secret cannot leak through
+    the machine file after being scrubbed from the human one.
+    """
+    top_n = {str(fp) for fp in inputs.ranked.get("top_n") or []}
+    findings: list[dict[str, Any]] = []
+    for row in _rows(inputs):
+        finding = row.finding
+        fingerprint = str(finding.get("fingerprint"))
+        findings.append(
+            {
+                "fingerprint": fingerprint,
+                "slug": row.slug,
+                "title": redact(str(finding.get("title") or "")),
+                "family": finding.get("family"),
+                "debt_type": finding.get("debt_type"),
+                "type_id": finding.get("type_id"),
+                "severity": finding.get("severity"),
+                "effort": finding.get("effort"),
+                "evidence": _json_evidence(finding),
+                "signals": finding.get("signals") or {},
+                "confirmed_by": list(finding.get("confirmed_by") or []),
+                "tier": finding.get("tier"),
+                "verdict": finding.get("verdict"),
+                "proof": redact(str(finding.get("proof") or "")),
+                "priority": row.rank.get("priority"),
+                "terms": row.rank.get("terms") or {},
+                "in_top_n": fingerprint in top_n,
+                "spread_capped": bool(row.rank.get("spread_capped")),
+                "diff": _diff_for(inputs, fingerprint),
+            }
+        )
+    return {"schema_version": SCHEMA_VERSION, "findings": findings}
+
+
 def write_design(inputs: RenderInputs, scan_date: str, out_path: Path) -> None:
-    """Write ``design.md`` to ``out_path``, then re-parse it as a self-check."""
+    """Write ``design.md`` and its ``findings.json`` twin, then re-parse as a self-check."""
     text = render_design(inputs, scan_date)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(text.encode("utf-8"))
+    write_json(out_path.parent / "findings.json", render_findings_json(inputs))
 
     # Self-check: the document must parse back through the read side cleanly, and
     # every finding's body must still carry the "### Evidence" heading that was

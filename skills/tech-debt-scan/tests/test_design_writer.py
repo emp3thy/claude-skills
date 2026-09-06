@@ -1,6 +1,7 @@
 """design_writer.py v2: render design.md and findings.json from the ranked chain (spec 4.11)."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -158,14 +159,8 @@ def _inputs(tmp_path: Path, **overrides: Any) -> Any:
 # --- frontmatter, header, top N -------------------------------------------------
 
 
-def test_render_matches_the_worked_example(tmp_path: Path) -> None:
-    """The exact bytes of the plan's Step 0 example (Tasks 4 and 5 fill the empty sections)."""
-    text = render_design(_inputs(tmp_path), SCAN_DATE)
-    expected = (GOLDEN / "design-worked-example.md").read_bytes().decode("utf-8")
-    assert text == expected
-
-
-def test_document_parses_and_carries_one_top_finding(tmp_path: Path) -> None:
+def test_document_parses_and_carries_the_promotable_findings(tmp_path: Path) -> None:
+    """The top-N finding and the compact below-the-cut one both parse back as findings."""
     out = tmp_path / "design.md"
     write_design(_inputs(tmp_path), SCAN_DATE, out)
     raw = out.read_bytes()
@@ -174,7 +169,8 @@ def test_document_parses_and_carries_one_top_finding(tmp_path: Path) -> None:
     assert parsed["metadata"]["schema_version"] == 2
     assert parsed["metadata"]["counts"]["tier_a"] == 1
     assert [f["slug"] for f in parsed["findings"]] == [
-        "refund-failure-swallowed-by-a-bare-except"
+        "refund-failure-swallowed-by-a-bare-except",
+        "hard-coded-credential-in-the-gateway-client",
     ]
     finding = parsed["findings"][0]
     assert finding["category"] == finding["family"] == "error-masking"
@@ -267,3 +263,140 @@ def test_missing_input_document_is_an_error(tmp_path: Path) -> None:
     (workdir / "ranked.json").unlink()
     with pytest.raises((DesignWriteError, FileNotFoundError)):
         load_inputs(workdir)
+
+
+# --- below the cut, negative space, findings.json --------------------------------
+
+
+def test_render_matches_the_full_worked_example(tmp_path: Path) -> None:
+    text = render_design(_inputs(tmp_path), SCAN_DATE)
+    assert text == (GOLDEN / "design-worked-example.md").read_bytes().decode("utf-8")
+
+
+def test_below_the_cut_findings_are_promotable_and_carry_no_note_sections(tmp_path: Path) -> None:
+    out = tmp_path / "design.md"
+    write_design(_inputs(tmp_path), SCAN_DATE, out)
+    findings = {f["slug"]: f for f in parse_design(out)["findings"]}
+    cut = findings["hard-coded-credential-in-the-gateway-client"]
+    assert cut["tier"] == "B" and cut["status"] == "pending" and cut["category"] == "security"
+    assert "### Proof" in cut["body_md"] and "### Evidence" in cut["body_md"]
+    assert "### Signals" not in cut["body_md"]
+    assert "### Remediation" not in cut["body_md"]
+    assert "tier C and unverified" not in cut["body_md"], "the H1 boundary holds"
+    assert ("unused-helper-in-the-ledger-module" not in findings), \
+        "tier C is a table row, not a finding"
+
+
+def test_tier_c_table_and_empty_sections(tmp_path: Path) -> None:
+    text = render_design(_inputs(tmp_path), SCAN_DATE)
+    assert "| slug | family | file | reason |" in text
+    assert (
+        "| unused-helper-in-the-ledger-module | dead-code | src/pay/ledger.py | unverified |"
+        in text
+    )
+    assert text.count("_None._") == 1, "only 'Considered and rejected' is empty here"
+
+
+def test_rejected_and_trap_findings_land_in_their_sections(tmp_path: Path) -> None:
+    verified = _verified()
+    verified["findings"].append(
+        _finding("1111222233334444", "dead-code", "Entry point looks unreferenced",
+                 "src/pay/cli.py", 3, 3, "def main():", tier=None, verdict="reject",
+                 proof="It is the console entry point declared in pyproject.",
+                 trap="Entry points have no in-repository caller and are alive."))
+    ranked = _ranked()
+    ranked["findings"].append({"fingerprint": "1111222233334444", "rank": 4, "priority": 0.0,
+                               "terms": {}, "tier": None, "in_top_n": False,
+                               "spread_capped": False})
+    text = render_design(_inputs(tmp_path, **{"verified.json": verified, "ranked.json": ranked}),
+                         SCAN_DATE)
+    rejected = text.split("# Considered and rejected")[1].split("# Looks bad but is fine")[0]
+    assert "**Entry point looks unreferenced**" in rejected
+    assert "Entry points have no in-repository caller" in rejected
+    fine = text.split("# Looks bad but is fine")[1].split("# Open questions")[0]
+    assert "One multi-line call, not nested branching." in fine
+    assert "Entry points have no in-repository caller" in fine, "a trap rejection appears in both"
+
+
+def test_open_questions_flag_the_quote_failures(tmp_path: Path) -> None:
+    text = render_design(_inputs(tmp_path), SCAN_DATE)
+    section = text.split("# Open questions for the maintainer")[1].split("# Not assessed")[0]
+    assert "- `src/pay/refund.py:51` - Is audit_trail() wired into a production caller?" in section
+    assert "- `src/pay/ledger.py:12` - quote not found: Ledger rounding drifts" in section
+
+
+def test_findings_json_is_the_machine_readable_twin(tmp_path: Path) -> None:
+    workdir = _write_workdir(tmp_path / "wd")
+    write_design(load_inputs(workdir), SCAN_DATE, workdir / "design.md")
+    doc = json.loads((workdir / "findings.json").read_bytes())
+    assert list(doc) == ["schema_version", "findings"]
+    assert [f["fingerprint"] for f in doc["findings"]] == [TOP_FP, CUT_FP, TIER_C_FP]
+    top = doc["findings"][0]
+    assert list(top) == ["fingerprint", "slug", "title", "family", "debt_type", "type_id",
+                         "severity", "effort", "evidence", "signals", "confirmed_by", "tier",
+                         "verdict", "proof", "priority", "terms", "in_top_n", "spread_capped",
+                         "diff"]
+    assert top["slug"] == "refund-failure-swallowed-by-a-bare-except"
+    assert top["in_top_n"] is True and top["diff"] == "NEW" and top["priority"] == 6.3
+    assert doc["findings"][2]["in_top_n"] is False
+    raw = (workdir / "findings.json").read_bytes()
+    assert b"\r" not in raw and raw.endswith(b"\n")
+
+
+def test_findings_json_feeds_evaluate(tmp_path: Path) -> None:
+    """evaluate.load_findings prefers findings.json; the writer must satisfy it."""
+    from evaluate import load_findings
+
+    workdir = _write_workdir(tmp_path / "wd")
+    write_design(load_inputs(workdir), SCAN_DATE, workdir / "design.md")
+    findings, name = load_findings(workdir)
+    assert name == "findings.json" and len(findings) == 3
+    assert {f["tier"] for f in findings} == {"A", "B", "C"}
+
+
+# --- evidence fences (controller ruling, fix round 2) ---------------------------
+
+
+def test_a_quote_that_contains_a_fence_gets_a_longer_fence(tmp_path: Path) -> None:
+    """A quote holding ``` lines must not terminate the evidence fence early.
+
+    A Markdown or Ruby fixture is inventoried, so an evidence quote carrying a
+    fenced block is reachable. Wrapped in a plain three-backtick fence, the
+    quote's own ``` closes the writer's fence and everything after it renders as
+    prose rather than as part of the quote. The writer opens with one more
+    backtick than the longest run inside the quote instead, which is what the
+    byte assertion below pins; the round-trip assertions guard the parse.
+    """
+    verified = _verified()
+    verified["findings"][0]["evidence"][0]["quote"] = 'DOC = """\n```python\nvalue = 1\n```\n"""'
+    out = tmp_path / "design.md"
+    write_design(_inputs(tmp_path, **{"verified.json": verified}), SCAN_DATE, out)
+    text = out.read_text(encoding="utf-8")
+    assert '\n````\nDOC = """\n```python\nvalue = 1\n```\n"""\n````\n' in text
+    body = parse_design(out)["findings"][0]["body_md"]
+    assert "```python\nvalue = 1\n```" in body
+    assert "### Signals" in body, "the fenced quote did not truncate the section"
+
+
+def test_a_scan_with_no_negative_space_renders_none_for_every_empty_section(
+    tmp_path: Path,
+) -> None:
+    """No section is ever a bare heading; ``Not assessed`` still names its four limits."""
+    verified = _verified()
+    verified["findings"] = verified["findings"][:1]
+    ranked = _ranked()
+    ranked["findings"] = ranked["findings"][:1]
+    plan = _plan()
+    plan["families_skipped"] = []
+    candidates = _candidates()
+    candidates["open_questions"] = []
+    candidates["looks_bad_but_fine"] = []
+    text = render_design(
+        _inputs(tmp_path, **{"verified.json": verified, "ranked.json": ranked,
+                             "scan-plan.json": plan, "candidates.json": candidates}),
+        SCAN_DATE,
+    )
+    assert text.count("_None._") == 5, "below the cut, tier C, rejected, fine, questions"
+    assert "# Below the cut\n\n_None._\n" in text
+    assert "- Families not run: none" in text
+    assert text.endswith("class-level metrics that need a parser\n")

@@ -87,12 +87,57 @@ remediation note not available
 
 # Below the cut
 
+## Hard-coded credential in the gateway client
+
+```yaml
+status: pending
+slug: hard-coded-credential-in-the-gateway-client
+fingerprint: fedcba9876543210
+tier: B
+priority: 3.5
+family: security
+category: security
+debt_type: security
+type_id: TD-03
+severity: 5
+effort: S
+diff: NEW
+```
+
+### Proof
+
+A credential-shaped literal sits in source, not in configuration.
+
+### Evidence
+
+- `src/pay/gateway.py:11-11`
+
+```
+token = "sk_l***"
+```
+
 # Below the cut: tier C and unverified
+
+| slug | family | file | reason |
+| --- | --- | --- | --- |
+| unused-helper-in-the-ledger-module | dead-code | src/pay/ledger.py | unverified |
 
 # Considered and rejected
 
+_None._
+
 # Looks bad but is fine
+
+- `src/pay/gateway.py:19` - One multi-line call, not nested branching.
 
 # Open questions for the maintainer
 
+- `src/pay/refund.py:51` - Is audit_trail() wired into a production caller?
+- `src/pay/ledger.py:12` - quote not found: Ledger rounding drifts on partial refunds
+
 # Not assessed
+
+- Families not run: duplication (no leads)
+- Tools: the tool probe lands in phase 4, so currency, end-of-life and vulnerability claims are not assessed
+- Runtime-only: coverage numbers, flake confirmation, model staleness, rollout state, deploy frequency
+- By design: magic literals, convention violations, and class-level metrics that need a parser
