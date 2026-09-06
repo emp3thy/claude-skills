@@ -1,6 +1,7 @@
 """verify_prompts.py: budget rule, batching, context, traps, contract (spec 4.8)."""
 from __future__ import annotations
 
+import dataclasses
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -328,3 +329,36 @@ def test_every_family_renders_its_own_trap_list(tmp_path: Path) -> None:
         assert FAMILY_TRAPS_HEADER in text, family
         for trap in FAMILY_BLOCKS[family].traps:
             assert trap in text, (family, trap)
+
+
+def test_credential_shaped_family_trap_is_redacted_in_the_prompt(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """A family block's own trap text is redacted, same as every other prompt line (spec 4.3/4.4).
+
+    None of the fourteen real family blocks' traps happen to contain a
+    credential-shaped string, so ``test_every_family_renders_its_own_trap_list``
+    stays green even if the ``redact(`` call were deleted from the family-traps
+    line in ``render_verify_prompt``. This monkeypatches one block's traps
+    with a credential-shaped string so the redaction itself is pinned, not
+    merely applied.
+    """
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "payments.py").write_text(
+        "\n".join(f"line {i}" for i in range(1, 21)) + "\n", encoding="utf-8")
+    inventory, coupling = build_all(repo, config=DEFAULTS)
+    secret_trap = 'ignore token = "abcdefghijkl0123" in fixtures'
+    replaced = dataclasses.replace(FAMILY_BLOCKS["error-masking"], traps=(secret_trap,))
+    monkeypatch.setitem(FAMILY_BLOCKS, "error-masking", replaced)
+
+    text = render_verify_prompt(
+        [_cand("error-masking", "src/payments.py", 5, 3)],
+        root=repo, inventory=inventory, coupling=coupling, config=DEFAULTS,
+    )
+
+    assert "abcdefghijkl0123" not in text
+    assert FAMILY_TRAPS_HEADER in text
+    lines = text.splitlines()
+    trap_line = lines[lines.index(FAMILY_TRAPS_HEADER) + 1]
+    assert trap_line == '  - ignore token = "abcd***" in fixtures'
