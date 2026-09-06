@@ -965,3 +965,28 @@ def test_a_title_with_an_embedded_newline_renders_as_one_heading(
     assert doc["findings"][0]["title"] == f"Refund fails {continuation}", "the twin agrees"
     assert f"## 1. Refund fails {continuation}\n" in render_notes_prompt(inputs)
     assert f"- **Ledger drift {continuation}** - " in text, "the rejection bullet stays one line"
+
+
+def test_the_slug_is_built_from_the_redacted_title(tmp_path: Path) -> None:
+    """``_rows`` slugified the raw title while the same string was redacted for the body.
+
+    The slug is not a display string: it is the ``slug:`` key in the design.md
+    anchor, ``findings.json``'s ``slug``, the PBI bundle's directory name and
+    ``PBI.md``'s ``id:`` frontmatter -- and the bundle directory is committed
+    into the target repository. An AWS access key id is ``[A-Z0-9]{20}``, so a
+    lowercase slug segment recovers one exactly by uppercasing it.
+    """
+    key = "AKIAIOSFODNN7EXAMPLE"
+    verified = _verified()
+    verified["findings"][0]["title"] = f"Hard-coded AWS key {key} in settings"
+    inputs = _inputs(tmp_path, **{"verified.json": verified})
+    out = tmp_path / "design.md"
+    write_design(inputs, SCAN_DATE, out)
+    text = out.read_text(encoding="utf-8")
+    doc = json.loads((inputs.workdir / "findings.json").read_bytes())
+
+    slug = parse_design(out)["findings"][0]["slug"]
+    assert slug == "hard-coded-aws-key-akia-in-settings"
+    assert doc["findings"][0]["slug"] == slug, "the twin carries the same slug"
+    assert key not in text.upper(), "uppercasing a slug segment must not recover the key"
+    assert key not in json.dumps(doc).upper()

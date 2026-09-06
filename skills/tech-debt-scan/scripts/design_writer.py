@@ -297,9 +297,20 @@ def _rows(inputs: RenderInputs) -> list[Row]:
 
     The slugs are allocated over the whole ordered list, so a finding's slug
     does not change when another finding is added below it.
+
+    The slug comes from ``heading_text(title)``, the same redacted string the
+    document renders, never the raw one. A slug is not a display string that a
+    reader can be trusted to ignore: it is the anchor's ``slug:`` key,
+    ``findings.json``'s ``slug``, the PBI bundle's directory name and
+    ``PBI.md``'s ``id:`` -- and the bundle directory is committed into the
+    target repository. An AWS access key id is ``[A-Z0-9]{20}``, so a lowercase
+    slug segment gives one back exactly by uppercasing it. Every producer
+    reaching here today redacts the title before ``verified.json`` is written,
+    so this moves nothing; it stops the writer from redacting the same string
+    for one consumer and not the other.
     """
     pairs = _ordered(inputs)
-    slugs = unique_slugs([str(finding.get("title") or "") for _, finding in pairs])
+    slugs = unique_slugs([heading_text(str(finding.get("title") or "")) for _, finding in pairs])
     return [Row(rank, finding, slug) for (rank, finding), slug in zip(pairs, slugs, strict=True)]
 
 
