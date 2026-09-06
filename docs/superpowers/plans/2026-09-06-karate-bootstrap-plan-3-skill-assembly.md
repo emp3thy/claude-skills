@@ -34,16 +34,18 @@ Dismissed as not applicable, with reasons: Playwright text matching (no browser 
 
 | Task | Deliverable | Confidence | Evidence and embedded mitigation |
 |------|-------------|-----------:|----------------------------------|
-| 1 | Ledger bookkeeping commands (`add-entry`, `mark --feature/--stub/--seed`, `record-run`, `override`), `seed_ledger` reuse, Plan 2 parked scaffold fixes | 92% | Same shapes as the existing `mark`/`merge` code read at plan time; every command pinned by tests on the real `spring-mini` ledger |
-| 2 | `kb_prompt.py render` and the three prompt files | 90% | `string.Template` with strict substitution; every placeholder listed in one table and covered by a render test per prompt; each embedded example output is validated by the script that consumes it. The remaining risk, prompt quality for a live Opus or Sonnet run, is only measurable in Plan 4's fixture runs |
-| 3 | Four stack cheat sheets | 91% | Content derived from `markers.py`, `discover.py` conventions and spec section 8; a test asserts every `tokens_for(stack, kind)` token appears in its sheet |
-| 4 | Harness notes (`testcontainers-notes`, `karate-notes`, `failure-triage`, `podman`) | 93% | Facts come from the Plan 2 spike and the landed harness code; a heading test pins structure |
-| 5 | `kb_check_skill.py` with tests | 94% | Port of `tech-debt-scan/scripts/skill_check.py`, which has run in CI since PR #5 |
-| 6 | `SKILL.md`, its lint test, CI step | 90% | Every command copied from the `argparse` listing in this plan; the chain ran green today; `kb_check_skill.py` and Task 8's dry run are the gates |
-| 7 | `evals/trigger-eval.md`, description test, repo README section | 93% | Pure text plus a frontmatter test |
-| 8 | Dry-run eval on `spring-mini` and `dotnet-mini` | 92% | The `spring-mini` chain ran green today with canned outputs; the `dotnet-mini` traces reference marker lines read from the fixture at plan time |
+| 1 | Ledger bookkeeping commands (`add-entry`, `mark --feature/--stub/--seed`, `record-run`, `override`), `seed_ledger` reuse, Plan 2 parked scaffold fixes, `checkError` helper, fence-tolerant `read_json` | 97% | Executed: this task's code and tests were extracted from the plan into a scratch copy of the skill and ran green (`pytest`, `ruff`, `mypy --strict`); the `checkError` scenario ran 7/7 under `mvnw -Dkb.skipContainers=true`; the live generate run exercised `mark` and `validate --phase generated` on its output |
+| 2 | `kb_prompt.py render` and the three prompt files | 95% | Executed: the module and its tests ran green in the scratch build; each prompt was rendered for `spring-mini` and run by a live Sonnet subagent, and every reply passed the real gate (`merge` plus `validate --phase traced`, `add` with 10 rows, `mark` plus `validate --phase generated`). The six defects those runs exposed (code fence, `unresolved` misuse, `rules: true` on a business throw, a read-only subagent told to write a file, empty CSV cells failing a plain `match`, feature path relative to the wrong root) are folded into the prompts, the scripts and `SKILL.md`. Remaining: the other three stacks and other models are only measured in Plan 4 |
+| 3 | Four stack cheat sheets | 93% | Executed: the token-coverage test ran green against the four drafted sheets in the scratch build; the Spring sheet guided the live Sonnet trace, whose three `via` lines all passed `verify-refs` first time. Remaining: the other three sheets have not guided a live trace |
+| 4 | Harness notes (`testcontainers-notes`, `karate-notes`, `failure-triage`, `podman`) | 94% | Facts come from the Plan 2 spike and the landed harness code; the heading test ran green against the drafted notes in the scratch build. Remaining: the notes are read by an agent only during Plan 4's live runs |
+| 5 | `kb_check_skill.py` with tests | 98% | Executed: the port and its five tests ran green in the scratch build, and the script printed `ok` against the drafted `SKILL.md` |
+| 6 | `SKILL.md`, its lint test, CI step | 95% | Executed: every command is linted by `kb_check_skill.py` (printed `ok` on the draft) and re-run by Task 8's dry run; a Sonnet agent then followed the drafted `SKILL.md` Steps 0 to 6 on a fresh `spring-mini` copy with no other instructions and every gate passed first time. Its seven findings (undocumented `--skip-toolchain`, an auth postcondition that did not match the schema, a copyable rules example, the candidates note, one rows file per source, the example body for bodiless entries) are folded into this task and Task 2. Remaining: Steps 7 to 9 (run, iterate, summary) only execute with containers in Plan 4 |
+| 7 | `evals/trigger-eval.md`, description test, repo README section | 96% | Executed: the description test ran green against the drafted `SKILL.md` in the scratch build. Remaining: the trigger eval itself is a manual LLM run by design |
+| 8 | Dry-run eval on `spring-mini` and `dotnet-mini` | 97% | Executed: the dry-run test as written in this plan ran green on both fixtures in the scratch build, chaining every pinned command through `subprocess` |
 
-All eight tasks are at or above 90%; no Step 0 spikes.
+All eight tasks are at or above 93%; no Step 0 spikes remain.
+
+**Pre-flight executed during planning.** Every code, prompt, reference and `SKILL.md` block in this plan was extracted into a scratch copy of the skill with Task 1's edits applied; that copy passed `pytest` (267 tests, including Task 8's dry run on both fixtures), `ruff check`, `mypy --strict` and `kb_check_skill.py`. The template with the `checkError` helper passed the Maven smoke run. Three live Sonnet subagents ran the rendered trace, rules and generate prompts on `spring-mini` and their replies passed the scripts' gates after the fixes recorded in Task 2's row. A fourth Sonnet agent followed `SKILL.md` Steps 0 to 6 on a fresh copy with no other instructions; its findings are recorded in Task 6's row. Numbers below 100 reflect what only Plan 4's live container runs on the other stacks can measure.
 
 ## Global Constraints
 
@@ -99,17 +101,22 @@ Task order and dependencies: 1 (ledger commands) is consumed by 2 (the prompts t
 
 ### Task 1: Ledger bookkeeping commands and Plan 2 parked fixes
 
-**Confidence:** 92%. The chain spike today had to edit `flow-map.yaml` by hand at three points; these commands close those gaps with the same patterns `mark`, `merge` and `set_auth` already use (read at plan time: `flow_map.py:176-236`). The scaffold fixes are the two items parked at Plan 2's final review.
+**Confidence:** 97%. The chain spike had to edit `flow-map.yaml` by hand at three points; these commands close those gaps with the same patterns `mark`, `merge` and `set_auth` already use (read at plan time: `flow_map.py:176-236`). The scaffold fixes are the two items parked at Plan 2's final review. Everything in this task ran green in the pre-flight scratch build, and the `checkError` scenario ran under Maven.
 
 **Files:**
 - Modify: `skills/karate-bootstrap/scripts/flow_map.py` (docstring, `new_entry`, `add_entry`, `record_files`, `record_run`, `add_override`, `_cmd_mark`, new `_cmd_*`, `build_parser`)
 - Modify: `skills/karate-bootstrap/scripts/discover.py` (`seed_ledger` uses `flow_map.new_entry`; delete `_blank_status`)
 - Modify: `skills/karate-bootstrap/scripts/kb_scaffold.py:58,83` (`HARNESS_FILES`, `_DB_URL_NEEDLES`)
-- Test: `skills/karate-bootstrap/tests/test_kb_flow_map.py`, `tests/test_kb_discover.py`, `tests/test_kb_scaffold.py`
+- Modify: `skills/karate-bootstrap/scripts/kb_common.py` (`read_json` accepts a reply wrapped in a code fence)
+- Create: `skills/karate-bootstrap/templates/karate-tests/src/test/resources/common/check-error.js`
+- Modify: `skills/karate-bootstrap/templates/karate-tests/src/test/resources/karate-config.js` (register `checkError`)
+- Modify: `skills/karate-bootstrap/templates/karate-tests/src/test/resources/features/harness-smoke.feature` (one scenario)
+- Test: `skills/karate-bootstrap/tests/test_kb_flow_map.py`, `tests/test_kb_discover.py`, `tests/test_kb_scaffold.py`, `tests/test_kb_common.py`, `tests/test_kb_template.py`
 
 **Interfaces:**
 - Consumes: `flow_map.find_entry`, `load_ledger`, `save_ledger`, `STATUS_FLAGS`, `VIA_RE`, `KbError` (Plan 1).
 - Produces for Tasks 2, 6, 8: `new_entry(base: dict) -> dict`; `add_entry(ledger, entry_id, kind, handler, method=None, path=None, destination=None, dest_type="queue") -> dict`; `record_files(ledger, entry_id, features=(), stubs=(), seeds=()) -> dict`; `record_run(ledger, report) -> dict[str, int]` (`tested`, `passing`, `failing`); `add_override(ledger, entry_id, scenario, field, old, new, reason) -> dict`; CLI `flow_map.py add-entry --ledger PATH --id ID --kind {http,amq-subscribe} --handler file:line [--method M --path P] [--destination D --type {queue,topic}]`, `flow_map.py mark ... [--feature F]... [--stub S]... [--seed X]...`, `flow_map.py record-run --ledger PATH --report PATH`, `flow_map.py override --ledger PATH --entry ID --scenario S --field F --old O --new N --reason R`.
+- Produces for Tasks 2 and 6: the Karate global `checkError(response, code, messageContains)` (template `common/check-error.js`, registered in `karate-config.js`) returning `[]` when the serialised body contains `code` and `messageContains`, each check skipped when its argument is empty; `read_json` (and therefore `flow_map.py merge`) accepting a JSON object wrapped in a markdown code fence.
 
 - [ ] **Step 1: Add the failing tests to `tests/test_kb_flow_map.py`**
 
@@ -162,7 +169,8 @@ def test_record_files_appends_and_dedupes(spring_ledger: tuple[Path, dict[str, A
                          seeds=["seed/post-api-shipments.sql"])
     assert entry["features"] == ["features/post-api-shipments.feature"]
     assert entry["stubs"] == ["stubs/pricing/default.json", "stubs/pricing/outage.json"]
-    record_files(ledger, "POST /api/shipments", features=["features/post-api-shipments.feature"],
+    record_files(ledger, "POST /api/shipments",
+                 features=["src/test/resources/features/post-api-shipments.feature"],
                  stubs=["stubs/pricing/default.json"])
     assert entry["features"] == ["features/post-api-shipments.feature"]
     assert entry["stubs"] == ["stubs/pricing/default.json", "stubs/pricing/outage.json"]
@@ -174,7 +182,8 @@ def test_record_run_sets_tested_and_passing_from_the_report(
 ) -> None:
     _, ledger = spring_ledger
     record_files(ledger, "POST /api/shipments", features=["features/post-api-shipments.feature"])
-    record_files(ledger, "GET /api/shipments/{id}", features=["features/get-api-shipments-id.feature"])
+    record_files(ledger, "GET /api/shipments/{id}",
+                 features=["features/get-api-shipments-id.feature"])
     report = {"passed": 3, "skipped": 0, "failed": [
         {"feature": "features/get-api-shipments-id.feature", "scenario": "missing",
          "outline": False, "tags": ["@error"], "step": "status 404", "error": "got 500"},
@@ -206,8 +215,9 @@ def test_cli_add_entry_mark_files_record_run_override(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     ledger_path, _ = spring_ledger
-    assert run_cli(main, ["add-entry", "--ledger", str(ledger_path), "--id", "PUT /api/shipments/{id}",
-                          "--kind", "http", "--handler", f"{SERVICE}:40", "--method", "PUT",
+    assert run_cli(main, ["add-entry", "--ledger", str(ledger_path),
+                          "--id", "PUT /api/shipments/{id}", "--kind", "http",
+                          "--handler", f"{SERVICE}:40", "--method", "PUT",
                           "--path", "/api/shipments/{id}"]) == 0
     assert "PUT /api/shipments/{id}" in capsys.readouterr().out
     assert run_cli(main, ["mark", "--entry", "POST /api/shipments", "--generated",
@@ -226,14 +236,16 @@ def test_cli_add_entry_mark_files_record_run_override(
     assert run_cli(main, ["record-run", "--ledger", str(ledger_path), "--report", str(report)]) == 0
     assert "tested: 1" in capsys.readouterr().out
     assert find_entry(load_ledger(ledger_path), "POST /api/shipments")["status"]["passing"] is True
-    assert run_cli(main, ["override", "--ledger", str(ledger_path), "--entry", "POST /api/shipments",
+    assert run_cli(main, ["override", "--ledger", str(ledger_path),
+                          "--entry", "POST /api/shipments",
                           "--scenario", "happy", "--field", "status", "--old", "201",
                           "--new", "200", "--reason", "observed"]) == 0
     assert find_entry(load_ledger(ledger_path), "POST /api/shipments")["observed_overrides"] == [
         {"scenario": "happy", "field": "status", "old": "201", "new": "200", "reason": "observed"}
     ]
-    assert run_cli(main, ["add-entry", "--ledger", str(ledger_path), "--id", "PUT /api/shipments/{id}",
-                          "--kind", "http", "--handler", f"{SERVICE}:40", "--method", "PUT",
+    assert run_cli(main, ["add-entry", "--ledger", str(ledger_path),
+                          "--id", "PUT /api/shipments/{id}", "--kind", "http",
+                          "--handler", f"{SERVICE}:40", "--method", "PUT",
                           "--path", "/x"]) == 2
 ```
 
@@ -280,12 +292,25 @@ In `test_copy_template_never_overwrites_generated_content`, replace the last fiv
     assert (out / "defects.md").read_text(encoding="utf-8") == "edited"
 ```
 
-- [ ] **Step 4: Run the new tests and confirm the predicted failures**
+- [ ] **Step 4: Add the fence test to `tests/test_kb_common.py` and the template checks to `tests/test_kb_template.py`**
 
-Run: `pytest skills/karate-bootstrap/tests/test_kb_flow_map.py skills/karate-bootstrap/tests/test_kb_discover.py skills/karate-bootstrap/tests/test_kb_scaffold.py -q`
-Expected ([[verify-red]]): `test_kb_flow_map.py` and `test_kb_discover.py` fail at collection with `ImportError` (`add_entry`, `new_entry` do not exist); in `test_kb_scaffold.py` the `HIKARI_CONNECTION_TIMEOUT` row fails (`conn` in the needles gives a JDBC URL), the `Deals__ConnStr` row fails (no `connstr` needle), and the copy test fails on `rules/harness-smoke.csv` (kept, not overwritten).
+Append to `tests/test_kb_common.py`:
 
-- [ ] **Step 5: Implement the ledger commands in `scripts/flow_map.py`**
+```python
+def test_read_json_accepts_a_reply_wrapped_in_a_code_fence(tmp_path: Path) -> None:
+    fenced = tmp_path / "reply.json"
+    fenced.write_text('```json\n{"id": "POST /x", "exits": []}\n```\n', encoding="utf-8")
+    assert read_json(fenced) == {"id": "POST /x", "exits": []}
+```
+
+In `tests/test_kb_template.py`, add `"src/test/resources/common/check-error.js"` to `REQUIRED_FILES` directly after the `mutate.js` line, and in `test_template_compiles_and_smoke_runs` change `assert summary["scenariosPassed"] >= 6` to `assert summary["scenariosPassed"] >= 7`.
+
+- [ ] **Step 5: Run the new tests and confirm the predicted failures**
+
+Run: `pytest skills/karate-bootstrap/tests/test_kb_flow_map.py skills/karate-bootstrap/tests/test_kb_discover.py skills/karate-bootstrap/tests/test_kb_scaffold.py skills/karate-bootstrap/tests/test_kb_common.py skills/karate-bootstrap/tests/test_kb_template.py -q`
+Expected ([[verify-red]]): `test_kb_flow_map.py` and `test_kb_discover.py` fail at collection with `ImportError` (`add_entry`, `new_entry` do not exist); in `test_kb_scaffold.py` the `HIKARI_CONNECTION_TIMEOUT` row fails (`conn` in the needles gives a JDBC URL), the `Deals__ConnStr` row fails (no `connstr` needle), and the copy test fails on `rules/harness-smoke.csv` (kept, not overwritten); `test_read_json_accepts_a_reply_wrapped_in_a_code_fence` fails with `KbError: ... invalid JSON`; `test_template_files_present` fails listing `check-error.js`. The Maven test stays skipped without `KB_MAVEN=1`.
+
+- [ ] **Step 6: Implement the ledger commands in `scripts/flow_map.py`**
 
 Docstring: add after the `mark` line and before `set-auth`:
 
@@ -360,14 +385,24 @@ def add_entry(ledger: dict[str, Any], entry_id: str, kind: str, handler: str,
 Add after `mark_entry`:
 
 ```python
+RESOURCES_PREFIX = "src/test/resources/"
+
+
 def record_files(ledger: dict[str, Any], entry_id: str, features: Iterable[str] = (),
                  stubs: Iterable[str] = (), seeds: Iterable[str] = ()) -> dict[str, Any]:
-    """Append generated file paths (posix, de-duplicated) to the entry's lists."""
+    """Append generated file paths (posix, de-duplicated) to the entry's lists.
+
+    Features are stored relative to ``src/test/resources`` (the classpath root the gate and
+    the report parser use); a path given from the tests root is trimmed to that form. Stubs
+    and seeds stay relative to the tests root.
+    """
     entry = find_entry(ledger, entry_id)
     for key, items in (("features", features), ("stubs", stubs), ("seeds", seeds)):
         existing: list[str] = entry.setdefault(key, [])
         for item in items:
             clean = str(item).replace("\\", "/")
+            if key == "features" and clean.startswith(RESOURCES_PREFIX):
+                clean = clean[len(RESOURCES_PREFIX):]
             if clean not in existing:
                 existing.append(clean)
     return entry
@@ -489,7 +524,7 @@ and add after the `set-auth` block:
     over.set_defaults(func=_cmd_override)
 ```
 
-- [ ] **Step 6: Make `discover.seed_ledger` reuse `new_entry`**
+- [ ] **Step 7: Make `discover.seed_ledger` reuse `new_entry`**
 
 In `scripts/discover.py`: add `from flow_map import new_entry` after the `from kb_common import (...)` block (before `from markers import ...`, alphabetical). Delete `_blank_status`. Replace the loop in `seed_ledger`:
 
@@ -519,7 +554,7 @@ with
     entry_points = [new_entry(entry) for entry in entries]
 ```
 
-- [ ] **Step 7: Apply the parked scaffold fixes in `scripts/kb_scaffold.py`**
+- [ ] **Step 8: Apply the parked scaffold fixes in `scripts/kb_scaffold.py`**
 
 ```python
 HARNESS_FILES = ("src/test/resources/features/harness-smoke.feature", "rules/harness-smoke.csv")
@@ -531,16 +566,81 @@ _DB_URL_NEEDLES = ("url", "jdbc", "connectionstring", "connstr", "dsn")
 
 Update the comment near `_DB_URL_NEEDLES` (or add one) to say: bare `conn` was dropped because Hikari keys such as `connection-timeout` matched it.
 
-- [ ] **Step 8: Full gate and the spec commands' help**
+- [ ] **Step 9: Make `read_json` accept a fenced reply in `scripts/kb_common.py`**
 
-Run: `pytest -q` then `ruff check .` then `mypy` then `python skills/karate-bootstrap/scripts/flow_map.py add-entry --help` then `python skills/karate-bootstrap/scripts/flow_map.py mark --help` then `python skills/karate-bootstrap/scripts/flow_map.py record-run --help` then `python skills/karate-bootstrap/scripts/flow_map.py override --help`
-Expected: green; each help lists the flags named in the Interfaces block. [[docs-in-sync]]
+Trace and generate subagents sometimes wrap their JSON in a markdown fence even when told not to (seen in the live Sonnet eval during planning). Add `import re` if the module lacks it, then above `read_json`:
 
-- [ ] **Step 9: Commit**
+```python
+# A subagent reply wrapped in a markdown code fence: keep only the object inside it.
+_FENCE_RE = re.compile(r"\A\s*```[A-Za-z]*[ \t]*\n(.*?)\n[ \t]*```\s*\Z", re.DOTALL)
+```
+
+and change the body of `read_json` to:
+
+```python
+def read_json(path: Path) -> dict[str, Any]:
+    text = read_text(path)
+    fenced = _FENCE_RE.match(text)
+    if fenced:
+        text = fenced.group(1)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as err:
+        raise KbError(f"{path}: invalid JSON: {err}") from err
+    if not isinstance(data, dict):
+        raise KbError(f"{path}: expected a JSON object at top level")
+    return cast(dict[str, Any], data)
+```
+
+- [ ] **Step 10: Add the `checkError` helper to the template**
+
+The rules CSV allows empty `expected_code` and `expected_message_contains` cells ("do not check"), and the most common Spring and .NET setups produce framework-generated bodies with no `code` field, so a plain `match response.code == '<expected_code>'` in the outline would fail every such row. The helper makes the check conditional. Create `templates/karate-tests/src/test/resources/common/check-error.js`:
+
+```javascript
+function fn(response, code, message) {
+  var body = (typeof response === 'string') ? response : JSON.stringify(response);
+  var problems = [];
+  if (code && body.indexOf(code) < 0) {
+    problems.push('expected error code "' + code + '" in ' + body);
+  }
+  if (message && body.indexOf(message) < 0) {
+    problems.push('expected message containing "' + message + '" in ' + body);
+  }
+  return problems;
+}
+```
+
+In `templates/karate-tests/src/test/resources/karate-config.js`, directly after the `config.mutate = ...` line, add:
+
+```javascript
+  config.checkError = karate.read('classpath:common/check-error.js');
+```
+
+In `templates/karate-tests/src/test/resources/features/harness-smoke.feature`, insert this scenario before `Scenario: runtime configuration is on the classpath`:
+
+```gherkin
+Scenario: checkError helper skips empty expectations and reports the rest
+  * def body = { code: 'VALIDATION', message: 'reference is required' }
+  * match checkError(body, '', '') == []
+  * match checkError(body, 'VALIDATION', 'is required') == []
+  * match checkError(body, 'OTHER', '') == ['#regex expected error code .*']
+  * match checkError(body, '', 'missing text') == ['#regex expected message containing .*']
+  * match checkError('plain text body', '', 'text') == []
+
+```
+
+This exact scenario ran green under `mvnw -q test -Dkb.skipContainers=true` on a copy of the template during planning (7 of 7 scenarios).
+
+- [ ] **Step 11: Full gate, the Maven smoke run and the spec commands' help**
+
+Run: `pytest -q` then `ruff check .` then `mypy` then `KB_MAVEN=1 pytest -m maven -q` (on Windows set `JAVA_HOME` to the JDK 21 install first; the wrapper downloads Maven 3.9.9 on first use) then `python skills/karate-bootstrap/scripts/flow_map.py add-entry --help` then `python skills/karate-bootstrap/scripts/flow_map.py mark --help` then `python skills/karate-bootstrap/scripts/flow_map.py record-run --help` then `python skills/karate-bootstrap/scripts/flow_map.py override --help`
+Expected: green, the Maven run reporting 7 passed scenarios; each help lists the flags named in the Interfaces block. [[docs-in-sync]]
+
+- [ ] **Step 12: Commit**
 
 ```bash
-git add skills/karate-bootstrap/scripts/flow_map.py skills/karate-bootstrap/scripts/discover.py skills/karate-bootstrap/scripts/kb_scaffold.py skills/karate-bootstrap/tests/test_kb_flow_map.py skills/karate-bootstrap/tests/test_kb_discover.py skills/karate-bootstrap/tests/test_kb_scaffold.py
-git commit -m "feat(karate-bootstrap): ledger add-entry, mark files, record-run and override
+git add skills/karate-bootstrap/scripts/flow_map.py skills/karate-bootstrap/scripts/discover.py skills/karate-bootstrap/scripts/kb_scaffold.py skills/karate-bootstrap/scripts/kb_common.py skills/karate-bootstrap/templates/karate-tests/src/test/resources/common/check-error.js skills/karate-bootstrap/templates/karate-tests/src/test/resources/karate-config.js skills/karate-bootstrap/templates/karate-tests/src/test/resources/features/harness-smoke.feature skills/karate-bootstrap/tests/test_kb_flow_map.py skills/karate-bootstrap/tests/test_kb_discover.py skills/karate-bootstrap/tests/test_kb_scaffold.py skills/karate-bootstrap/tests/test_kb_common.py skills/karate-bootstrap/tests/test_kb_template.py
+git commit -m "feat(karate-bootstrap): ledger add-entry, mark files, record-run, override; checkError helper
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -549,7 +649,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ### Task 2: `kb_prompt.py render` and the three prompt files
 
-**Confidence:** 90%. Rendering is `string.Template` with strict substitution over a context built from the ledger and env-map (both shapes read at plan time); every placeholder is listed in the table below and exercised by a render test per prompt. Each prompt embeds an example output, and the tests feed the example back through the script that consumes it (`merge_entry`, `add_rows`, `parse_feature` plus `unsafe_parallel_scenarios`), so the examples cannot drift from the schemas ([[cross-read]]). What no test here can measure is how well Opus 4.8 or Sonnet 4.6 follow the prompts on a real repo; Plan 4's fixture runs are that eval, and the prompts are plain files the user can tune at work.
+**Confidence:** 95%. Rendering is `string.Template` with strict substitution over a context built from the ledger and env-map (both shapes read at plan time); every placeholder is listed in the table below and exercised by a render test per prompt. Each prompt embeds an example output, and the tests feed the example back through the script that consumes it (`merge_entry`, `add_rows`, `parse_feature` plus `unsafe_parallel_scenarios`), so the examples cannot drift from the schemas ([[cross-read]]). What no test here can measure is how well Opus 4.8 or Sonnet 4.6 follow the prompts on a real repo; Plan 4's fixture runs are that eval, and the prompts are plain files the user can tune at work.
 
 **Files:**
 - Create: `skills/karate-bootstrap/scripts/kb_prompt.py`
@@ -574,7 +674,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 | `entry_instruction` | one paragraph: how to drive an `http` entry versus an `amq-subscribe` entry |
 | `focus` | empty, or a "Start at file:line" paragraph when `--focus` is given |
 | `source`, `source_path` | rules only: the validation source, relative and absolute |
-| `candidates_csv`, `candidates_note`, `rows_csv` | rules only: `<tests>/rules/<slug>.candidates.csv`, whether it exists and how many rows, `<tests>/rules/<slug>.rows.csv` |
+| `candidates_csv`, `candidates_note` | rules only: `<tests>/rules/<slug>.candidates.csv` and whether it exists and how many rows |
 | `rules_file`, `rules_count` | `entry.rules.file` or `none`; count as text |
 | `feature_file`, `seed_file`, `example_file`, `stubs_dir` | `features/<slug>.feature`, `seed/<slug>.sql`, `seed/examples/<slug>.json`, `stubs` |
 
@@ -646,7 +746,7 @@ def test_trace_context_and_render(analysed: tuple[Path, Path, dict[str, Any], di
     assert context["focus"] == ""
     text = render("trace", context, PROMPTS_DIR)
     assert "POST /api/shipments" in text
-    assert "12 hops" in text and "unresolved" in text
+    assert "12 hops" in text and "unresolved" in text and "no code fence" in text
     assert _PLACEHOLDER_RE.search(text) is None
 
 
@@ -690,10 +790,13 @@ def test_rules_context_needs_a_source_and_its_example_rows_load(
     assert context["source_path"].endswith(REQUEST)
     assert context["candidates_csv"].endswith("rules/post-api-shipments.candidates.csv")
     assert "not present" in context["candidates_note"]
-    assert context["rows_csv"].endswith("rules/post-api-shipments.rows.csv")
+    assert "rows_csv" not in context
     text = render("rules", context, PROMPTS_DIR)
     assert "rule_id,field,mutation,value,expected_status,expected_code," in text
     assert _PLACEHOLDER_RE.search(text) is None
+    reply = json.loads(_block(text, "## Reply", "json"))
+    assert reply["csv"].startswith("rule_id,field,mutation,value,")
+    assert set(reply) == {"csv", "rows", "dropped_candidates", "notes"}
     rows = tmp_path / "rows.csv"
     rows.write_text(_block(text, "## Example rows file", "csv") + "\n", encoding="utf-8")
     assert add_rows(tests_dir, ledger, "POST /api/shipments", rows) >= 3
@@ -735,6 +838,7 @@ def test_generate_context_and_example_feature_is_parallel_safe(
     assert "@parallel=false" in text and "Jms.await(" in text and "Stubs.verify(" in text
     assert _PLACEHOLDER_RE.search(text) is None
     feature = _block(text, "## Feature shape", "gherkin")
+    assert "checkError(response, '<expected_code>'" in feature
     parsed = parse_feature(feature)
     assert len(parsed.scenarios()) >= 3
     assert unsafe_parallel_scenarios(feature) == []
@@ -893,7 +997,9 @@ def candidates_note(path: Path) -> str:
         return ("not present (no declarative validators were found for this entry); every row "
                 "comes from your reading of the source")
     rows = [line for line in read_text(path).splitlines() if line.strip()]
-    return f"present with {max(0, len(rows) - 1)} candidate rows to confirm or drop"
+    return (f"present with {max(0, len(rows) - 1)} candidate rows drawn from every declarative "
+            "source of this entry; confirm or drop the ones whose source is the file you are "
+            "reading and leave the rest to their own pass")
 
 
 def build_context(prompt: str, ledger: dict[str, Any], entry_id: str,
@@ -944,7 +1050,6 @@ def build_context(prompt: str, ledger: dict[str, Any], entry_id: str,
         "source_path": _posix(repo / source) if source else "",
         "candidates_csv": _posix(tests_dir / "rules" / f"{slug}.candidates.csv"),
         "candidates_note": candidates_note(tests_dir / "rules" / f"{slug}.candidates.csv"),
-        "rows_csv": _posix(tests_dir / "rules" / f"{slug}.rows.csv"),
         "csv_header": CSV_HEADER_LINE,
         "rules_file": str(rules.get("file") or "none"),
         "rules_count": str(rules.get("count") or 0),
@@ -1056,16 +1161,21 @@ $focus
    consumes (`http-in` with the `host_key`, method and path of the downstream call). They become
    seeds and stubs.
 5. Record `responses`: every distinct status the handler can return with a short `when`. Mark
-   validation branches with `"rules": true`. Give `via` for branches that come from explicit code
-   such as a throw or an early return.
+   with `"rules": true` only the status the request-validation framework returns for a rejected
+   body (Bean Validation, FluentValidation, data annotations, Pydantic); a business check that
+   throws or returns early is a plain response with its `via`, never a rules response. Give
+   `via` for branches that come from explicit code such as a throw or an early return.
 6. Record `rules.sources`: every file that holds validation for this entry (the request DTO with
    its annotations, validator classes, service-layer checks), each with `"scanned": false`.
 7. Resolve table names from the entity mapping (`@Table`, `[Table]`, `DbSet` name,
    `__tablename__`), not from the class name, unless the cheat sheet says the default mapping
    applies. Resolve destination names from the literal in the code or the config key that holds
    it; `queue` unless the code clearly uses a topic.
-8. Anything you cannot follow (reflection, dynamic dispatch, generated code, the hop cap) goes in
-   `unresolved` with the `file:line` where you stopped and a one-line reason.
+8. Only a call whose target you could not open goes in `unresolved` (reflection, dynamic
+   dispatch, generated code, a missing file, the hop cap), with the `file:line` where you
+   stopped and a one-line reason. Doubt about a status code or a value is not unresolved:
+   record your best reading in `when` and move on. An empty `unresolved` list is the normal
+   answer.
 9. An entry that writes nothing (a pure read) returns `"exits": []` with a non-empty
    `exits_none_reason`.
 10. `auth`: `required` when the handler or its class demands authentication, `none` when it is
@@ -1073,7 +1183,8 @@ $focus
 
 ## Output contract
 
-Reply with JSON only: no prose before or after it. Field rules:
+Reply with the JSON object as raw text: no code fence, no prose before or after it. Field
+rules:
 
 - `id`: exactly `$entry_id`.
 - `exits[]`: `kind` is `db-write` (`table`, `op` = insert|update|delete), `amq-publish`
@@ -1132,7 +1243,8 @@ The shape, with illustrative values; every path in a real answer must exist in t
 
 You are a read-only reviewer working for the karate-bootstrap skill. Read one validation source
 and produce the complete list of validation rules it applies to the request of this entry point,
-as CSV rows the skill turns into a data-driven Karate outline. You never edit application code.
+as CSV rows the skill turns into a data-driven Karate outline. You never edit application code
+and you never write files: you return the rows in your reply.
 
 ## Inputs
 
@@ -1140,7 +1252,6 @@ as CSV rows the skill turns into a data-driven Karate outline. You never edit ap
 - Source to read: `$source` (file `$source_path`)
 - Entry point: `$entry_id` (`$kind`, handler `$handler`)
 - Candidate rows extracted from declarative validators: `$candidates_csv`, $candidates_note.
-- Where to write your rows: `$rows_csv` (create the directory if needed)
 - The entry's responses from the trace, for status codes and which branches are validation:
 
 ```json
@@ -1151,8 +1262,8 @@ $responses_json
 
 Each row is one way a request can fail validation. The skill generates a scenario per row that
 takes a valid base request, applies `mutation` to `field` with `value`, sends it, and expects
-`expected_status`, a body whose error code equals `expected_code` (empty means do not check) and
-a message containing `expected_message_contains` (empty means do not check).
+`expected_status`, a body that contains `expected_code` (an error code or title; empty means do
+not check) and a message containing `expected_message_contains` (empty means do not check).
 
 CSV header, exactly:
 
@@ -1180,26 +1291,33 @@ generate step turns into a concrete pair of values. `rule_id` stays empty; the s
    empty when the message is framework-generated and you cannot see it.
 4. Use the status the trace recorded for validation responses; 400 for Bean Validation,
    FluentValidation and data annotations; 422 for FastAPI or Pydantic unless the code maps it.
-5. Write the rows file with the exact header above. Do not edit `rules/*.csv` yourself: the skill
-   appends your rows with `kb_rules.py add`, de-duplicating on field, mutation and value.
+5. Return the complete rows file, header line first, in the `csv` field of your reply. Do not
+   edit `rules/*.csv`: the skill saves your CSV as `rules/<slug>-<n>.rows.csv` and appends it
+   with `kb_rules.py add`, de-duplicating on field, mutation and value.
 
 ## Reply
 
-After writing the file, reply with JSON only:
+Reply with the JSON object as raw text: no code fence, no prose. `csv` holds the header and
+every row, newline-separated; `rows` counts the rows; `dropped_candidates` counts candidates you
+rejected.
 
 ```json
-{ "rows_csv": "$rows_csv", "rows": 12, "dropped_candidates": 1, "notes": "one-line summary" }
+{ "csv": "$csv_header\n,reference,missing,,400,VALIDATION,reference is required,src/main/java/com/acme/deals/DealRequest.java:8\n", "rows": 12, "dropped_candidates": 1, "notes": "one-line summary" }
 ```
 
 ## Example rows file
 
+The shape, with illustrative values from another service; every `source` in a real answer
+must point into the file you were given, and codes and messages come from its code, never
+from this example.
+
 ```csv
 $csv_header
-,reference,missing,,400,VALIDATION,reference is required,src/main/java/com/acme/shipments/ShipmentRequest.java:8
-,reference,too_long,51,400,VALIDATION,reference must be at most 50,src/main/java/com/acme/shipments/ShipmentRequest.java:9
-,weightKg,out_of_range,0,400,VALIDATION,weight must be positive,src/main/java/com/acme/shipments/ShipmentRequest.java:13
-,countryCode,invalid_format,!!,400,VALIDATION,countryCode must match,src/main/java/com/acme/shipments/ShipmentRequest.java:17
-,weightKg,out_of_range,1001,400,LIMIT,weight exceeds 1000kg,src/main/java/com/acme/shipments/ShipmentService.java:28
+,externalId,missing,,400,VALIDATION,externalId is required,src/main/java/com/acme/deals/DealRequest.java:8
+,externalId,too_long,65,400,VALIDATION,externalId must be at most 64,src/main/java/com/acme/deals/DealRequest.java:9
+,quantity,out_of_range,0,400,VALIDATION,quantity must be positive,src/main/java/com/acme/deals/DealRequest.java:13
+,currency,invalid_enum,NOT_A_VALUE,400,,,src/main/java/com/acme/deals/DealRequest.java:17
+,settlementDate,cross_field,before:tradeDate,422,DATE_ORDER,settlement before trade,src/main/java/com/acme/deals/DealService.java:41
 ```
 ````
 
@@ -1234,8 +1352,8 @@ $entry_json
 
 | File | Content |
 |------|---------|
-| `$feature_file` | the feature below |
-| `$example_file` | a valid base request body as JSON (for AMQ entries, a valid message body) |
+| `src/test/resources/$feature_file` | the feature below. Features live on the test classpath under `src/test/resources/`; `stubs/`, `seed/` and `rules/` sit at the tests root, which the `pom.xml` also puts on the classpath, so `read('classpath:...')` reaches all of them |
+| `$example_file` | a valid base request body as JSON (for AMQ entries, a valid message body); omit it when the entry's `request` is `null` (a GET or DELETE with no body) and leave it out of the reply |
 | `$seed_file` | SQL inserts the feature needs beyond what it creates itself (reference rows the handler reads); additive only, unique keys, `-- comments` allowed |
 | `$stubs_dir/<downstream>/default.json` | WireMock mappings for every `http-out` exit and `http-in` read, one file per downstream, `{"mappings":[...]}`; add or extend, never delete another entry's mappings |
 | `$stubs_dir/<downstream>/<error>.json` | only when a failure path needs a different downstream answer and cannot be driven by request data |
@@ -1263,7 +1381,9 @@ $entry_json
 
 ## Harness API (globals in every feature)
 
-- `appBaseUrl`; `mutate(base, field, mutation, value)`; `skipContainers`.
+- `appBaseUrl`; `mutate(base, field, mutation, value)`; `checkError(response, code, messageContains)`
+  returns `[]` when the serialised body contains both values, skipping a check whose argument is
+  empty (so empty CSV cells pass); `skipContainers`.
 - `Db.run(path)`, `Db.row(table, where)`, `Db.awaitRow(table, where, timeoutMs)`,
   `Db.count(table, where)`, `Db.truncate(tables)`.
 - `Jms.watch(dest)`, `Jms.await(dest, timeoutMs)`, `Jms.await(dest, timeoutMs, matchMap)`,
@@ -1322,8 +1442,7 @@ Scenario Outline: validation rule <rule_id> on <field>
   And request payload
   When method post
   Then status <expected_status>
-  And match response.code == '<expected_code>'
-  And match response.message contains '<expected_message_contains>'
+  * match checkError(response, '<expected_code>', '<expected_message_contains>') == []
 
   Examples:
     | read('classpath:rules/post-api-deals.csv') |
@@ -1354,8 +1473,10 @@ One file per downstream, suite-level. `priority` 1 wins over 5.
 
 ## Reply
 
-After writing the files, reply with JSON only, listing every path you wrote relative to
-`$tests_dir` (the skill records them on the ledger with `flow_map.py mark`):
+After writing the files, reply with the JSON object as raw text (no code fence, no prose),
+listing every path you wrote relative to `$tests_dir`; the feature may be listed either as
+`$feature_file` or `src/test/resources/$feature_file` (the skill records them on the ledger
+with `flow_map.py mark`, which stores features relative to `src/test/resources`):
 
 ```json
 {
@@ -1390,7 +1511,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ### Task 3: Stack cheat sheets
 
-**Confidence:** 91%. The sheets are documentation for the trace and rules subagents. Their marker and token tables are derived from `markers.py` (read at plan time), the config-key conventions from `discover.py` (`assign_role`, `_DB_KEY`, `_AMQ_KEY`, `_AUTH_KEY`, `_ON_BOOT_KEYS`, `MANIFEST_NAMES`), and the rest from spec section 8. A test asserts every `tokens_for(stack, kind)` token appears verbatim in the stack's sheet and that each sheet carries the required headings, so a marker added to `markers.py` without its sheet fails CI.
+**Confidence:** 93%. The sheets are documentation for the trace and rules subagents. Their marker and token tables are derived from `markers.py` (read at plan time), the config-key conventions from `discover.py` (`assign_role`, `_DB_KEY`, `_AMQ_KEY`, `_AUTH_KEY`, `_ON_BOOT_KEYS`, `MANIFEST_NAMES`), and the rest from spec section 8. A test asserts every `tokens_for(stack, kind)` token appears verbatim in the stack's sheet and that each sheet carries the required headings, so a marker added to `markers.py` without its sheet fails CI.
 
 **Files:**
 - Create: `skills/karate-bootstrap/reference/stack-spring.md`, `stack-quarkus.md`, `stack-aspnetcore.md`, `stack-python.md`
@@ -1906,7 +2027,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ### Task 4: Harness notes: testcontainers, karate, failure triage, podman
 
-**Confidence:** 93%. Every fact below comes from the Plan 2 spike, the landed harness code (`Containers.java`, `Stubs.java`, `KarateRunner.java`, `reset.feature`) or spec sections 5.5, 5.7 and 10, all read during Plan 2. A heading test pins the structure the SKILL.md steps point at.
+**Confidence:** 94%. Every fact below comes from the Plan 2 spike, the landed harness code (`Containers.java`, `Stubs.java`, `KarateRunner.java`, `reset.feature`) or spec sections 5.5, 5.7 and 10, all read during Plan 2. A heading test pins the structure the SKILL.md steps point at.
 
 **Files:**
 - Create: `skills/karate-bootstrap/reference/testcontainers-notes.md`, `karate-notes.md`, `failure-triage.md`, `podman.md`
@@ -2197,7 +2318,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ### Task 5: `kb_check_skill.py`
 
-**Confidence:** 94%. A port of `skills/tech-debt-scan/scripts/skill_check.py` (read at plan time; in CI since PR #5) with karate-bootstrap defaults and the `kb_` name. Its tests mirror the sibling's four unit cases; the real-`SKILL.md` case lands with `SKILL.md` in Task 6.
+**Confidence:** 98%. A port of `skills/tech-debt-scan/scripts/skill_check.py` (read at plan time; in CI since PR #5) with karate-bootstrap defaults and the `kb_` name. Its tests mirror the sibling's four unit cases; the real-`SKILL.md` case lands with `SKILL.md` in Task 6.
 
 **Files:**
 - Create: `skills/karate-bootstrap/scripts/kb_check_skill.py`
@@ -2427,7 +2548,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ### Task 6: `SKILL.md`, its lint test and the CI step
 
-**Confidence:** 90%. Every command below was copied from the scripts' `argparse` definitions (the listing in this plan's preparation) and is linted by `kb_check_skill.py`; the phase order is the one the chain spike executed green today; Task 8 re-executes it in CI. The procedure is written for Opus 4.8 and Sonnet 4.6 in the register `tech-debt-scan/SKILL.md` uses (read at plan time): prerequisite, one command, postcondition, abort rule.
+**Confidence:** 95%. Every command below was copied from the scripts' `argparse` definitions (the listing in this plan's preparation) and is linted by `kb_check_skill.py`; the phase order is the one the chain spike executed green today; Task 8 re-executes it in CI. The procedure is written for Opus 4.8 and Sonnet 4.6 in the register `tech-debt-scan/SKILL.md` uses (read at plan time): prerequisite, one command, postcondition, abort rule.
 
 **Files:**
 - Create: `skills/karate-bootstrap/SKILL.md`
@@ -2533,7 +2654,7 @@ rendered file and pass its complete text as the subagent's prompt; add nothing, 
 | Kind | Agent | May write | Returns |
 |------|-------|-----------|---------|
 | trace | read-only (Explore) | nothing | JSON matching the ledger entry schema |
-| rules | read-only (Explore) | `<tests>/rules/<slug>.rows.csv` only | JSON with `rows_csv` and counts |
+| rules | read-only (Explore) | nothing | JSON with `csv` (header plus rows), `rows`, `dropped_candidates`, `notes` |
 | generate | general-purpose | files under `<tests>` only (`features/`, `stubs/`, `seed/`) | JSON listing the files written |
 
 Save every JSON reply to `<tests>/.prompts/<kind>-<slug>.json` before you feed it to a script.
@@ -2554,7 +2675,9 @@ python scripts/detect.py <root> --service-dir <sub> --out <tests>/stack.json
 - `begin` creates and checks out `karate-bootstrap` when the repo is on its default branch and
   leaves any other branch alone. Add `--no-commit` when the flag was given (then it does
   nothing). `detect.py` checks the container runtime, JDK and Maven, then classifies the
-  stack; omit `--service-dir` when there is none.
+  stack; omit `--service-dir` when there is none. Exit 7 means the machine cannot run
+  Step 7: stop and report what is missing. Add `--skip-toolchain` only when the user asked
+  for a dry run that stops before Step 7 (Steps 0 to 6 need no toolchain).
 - Postcondition: `<tests>/stack.json`. Exit 3 or 7 from `detect.py` ends the run with that code.
 
 ### Step 1: Discover
@@ -2580,8 +2703,10 @@ python scripts/flow_map.py add-entry --ledger <tests>/flow-map.yaml --id "<METHO
 python scripts/flow_map.py add-entry --ledger <tests>/flow-map.yaml --id "amq <destination>" --kind amq-subscribe --handler <file:line> --destination <destination> --type queue
 ```
 
-- If `app.auth.confirmed` is `false`, or the mode is wrong, read the security configuration
-  (cheat sheet: "Auth switches") and record what you found:
+- Verify `app.auth` yourself even when `discover.py` wrote `confirmed: true`: it guesses
+  `disabled` from a config key such as `app.security.enabled` without proving the code reads
+  it. Grep the source for that key (cheat sheet: "Auth switches"). When nothing reads it, or
+  the mode is otherwise wrong, read the security configuration and record what you found:
 
 ```bash
 python scripts/flow_map.py set-auth --ledger <tests>/flow-map.yaml --mode disabled --key <ENV_VAR> --value <off-value>
@@ -2590,8 +2715,9 @@ python scripts/flow_map.py set-auth --ledger <tests>/flow-map.yaml --mode jwks -
 
   Use `--mode none` when the app has no auth and `--mode blocked` when it cannot be switched
   off or pointed at a test issuer.
-- Postcondition: `<tests>/flow-map.yaml` lists every entry point and `app.auth` has a confirmed
-  mode.
+- Postcondition: `<tests>/flow-map.yaml` lists every entry point and `app.auth.mode` is one you
+  verified against the code (`disabled` additionally carries `key`, `value` and
+  `confirmed: true`; `jwks` carries `keys`; `none` and `blocked` carry only the mode).
 
 ### Step 3: Trace every entry point
 
@@ -2605,7 +2731,8 @@ python scripts/flow_map.py merge <tests>/.prompts/trace-<slug>.json --ledger <te
 ```
 
   Between `render` and `merge`, dispatch the trace subagent with the rendered prompt and save
-  its JSON reply as `<tests>/.prompts/trace-<slug>.json`. `next` prints the entry id, its
+  its reply as `<tests>/.prompts/trace-<slug>.json` (`merge` accepts the bare object or one
+  wrapped in a code fence). `next` prints the entry id, its
   handler and the cheat sheet path; `<slug>` is the id lower-cased with non-alphanumerics
   collapsed to `-` (`POST /api/deals` becomes `post-api-deals`).
 - If `merge` reports `unresolved: N` above zero, re-render with the first unresolved location
@@ -2639,12 +2766,14 @@ python scripts/kb_rules.py extract <root> --ledger <tests>/flow-map.yaml --out-d
 ```
 
 - For every entry whose `rules.sources` has a file with `scanned: false`, render the rules
-  prompt for that source, dispatch a read-only rules subagent, then append its rows and mark
-  the source scanned:
+  prompt for that source, dispatch a read-only rules subagent, save the `csv` field of its
+  JSON reply as `<tests>/rules/<slug>-<n>.rows.csv` (the header line is included; `<n>` is the
+  same 1-based source number as the rendered prompt, so an entry with two sources leaves two
+  rows files), then append the rows and mark the source scanned:
 
 ```bash
 python scripts/kb_prompt.py render --prompt rules --ledger <tests>/flow-map.yaml --entry "<id>" --source <source-file> --repo <root> --tests-dir <tests> --out <tests>/.prompts/rules-<slug>-<n>.md
-python scripts/kb_rules.py add "<id>" <tests>/rules/<slug>.rows.csv --ledger <tests>/flow-map.yaml --out-dir <tests>
+python scripts/kb_rules.py add "<id>" <tests>/rules/<slug>-<n>.rows.csv --ledger <tests>/flow-map.yaml --out-dir <tests>
 python scripts/kb_rules.py mark-scanned "<id>" <source-file> --ledger <tests>/flow-map.yaml
 ```
 
@@ -2688,7 +2817,8 @@ python scripts/flow_map.py mark --entry "<id>" --generated --feature features/<s
   Between `render` and `mark`, dispatch the generate subagent (general-purpose, may write only
   under `<tests>`) and save its JSON reply as `<tests>/.prompts/generate-<slug>.json`. Pass
   every path from the reply's `features`, `stubs` and `seeds` lists to `mark` (repeat
-  `--feature`, `--stub`, `--seed` as needed; omit a flag whose list is empty).
+  `--feature`, `--stub`, `--seed` as needed; omit a flag whose list is empty). Features are
+  recorded relative to `src/test/resources`; `mark` trims that prefix when a reply includes it.
 - Gate:
 
 ```bash
@@ -2831,7 +2961,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ### Task 7: Trigger eval, `SKILL.md` shape test, repo README
 
-**Confidence:** 93%. Pure text plus a frontmatter test. The description wording follows the sibling skill's (third person, "Use when ..." triggers, an explicit "Not for unit tests"); the test pins the trigger terms the eval document lists.
+**Confidence:** 96%. Pure text plus a frontmatter test. The description wording follows the sibling skill's (third person, "Use when ..." triggers, an explicit "Not for unit tests"); the test pins the trigger terms the eval document lists.
 
 **Files:**
 - Create: `skills/karate-bootstrap/evals/trigger-eval.md`
@@ -3028,7 +3158,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ### Task 8: Dry-run eval on both fixture repos
 
-**Confidence:** 92%. The `spring-mini` chain ran green today exactly as scripted below (detect, discover, trace loop, traced gate, rules, scaffold, generate loop and gate, report, green gate, check-stop, summary). The `dotnet-mini` traces below point `via` at lines read from the fixture today (`Services/DealService.cs` 25, 28, 29; `Messaging/DealRequestedConsumer.cs` 28), each carrying a marker token `verify-refs` accepts (`FromJsonAsync`, `SaveChanges`, `.Send(`). The test locates lines by content, not number, so fixture edits do not break it. Each command runs through `subprocess` with the same invocation `SKILL.md` prints, so a script whose CLI drifts fails here as well as in the linter.
+**Confidence:** 97%. The `spring-mini` chain ran green exactly as scripted below (detect, discover, trace loop, traced gate, rules, scaffold, generate loop and gate, report, green gate, check-stop, summary). The `dotnet-mini` traces below point `via` at lines read from the fixture today (`Services/DealService.cs` 25, 28, 29; `Messaging/DealRequestedConsumer.cs` 28), each carrying a marker token `verify-refs` accepts (`FromJsonAsync`, `SaveChanges`, `.Send(`). The test locates lines by content, not number, so fixture edits do not break it. Each command runs through `subprocess` with the same invocation `SKILL.md` prints, so a script whose CLI drifts fails here as well as in the linter.
 
 **Files:**
 - Create: `skills/karate-bootstrap/tests/test_kb_dry_run.py`
@@ -3350,4 +3480,5 @@ Run after the plan was written, against spec commit `dc15a94`.
 1. **Spec coverage.** 5.2 `add-entry` and `set-auth`: Task 1 and Step 2 of `SKILL.md`. 5.3 trace loop, `kb_prompt.py render`, `--focus`, `verify-refs` in the gate, `--double-trace`: Tasks 2 and 6. 5.4 rules loop with the rows file and `add`/`mark-scanned`: Tasks 2 and 6. 5.5 scaffold command and `--config`/`--force` notes: Task 6. 5.6 generate loop with `mark --feature/--stub/--seed` and the gate: Tasks 1, 2, 6. 5.7 run, `record-run`, `override`, iterate loop, stop conditions, quarantine: Tasks 1, 4, 6. 5.8 summary: Task 6. 8 cheat sheets: Task 3. 9 packaging (`kb_prompt.py`, `kb_check_skill.py`, `prompts/`, `evals/`, `SKILL.md` rules, invocation, git behaviour, exit codes): Tasks 2, 5, 6, 7. 10 local and CI: Tasks 4 and 6. 11 trigger eval and dry run: Tasks 7 and 8. Not in this plan by design: fixture apps, db-manager images, live container runs (Plan 4).
 2. **Placeholder scan.** No TBD, TODO, "similar to Task N" or "add error handling"; every code and document step carries its content.
 3. **Type and name consistency.** `new_entry`, `add_entry`, `record_files`, `record_run`, `add_override` and the CLI flags (`--feature`, `--stub`, `--seed`, `--id`, `--kind`, `--handler`, `--method`, `--path`, `--destination`, `--type`, `--scenario`, `--field`, `--old`, `--new`, `--reason`) match between Task 1's code, its tests, `SKILL.md` and the dry run. `kb_prompt.py`'s `--prompt/--ledger/--entry/--repo/--out/--env/--tests-dir/--source/--focus` match between the module, its tests, `SKILL.md` and the dry run. Prompt placeholders match the context table. The reference headings match between the sheets and `test_kb_reference.py`. `kb_check_skill` names match the sibling's API.
-4. **Cross-read.** `SKILL.md` Step 6 tells the agent to pass every path from the generate reply to `mark`; the generate prompt's reply example lists `features`, `stubs`, `seeds`. `SKILL.md` Step 8's `override` flags match `flow_map.py override`. The rules prompt says the subagent writes `rules/<slug>.rows.csv`, `SKILL.md` Step 4 appends it with `add`, and the dry run does the same.
+5. **Procedure eval.** A Sonnet agent followed the drafted `SKILL.md` Steps 0 to 6 on a fresh `spring-mini` copy with no other instructions, playing the three subagent roles itself; every gate passed on its first attempt. Its seven findings are folded in: `--skip-toolchain` documented in Step 0; Step 2 verifies the auth mode even when `discover.py` marked it confirmed and its postcondition matches the schema; the rules example uses another service's names; the candidates note says the file spans the whole entry; one rows file per source pass (`<slug>-<n>.rows.csv`); the example body is omitted for bodiless entries.
+4. **Cross-read.** `SKILL.md` Step 6 tells the agent to pass every path from the generate reply to `mark`; the generate prompt's reply example lists `features`, `stubs`, `seeds`. `SKILL.md` Step 8's `override` flags match `flow_map.py override`. The rules prompt returns the rows in a `csv` reply field, `SKILL.md` Step 4 saves that field as `rules/<slug>-<n>.rows.csv` and appends it with `add`, and the dry run writes such a file by hand.

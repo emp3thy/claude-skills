@@ -197,12 +197,12 @@ Trace subagent contract (`prompts/trace.md`):
 - Input: one entry point (id, handler file and line), the stack cheat sheet, the env-map role list.
 - Read-only. Follow every call from the handler until one of: DB write, AMQ publish, outbound HTTP, response return, or a third-party library boundary. Record each with file and line.
 - Record `reads` (DB reads, inbound HTTP responses consumed) because they become seeds and stubs.
-- Record `responses` with status and a short `when`, and whether the branch is validation (`rules: true`).
+- Record `responses` with status and a short `when`. `rules: true` marks only the status the request-validation framework returns for a rejected body; a business check that throws is a plain response.
 - Record `rules.sources` — files where validation lives.
-- Depth cap 12 hops. Anything not followable (reflection, dynamic dispatch, generated code, cap reached) is returned in `unresolved` with file and line and reason.
+- Depth cap 12 hops. A call whose target cannot be opened (reflection, dynamic dispatch, generated code, a missing file, cap reached) is returned in `unresolved` with file and line and reason. Doubt about a status or a value is not an unresolved hop; the subagent records its best reading.
 - Output: JSON only, matching the ledger entry schema.
 
-Unresolved hops are allowed in subagent output, not in the ledger. The main agent re-dispatches a narrower trace starting at that location: `kb_prompt.py render --prompt trace ... --focus <file:line>` renders the same prompt with a "start at" instruction, and the result is merged over the entry again. `validate --phase traced` fails while `unresolved` is non-empty.
+Unresolved hops are allowed in subagent output, not in the ledger. The main agent re-dispatches a narrower trace starting at that location: `kb_prompt.py render --prompt trace ... --focus <file:line>` renders the same prompt with a "start at" instruction, and the result is merged over the entry again. `validate --phase traced` fails while `unresolved` is non-empty. Subagents are told to reply with the bare JSON object; `merge` (through `kb_common.read_json`) also accepts an object wrapped in a markdown code fence, because models sometimes add one anyway.
 
 `kb_prompt.py` (`render --prompt trace|rules|generate`) is the only way prompts reach a subagent: it fills a `string.Template` file under `prompts/` with the entry's ledger JSON, the cheat sheet path, the env-map role table and the file locations the subagent must use, and writes one prompt file the main agent passes by path. Every prompt file embeds an example output that the skill's tests feed back through the consuming script (`merge`, `kb_rules add`, `mark`) so the examples cannot drift from the schemas.
 
@@ -215,8 +215,8 @@ Unresolved hops are allowed in subagent output, not in the ledger. The main agen
 ```
 python scripts/kb_rules.py extract <repo> --ledger karate-tests/flow-map.yaml --out-dir karate-tests
 python scripts/kb_prompt.py render --prompt rules --ledger karate-tests/flow-map.yaml --entry <id> --source <source-file> --repo <repo> --tests-dir karate-tests --out karate-tests/.prompts/rules-<slug>-<n>.md
-(dispatch one read-only rules subagent per unscanned rules source; it writes karate-tests/rules/<slug>.rows.csv)
-python scripts/kb_rules.py add <entry-id> karate-tests/rules/<slug>.rows.csv --ledger karate-tests/flow-map.yaml --out-dir karate-tests
+(dispatch one read-only rules subagent per unscanned rules source; save the csv field of its reply as karate-tests/rules/<slug>-<n>.rows.csv)
+python scripts/kb_rules.py add <entry-id> karate-tests/rules/<slug>-<n>.rows.csv --ledger karate-tests/flow-map.yaml --out-dir karate-tests
 python scripts/kb_rules.py mark-scanned <entry-id> <source-file> --ledger karate-tests/flow-map.yaml
 ```
 
@@ -224,7 +224,7 @@ python scripts/kb_rules.py mark-scanned <entry-id> <source-file> --ledger karate
 
 `extract` handles declarative validators: Bean Validation and Hibernate Validator annotations, FluentValidation `RuleFor` chains, .NET data annotations, Pydantic `Field` constraints and validators. It emits candidate rows with `source`.
 
-The subagent handles imperative branches (if/throw chains, service-layer checks, cross-field rules), confirms or drops candidates, and fills expected message text. It writes its confirmed rows to `rules/<slug>.rows.csv` (same header as the candidates file); the main agent appends them with `kb_rules.py add`. Nothing edits `rules/<slug>.csv` by hand.
+The subagent handles imperative branches (if/throw chains, service-layer checks, cross-field rules), confirms or drops candidates, and fills expected message text. It returns its confirmed rows (same header as the candidates file) in the `csv` field of its JSON reply, with `rows`, `dropped_candidates` and `notes`; the main agent saves that field as `rules/<slug>-<n>.rows.csv` (`<n>` numbering the source, as the rendered prompt does) and appends it with `kb_rules.py add`. Subagents never write files. Nothing edits `rules/<slug>.csv` by hand.
 
 CSV schema:
 
@@ -395,14 +395,13 @@ Scenario Outline: validation rule <rule_id> on <field>
   And request payload
   When method post
   Then status <expected_status>
-  And match response.code == '<expected_code>'
-  And match response.message contains '<expected_message_contains>'
+  * match checkError(response, '<expected_code>', '<expected_message_contains>') == []
 
   Examples:
     | read('classpath:rules/post-api-deals.csv') |
 ```
 
-The `Authorization` header line is emitted only when `auth.mode: jwks`. `common/reset.feature` accepts `{ watch: [destinations], seed: 'seed/x.sql', stubs: [paths], truncate: [tables] }` and applies them in the order watch, truncate, seed, stubs, so a truncate never wipes the rows the same call seeded; `seed` is additive and `stubs` and `truncate` are only legal under `@parallel=false`. AMQ-subscribe entry points use `Jms.publish` for the input and `Db.awaitRow` and `Jms.await` for the exits. Tags: `@smoke`, `@error`, `@rules`, `@amq`, `@known-defect`, `@parallel=false`.
+`checkError` (template `common/check-error.js`, registered in `karate-config.js` beside `mutate`) returns the list of unmet expectations: the serialised body must contain `expected_code` and `expected_message_contains`, and an empty CSV cell skips its check, so rows whose error body is framework-generated still pass. The `Authorization` header line is emitted only when `auth.mode: jwks`. `common/reset.feature` accepts `{ watch: [destinations], seed: 'seed/x.sql', stubs: [paths], truncate: [tables] }` and applies them in the order watch, truncate, seed, stubs, so a truncate never wipes the rows the same call seeded; `seed` is additive and `stubs` and `truncate` are only legal under `@parallel=false`. AMQ-subscribe entry points use `Jms.publish` for the input and `Db.awaitRow` and `Jms.await` for the exits. Tags: `@smoke`, `@error`, `@rules`, `@amq`, `@known-defect`, `@parallel=false`.
 
 `validate --phase generated` fails when: an entry has no feature file; an `http-out` exit has no stub file under `stubs/<downstream>/`; a `db-write` exit's table is not referenced by a `Db.` call in the feature; an `amq-publish` exit is not referenced by `Jms.`; an `http-out` exit is not referenced by `Stubs.verify`; a rules CSV row count differs from the ledger count; a rules source is not marked `scanned`; a scenario calls `Stubs.reset`, `Stubs.load` or `Db.truncate` without `@parallel=false`. These are grep-level checks by design.
 
