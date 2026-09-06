@@ -94,6 +94,11 @@ def test_env_name_follows_each_stacks_convention() -> None:
      "application.yml", None),
     ("spring", "SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE", "db", "10", "application.yml", None),
     ("quarkus", "QUARKUS_DATASOURCE_DB_KIND", "db", "postgresql", "application.properties", None),
+    ("spring", "SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT", "db", "30000", "application.yml",
+     None),
+    ("aspnetcore", "Deals__ConnStr", "db", "", "deployment.yml",
+     "Host={{db.host}};Port={{db.port}};Database={{db.name}};"
+     "Username={{db.user}};Password={{db.password}}"),
     ("spring", "SPRING_ARTEMIS_BROKER_URL", "amq", "tcp://artemis:61616", "deployment.yml",
      "tcp://{{amq.host}}:{{amq.corePort}}"),
     ("aspnetcore", "Amq__Url", "amq", "amqp://artemis:5672", "deployment.yml",
@@ -227,11 +232,13 @@ def test_copy_template_never_overwrites_generated_content(tmp_path: Path) -> Non
     third = copy_template(TEMPLATE_DIR, out, force=True)
     assert "pom.xml" in third["overwritten"]
     assert (out / "pom.xml").read_text(encoding="utf-8") != "edited"
-    # The smoke feature is harness content, so --force refreshes it despite its generated prefix.
-    assert "src/test/resources/features/harness-smoke.feature" in third["overwritten"]
-    assert smoke.read_text(encoding="utf-8") != "edited"
-    for kept in ("rules/harness-smoke.csv", "defects.md"):
-        assert (out / kept).read_text(encoding="utf-8") == "edited", kept
+    # The smoke feature and its CSV are harness content, so --force refreshes them despite
+    # their generated prefixes; defects.md stays the repo's.
+    for harness in ("src/test/resources/features/harness-smoke.feature",
+                    "rules/harness-smoke.csv"):
+        assert harness in third["overwritten"]
+        assert (out / harness).read_text(encoding="utf-8") != "edited", harness
+    assert (out / "defects.md").read_text(encoding="utf-8") == "edited"
 
 
 def test_cli_scaffolds_and_rewrites_runtime(tmp_path: Path,

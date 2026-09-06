@@ -43,6 +43,7 @@ REQUIRED_FILES = [
     "src/test/resources/logback-test.xml",
     "src/test/resources/testcontainers.properties",
     "src/test/resources/common/mutate.js",
+    "src/test/resources/common/check-error.js",
     "src/test/resources/features/harness-smoke.feature",
 ]
 
@@ -134,5 +135,5 @@ def test_template_compiles_and_smoke_runs(tmp_path: Path) -> None:
     assert (reports / "features.harness-smoke.json").is_file()
     summary = json.loads((reports / "karate-summary-json.txt").read_text(encoding="utf-8"))
     assert summary["scenariosfailed"] == 0
-    assert summary["scenariosPassed"] >= 6
+    assert summary["scenariosPassed"] >= 7
     assert (module / "target" / "surefire-reports" / "TEST-kb.harness.KarateRunner.xml").is_file()

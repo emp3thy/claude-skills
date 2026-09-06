@@ -13,6 +13,14 @@ Scenario: mutate helper covers every mutation kind
   * match mutate(base, 'kind', 'invalid_enum', '').kind == 'NOT_A_VALUE'
   * match mutate(base, 'qty', 'cross_field', 'gt:limit').qty == 'gt:limit'
 
+Scenario: checkError helper skips empty expectations and reports the rest
+  * def body = { code: 'VALIDATION', message: 'reference is required' }
+  * match checkError(body, '', '') == []
+  * match checkError(body, 'VALIDATION', 'is required') == []
+  * match checkError(body, 'OTHER', '') == ['#regex expected error code .*']
+  * match checkError(body, '', 'missing text') == ['#regex expected message containing .*']
+  * match checkError('plain text body', '', 'text') == []
+
 Scenario: runtime configuration is on the classpath
   * def Runtime = Java.type('kb.harness.KbRuntime')
   * def rt = Runtime.load()

@@ -2,6 +2,7 @@ function fn() {
   var skip = karate.properties['kb.skipContainers'] === 'true';
   var config = { skipContainers: skip };
   config.mutate = karate.read('classpath:common/mutate.js');
+  config.checkError = karate.read('classpath:common/check-error.js');
   if (!skip) {
     var Containers = Java.type('kb.harness.Containers');
     Containers.start();

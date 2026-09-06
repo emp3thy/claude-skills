@@ -8,12 +8,17 @@ import pytest
 from detect import main as detect_main
 from discover import main as discover_main
 from flow_map import (
+    add_entry,
+    add_override,
     find_entry,
     load_ledger,
     main,
     mark_entry,
     merge_entry,
+    new_entry,
     next_entry,
+    record_files,
+    record_run,
     save_ledger,
     set_auth,
     validate,
@@ -541,3 +546,129 @@ def test_cli_validate_and_verify_refs_exit_codes(spring_ledger: tuple[Path, dict
     assert main(["validate", "--phase", "traced", "--ledger", str(path), "--repo", str(SPRING),
                  "--env", str(env)]) == 0
     assert main(["verify-refs", "--ledger", str(path), "--repo", str(SPRING)]) == 0
+
+
+def test_new_entry_carries_every_bookkeeping_field() -> None:
+    entry = new_entry({"id": "GET /x", "kind": "http", "method": "GET", "path": "/x",
+                       "handler": "src/X.java:3"})
+    assert entry["status"] == {"traced": False, "stubbed": False, "tested": False,
+                               "passing": False}
+    assert entry["rules"] == {"file": None, "count": 0, "sources": []}
+    assert (entry["features"], entry["stubs"], entry["seeds"], entry["observed_overrides"]) == (
+        [], [], [], []
+    )
+    assert entry["auth"] == "unknown" and entry["request"] is None
+    assert entry["method"] == "GET" and entry["handler"] == "src/X.java:3"
+
+
+def test_add_entry_seeds_http_and_amq_entries(spring_ledger: tuple[Path, dict[str, Any]]) -> None:
+    _, ledger = spring_ledger
+    before = len(ledger["entry_points"])
+    http = add_entry(ledger, "DELETE /api/shipments/{id}", "http",
+                     "src\\main\\java\\com\\acme\\shipments\\ShipmentController.java:30",
+                     method="delete", path="/api/shipments/{id}")
+    assert http["method"] == "DELETE"
+    assert http["handler"] == "src/main/java/com/acme/shipments/ShipmentController.java:30"
+    assert http["status"]["traced"] is False
+    amq = add_entry(ledger, "amq shipment.cancelled", "amq-subscribe", f"{LISTENER}:20",
+                    destination="shipment.cancelled", dest_type="topic")
+    assert (amq["destination"], amq["type"]) == ("shipment.cancelled", "topic")
+    assert len(ledger["entry_points"]) == before + 2
+    assert next_entry(ledger, "traced")["id"] == "POST /api/shipments"
+    with pytest.raises(KbError, match="already in the ledger"):
+        add_entry(ledger, "amq shipment.cancelled", "amq-subscribe", f"{LISTENER}:20",
+                  destination="x")
+    with pytest.raises(KbError, match="--method and --path"):
+        add_entry(ledger, "PUT /x", "http", f"{LISTENER}:20")
+    with pytest.raises(KbError, match="file:line"):
+        add_entry(ledger, "PUT /y", "http", "ShipmentController.java", method="PUT", path="/y")
+    with pytest.raises(KbError, match="unknown entry kind"):
+        add_entry(ledger, "cron nightly", "cron", f"{LISTENER}:20")
+
+
+def test_record_files_appends_and_dedupes(spring_ledger: tuple[Path, dict[str, Any]]) -> None:
+    _, ledger = spring_ledger
+    entry = record_files(ledger, "POST /api/shipments",
+                         features=["features/post-api-shipments.feature"],
+                         stubs=["stubs\\pricing\\default.json", "stubs/pricing/outage.json"],
+                         seeds=["seed/post-api-shipments.sql"])
+    assert entry["features"] == ["features/post-api-shipments.feature"]
+    assert entry["stubs"] == ["stubs/pricing/default.json", "stubs/pricing/outage.json"]
+    record_files(ledger, "POST /api/shipments",
+                 features=["src/test/resources/features/post-api-shipments.feature"],
+                 stubs=["stubs/pricing/default.json"])
+    assert entry["features"] == ["features/post-api-shipments.feature"]
+    assert entry["stubs"] == ["stubs/pricing/default.json", "stubs/pricing/outage.json"]
+    assert entry["seeds"] == ["seed/post-api-shipments.sql"]
+
+
+def test_record_run_sets_tested_and_passing_from_the_report(
+    spring_ledger: tuple[Path, dict[str, Any]],
+) -> None:
+    _, ledger = spring_ledger
+    record_files(ledger, "POST /api/shipments", features=["features/post-api-shipments.feature"])
+    record_files(ledger, "GET /api/shipments/{id}",
+                 features=["features/get-api-shipments-id.feature"])
+    report = {"passed": 3, "skipped": 0, "failed": [
+        {"feature": "features/get-api-shipments-id.feature", "scenario": "missing",
+         "outline": False, "tags": ["@error"], "step": "status 404", "error": "got 500"},
+    ]}
+    assert record_run(ledger, report) == {"tested": 2, "passing": 1, "failing": 1}
+    post = find_entry(ledger, "POST /api/shipments")["status"]
+    get = find_entry(ledger, "GET /api/shipments/{id}")["status"]
+    amq = find_entry(ledger, "amq shipment.requested")["status"]
+    assert (post["tested"], post["passing"]) == (True, True)
+    assert (get["tested"], get["passing"]) == (True, False)
+    assert (amq["tested"], amq["passing"]) == (False, False)
+    assert record_run(ledger, {"passed": 4, "skipped": 0, "failed": []}) == {
+        "tested": 2, "passing": 2, "failing": 0,
+    }
+    assert find_entry(ledger, "GET /api/shipments/{id}")["status"]["passing"] is True
+
+
+def test_add_override_appends_to_the_entry(spring_ledger: tuple[Path, dict[str, Any]]) -> None:
+    _, ledger = spring_ledger
+    item = add_override(ledger, "POST /api/shipments", "creates a shipment", "status", "201",
+                        "200", "controller returns ok(), not created()")
+    assert item == {"scenario": "creates a shipment", "field": "status", "old": "201",
+                    "new": "200", "reason": "controller returns ok(), not created()"}
+    assert find_entry(ledger, "POST /api/shipments")["observed_overrides"] == [item]
+
+
+def test_cli_add_entry_mark_files_record_run_override(
+    spring_ledger: tuple[Path, dict[str, Any]], tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    ledger_path, _ = spring_ledger
+    assert run_cli(main, ["add-entry", "--ledger", str(ledger_path),
+                          "--id", "PUT /api/shipments/{id}", "--kind", "http",
+                          "--handler", f"{SERVICE}:40", "--method", "PUT",
+                          "--path", "/api/shipments/{id}"]) == 0
+    assert "PUT /api/shipments/{id}" in capsys.readouterr().out
+    assert run_cli(main, ["mark", "--entry", "POST /api/shipments", "--generated",
+                          "--feature", "features/post-api-shipments.feature",
+                          "--stub", "stubs/pricing/default.json",
+                          "--seed", "seed/post-api-shipments.sql",
+                          "--ledger", str(ledger_path)]) == 0
+    entry = find_entry(load_ledger(ledger_path), "POST /api/shipments")
+    assert entry["status"]["stubbed"] is True
+    assert entry["features"] == ["features/post-api-shipments.feature"]
+    assert entry["stubs"] == ["stubs/pricing/default.json"]
+    assert entry["seeds"] == ["seed/post-api-shipments.sql"]
+    report = tmp_path / "report.json"
+    report.write_text(json.dumps({"passed": 1, "skipped": 0, "failed": []}), encoding="utf-8")
+    capsys.readouterr()
+    assert run_cli(main, ["record-run", "--ledger", str(ledger_path), "--report", str(report)]) == 0
+    assert "tested: 1" in capsys.readouterr().out
+    assert find_entry(load_ledger(ledger_path), "POST /api/shipments")["status"]["passing"] is True
+    assert run_cli(main, ["override", "--ledger", str(ledger_path),
+                          "--entry", "POST /api/shipments",
+                          "--scenario", "happy", "--field", "status", "--old", "201",
+                          "--new", "200", "--reason", "observed"]) == 0
+    assert find_entry(load_ledger(ledger_path), "POST /api/shipments")["observed_overrides"] == [
+        {"scenario": "happy", "field": "status", "old": "201", "new": "200", "reason": "observed"}
+    ]
+    assert run_cli(main, ["add-entry", "--ledger", str(ledger_path),
+                          "--id", "PUT /api/shipments/{id}", "--kind", "http",
+                          "--handler", f"{SERVICE}:40", "--method", "PUT",
+                          "--path", "/x"]) == 2

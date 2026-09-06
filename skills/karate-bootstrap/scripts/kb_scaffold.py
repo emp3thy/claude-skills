@@ -55,7 +55,7 @@ GENERATED_PREFIXES = ("rules/", "stubs/", "seed/", "src/test/resources/features/
 GENERATED_FILES = ("defects.md", "README.md")
 
 # Harness content despite sitting under a generated prefix, so ``--force`` can refresh it.
-HARNESS_FILES = ("src/test/resources/features/harness-smoke.feature",)
+HARNESS_FILES = ("src/test/resources/features/harness-smoke.feature", "rules/harness-smoke.csv")
 
 # Central config ``env`` keys name the db-manager's own variables (spec 5.5).
 MIGRATION_ENV_TOKENS = {
@@ -80,7 +80,8 @@ DB_URL_BY_STACK = {
                   "Username={{db.user}};Password={{db.password}}",
     "python": "postgresql://{{db.user}}:{{db.password}}@{{db.host}}:{{db.port}}/{{db.name}}",
 }
-_DB_URL_NEEDLES = ("url", "jdbc", "connectionstring", "conn", "dsn")
+# "conn" was dropped: Hikari keys such as ``connection-timeout`` matched it too.
+_DB_URL_NEEDLES = ("url", "jdbc", "connectionstring", "connstr", "dsn")
 _DB_PART_TOKENS = (
     ("password", "{{db.password}}"),
     ("user", "{{db.user}}"),
