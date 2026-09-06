@@ -740,7 +740,7 @@ verified by construction
 
 ### Evidence
 
-- `None:None-None`
+- repository-level finding (no file or line range)
 
 ```
 branch staging unmerged, last commit 2026-03-09 (179 days ago)

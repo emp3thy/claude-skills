@@ -134,7 +134,7 @@ verified by construction
 
 ### Evidence
 
-- `src/api/client-admin.ts:None-None`
+- `src/api/client-admin.ts` (whole file)
 
 ```
 src/api/client-admin.ts: 100% of lines by one author, 1 author(s) in the window
@@ -178,7 +178,7 @@ verified by construction
 
 ### Evidence
 
-- `src/api/client.ts:None-None`
+- `src/api/client.ts` (whole file)
 
 ```
 src/api/client.ts: 100% of lines by one author, 1 author(s) in the window
@@ -570,7 +570,7 @@ verified by construction
 
 ### Evidence
 
-- `src/checkout/checkout.ts:None-None`
+- `src/checkout/checkout.ts` (whole file)
 
 ```
 src/checkout/checkout.ts: top author has no commits in 188 days
@@ -637,7 +637,7 @@ verified by construction
 
 ### Evidence
 
-- `None:None-None`
+- repository-level finding (no file or line range)
 
 ```
 branch release/1.2 unmerged, last commit 2026-04-15 (142 days ago)
@@ -666,13 +666,13 @@ verified by construction
 
 ### Evidence
 
-- `None:None-None`
+- repository-level finding (no file or line range)
 
 ```
 no CODEOWNERS file with 3 human authors
 ```
 
-- `None:None-None`
+- repository-level finding (no file or line range)
 
 ```
 no ADR directory and no pull request template

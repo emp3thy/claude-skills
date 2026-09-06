@@ -434,6 +434,79 @@ def test_a_quote_with_an_unbalanced_inner_fence_round_trips_end_to_end(tmp_path:
     assert "### Signals" in body, "the unbalanced inner fence did not truncate the section"
 
 
+# --- evidence citation shapes (controller ruling, fix round 1) ------------------
+
+
+def test_repository_level_evidence_has_no_file_or_line_range(tmp_path: Path) -> None:
+    """A repository-level finding's evidence item names neither a file nor a line range.
+
+    Before this fix, ``_evidence_item`` interpolated ``line_start``/``line_end``
+    unconditionally, so a finding with no file and no line range at all (a
+    repository-level rule finding such as a missing CODEOWNERS) pinned the fully
+    degenerate `` `None:None-None` `` citation into the goldens, and its empty
+    quote still opened and closed an empty fenced block.
+    """
+    verified = _verified()
+    verified["findings"][0]["evidence"][0] = {
+        "file": None, "line_start": None, "line_end": None, "quote": "",
+        "quote_verified": True,
+    }
+    out = tmp_path / "design.md"
+    write_design(_inputs(tmp_path, **{"verified.json": verified}), SCAN_DATE, out)
+    text = out.read_text(encoding="utf-8")
+    assert "None-None" not in text and "None:" not in text
+    assert "\n- repository-level finding (no file or line range)\n" in text
+    assert "```\n\n```" not in text, "an empty quote must not open an empty fenced block"
+    body = parse_design(out)["findings"][0]["body_md"]
+    assert "### Evidence" in body
+    assert "repository-level finding (no file or line range)" in body
+
+
+def test_evidence_with_a_file_but_no_line_range_names_the_whole_file(tmp_path: Path) -> None:
+    """A finding with a real file but a null bound (either ``line_start`` or ``line_end``)
+    names the file and says "whole file" rather than interpolating ``None`` into a range.
+    """
+    verified = _verified()
+    verified["findings"][0]["evidence"][0] = {
+        "file": "src/pay/refund.py", "line_start": None, "line_end": None, "quote": "",
+        "quote_verified": True,
+    }
+    out = tmp_path / "design.md"
+    write_design(_inputs(tmp_path, **{"verified.json": verified}), SCAN_DATE, out)
+    text = out.read_text(encoding="utf-8")
+    assert "None-None" not in text and "None:" not in text
+    assert "\n- `src/pay/refund.py` (whole file)\n" in text
+    assert "```\n\n```" not in text, "an empty quote must not open an empty fenced block"
+    body = parse_design(out)["findings"][0]["body_md"]
+    assert "`src/pay/refund.py` (whole file)" in body
+
+
+def test_a_non_empty_quote_still_gets_a_fence_in_both_degenerate_shapes(tmp_path: Path) -> None:
+    """Only an empty quote skips the fence -- a real quote keeps its adaptive fence
+    whether or not the evidence item names a file or a line range.
+    """
+    verified = _verified()
+    verified["findings"][0]["evidence"] = [
+        {"file": None, "line_start": None, "line_end": None,
+         "quote": "a repository-level fact", "quote_verified": True},
+        {"file": "src/pay/refund.py", "line_start": None, "line_end": None,
+         "quote": "the whole file's fact", "quote_verified": True},
+    ]
+    out = tmp_path / "design.md"
+    write_design(_inputs(tmp_path, **{"verified.json": verified}), SCAN_DATE, out)
+    text = out.read_text(encoding="utf-8")
+    assert (
+        "\n- repository-level finding (no file or line range)\n\n"
+        "```\na repository-level fact\n```\n"
+    ) in text
+    assert (
+        "\n- `src/pay/refund.py` (whole file)\n\n"
+        "```\nthe whole file's fact\n```\n"
+    ) in text
+    body = parse_design(out)["findings"][0]["body_md"]
+    assert "### Signals" in body, "the fenced quotes did not truncate the section"
+
+
 def test_a_scan_with_no_negative_space_renders_none_for_every_empty_section(
     tmp_path: Path,
 ) -> None:

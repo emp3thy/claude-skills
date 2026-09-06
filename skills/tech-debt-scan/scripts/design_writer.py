@@ -472,20 +472,32 @@ def _fence_for(quote: str) -> str:
 
 
 def _evidence_item(item: dict[str, Any]) -> list[str]:
-    """One ``- `file:start-end`` line then its quote in an unlabelled fenced block."""
+    """One evidence citation line, then its quote in an unlabelled fenced block.
+
+    Three citation shapes, depending on what the item actually carries:
+      - no file at all (a repository-level finding, e.g. a missing CODEOWNERS)
+        names neither file nor line range;
+      - a file but a null bound on either side names the file and says "whole
+        file" rather than interpolating ``None`` into a range;
+      - a file with both bounds gets the ordinary ``file:start-end`` citation.
+    An empty quote has nothing to fence, so no fenced block is emitted for it;
+    a non-empty quote keeps its adaptive fence in every shape above.
+    """
+    file = item.get("file")
     start = item.get("line_start")
     end = item.get("line_end")
-    end = start if end is None else end
+    if not file:
+        citation = "- repository-level finding (no file or line range)"
+    elif start is None or end is None:
+        citation = f"- `{file}` (whole file)"
+    else:
+        citation = f"- `{file}:{start}-{end}`"
+    lines = ["", citation]
     quote = redact(str(item.get("quote") or ""))
-    fence = _fence_for(quote)
-    return [
-        "",
-        f"- `{item.get('file', '')}:{start}-{end}`",
-        "",
-        fence,
-        *quote.split("\n"),
-        fence,
-    ]
+    if quote:
+        fence = _fence_for(quote)
+        lines += ["", fence, *quote.split("\n"), fence]
+    return lines
 
 
 def _signal_lines(finding: dict[str, Any]) -> list[str]:

@@ -174,7 +174,7 @@ verified by construction
 
 ### Evidence
 
-- `src/pay/refund.py:None-None`
+- `src/pay/refund.py` (whole file)
 
 ```
 src/pay/refund.py: 100% of lines by one author, 1 author(s) in the window
@@ -428,7 +428,7 @@ verified by construction
 
 ### Evidence
 
-- `src/pay/gateway.py:None-None`
+- `src/pay/gateway.py` (whole file)
 
 ```
 src/pay/gateway.py: 100% of lines by one author, 1 author(s) in the window
@@ -499,7 +499,7 @@ verified by construction
 
 ### Evidence
 
-- `src/pay/models.py:None-None`
+- `src/pay/models.py` (whole file)
 
 ```
 src/pay/models.py: 89% of lines by one author, 2 author(s) in the window
@@ -1067,7 +1067,7 @@ verified by construction
 
 ### Evidence
 
-- `None:None-None`
+- repository-level finding (no file or line range)
 
 ```
 no CODEOWNERS file with 3 human authors
@@ -1096,7 +1096,7 @@ verified by construction
 
 ### Evidence
 
-- `None:None-None`
+- repository-level finding (no file or line range)
 
 ```
 branch hotfix/ledger-rounding unmerged, last commit 2026-04-10 (147 days ago)
