@@ -369,7 +369,16 @@ def _ends_section(line: str) -> bool:
     return _is_h2(line) or _is_h1(line)
 ```
 
-Use `_ends_section` for the inner `while` that collects a finding's section, leaving the outer `while` (which finds the next heading to start a finding) keyed on `_is_h2`. Extend `OPTIONAL_KEYS` to the eleven names above. Update the module docstring's structure list to name the H1 boundary.
+**Fence awareness (amended after the Task 2 review).** A finding's body carries fenced
+code blocks, and an evidence quote's first line is often a comment (`# TODO: ...`), so a
+bare line test would end the section inside a fence and silently truncate the body. The
+inner scan therefore tracks fences: a line whose stripped text starts with ``` toggles
+`in_fence`, and `_ends_section` is consulted only when `in_fence` is False. The same
+guard covers the H2 boundary, which had the latent form of this bug already. Two tests
+pin it: an evidence fence whose first line is `# TODO(#42): delete once finance moves`,
+and a hand-edited ```python block containing `# this is a comment`.
+
+Use the fence-aware scan for the inner `while` that collects a finding's section, leaving the outer `while` (which finds the next heading to start a finding) keyed on `_is_h2`. Extend `OPTIONAL_KEYS` to the eleven names above. Update the module docstring's structure list to name the H1 boundary.
 
 - [ ] **Step 4: Delete the confidence validator**
 
