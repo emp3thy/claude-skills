@@ -69,9 +69,9 @@ diff; phases 4 and 5 add them.
 ## Flags
 
 `/tech-debt-scan <repo> [--quick | --deep] [--preset balanced|hotspot-first|architecture|quick-wins] [--families a,b,c] [--top N]`.
-`--quick` selects the quick set and `--top 3`; `--deep` selects the deep set
-and halves the chunking thresholds; `--families` overrides both and bypasses
-the adaptive rule.
+`--quick` selects the quick family set (six families) and `--top 3`; `--deep`
+selects the deep family set (all fourteen families, `plan_scan.py --families
+deep`); `--families` overrides both and bypasses the adaptive rule.
 
 ## Conventions
 

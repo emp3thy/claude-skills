@@ -14,12 +14,16 @@ their behaviour.
   extension→language map, which also supplies each language's comment syntax
   to `patterns.py`. Every rule in `inventory.py`, `patterns.py` and `rules.py`
   is a union of idioms across languages; a test greps the scripts for any
-  branch on a language name. Scout prompts and synthesis are language-neutral.
-- **LLM does the judgement, scripts do the determinism.** The model dispatches
-  scout agents and picks the top N (5 by default; in the v2 chain it also gives
-  the per-candidate verdicts). File walking, prompt rendering, markdown
-  rendering, parsing, validation, and bundle writing are all pure Python with
-  pinned commands and pinned output files — no improvisation.
+  branch on a language name. Scout, verifier and remediation-note prompts are
+  all language-neutral.
+- **LLM does the judgement, scripts do the determinism.** The model runs each
+  dispatched family's scout, verifies a batch of candidates against that
+  family's questions and traps, and writes one remediation note per top-N
+  finding; `rank.py`'s fixed formula deterministically scores every verified
+  finding and picks the top N — no agent chooses or orders the final list.
+  File walking, prompt rendering, markdown rendering, parsing, validation, and
+  bundle writing are all pure Python with pinned commands and pinned output
+  files — no improvisation.
 - **Human in the loop.** Nothing is fixed automatically. A single `design.md`
   round-trips through human review: scan writes it, a human edits `status:`
   fields, promote reads it back.
@@ -63,6 +67,9 @@ inserted by phases 4 and 5 without renumbering the rest):
     remediation-note Agent writes `notes.json`.
 13. `design_writer.py render` writes `design.md` and `findings.json`,
     self-checking through `design_parser.py`.
+14. Report: the path, the counts from the frontmatter, tools absent, git
+    absent, families skipped, and the instruction to set each finding's
+    `status:` and run `/tech-debt-promote`.
 
 The user edits `design.md`, flipping each finding's `status:` to `approved`,
 `rejected` or `accepted`. `/tech-debt-promote` then:
@@ -195,9 +202,11 @@ categories (`god-modules`, `duplication`, `dead-code`, `test-gaps`,
 `doc-drift`, `half-finished`, `dependency-debt`, `architecture`, defined by
 `CATEGORY_PROMPTS`/`CATEGORIES`/`CORE_CATEGORIES`/`get_prompt` in the same
 module) are no longer dispatched by `/tech-debt-scan`. The symbols stay in
-`categories.py`, still exercised by `test_categories.py`'s v1 cases; nothing
-in the v2 chain reads them, but a v1 `design.md`'s `category` value (for
-example `god-modules`) is still read as `family` and promotes unchanged.
+`categories.py`; `test_categories.py`'s v1 cases are marked
+`pytest.mark.skip` (spec 11) rather than removed, so the symbols still import
+cleanly. Nothing in the v2 chain reads them, but a v1 `design.md`'s `category`
+value (for example `god-modules`) is still read as `family` and promotes
+unchanged.
 
 ## design.md format
 

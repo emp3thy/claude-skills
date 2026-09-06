@@ -6,8 +6,9 @@ Explore semantics) with one category prompt. Every prompt is written without
 reference to any single language's syntax so the same scan works on a Python,
 C#, TypeScript, Go, or mixed repository.
 
-Each prompt ends with the shared ScoutFinding JSON output contract so the
-synthesis step receives a uniform shape regardless of category. The contract
+Each prompt ends with the shared ScoutFinding JSON output contract (retired
+from the scan workflow in phase 3; kept for v1 design.md compatibility) so
+every reply carries a uniform shape regardless of category. The contract
 carries three classification axes on top of the category:
 
   - ``debt_type``  — taxonomy bucket (SATD / Alves-derived) for reporting
