@@ -198,9 +198,9 @@ invocation turns a tool loose on work its gate never selected for — jscpd's
 gate is JS/TS while its invocation parsed every format it knows and descended
 into `node_modules`, which produced 92% of the signals from a scan of this
 repository. jscpd is now given `--format` restricted to its own gate's four
-languages and an `--ignore` list built from `inventory.py`'s `DEFAULT_IGNORE`
-and its vendored and generated path classes, so the probe and the inventory
-cannot disagree about what is vendored. Every builder names its target with an
+languages, and every tool — not jscpd alone — is kept out of the vendored and
+generated trees `inventory.py` classifies, by one of the three mechanisms
+described under redaction below. Every builder names its target with an
 absolute path, because the runner also sets the child's working directory and
 a relative operand would be resolved against it twice.
 
@@ -255,12 +255,53 @@ Dropping those four fields is the first half of the guarantee; the second is
 that **every string written into `tool-signals.json` goes through
 `redaction.redact`**, not only the strings in the `signals` array. The array
 was not the only route: `tools[<name>].reason` carries up to 200 characters
-of a failing tool's raw stderr, and a tool that fails while reading a file
+of a failing tool's stderr, and a tool that fails while reading a file
 routinely prints the offending source line — vulture prints it on a syntax
 error — so a credential on that line reached the document verbatim until the
 whole-branch review found it. Redaction is applied to the document at the
-point of writing, and to dictionary keys as well as values, so a field added
-later cannot miss it.
+point of writing, to dictionary keys as well as values and into every
+container (list, tuple, set), so a field added later cannot miss it. It is
+applied a second time, earlier, wherever `reason` is built: the general rule
+above — redact first, cap second — is enforced in `tools_probe.py` by a
+single `_capped` helper that every capping site calls, because truncating a
+credential in half destroys the shape the later document-wide `redact` would
+have matched on.
+
+**What `tools[<name>].reason` may still contain, stated plainly.** It is
+*arbitrary text the failed tool printed, minus credential-shaped substrings*
+— not merely a variable name and punctuation. `redact` recognises shapes: an
+assignment whose name contains password/secret/token/api_key/apikey/
+access_key, and a token carrying a known issuer prefix. Everything else on
+the line survives, up to the 200-character cap. A database connection string
+whose password is neither prefixed nor assigned to a matching name —
+`CONN = "postgres://admin:S3cretP4ssw0rd@db.internal:5432/prod"` — passes
+through intact. This is a deliberate trade, not an oversight: dropping stderr
+would make every tool failure undiagnosable, and the exposure is narrow — a
+`failed` tool only, at most 200 characters, and only when the tool echoes
+what it was reading. Read the module docstring's "no field that can carry
+source text or a credential is ever copied into a signal" as the statement
+about *signals* that it is; `reason` is in the `tools` map, and it is the one
+place source text can reach the file.
+
+**No tool is turned loose on a tree the repository does not own.** The
+vendored and generated path classes are `inventory.py`'s — the same
+`DEFAULT_IGNORE` and `PATH_CLASS_GLOBS` that decide every inventory entry's
+`path_class`, and that `patterns.py` already refuses to scan, credential rule
+included — so there is one notion of "vendored" in the skill and not two. The
+probe applies it three ways, chosen by what each tool accepts: an ignore flag
+where one exists (`jscpd --ignore`, `vulture --exclude`, `lizard -x`, `ruff
+--extend-exclude` — never `ruff --exclude`, which replaces ruff's own
+defaults instead of adding to them); a filtered operand list for the two
+tools this module globs operands for itself (`hadolint`, `actionlint`); and a
+filter over the signals produced, for the four with no usable path flag
+(`madge`, whose `-x` takes a regular expression rather than globs; `knip` and
+`gitleaks`, whose only path ignore is a config file in the repository being
+scanned; and `osv-scanner`, which has none). That last filter runs for all
+ten tools, so one that ignores the list it was given still cannot reach the
+document. `artefact_present` discounts vendored matches for the same reason:
+a repository whose only Dockerfile sits in `node_modules` has nothing for
+hadolint to do, and a gate that claimed otherwise would be the
+predicate-versus-argv disagreement again.
 
 ## Scout families
 
