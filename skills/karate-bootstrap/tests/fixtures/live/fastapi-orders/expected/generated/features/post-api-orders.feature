@@ -19,7 +19,7 @@ Scenario: creates an order, writes orders and publishes order.created
   * match row.status == 'PENDING'
   * def msg = Jms.await('order.created', 10000, { reference: base.reference })
   * match msg.body.status == 'PENDING'
-  * Stubs.verify('GET', '/stock/' + base.sku, 1)
+  * Stubs.verify('GET', '/inventory/stock/' + base.sku, 1)
 
 @error
 Scenario: rejects an order over the quantity limit

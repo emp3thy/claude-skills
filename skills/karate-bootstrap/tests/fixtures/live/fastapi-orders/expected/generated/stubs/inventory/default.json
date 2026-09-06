@@ -2,7 +2,7 @@
   "mappings": [
     {
       "priority": 5,
-      "request": { "method": "GET", "urlPathPattern": "/stock/[A-Z]{3}-[0-9]{4}" },
+      "request": { "method": "GET", "urlPathPattern": "/inventory/stock/[A-Z]{3}-[0-9]{4}" },
       "response": {
         "status": 200,
         "headers": { "Content-Type": "application/json" },
