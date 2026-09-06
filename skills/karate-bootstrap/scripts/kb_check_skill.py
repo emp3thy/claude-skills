@@ -7,8 +7,9 @@ stale procedure to the model that follows it.
 
 Algorithm: regex-extract every ``python scripts/<name>.py ...`` command, confirm the script
 exists, run ``python scripts/<name>.py --help`` (plus ``<subcommand> --help`` when the command
-targets an argparse subparser), and require every ``--flag`` token in the command to appear
-in that help text. Positional arguments and values are ignored.
+targets an argparse subparser), and require every ``--flag`` in the command to appear in that
+help text as a whole token. Positional arguments and values are ignored. Whole tokens, not
+substrings: ``--out`` must not be satisfied by a script that only offers ``--out-env``.
 
 Usage: python scripts/kb_check_skill.py [--skill PATH] [--scripts DIR]
 
@@ -29,6 +30,10 @@ _COMMAND_RE = re.compile(r"python\s+scripts/[a-z_][a-z0-9_]*\.py[^\n`]*")
 
 # Argparse renders subparser choices as ``{render,mark}`` in help text.
 _CHOICES_RE = re.compile(r"\{([a-z0-9,_-]+)\}")
+
+# Help text separators around an option name: whitespace, and argparse's own punctuation
+# (``--out OUT``, ``[--out OUT]``, ``--out, -o``, ``--out=OUT``).
+_HELP_SEPARATOR_RE = re.compile(r"[\s,=\[\]]+")
 
 
 def extract_commands(text: str) -> list[str]:
@@ -59,6 +64,11 @@ def _subcommand_choices(help_text: str) -> set[str]:
     return set(match.group(1).split(",")) if match else set()
 
 
+def help_tokens(help_text: str) -> set[str]:
+    """Whole tokens of a ``--help`` dump, so ``--out-env`` never satisfies ``--out``."""
+    return {token for token in _HELP_SEPARATOR_RE.split(help_text) if token}
+
+
 def check_command(scripts_dir: Path, command: str) -> list[str]:
     """Lint errors for one command (empty when it lints clean)."""
     script_rel, positionals, flags = _parse_command(command)
@@ -71,10 +81,11 @@ def check_command(scripts_dir: Path, command: str) -> list[str]:
     if subcommand is not None:
         help_text = _run_help(script_path, [subcommand])
     where = f"{script_path.name} {subcommand}".strip()
+    accepted = help_tokens(help_text)
     return [
         f"{command!r}: flag {flag} not accepted by `{where} --help`"
         for flag in flags
-        if flag not in help_text
+        if flag not in accepted
     ]
 
 

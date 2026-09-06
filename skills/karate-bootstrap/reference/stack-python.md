@@ -95,6 +95,9 @@ Loaded for `stack.framework: python` (FastAPI, Flask or Django). Marker regexes 
 
 ## Marker tokens verify-refs accepts
 
+A `via` line, or any line within three lines before or after it, must contain one of these
+literal tokens for its exit kind.
+
 - entry-http: `@app.`, `@router.`, `.route(`
 - entry-amq: `create_receiver(`, `.subscribe(`
 - db-write: `session.add(`, `session.add_all(`, `session.delete(`, `session.merge(`, `.commit(`, `.flush(`, `.execute(`

@@ -91,6 +91,9 @@ explains them for a tracer and lists the tokens the `verify-refs` gate accepts.
 
 ## Marker tokens verify-refs accepts
 
+A `via` line, or any line within three lines before or after it, must contain one of these
+literal tokens for its exit kind.
+
 - entry-http: `@GET`, `@POST`, `@PUT`, `@DELETE`, `@PATCH`
 - entry-amq: `@Incoming`
 - db-write: `.persist(`, `.persistAndFlush(`, `.delete(`, `.deleteById(`, `.deleteAll(`, `.merge(`, `.remove(`, `.update(`

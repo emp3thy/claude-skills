@@ -102,8 +102,8 @@ explains them for a tracer and lists the tokens the `verify-refs` gate accepts.
 
 ## Marker tokens verify-refs accepts
 
-A `via` line (or one of the three lines after it) must contain one of these literal tokens for
-its exit kind.
+A `via` line, or any line within three lines before or after it, must contain one of these
+literal tokens for its exit kind.
 
 - entry-http: `Mapping`
 - entry-amq: `@JmsListener`

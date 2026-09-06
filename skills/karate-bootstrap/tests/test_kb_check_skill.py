@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kb_check_skill import check_command, check_skill, extract_commands
+from kb_check_skill import check_command, check_skill, extract_commands, help_tokens
 
 SKILL = Path(__file__).resolve().parent.parent / "SKILL.md"
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
@@ -12,6 +12,15 @@ import argparse
 p = argparse.ArgumentParser()
 p.add_argument("path")
 p.add_argument("--out")
+p.parse_args()
+"""
+
+_PREFIX_FLAGS = """\
+import argparse
+p = argparse.ArgumentParser()
+p.add_argument("path")
+p.add_argument("--out-env")
+p.add_argument("--out-ledger")
 p.parse_args()
 """
 
@@ -54,6 +63,20 @@ def test_check_flags_an_unknown_flag(tmp_path: Path) -> None:
     scripts = _fake_script(tmp_path, "thing.py", _SIMPLE)
     errors = check_command(scripts, "python scripts/thing.py somepath --nope x")
     assert len(errors) == 1 and "--nope" in errors[0]
+
+
+def test_a_flag_must_match_a_whole_help_token_not_a_prefix(tmp_path: Path) -> None:
+    # --out is a substring of --out-env; only whole-token matching catches the drift
+    scripts = _fake_script(tmp_path, "thing.py", _PREFIX_FLAGS)
+    errors = check_command(scripts, "python scripts/thing.py somepath --out o.json")
+    assert len(errors) == 1 and "--out " in errors[0]
+    assert check_command(scripts, "python scripts/thing.py somepath --out-env e.json") == []
+
+
+def test_help_tokens_splits_on_argparse_punctuation() -> None:
+    tokens = help_tokens("usage: p [--out-env OUT_ENV] [--flag=VALUE]\n  -o, --out OUT   text\n")
+    assert {"--out-env", "OUT_ENV", "--flag", "VALUE", "-o", "--out", "OUT"} <= tokens
+    assert "[--out-env" not in tokens
 
 
 def test_check_reports_a_missing_script(tmp_path: Path) -> None:

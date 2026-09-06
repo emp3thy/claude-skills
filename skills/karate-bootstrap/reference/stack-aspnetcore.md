@@ -100,6 +100,9 @@ sheet explains them for a tracer and lists the tokens the `verify-refs` gate acc
 
 ## Marker tokens verify-refs accepts
 
+A `via` line, or any line within three lines before or after it, must contain one of these
+literal tokens for its exit kind.
+
 - entry-http: `[Http`, `.Map`
 - entry-amq: `GetQueue(`, `GetTopic(`, `ReceiveEndpoint(`, `IConsumer<`, `Listener +=`
 - db-write: `SaveChanges`, `.Add(`, `.AddAsync(`, `.AddRange(`, `.Update(`, `.Remove(`, `.RemoveRange(`, `ExecuteSql`, `ExecuteUpdate`, `ExecuteDelete`

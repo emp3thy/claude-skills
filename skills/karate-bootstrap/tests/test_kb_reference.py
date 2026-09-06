@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import pytest
+from flow_map import verify_refs
 from markers import CHEAT_SHEET, KINDS, STACKS, tokens_for
 
 SKILL = Path(__file__).resolve().parent.parent
@@ -45,6 +47,18 @@ def test_stack_sheet_lists_every_marker_token(stack: str) -> None:
     for kind in KINDS:
         for token in tokens_for(stack, kind):
             assert f"`{token}`" in tokens_section, f"{stack}/{kind}: token {token!r} not listed"
+
+
+NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
+
+
+@pytest.mark.parametrize("stack", STACKS)
+def test_stack_sheet_states_the_verify_refs_window_symmetrically(stack: str) -> None:
+    """verify_refs looks `window` lines either side of the via line, not only after it."""
+    window = int(inspect.signature(verify_refs).parameters["window"].default)
+    text = (REFERENCE / f"stack-{stack}.md").read_text(encoding="utf-8")
+    tokens_section = text[text.index("## Marker tokens verify-refs accepts"):]
+    assert f"within {NUMBER_WORDS[window]} lines before or after" in tokens_section
 
 
 NOTE_HEADINGS = {
