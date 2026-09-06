@@ -36,7 +36,6 @@ from typing import Any, Final
 from categories import CATEGORIES
 from validation import (
     ValidationError,
-    validate_confidence,
     validate_debt_type,
     validate_effort,
     validate_slug,
@@ -72,11 +71,11 @@ _REQUIRED_ITEM_FIELDS: Final[tuple[str, ...]] = (
     "suggested_fix",
 )
 
-# Validated when present (strict values), tolerated when absent.
+# Validated when present (strict values), tolerated when absent. confidence
+# is no longer validated: validate_confidence was removed from validation.py.
 _OPTIONAL_VALIDATORS: Final[dict[str, Any]] = {
     "debt_type": validate_debt_type,
     "effort": validate_effort,
-    "confidence": validate_confidence,
 }
 
 

@@ -3,13 +3,11 @@ from __future__ import annotations
 
 import pytest
 from validation import (
-    VALID_CONFIDENCES,
     VALID_DEBT_TYPES,
     VALID_EFFORTS,
     VALID_STATUSES,
     VALID_TIERS,
     ValidationError,
-    validate_confidence,
     validate_debt_type,
     validate_effort,
     validate_slug,
@@ -71,17 +69,6 @@ def test_validate_effort_accepts(good: str):
 def test_validate_effort_rejects(bad: str):
     with pytest.raises(ValidationError, match="unknown effort"):
         validate_effort(bad)
-
-
-@pytest.mark.parametrize("good", sorted(VALID_CONFIDENCES))
-def test_validate_confidence_accepts(good: str):
-    validate_confidence(good)
-
-
-@pytest.mark.parametrize("bad", ["", "High", "certain", "med"])
-def test_validate_confidence_rejects(bad: str):
-    with pytest.raises(ValidationError, match="unknown confidence"):
-        validate_confidence(bad)
 
 
 def test_accepted_is_a_valid_status() -> None:

@@ -9,7 +9,8 @@ from design_writer import (
     render_design_md,
 )
 
-GOLDEN = Path(__file__).parent / "golden" / "design.md"
+# design-v1.md is the v1 compatibility document (spec 8), not the v2 golden Task 7 adds.
+GOLDEN = Path(__file__).parent / "golden" / "design-v1.md"
 
 
 def _top5_payload() -> dict:

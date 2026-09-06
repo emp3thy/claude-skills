@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from promote import PromoteResult, run_promote
 
-GOLDEN = Path(__file__).parent / "golden" / "design.md"
+# design-v1.md is the v1 compatibility document (spec 8), not the v2 golden Task 7 adds.
+GOLDEN = Path(__file__).parent / "golden" / "design-v1.md"
 
 
 def test_no_approved_returns_zero(tmp_path: Path):
