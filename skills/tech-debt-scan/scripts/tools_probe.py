@@ -1,7 +1,7 @@
 """Run already-installed external tools and write ``tool-signals.json`` (spec 4.5).
 
-Never installs anything, never invokes external package managers and never
-executes project code. Presence is ``shutil.which``, then ``<root>/node_modules/.bin``
+Never installs anything, never invokes ``npx`` and never executes project
+code. Presence is ``shutil.which``, then ``<root>/node_modules/.bin``
 for the three Node tools only. Each present tool runs under a per-tool timeout
 and is recorded as ``ran``, ``absent``, ``failed`` or ``skipped``.
 
@@ -61,7 +61,7 @@ def find_tool(name: str, root: Path) -> str | None:
 
     ``shutil.which`` first, then ``<root>/node_modules/.bin`` for the three
     Node tools. A project-local binary is a tool the repository already
-    depends on; external package managers would fetch one, which spec 4.5 forbids.
+    depends on; ``npx`` would fetch a package to run it, which spec 4.5 forbids.
     """
     found = shutil.which(name)
     if found:
