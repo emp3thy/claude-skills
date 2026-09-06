@@ -11,6 +11,16 @@ twin of the same finding list, which ``evaluate.py`` prefers over
 ``mark_promoted`` is stage 3 of /tech-debt-promote: it flips approved findings
 to ``promoted`` in place once their bundles have been emitted.
 
+``notes-prompt`` renders the single remediation-note agent's prompt (spec
+4.11's Task 5) to ``<workdir>/prompts/notes.md``: the read-only rule, then per
+top-N finding its fingerprint, family, severity, effort, proof and evidence,
+then ``NOTES_CONTRACT``. The agent's reply is stored as ``notes.json`` and read
+back by ``render`` (via ``notes_by_fingerprint``) into the top-N findings'
+``### Remediation`` and ``### Acceptance criteria`` sections; a malformed or
+absent ``notes.json`` renders ``NOTE_PLACEHOLDER`` in both instead of failing.
+``--top`` narrows the prompt to fewer than ``ranked.json``'s own top N; it can
+never widen past it.
+
 Document shape (``SECTION_ORDER``): the frontmatter, the ``# Tech-debt scan``
 header, ``# Top N`` with one H2 per top-N finding, then the six negative-space
 H1 sections. A finding is an H2 with a fenced ```yaml anchor; every other
@@ -92,6 +102,24 @@ NO_PROOF: Final[str] = "no verifier proof"
 EMPTY_SECTION: Final[str] = "_None._"
 # A finding with no evidence (a repository-level finding) has no file to name.
 NO_FILE: Final[str] = "-"
+# Spec 4.11's contract for the single remediation-note agent (Task 5): the JSON
+# array shape ``notes.json`` must satisfy, verbatim in every rendered prompt.
+NOTES_CONTRACT: Final[str] = """\
+Reply with one JSON array, one object per finding, exactly these keys:
+
+[
+  {
+    "fingerprint": "<as given>",
+    "remediation": "<=120 words on how to pay this debt down, no code>",
+    "acceptance_criteria": ["<one checkable statement>", "..."]
+  }
+]
+
+Write for the engineer who will do the work: what to change and in what order, not why
+the debt matters. Two to five acceptance criteria, each checkable by reading a diff or
+running a test. Do not restate the finding, do not propose a schedule, do not include a
+fix in code."""
+
 # The three fixed "Not assessed" bullets; only the families line is computed.
 NOT_ASSESSED_FIXED: Final[tuple[str, ...]] = (
     "- Tools: the tool probe lands in phase 4, so currency, end-of-life and "
@@ -473,6 +501,31 @@ def _signal_lines(finding: dict[str, Any]) -> list[str]:
     return [metrics, f"- confirmed by: {', '.join(confirmed) if confirmed else 'none'}"]
 
 
+def notes_by_fingerprint(inputs: RenderInputs) -> dict[str, dict[str, Any]]:
+    """Valid ``notes.json`` entries for the top-N fingerprints, keyed by fingerprint.
+
+    Kept only when the fingerprint is in ``ranked["top_n"]``, ``remediation`` is a
+    non-empty string and ``acceptance_criteria`` is a list of strings; every other
+    entry (an unknown fingerprint, an empty or missing remediation, a malformed
+    acceptance_criteria) is dropped silently, so a malformed ``notes.json`` makes
+    ``_finding_section`` fall back to ``NOTE_PLACEHOLDER`` instead of failing.
+    """
+    top_n = {str(fp) for fp in inputs.ranked.get("top_n") or []}
+    result: dict[str, dict[str, Any]] = {}
+    for note in inputs.notes:
+        fingerprint = str(note.get("fingerprint"))
+        if fingerprint not in top_n:
+            continue
+        remediation = note.get("remediation")
+        if not isinstance(remediation, str) or not remediation:
+            continue
+        criteria = note.get("acceptance_criteria")
+        if not isinstance(criteria, list) or not all(isinstance(c, str) for c in criteria):
+            continue
+        result[fingerprint] = {"remediation": remediation, "acceptance_criteria": criteria}
+    return result
+
+
 def _finding_section(inputs: RenderInputs, row: Row, *, compact: bool = False) -> list[str]:
     """One H2 finding section. ``compact`` stops after Evidence (below the cut)."""
     finding = row.finding
@@ -496,8 +549,14 @@ def _finding_section(inputs: RenderInputs, row: Row, *, compact: bool = False) -
     if compact:
         return lines
     lines += ["", "### Signals", "", *_signal_lines(finding)]
-    lines += ["", "### Remediation", "", NOTE_PLACEHOLDER]
-    lines += ["", "### Acceptance criteria", "", NOTE_PLACEHOLDER]
+    note = notes_by_fingerprint(inputs).get(str(finding.get("fingerprint")))
+    if note is None:
+        lines += ["", "### Remediation", "", NOTE_PLACEHOLDER]
+        lines += ["", "### Acceptance criteria", "", NOTE_PLACEHOLDER]
+    else:
+        lines += ["", "### Remediation", "", free_text(str(note["remediation"]))]
+        criteria = [f"- [ ] {free_text(str(c))}" for c in note["acceptance_criteria"]]
+        lines += ["", "### Acceptance criteria", "", *criteria]
     return lines
 
 
@@ -509,6 +568,45 @@ def _top_section(inputs: RenderInputs, rows: list[Row]) -> list[str]:
     for row in selected:
         lines += _finding_section(inputs, row)
     return lines
+
+
+# --- the remediation-note prompt -------------------------------------------------
+
+
+def render_notes_prompt(inputs: RenderInputs) -> str:
+    """One prompt for the single remediation-note agent, over the top N only (spec 4.11).
+
+    Its reply is ``notes.json``, which ``notes_by_fingerprint`` reads back into the
+    ``### Remediation`` and ``### Acceptance criteria`` sections of the same top-N
+    findings. Only the top N is shown -- a below-the-cut or rejected finding never
+    reaches the note agent -- so the fingerprint set here is exactly
+    ``ranked["top_n"]``, in that same priority order.
+    """
+    root = str(inputs.inventory.get("root") or "")
+    top_n = {str(fp) for fp in inputs.ranked.get("top_n") or []}
+    rows = [row for row in _rows(inputs) if str(row.finding.get("fingerprint")) in top_n]
+    parts: list[str] = [
+        "You are writing the remediation notes for the top tech-debt findings found "
+        f"in the repository at `{root}`.",
+        "You have read-only access: read and search files if you need more context; "
+        "change nothing.",
+    ]
+    for index, row in enumerate(rows, start=1):
+        finding = row.finding
+        parts += [
+            "",
+            f"## {index}. {redact(str(finding.get('title') or ''))}",
+            f"fingerprint: {finding.get('fingerprint')}",
+            f"family: {finding.get('family')}  severity: {finding.get('severity')}  "
+            f"effort: {finding.get('effort')}",
+            "",
+            free_text(str(finding.get("proof") or "")) or NO_PROOF,
+        ]
+        for item in finding.get("evidence") or []:
+            if isinstance(item, dict):
+                parts += _evidence_item(item)
+    parts += ["", NOTES_CONTRACT]
+    return "\n".join(parts) + "\n"
 
 
 # --- the negative-space sections ------------------------------------------------
@@ -912,6 +1010,17 @@ def _main(argv: list[str] | None = None) -> int:
     p_render.add_argument("--scan-date", required=True, help="ISO scan date")
     p_render.add_argument("--out", help="output design.md path (default <workdir>/design.md)")
 
+    p_notes = sub.add_parser(
+        "notes-prompt", help="render the remediation-note agent's prompt"
+    )
+    p_notes.add_argument(
+        "--workdir", default=".tech-debt", help="directory holding the chain outputs"
+    )
+    p_notes.add_argument(
+        "--top", type=int, default=None,
+        help="narrow the top N below ranked.json's own top (never widens it)",
+    )
+
     p_mark = sub.add_parser("mark-promoted", help="flip approved findings to promoted")
     p_mark.add_argument("design", help="path to design.md")
     p_mark.add_argument("--slug", action="append", default=[], help="slug to promote")
@@ -925,6 +1034,17 @@ def _main(argv: list[str] | None = None) -> int:
             write_design(load_inputs(workdir), args.scan_date, out_path)
             print(f"wrote {out_path}")
             print(f"wrote {workdir / 'findings.json'}")
+        elif args.cmd == "notes-prompt":
+            workdir = Path(args.workdir)
+            inputs = load_inputs(workdir)
+            if args.top is not None:
+                top_n = list(inputs.ranked.get("top_n") or [])
+                inputs.ranked["top_n"] = top_n[: max(0, min(args.top, len(top_n)))]
+            text = render_notes_prompt(inputs)
+            out_path = workdir / "prompts" / "notes.md"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(text.encode("utf-8"))
+            print(f"wrote {out_path}")
         else:
             mark_promoted(Path(args.design), slugs=args.slug)
             print(f"promoted {len(args.slug)} finding(s) in {args.design}")

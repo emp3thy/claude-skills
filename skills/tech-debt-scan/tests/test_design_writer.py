@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from design_parser import parse_design
 from design_writer import (
+    NOTE_PLACEHOLDER,
     SECTION_ORDER,
     DesignWriteError,
     load_inputs,
@@ -586,3 +587,64 @@ def test_render_cli_prints_both_output_paths(
     printed = capsys.readouterr().out
     assert str(out) in printed
     assert str(workdir / "findings.json") in printed
+
+
+# --- notes ----------------------------------------------------------------------
+
+
+def test_notes_prompt_matches_its_golden(tmp_path: Path) -> None:
+    from design_writer import render_notes_prompt
+
+    text = render_notes_prompt(_inputs(tmp_path))
+    assert text == (GOLDEN / "notes-prompt.md").read_bytes().decode("utf-8")
+    assert TOP_FP in text and CUT_FP not in text, "the note agent sees the top N only"
+    assert "120 words" in text and '"acceptance_criteria"' in text
+
+
+def test_notes_prompt_cli_writes_the_file(tmp_path: Path) -> None:
+    from design_writer import _main
+
+    workdir = _write_workdir(tmp_path / "wd")
+    assert _main(["notes-prompt", "--workdir", str(workdir), "--top", "5"]) == 0
+    raw = (workdir / "prompts" / "notes.md").read_bytes()
+    assert b"\r" not in raw and raw.endswith(b"\n")
+    assert _main(["notes-prompt", "--workdir", str(tmp_path / "none")]) == 2
+
+
+def test_a_note_fills_the_remediation_sections(tmp_path: Path) -> None:
+    notes = [{"fingerprint": TOP_FP, "remediation": "Re-raise after logging the cause.",
+              "acceptance_criteria": ["The failure path re-raises", "A regression test covers it"]}]
+    workdir = _write_workdir(tmp_path / "wd")
+    write_json(workdir / "notes.json", notes)
+    text = render_design(load_inputs(workdir), SCAN_DATE)
+    assert "Re-raise after logging the cause." in text
+    assert "- [ ] The failure path re-raises" in text
+    assert "- [ ] A regression test covers it" in text
+    assert NOTE_PLACEHOLDER not in text
+
+
+def test_a_note_for_a_finding_outside_the_top_n_is_ignored(tmp_path: Path) -> None:
+    notes = [{"fingerprint": CUT_FP, "remediation": "should not appear",
+              "acceptance_criteria": ["nor this"]}]
+    workdir = _write_workdir(tmp_path / "wd")
+    write_json(workdir / "notes.json", notes)
+    text = render_design(load_inputs(workdir), SCAN_DATE)
+    assert "should not appear" not in text and "nor this" not in text
+    assert text.count(NOTE_PLACEHOLDER) == 2, "the top-N finding keeps both placeholders"
+
+
+def test_a_malformed_notes_document_does_not_stop_the_render(tmp_path: Path) -> None:
+    workdir = _write_workdir(tmp_path / "wd")
+    (workdir / "notes.json").write_bytes(b'{"not": "a list"}')
+    text = render_design(load_inputs(workdir), SCAN_DATE)
+    assert NOTE_PLACEHOLDER in text
+
+
+def test_notes_are_redacted(tmp_path: Path) -> None:
+    secret = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"
+    workdir = _write_workdir(tmp_path / "wd")
+    note = {"fingerprint": TOP_FP, "remediation": f'move token = "{secret}" to config',
+            "acceptance_criteria": [f'no token = "{secret}" in source']}
+    write_json(workdir / "notes.json", [note])
+    text = render_design(load_inputs(workdir), SCAN_DATE)
+    assert secret not in text and "sk_l***" in text
