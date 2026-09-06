@@ -35,6 +35,15 @@ Scenario Outline: dynamic outline from csv works: <rule_id>
   Examples:
     | read('classpath:rules/harness-smoke.csv') |
 
+Scenario Outline: karate.filter drops cross_field rows from a csv outline: <rule_id>
+  * def m = '<mutation>'
+  * assert m != 'cross_field'
+  * def payload = mutate({ a: 'x', b: 2 }, '<field>', '<mutation>', '<value>')
+  * match payload.<field> == <expected>
+
+  Examples:
+    | karate.filter(read('classpath:rules/harness-smoke.csv'), function(r){ return r.mutation != 'cross_field' }) |
+
 Scenario: reset feature accepts empty arguments without containers
   * def bare = call read('classpath:common/reset.feature')
   * match bare.watch == []

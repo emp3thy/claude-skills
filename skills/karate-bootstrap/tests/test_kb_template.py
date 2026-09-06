@@ -135,5 +135,7 @@ def test_template_compiles_and_smoke_runs(tmp_path: Path) -> None:
     assert (reports / "features.harness-smoke.json").is_file()
     summary = json.loads((reports / "karate-summary-json.txt").read_text(encoding="utf-8"))
     assert summary["scenariosfailed"] == 0
-    assert summary["scenariosPassed"] >= 7
+    # 4 plain scenarios, 4 rows through the plain csv outline, 3 through the karate.filter
+    # outline that drops the one cross_field row (prompts/generate.md pins that expression)
+    assert summary["scenariosPassed"] >= 11
     assert (module / "target" / "surefire-reports" / "TEST-kb.harness.KarateRunner.xml").is_file()
