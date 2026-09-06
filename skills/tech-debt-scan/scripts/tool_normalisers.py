@@ -274,15 +274,29 @@ def normalise_lizard(payload: Any, root: Path) -> list[Signal]:
     return out
 
 
-# knip issue category -> (family, kind). Categories outside this map are
-# real knip output but not debt families we act on.
-KNIP_CATEGORIES: Final[dict[str, tuple[str, str]]] = {
-    "files": ("dead-code", "unused"),
-    "exports": ("dead-code", "unused"),
-    "types": ("dead-code", "unused"),
-    "dependencies": ("dependency-debt", "unused"),
-    "devDependencies": ("dependency-debt", "unused"),
-    "unlisted": ("dependency-debt", "unused"),
+# knip issue category -> (family, kind, singular label for the message).
+# Categories outside this map are real knip output but not debt families we
+# act on.
+#
+# ``binaries`` (an npm-script binary knip cannot resolve to an installed
+# package) and ``unlisted`` (an import with no corresponding package.json
+# dependency) are deliberately absent, even though both are real and
+# non-trivial knip output -- confirmed non-empty for ``binaries`` on the
+# web-ts corpus fixture itself. Both mean "referenced but never declared",
+# the opposite of "unused". Spec 4.5 fixes a closed `kind` vocabulary (vuln,
+# secret, clone, cycle, unused, deprecated, complexity, error-masking,
+# dockerfile, workflow) with no term for that idea, and phase 4b filters on
+# `kind` -- mapping either category to `unused` would be a wrong label, not
+# a missing finding, and a wrong label gets acted on. Do not add them back
+# without first adding a `kind` for "referenced but undeclared".
+KNIP_CATEGORIES: Final[dict[str, tuple[str, str, str]]] = {
+    "files": ("dead-code", "unused", "file"),
+    "exports": ("dead-code", "unused", "export"),
+    "types": ("dead-code", "unused", "type"),
+    "enumMembers": ("dead-code", "unused", "enum member"),
+    "namespaceMembers": ("dead-code", "unused", "namespace member"),
+    "dependencies": ("dependency-debt", "unused", "dependency"),
+    "devDependencies": ("dependency-debt", "unused", "devDependency"),
 }
 
 
@@ -335,20 +349,22 @@ def normalise_jscpd(payload: Any, root: Path) -> list[Signal]:
         second_rel = rel_path(root, second.get("name"))
         if first_rel is None or second_rel is None:
             continue
+        first_start, first_end = first.get("start"), first.get("end")
+        second_start, second_end = second.get("start"), second.get("end")
         out.append(
             signal(
                 "jscpd", "duplication", "clone",
                 file=first_rel,
-                line_start=first.get("start"),
-                line_end=first.get("end"),
+                line_start=first_start if isinstance(first_start, int) else None,
+                line_end=first_end if isinstance(first_end, int) else None,
                 message=(
                     f"{duplicate.get('lines', 0)} duplicated lines shared with {second_rel}"
                 ),
                 fact=False,
                 extra={
                     "other_file": second_rel,
-                    "other_line_start": second.get("start"),
-                    "other_line_end": second.get("end"),
+                    "other_line_start": second_start if isinstance(second_start, int) else None,
+                    "other_line_end": second_end if isinstance(second_end, int) else None,
                     "tokens": duplicate.get("tokens"),
                     "format": duplicate.get("format"),
                 },
@@ -374,7 +390,7 @@ def normalise_knip(payload: Any, root: Path) -> list[Signal]:
         if rel is None:
             continue
         for category, mapping in KNIP_CATEGORIES.items():
-            family, kind = mapping
+            family, kind, singular = mapping
             for entry in issue.get(category) or []:
                 if not isinstance(entry, dict):
                     continue
@@ -390,7 +406,7 @@ def normalise_knip(payload: Any, root: Path) -> list[Signal]:
                         line_end=None if whole_file else row,
                         message=(
                             f"unused file {rel}" if whole_file
-                            else f"unused {category[:-1]} '{name}'"
+                            else f"unused {singular} '{name}'"
                         ),
                         fact=False,
                         extra={"issue": category, "symbol": name},

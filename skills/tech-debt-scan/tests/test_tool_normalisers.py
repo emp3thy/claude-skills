@@ -329,6 +329,32 @@ class TestNormaliseJscpd:
 
         assert normalise_jscpd({"duplicates": [], "statistics": {}}, ROOT) == []
 
+    def test_malformed_line_values_are_dropped_not_propagated(self) -> None:
+        """The Signal schema declares line_start/line_end as int | None. A
+        malformed-but-JSON-parseable jscpd report must not push a non-int
+        value through -- the same guarantee normalise_knip already gives its
+        `line` field."""
+        from tool_normalisers import normalise_jscpd
+
+        payload = {
+            "duplicates": [
+                {
+                    "firstFile": {"name": "src/a.ts", "start": "bogus", "end": [1, 2, 3]},
+                    "secondFile": {"name": "src/b.ts", "start": 5, "end": "nope"},
+                    "lines": 8,
+                    "tokens": 10,
+                }
+            ],
+            "statistics": {},
+        }
+        result = normalise_jscpd(payload, ROOT)
+        assert len(result) == 1
+        first = result[0]
+        assert first["line_start"] is None
+        assert first["line_end"] is None
+        assert first["extra"]["other_line_start"] == 5
+        assert first["extra"]["other_line_end"] is None
+
 
 class TestNormaliseKnip:
     def _signals(self) -> list:
@@ -336,6 +362,13 @@ class TestNormaliseKnip:
 
         payload = json.loads((FIXTURES / "knip.json").read_text(encoding="utf-8"))
         return normalise_knip(payload, ROOT)
+
+    def test_the_fixture_produces_exactly_three_signals(self) -> None:
+        """The fixture has one files entry, one exports entry and one
+        dependencies entry. A normaliser that double-emitted every entry
+        would still satisfy every membership-style assertion in this class,
+        so this is the one test that would actually catch it."""
+        assert len(self._signals()) == 3
 
     def test_an_unused_file_becomes_a_whole_file_signal(self) -> None:
         unused_file = next(s for s in self._signals() if s["file"] == "vendor/tiny-emitter.js")
