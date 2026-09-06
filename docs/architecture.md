@@ -197,16 +197,15 @@ carries `title`, `family`, `debt_type`, `type_id`, `severity`, `effort`,
 `signals_cited`, `evidence` (verbatim quotes) and `note` — never a
 `suggested_fix` or a `confidence` self-report.
 
-**Retired from the workflow, kept for compatibility.** The eight v1
-categories (`god-modules`, `duplication`, `dead-code`, `test-gaps`,
-`doc-drift`, `half-finished`, `dependency-debt`, `architecture`, defined by
-`CATEGORY_PROMPTS`/`CATEGORIES`/`CORE_CATEGORIES`/`get_prompt` in the same
-module) are no longer dispatched by `/tech-debt-scan`. The symbols stay in
-`categories.py`; `test_categories.py`'s v1 cases are marked
-`pytest.mark.skip` (spec 11) rather than removed, so the symbols still import
-cleanly. Nothing in the v2 chain reads them, but a v1 `design.md`'s `category`
-value (for example `god-modules`) is still read as `family` and promotes
-unchanged.
+**The v1 categories are gone.** The eight v1 categories (`god-modules`,
+`duplication`, `dead-code`, `test-gaps`, `doc-drift`, `half-finished`,
+`dependency-debt`, `architecture`) and the symbols that defined them —
+`CATEGORY_PROMPTS`, `CATEGORIES`, `CORE_CATEGORIES`, `get_prompt` and their
+shared `_OUTPUT_SCHEMA` — were deleted from `categories.py` in phase 3 (spec
+3.2), together with their only consumers, `build_synthesis_prompt.py` and
+SKILL.md v1. A v1 `design.md` still promotes unchanged: its `category` value
+(for example `god-modules`) is a string `design_parser` reads as `family`, and
+no v1 path ever read a scout prompt.
 
 ## design.md format
 
