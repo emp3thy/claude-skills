@@ -413,3 +413,85 @@ def normalise_knip(payload: Any, root: Path) -> list[Signal]:
                     )
                 )
     return out
+
+
+def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
+    """osv-scanner's results as fact-class dependency signals.
+
+    The JSON carries no line numbers, so the evidence is the manifest or
+    lockfile path with a null line range (spec 4.5). One signal per
+    vulnerability per package, not one per package, so two advisories against
+    one dependency stay separately actionable.
+    """
+    if not isinstance(payload, dict):
+        return []
+    out: list[Signal] = []
+    for result in payload.get("results") or []:
+        if not isinstance(result, dict):
+            continue
+        source = result.get("source") or {}
+        rel = rel_path(root, source.get("path"))
+        if rel is None:
+            continue
+        for entry in result.get("packages") or []:
+            if not isinstance(entry, dict):
+                continue
+            package = entry.get("package") or {}
+            name = str(package.get("name", ""))
+            version = str(package.get("version", ""))
+            ecosystem = str(package.get("ecosystem", ""))
+            for vulnerability in entry.get("vulnerabilities") or []:
+                if not isinstance(vulnerability, dict):
+                    continue
+                identifier = str(vulnerability.get("id", ""))
+                out.append(
+                    signal(
+                        "osv-scanner", "dependency-debt", "vuln",
+                        file=rel, line_start=None, line_end=None,
+                        message=(
+                            f"{name} {version} ({ecosystem}) is affected by "
+                            f"{identifier}: {vulnerability.get('summary', '')}"
+                        ),
+                        fact=True,
+                        extra={
+                            "package": name, "version": version,
+                            "ecosystem": ecosystem, "id": identifier,
+                            "aliases": list(vulnerability.get("aliases") or []),
+                        },
+                    )
+                )
+    return out
+
+
+def normalise_gitleaks(payload: Any, root: Path) -> list[Signal]:
+    """gitleaks' findings as fact-class secret signals.
+
+    ``Secret`` and ``Match`` hold the credential gitleaks matched and are
+    dropped outright rather than redacted (spec 4.5): this file is read into
+    prompts, and a redacted secret is still its own first four characters.
+    The rule id, file, line range and entropy that remain are what the
+    verifier needs to tell a real leak from a fixture.
+    """
+    if not isinstance(payload, list):
+        return []
+    out: list[Signal] = []
+    for record in payload:
+        if not isinstance(record, dict):
+            continue
+        rel = rel_path(root, record.get("File"))
+        start = record.get("StartLine")
+        if rel is None or not isinstance(start, int):
+            continue
+        end = record.get("EndLine")
+        rule = str(record.get("RuleID", ""))
+        out.append(
+            signal(
+                "gitleaks", "security", "secret",
+                file=rel, line_start=start,
+                line_end=end if isinstance(end, int) else start,
+                message=f"{rule}: {record.get('Description', 'possible committed secret')}",
+                fact=True,
+                extra={"rule": rule, "entropy": record.get("Entropy")},
+            )
+        )
+    return out

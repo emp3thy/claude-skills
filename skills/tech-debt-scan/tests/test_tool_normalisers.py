@@ -399,3 +399,78 @@ class TestNormaliseKnip:
 
     def test_every_knip_signal_is_inference_class(self) -> None:
         assert all(s["fact"] is False for s in self._signals())
+
+
+class TestNormaliseOsvScanner:
+    def _signals(self) -> list:
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = json.loads((FIXTURES / "osv-scanner.json").read_text(encoding="utf-8"))
+        return normalise_osv_scanner(payload, ROOT)
+
+    def test_one_vulnerability_becomes_one_signal(self) -> None:
+        assert len(self._signals()) == 1
+
+    def test_the_signal_names_the_lockfile_and_no_line(self) -> None:
+        """osv-scanner's JSON carries no line numbers, so the evidence is the
+        manifest path (spec 4.5)."""
+        first = self._signals()[0]
+        assert first["file"] == "package-lock.json"
+        assert first["line_start"] is None and first["line_end"] is None
+
+    def test_package_identity_and_advisory_are_carried_in_extra(self) -> None:
+        extra = self._signals()[0]["extra"]
+        assert extra["package"] == "left-pad"
+        assert extra["version"] == "1.1.3"
+        assert extra["ecosystem"] == "npm"
+        assert extra["id"] == "GHSA-xxxx-yyyy-zzzz"
+
+    def test_osv_signals_are_fact_class(self) -> None:
+        """Fact-class is what lets 4b tier these without a verifier."""
+        assert all(s["fact"] is True for s in self._signals())
+
+    def test_kind_and_family_are_vuln_and_dependency_debt(self) -> None:
+        first = self._signals()[0]
+        assert (first["kind"], first["family"]) == ("vuln", "dependency-debt")
+
+    def test_an_empty_result_set_produces_nothing(self) -> None:
+        from tool_normalisers import normalise_osv_scanner
+
+        assert normalise_osv_scanner({"results": []}, ROOT) == []
+
+
+class TestNormaliseGitleaks:
+    def _signals(self) -> list:
+        from tool_normalisers import normalise_gitleaks
+
+        payload = json.loads((FIXTURES / "gitleaks.json").read_text(encoding="utf-8"))
+        return normalise_gitleaks(payload, ROOT)
+
+    def test_one_finding_becomes_one_signal(self) -> None:
+        assert len(self._signals()) == 1
+
+    def test_the_signal_names_the_file_and_line(self) -> None:
+        first = self._signals()[0]
+        assert first["file"] == "src/config/settings.py"
+        assert (first["line_start"], first["line_end"]) == (12, 12)
+
+    def test_the_matched_secret_is_never_carried_in_any_field(self) -> None:
+        """Dropped, not redacted: a redacted secret is still its own first four
+        characters, and this file is read into prompts (spec 4.5)."""
+        blob = json.dumps(self._signals())
+        assert "EXAMPLE-NOT-A-REAL-SECRET-VALUE" not in blob
+        assert "Secret" not in blob
+        assert "Match" not in blob
+
+    def test_rule_and_entropy_survive_because_the_verifier_needs_them(self) -> None:
+        extra = self._signals()[0]["extra"]
+        assert extra["rule"] == "generic-api-key"
+        assert extra["entropy"] == 4.31
+
+    def test_gitleaks_signals_are_fact_class(self) -> None:
+        assert all(s["fact"] is True for s in self._signals())
+
+    def test_a_record_without_a_usable_file_is_dropped(self) -> None:
+        from tool_normalisers import normalise_gitleaks
+
+        assert normalise_gitleaks([{"RuleID": "x", "StartLine": 1}], ROOT) == []
