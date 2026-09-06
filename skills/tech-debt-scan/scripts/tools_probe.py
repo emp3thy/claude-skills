@@ -27,7 +27,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, cast
 
 from config import ConfigError, load_config
 from inventory import write_json
@@ -343,27 +343,40 @@ def _redact_value(value: Any) -> Any:
     ids, symbol names and cycle-member paths straight from the tool, and a
     string nested inside a list or dict within ``extra`` (a cycle's member
     list, a set of duplicate locations) is just as capable of holding a
-    credential-shaped token as ``message`` is. Non-string, non-container
+    credential-shaped token as ``message`` is. Dictionary *keys* are redacted
+    as well as values: nothing today keys ``extra`` by tool-supplied text, but
+    a normaliser that keyed a map by symbol name or rule id would otherwise
+    reintroduce the leak one level down, silently. Non-string, non-container
     values (``None``, ``int``, ``bool``) pass through untouched.
     """
     if isinstance(value, str):
         return redact(value)
     if isinstance(value, dict):
-        return {key: _redact_value(inner) for key, inner in value.items()}
+        return {
+            (redact(key) if isinstance(key, str) else key): _redact_value(inner)
+            for key, inner in value.items()
+        }
     if isinstance(value, list):
         return [_redact_value(inner) for inner in value]
     return value
 
 
-def redact_signals(signals: list[Any]) -> list[Any]:
-    """Every string value in every signal run through the shared redactor.
+def redact_document(document: dict[str, Any]) -> dict[str, Any]:
+    """The whole ``tool-signals.json`` document with every string redacted.
 
-    Recursive over the whole signal -- every top-level field and everything
-    reachable inside ``extra`` -- rather than rewriting ``message`` alone,
-    because a secret-shaped token can arrive in any tool-supplied string, not
-    only the one field a first cut happened to redact.
+    Applied to the document rather than to the ``signals`` array alone, so a
+    field added later cannot miss redaction by construction. The array was not
+    the only place tool-supplied text reaches the file: ``tools[<name>]
+    ["reason"]`` carries up to ``STDERR_CHARS`` characters of a failing tool's
+    raw stderr, and a tool that fails while reading a file routinely prints
+    the offending source line -- vulture 2.16 does exactly that on a syntax
+    error, so a credential on that line reached the document verbatim. Every
+    other value in the document (``schema_version``, ``status``, ``version``,
+    ``duration_s``) is a number or drawn from a closed set, so redacting the
+    whole thing costs nothing and removes the class of defect rather than one
+    instance of it.
     """
-    return [_redact_value(item) for item in signals]
+    return cast(dict[str, Any], _redact_value(document))
 
 
 def probe(root: Path, config: dict[str, Any], *, skip_all: bool = False) -> dict[str, Any]:
@@ -410,11 +423,11 @@ def probe(root: Path, config: dict[str, Any], *, skip_all: bool = False) -> dict
             tool_signals.sort(key=_signal_sort_key)
             signals.extend(tool_signals)
 
-    return {
+    return redact_document({
         "schema_version": SCHEMA_VERSION,
         "tools": tools,
-        "signals": redact_signals(signals),
-    }
+        "signals": signals,
+    })
 
 
 def _signal_sort_key(sig: Any) -> tuple[str, int, str, str, str]:

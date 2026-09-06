@@ -498,29 +498,52 @@ class TestProbe:
         assert "--isolated" in argv
         assert "--no-cache" in argv
 
-    def test_signals_are_redacted_before_they_are_written(self, tmp_path: Path) -> None:
-        """Redaction must reach every string in a signal, not only ``message``:
-        rule ids, symbol names and cycle-member paths inside ``extra`` are
-        tool-supplied text too, wherever they sit -- a plain value, or nested
-        inside a list within ``extra``."""
-        from tools_probe import redact_signals
+    def test_every_string_in_the_document_is_redacted(self, tmp_path: Path) -> None:
+        """Redaction must reach every string in the document, not only
+        ``message`` and not only the ``signals`` array: rule ids, symbol names
+        and cycle-member paths inside ``extra`` are tool-supplied text too,
+        wherever they sit -- a plain value, nested inside a list within
+        ``extra``, used as a dictionary *key*, or in a failing tool's
+        ``reason`` over in the ``tools`` map."""
+        from tools_probe import redact_document
 
         secret = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"
-        signals = [{
-            "tool": "ruff", "family": "security", "kind": "error-masking",
-            "file": "a.py", "line_start": 1, "line_end": 1,
-            "message": f'token = "{secret}"',
-            "fact": False,
-            "extra": {
-                "code": "E722",
-                "note": f"rotated credential was {secret}",
-                "aliases": [f"backup: {secret}"],
+        stderr = f'exit 1: bad.py:3: invalid syntax at "api_key = "{secret}""'
+        document = {
+            "schema_version": 2,
+            "tools": {
+                "vulture": {"status": "failed", "version": "", "duration_s": 0.1,
+                            "reason": stderr},
             },
-        }]
-        out = redact_signals(signals)
+            "signals": [{
+                "tool": "ruff", "family": "security", "kind": "error-masking",
+                "file": "a.py", "line_start": 1, "line_end": 1,
+                "message": f'token = "{secret}"',
+                "fact": False,
+                "extra": {
+                    "code": "E722",
+                    "note": f"rotated credential was {secret}",
+                    "aliases": [f"backup: {secret}"],
+                    f"symbol {secret}": "keyed by tool-supplied text",
+                },
+            }],
+        }
+        out = redact_document(document)
         serialised = json.dumps(out)
         assert secret not in serialised
         assert "sk_l***" in serialised
+        assert out["schema_version"] == 2
+        assert out["tools"]["vulture"]["status"] == "failed"
+
+    def test_a_dict_key_carrying_a_secret_is_redacted(self) -> None:
+        """The same gap one level down (Task 8 deferred minor): ``_redact_value``
+        walked values only, so a normaliser keying ``extra`` by tool-supplied
+        text would put a credential in the document through the key."""
+        from tools_probe import _redact_value
+
+        secret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+        out = _redact_value({f"seen at {secret}": {"nested": [f"also {secret}"]}})
+        assert secret not in json.dumps(out)
 
     def test_probe_redacts_secrets_reaching_the_document_via_a_normaliser(
         self, tmp_path: Path, monkeypatch
@@ -557,6 +580,37 @@ class TestProbe:
         config["tools"]["deny"] = [name for name in tools_probe.TOOLS if name != "ruff"]
         document = tools_probe.probe(tmp_path, config)
         assert secret not in json.dumps(document)
+
+    def test_probe_redacts_a_secret_reaching_the_document_via_a_failure_reason(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The whole-branch review's Critical, pinned. ``run_tool`` puts up to
+        STDERR_CHARS characters of raw tool stderr into ``reason``, and a tool
+        that fails while reading a file prints the offending source line --
+        vulture 2.16 does exactly that on a syntax error, so a credential on
+        that line reached ``tool-signals.json`` verbatim. Redaction covered
+        ``signals`` only, so no existing test saw it. Driving probe() end to
+        end means deleting the redaction call fails here."""
+        import tools_probe
+        from config import load_config
+
+        secret = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"
+        stderr = f'bad.py:3: invalid syntax at "api_key = "{secret}""'
+        (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+        monkeypatch.setattr(tools_probe, "find_tool", lambda name, root: "fake-vulture")
+        monkeypatch.setattr(
+            tools_probe,
+            "run_tool",
+            lambda spec, argv, root, timeout: tools_probe.ToolResult(
+                "failed", reason=f"exit 1: {stderr}"
+            ),
+        )
+        config = load_config(tmp_path)
+        config["tools"]["deny"] = [name for name in tools_probe.TOOLS if name != "vulture"]
+        document = tools_probe.probe(tmp_path, config)
+        assert document["tools"]["vulture"]["status"] == "failed"
+        assert secret not in json.dumps(document)
+        assert "invalid syntax" in document["tools"]["vulture"]["reason"]
 
 
 class TestGlobOperandGuard:
