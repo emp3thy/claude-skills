@@ -3,14 +3,17 @@
 This machine had no container runtime when Plan 4 was written, so three assumptions could
 not be checked locally: a Flyway image driven by ``PG*`` variables migrates a database, an
 Artemis container creates the destinations ``Containers.artemisExtraArgs`` names, and
-``python-qpid-proton`` installs from a wheel on ``python:3.12-slim``. Each is a test here.
+``python-qpid-proton`` builds from source on ``python:3.12-slim`` (no manylinux wheel is
+published for it). Each is a test here.
 
 Opt in with ``KB_CONTAINERS=1``; CI runs it in the ``karate-live`` job.
 """
 from __future__ import annotations
 
 import os
+import re
 import subprocess
+import time
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -26,7 +29,8 @@ pytestmark = [
 ARTEMIS_IMAGE = "apache/activemq-artemis:2.44.0-alpine"
 POSTGRES_IMAGE = "postgres:16-alpine"
 PYTHON_IMAGE = "python:3.12-slim"
-QPID_PROTON = "python-qpid-proton==0.39.0"
+QPID_PROTON = "python-qpid-proton==0.40.0"
+PROTON_BUILD_DEPS = "gcc cmake swig libssl-dev python3-dev"
 
 
 def docker(*args: str, check: bool = True,
@@ -76,9 +80,7 @@ def test_flyway_wrapper_migrates_from_pg_environment(tmp_path: Path, network: st
         "FROM flyway/flyway:10.17.3-alpine\n"
         "COPY sql /flyway/sql\n"
         "COPY entrypoint.sh /entrypoint.sh\n"
-        "USER root\n"
         "RUN chmod +x /entrypoint.sh\n"
-        "USER flyway\n"
         'ENTRYPOINT ["/entrypoint.sh"]\n',
         encoding="utf-8", newline="\n")
     tag = f"kb-spike-dbm-{uuid.uuid4().hex[:8]}"
@@ -124,11 +126,23 @@ def test_artemis_creates_the_destinations_the_harness_asks_for(network: str) -> 
         _stop(name)
 
 
-def test_qpid_proton_installs_from_a_wheel_on_slim_python() -> None:
-    """``fastapi-orders`` consumes AMQP 1.0 with proton; a source build would need cmake."""
-    proc = docker("run", "--rm", PYTHON_IMAGE, "pip", "install", "--only-binary", ":all:",
-                  "--no-cache-dir", QPID_PROTON, check=False, timeout=600)
+def test_qpid_proton_builds_from_source_on_slim_python() -> None:
+    """``fastapi-orders`` consumes AMQP 1.0 with proton; no manylinux wheel exists for it, so
+    Task 5's fixture image must install build tools and compile the C core from source."""
+    install = (
+        f"apt-get update && apt-get install -y --no-install-recommends {PROTON_BUILD_DEPS} "
+        "&& rm -rf /var/lib/apt/lists/* "
+        f"&& pip install --no-cache-dir {QPID_PROTON} "
+        "&& python -c 'import proton; print(proton.VERSION)'"
+    )
+    started = time.monotonic()
+    proc = docker("run", "--rm", PYTHON_IMAGE, "sh", "-c", install,
+                  check=False, timeout=1200)
+    elapsed = time.monotonic() - started
     assert proc.returncode == 0, (
-        f"{QPID_PROTON} has no usable wheel on {PYTHON_IMAGE}; Task 5 must add build "
-        f"dependencies to the fixture image instead.\n{proc.stdout[-2000:]}\n{proc.stderr[-2000:]}"
+        f"building {QPID_PROTON} from source on {PYTHON_IMAGE} failed after {elapsed:.0f}s\n"
+        f"stdout:\n{proc.stdout[-2000:]}\nstderr:\n{proc.stderr[-2000:]}"
+    )
+    assert re.search(r"\(\d+,\s*\d+,\s*\d+\)", proc.stdout), (
+        f"import line did not print a version tuple after {elapsed:.0f}s\n{proc.stdout[-2000:]}"
     )
