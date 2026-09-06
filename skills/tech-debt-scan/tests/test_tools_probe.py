@@ -613,6 +613,102 @@ class TestProbe:
         assert "invalid syntax" in document["tools"]["vulture"]["reason"]
 
 
+class TestNormaliserFailureIsContained:
+    """The normaliser call was unguarded and _main caught only (OSError,
+    ValueError, ConfigError, KeyError), so an AttributeError from a normaliser
+    -- the exact shape the deferred osv-scanner minors would raise -- killed
+    the process with a traceback, wrote no tool-signals.json at all, and
+    exited 1 rather than the SKILL.md convention's code."""
+
+    def test_a_raising_normaliser_costs_one_tool_and_not_the_run(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import tools_probe
+        from config import load_config
+
+        def _boom(payload: Any, root: Path) -> list[Any]:
+            raise AttributeError("'str' object has no attribute 'get'")
+
+        (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+        monkeypatch.setattr(tools_probe, "find_tool", lambda name, root: "fake")
+        monkeypatch.setattr(
+            tools_probe,
+            "run_tool",
+            lambda spec, argv, root, timeout: tools_probe.ToolResult("ran", payload=[]),
+        )
+        monkeypatch.setitem(tools_probe.NORMALISERS, "ruff", _boom)
+        monkeypatch.setitem(
+            tools_probe.NORMALISERS,
+            "vulture",
+            lambda payload, root: [{
+                "tool": "vulture", "family": "dead-code", "kind": "unused",
+                "file": "a.py", "line_start": 1, "line_end": 1,
+                "message": "unused variable 'x'", "fact": False, "extra": {},
+            }],
+        )
+        config = load_config(tmp_path)
+        config["tools"]["deny"] = [
+            name for name in tools_probe.TOOLS if name not in ("ruff", "vulture")
+        ]
+        document = tools_probe.probe(tmp_path, config)
+
+        assert document["tools"]["ruff"]["status"] == "failed"
+        assert "normaliser for ruff" in document["tools"]["ruff"]["reason"]
+        assert "AttributeError" in document["tools"]["ruff"]["reason"]
+        # Every other tool's work still reaches the document.
+        assert document["tools"]["vulture"]["status"] == "ran"
+        assert [signal["tool"] for signal in document["signals"]] == ["vulture"]
+
+    def test_a_missing_normaliser_row_still_raises_rather_than_being_demoted(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The guard must not swallow a programming error. A tool registered
+        without a NORMALISERS row is a defect in the registry, not a tool
+        failure, and _main no longer catches KeyError around probe() either."""
+        import tools_probe
+        from config import load_config
+
+        (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+        monkeypatch.setattr(tools_probe, "find_tool", lambda name, root: "fake")
+        monkeypatch.setattr(
+            tools_probe,
+            "run_tool",
+            lambda spec, argv, root, timeout: tools_probe.ToolResult("ran", payload=[]),
+        )
+        monkeypatch.delitem(tools_probe.NORMALISERS, "ruff")
+        config = load_config(tmp_path)
+        config["tools"]["deny"] = [name for name in tools_probe.TOOLS if name != "ruff"]
+        with pytest.raises(KeyError):
+            tools_probe.probe(tmp_path, config)
+
+    def test_main_still_writes_the_document_when_a_normaliser_raises(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The consequence that mattered: before the guard, no output file was
+        written at all."""
+        import tools_probe
+        from config import load_config
+
+        def _boom(payload: Any, root: Path) -> list[Any]:
+            raise AttributeError("boom")
+
+        tree = tmp_path / "tree"
+        tree.mkdir()
+        (tree / "a.py").write_text("x = 1\n", encoding="utf-8")
+        workdir = tmp_path / "out"
+        monkeypatch.setattr(tools_probe, "find_tool", lambda name, root: "fake")
+        monkeypatch.setattr(
+            tools_probe,
+            "run_tool",
+            lambda spec, argv, root, timeout: tools_probe.ToolResult("ran", payload=[]),
+        )
+        monkeypatch.setitem(tools_probe.NORMALISERS, "ruff", _boom)
+        monkeypatch.setattr(tools_probe, "load_config", load_config)
+        assert tools_probe._main([str(tree), "--workdir", str(workdir)]) == 0
+        written = json.loads((workdir / "tool-signals.json").read_text(encoding="utf-8"))
+        assert written["tools"]["ruff"]["status"] == "failed"
+
+
 class TestRelativeRoot:
     """The whole-branch review's High finding. ``_main`` never resolved the
     repository path while every sibling script does, and ``run_tool`` sets

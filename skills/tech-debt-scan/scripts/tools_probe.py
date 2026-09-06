@@ -510,7 +510,28 @@ def probe(root: Path, config: dict[str, Any], *, skip_all: bool = False) -> dict
                           root, timeout)
         tools[name] = _entry(result.status, reason=result.reason, duration_s=result.duration_s)
         if result.status == "ran":
-            tool_signals = NORMALISERS[name](result.payload, root)
+            # The lookup stays outside the guard on purpose: a tool registered
+            # without a NORMALISERS row is a programming error and must raise,
+            # not be reported as a tool failure.
+            normaliser = NORMALISERS[name]
+            try:
+                tool_signals = normaliser(result.payload, root)
+            except Exception as exc:  # noqa: BLE001 - a boundary, see below
+                # ``run_tool``'s contract is that it always returns a result;
+                # ``probe``'s is that it always returns a document. A tool
+                # whose real output has a shape its normaliser did not expect
+                # must cost that tool's signals and nothing else -- before
+                # this, the process died with a traceback, tool-signals.json
+                # was never written, and every other tool's work was lost.
+                # Four of the ten normalisers have never seen a real payload,
+                # so an unexpected shape is likelier than a clean run there.
+                tools[name] = _entry(
+                    "failed",
+                    reason=f"normaliser for {name} raised "
+                           f"{type(exc).__name__}: {exc}"[:STDERR_CHARS],
+                    duration_s=result.duration_s,
+                )
+                continue
             tool_signals.sort(key=_signal_sort_key)
             signals.extend(tool_signals)
 
@@ -567,8 +588,18 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"error: {root} is not a directory", file=sys.stderr)
         return 2
     try:
-        document = probe(root, load_config(root), skip_all=args.skip_all)
+        config = load_config(root)
     except (OSError, ValueError, ConfigError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    # KeyError is deliberately not caught around probe(): inside it, the only
+    # remaining source is a registry lookup for a tool with no NORMALISERS or
+    # ARTEFACTS row, which is a programming error and belongs in a traceback
+    # rather than demoted to an "error:" line. A normaliser that raises is
+    # handled inside probe(), where it costs one tool instead of the run.
+    try:
+        document = probe(root, config, skip_all=args.skip_all)
+    except (OSError, ValueError, ConfigError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     out_path = Path(args.workdir) / "tool-signals.json"

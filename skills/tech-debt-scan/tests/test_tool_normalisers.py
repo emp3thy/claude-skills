@@ -478,6 +478,40 @@ class TestNormaliseOsvScanner:
 
         assert normalise_osv_scanner({"results": []}, ROOT) == []
 
+    def test_a_truthy_non_dict_source_or_package_does_not_raise(self) -> None:
+        """``or {}`` lets a truthy non-dict through and then .get raises
+        AttributeError -- which escaped _main's catch tuple entirely, so the
+        process died with a traceback and no output file at all. This is one
+        of the four normalisers whose real payload nobody has seen."""
+        from tool_normalisers import normalise_osv_scanner
+
+        assert normalise_osv_scanner({"results": [{"source": "package-lock.json"}]}, ROOT) == []
+        payload = {
+            "results": [{
+                "source": {"path": "package-lock.json"},
+                "packages": [{"package": "left-pad", "vulnerabilities": [{"id": "GHSA-1"}]}],
+            }]
+        }
+        signals = normalise_osv_scanner(payload, ROOT)
+        assert len(signals) == 1
+        assert signals[0]["extra"]["package"] == ""
+
+    def test_a_truthy_non_list_aliases_is_not_iterated_character_by_character(self) -> None:
+        """A single id emitted as a bare string would otherwise become a list
+        of one-character "aliases"."""
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = {
+            "results": [{
+                "source": {"path": "package-lock.json"},
+                "packages": [{
+                    "package": {"name": "left-pad", "version": "1.1.3", "ecosystem": "npm"},
+                    "vulnerabilities": [{"id": "GHSA-1", "aliases": "CVE-2024-0001"}],
+                }],
+            }]
+        }
+        assert normalise_osv_scanner(payload, ROOT)[0]["extra"]["aliases"] == []
+
 
 class TestNormaliseGitleaks:
     def _signals(self) -> list:

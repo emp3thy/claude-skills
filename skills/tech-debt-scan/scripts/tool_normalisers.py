@@ -450,14 +450,20 @@ def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
     for result in payload.get("results") or []:
         if not isinstance(result, dict):
             continue
-        source = result.get("source") or {}
-        rel = rel_path(root, source.get("path"))
+        # isinstance rather than ``or {}``: a truthy non-dict (a bare string
+        # source path, which is a shape nobody here has seen osv-scanner emit)
+        # passes ``or {}`` and then raises AttributeError on .get. This is one
+        # of the four normalisers whose real payload has never been observed,
+        # so the unexpected shape is likelier here than anywhere else.
+        source = result.get("source")
+        rel = rel_path(root, source.get("path")) if isinstance(source, dict) else None
         if rel is None:
             continue
         for entry in result.get("packages") or []:
             if not isinstance(entry, dict):
                 continue
-            package = entry.get("package") or {}
+            raw_package = entry.get("package")
+            package: dict[str, Any] = raw_package if isinstance(raw_package, dict) else {}
             name = str(package.get("name", ""))
             version = str(package.get("version", ""))
             ecosystem = str(package.get("ecosystem", ""))
@@ -465,6 +471,13 @@ def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
                 if not isinstance(vulnerability, dict):
                     continue
                 identifier = str(vulnerability.get("id", ""))
+                # A truthy non-list ``aliases`` -- a single id as a bare string
+                # -- would otherwise be iterated one character at a time into
+                # extra["aliases"].
+                raw_aliases = vulnerability.get("aliases")
+                aliases = [str(alias) for alias in raw_aliases] if isinstance(
+                    raw_aliases, list
+                ) else []
                 out.append(
                     signal(
                         "osv-scanner", "dependency-debt", "vuln",
@@ -477,7 +490,7 @@ def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
                         extra={
                             "package": name, "version": version,
                             "ecosystem": ecosystem, "id": identifier,
-                            "aliases": list(vulnerability.get("aliases") or []),
+                            "aliases": aliases,
                         },
                     )
                 )
