@@ -216,6 +216,99 @@ def test_cli_next_merge_mark(spring_ledger: tuple[Path, dict[str, Any]],
                                                      "tested": False, "passing": False}
 
 
+def _write(path: Path, payload: dict[str, Any]) -> Path:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_merge_union_keeps_both_replies_and_names_the_disagreements(
+    spring_ledger: tuple[Path, dict[str, Any]], tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path, _ = spring_ledger
+    first, second = post_trace(), post_trace()
+    # the second tracer missed the outbound call and found a publish the first did not
+    second["exits"] = [e for e in second["exits"] if e["kind"] != "http-out"]
+    second["exits"].append({"kind": "amq-publish", "destination": "shipment.audited",
+                            "type": "queue", "via": f"{SERVICE}:40"})
+    second["responses"] = [*second["responses"], {"status": 404, "when": "carrier unknown"}]
+    a = _write(tmp_path / "trace-post-api-shipments-a.json", first)
+    b = _write(tmp_path / "trace-post-api-shipments-b.json", second)
+    assert main(["merge", str(a), "--ledger", str(path)]) == 0
+    capsys.readouterr()
+    assert main(["merge", str(b), "--ledger", str(path), "--union"]) == 0
+    out = capsys.readouterr().out
+    entry = find_entry(load_ledger(path), "POST /api/shipments")
+    assert [(e["kind"], e.get("table") or e.get("destination") or e.get("path"))
+            for e in entry["exits"]] == [
+        ("db-write", "shipments"),
+        ("amq-publish", "shipment.created"),
+        ("http-out", "/rates/{countryCode}"),
+        ("amq-publish", "shipment.audited"),
+    ]
+    assert [r["status"] for r in entry["responses"]] == [201, 400, 400, 404]
+    lines = [line for line in out.splitlines() if line.startswith("disagreement:")]
+    assert lines == [
+        f"disagreement: http-out GET /rates/{{countryCode}} via {first['exits'][2]['via']}",
+        f"disagreement: amq-publish shipment.audited via {SERVICE}:40",
+    ]
+
+
+def test_merge_union_treats_a_different_via_as_the_same_exit(
+    spring_ledger: tuple[Path, dict[str, Any]], tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path, _ = spring_ledger
+    first, second = post_trace(), post_trace()
+    for item in second["exits"]:
+        item["via"] = f"{SERVICE}:99"
+    assert main(["merge", str(_write(tmp_path / "a.json", first)), "--ledger", str(path)]) == 0
+    capsys.readouterr()
+    assert main(["merge", str(_write(tmp_path / "b.json", second)), "--ledger", str(path),
+                 "--union"]) == 0
+    out = capsys.readouterr().out
+    entry = find_entry(load_ledger(path), "POST /api/shipments")
+    assert [e["via"] for e in entry["exits"]] == [e["via"] for e in first["exits"]]
+    assert "disagreement:" not in out
+
+
+def test_merge_without_union_still_replaces_the_exits(
+    spring_ledger: tuple[Path, dict[str, Any]], tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path, _ = spring_ledger
+    trimmed = post_trace()
+    trimmed["exits"] = trimmed["exits"][:1]
+    assert main(["merge", str(_write(tmp_path / "a.json", post_trace())),
+                 "--ledger", str(path)]) == 0
+    assert main(["merge", str(_write(tmp_path / "b.json", trimmed)), "--ledger", str(path)]) == 0
+    assert len(find_entry(load_ledger(path), "POST /api/shipments")["exits"]) == 1
+    assert "disagreement:" not in capsys.readouterr().out
+
+
+def test_cli_merge_without_exits_or_reason_reports_incomplete_and_exits_2(
+    spring_ledger: tuple[Path, dict[str, Any]], tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path, _ = spring_ledger
+    reply: dict[str, Any] = {
+        "id": "GET /api/shipments/{id}", "exits": [], "unresolved": [],
+        "reads": [{"kind": "db-read", "table": "shipments", "via": f"{SERVICE}:37"}],
+    }
+    reply_path = _write(tmp_path / "trace.json", reply)
+    assert main(["merge", str(reply_path), "--ledger", str(path)]) == EXIT_VALIDATION
+    out = capsys.readouterr().out
+    assert "unresolved: 0" in out
+    assert "incomplete: no exits and no exits_none_reason" in out
+    # the merge is saved before the non-zero exit, so nothing the trace found is lost
+    entry = find_entry(load_ledger(path), "GET /api/shipments/{id}")
+    assert entry["reads"][0]["table"] == "shipments"
+    assert entry["status"]["traced"] is False
+    reply["exits_none_reason"] = "read-only lookup"
+    assert main(["merge", str(_write(reply_path, reply)), "--ledger", str(path)]) == 0
+    assert "incomplete" not in capsys.readouterr().out
+
+
 def test_cli_merge_malformed_json_exits_2(spring_ledger: tuple[Path, dict[str, Any]],
                                           tmp_path: Path,
                                           capsys: pytest.CaptureFixture[str]) -> None:

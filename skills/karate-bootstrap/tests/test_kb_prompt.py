@@ -90,7 +90,16 @@ def test_focus_adds_a_start_at_paragraph(
                             tmp_path / "karate-tests", None,
                             "src/main/java/com/acme/shipments/ShipmentService.java:30")
     assert "Start at" in context["focus"] and "ShipmentService.java:30" in context["focus"]
-    assert "ShipmentService.java:30" in render("trace", context, PROMPTS_DIR)
+    # a focused re-trace must return what the first trace already found: merge replaces
+    # exits, reads and responses outright, so anything left out is erased
+    assert "Return the complete entry" in context["focus"]
+    for word in ("every exit, read and response already listed in the ledger entry above",
+                 "plus everything you find from this location",
+                 "so the merge keeps them"):
+        assert word in context["focus"], word
+    text = render("trace", context, PROMPTS_DIR)
+    assert "ShipmentService.java:30" in text
+    assert "so the merge keeps them" in text
 
 
 def test_rules_context_needs_a_source_and_its_example_rows_load(

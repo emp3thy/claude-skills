@@ -122,7 +122,10 @@ def build_context(prompt: str, ledger: dict[str, Any], entry_id: str,
     if focus:
         focus_text = (f"\nStart at `{focus}`: a previous trace could not follow the code there. "
                       f"Trace only from that location onward and report the rest of the path; "
-                      f"keep every exit you find with its own file:line.\n")
+                      f"keep every exit you find with its own file:line. Return the complete "
+                      f"entry: every exit, read and response already listed in the ledger entry "
+                      f"above plus everything you find from this location, so the merge keeps "
+                      f"them.\n")
     context = {
         "prompt_kind": prompt,
         "entry_id": entry_id,

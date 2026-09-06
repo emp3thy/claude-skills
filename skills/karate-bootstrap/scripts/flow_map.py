@@ -4,8 +4,10 @@ Subcommands:
     next        --phase traced|generated --ledger PATH
                 prints JSON {id, kind, handler, cheat_sheet} for the next pending entry,
                 or {"done": true}
-    merge       ENTRY_JSON --ledger PATH
-                merges one trace subagent result into its entry
+    merge       ENTRY_JSON --ledger PATH [--union]
+                merges one trace subagent result into its entry; --union keeps the union of
+                the entry's exits, reads and responses with the reply's and prints one
+                ``disagreement:`` line per item only one of them saw (spec 5.3, --double-trace)
     mark        --entry ID (--generated|--tested|--passing|--failing)
                 [--feature F]... [--stub S]... [--seed X]... --ledger PATH
                 flips status flags and records generated files on the entry
@@ -184,20 +186,101 @@ def _validate_exits(entry_id: str, exits: list[dict[str, Any]]) -> None:
             item.setdefault("type", "queue")
 
 
-def merge_entry(ledger: dict[str, Any], traced: dict[str, Any]) -> int:
+def _prepared(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Copies with a posix ``via`` and the amq ``type`` default applied.
+
+    A Windows trace still points at a posix path, and two traces of the same publish must
+    compare equal under ``--union`` whether or not either spelled out ``type``.
+    """
+    out: list[dict[str, Any]] = []
+    for item in items:
+        copy = dict(item)
+        via = copy.get("via")
+        if isinstance(via, str):
+            copy["via"] = via.replace("\\", "/")
+        if copy.get("kind") == "amq-publish":
+            copy.setdefault("type", "queue")
+        out.append(copy)
+    return out
+
+
+def _union_key(item: dict[str, Any]) -> str:
+    """Identity of an exit or read under ``--union``: every field except ``via``.
+
+    Two traces that found the same exit through different lines are the same exit (spec 5.3).
+    """
+    return json.dumps({k: v for k, v in item.items() if k != "via"}, sort_keys=True)
+
+
+def _union(current: list[dict[str, Any]], incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """``current`` then whatever ``incoming`` adds; the first ``via`` for an item wins."""
+    merged = list(current)
+    seen = {_union_key(item) for item in current}
+    for item in incoming:
+        key = _union_key(item)
+        if key not in seen:
+            merged.append(item)
+            seen.add(key)
+    return merged
+
+
+def _union_responses(current: list[dict[str, Any]],
+                     incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Responses are unioned by ``status``: the first reply's wording for a status wins."""
+    merged = list(current)
+    seen = {str(item.get("status")) for item in current}
+    for item in incoming:
+        status = str(item.get("status"))
+        if status not in seen:
+            merged.append(item)
+            seen.add(status)
+    return merged
+
+
+def _describe(item: dict[str, Any]) -> str:
+    what = item.get("table") or item.get("destination") or " ".join(
+        str(part) for part in (item.get("method"), item.get("path")) if part
+    )
+    return (f"disagreement: {item.get('kind')} {what} "
+            f"via {item.get('via') or '-'}")
+
+
+def union_disagreements(ledger: dict[str, Any], traced: dict[str, Any]) -> list[str]:
+    """One line per exit or read that only the ledger entry or only ``traced`` lists.
+
+    Call before ``merge_entry(..., union=True)``: the main agent re-traces every location
+    named here with ``--focus`` before the traced gate (spec 5.3).
+    """
+    entry = find_entry(ledger, str(traced.get("id", "")))
+    lines: list[str] = []
+    for field in ("exits", "reads"):
+        current = _prepared(list(entry.get(field) or []))
+        incoming = _prepared(list(traced.get(field) or []))
+        current_keys = {_union_key(item) for item in current}
+        incoming_keys = {_union_key(item) for item in incoming}
+        lines.extend(_describe(i) for i in current if _union_key(i) not in incoming_keys)
+        lines.extend(_describe(i) for i in incoming if _union_key(i) not in current_keys)
+    return lines
+
+
+def merge_entry(ledger: dict[str, Any], traced: dict[str, Any], union: bool = False) -> int:
     entry_id = str(traced.get("id", ""))
     entry = find_entry(ledger, entry_id)
-    exits = list(traced.get("exits", []))
-    for item in exits:
-        via = item.get("via")
-        if isinstance(via, str):
-            item["via"] = via.replace("\\", "/")  # a Windows trace still points at a posix path
+    exits = _prepared(list(traced.get("exits", [])))
     _validate_exits(entry_id, exits)
     _validate_reads(entry_id, list(traced.get("reads", [])))
+    before_exits = _prepared(list(entry.get("exits") or []))
+    before_reads = _prepared(list(entry.get("reads") or []))
+    before_responses = list(entry.get("responses") or [])
     for field in MERGE_FIELDS:
         if field in traced:
             entry[field] = traced[field]
     entry["exits"] = exits
+    if union:
+        entry["exits"] = _union(before_exits, exits)
+        entry["reads"] = _union(before_reads, _prepared(list(traced.get("reads", []))))
+        entry["responses"] = _union_responses(before_responses,
+                                              list(traced.get("responses", [])))
     incoming_sources = traced.get("rules", {}).get("sources", [])
     rules = entry.setdefault("rules", {"file": None, "count": 0, "sources": []})
     known = {s["file"] for s in rules["sources"]}
@@ -212,7 +295,7 @@ def merge_entry(ledger: dict[str, Any], traced: dict[str, Any]) -> int:
     ]
     ledger["unresolved"] = [u for u in ledger["unresolved"] if u.get("entry") != entry_id]
     ledger["unresolved"].extend(unresolved)
-    complete = bool(exits) or bool(entry.get("exits_none_reason"))
+    complete = bool(entry.get("exits")) or bool(entry.get("exits_none_reason"))
     entry.setdefault("status", dict.fromkeys(STATUS_FLAGS, False))
     entry["status"]["traced"] = not unresolved and complete
     return len(unresolved)
@@ -282,13 +365,24 @@ def _cmd_next(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+INCOMPLETE_NOTE = "incomplete: no exits and no exits_none_reason"
+
+
 def _cmd_merge(args: argparse.Namespace) -> int:
     ledger = load_ledger(args.ledger)
     traced = read_json(require_file(args.entry_json, "trace result"))
-    count = merge_entry(ledger, traced)
-    save_ledger(args.ledger, ledger)
-    print(f"merged {traced['id']}; unresolved: {count}")
-    return EXIT_OK
+    disagreements = union_disagreements(ledger, traced) if args.union else []
+    count = merge_entry(ledger, traced, union=args.union)
+    save_ledger(args.ledger, ledger)  # save first: an incomplete merge still keeps what it found
+    entry = find_entry(ledger, str(traced["id"]))
+    incomplete = not entry.get("exits") and not entry.get("exits_none_reason")
+    line = f"merged {traced['id']}; unresolved: {count}"
+    if incomplete:
+        line += f"; {INCOMPLETE_NOTE}"
+    print(line)
+    for text in disagreements:
+        print(text)
+    return EXIT_VALIDATION if incomplete else EXIT_OK
 
 
 def _cmd_mark(args: argparse.Namespace) -> int:
@@ -597,6 +691,9 @@ def build_parser() -> argparse.ArgumentParser:
     merge = sub.add_parser("merge", help="Merge a trace subagent result into the ledger")
     merge.add_argument("entry_json", type=Path)
     merge.add_argument("--ledger", type=Path, required=True)
+    merge.add_argument("--union", action="store_true",
+                       help="keep the union of the entry's exits, reads and responses with "
+                            "the reply's and print the disagreements (--double-trace)")
     merge.set_defaults(func=_cmd_merge)
 
     mark = sub.add_parser("mark", help="Flip status flags on one entry")

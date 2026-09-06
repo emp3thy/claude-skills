@@ -23,8 +23,9 @@ ledger names (`reference/stack-<stack>.md`) when you dispatch the first trace. R
 If any expected output file from a numbered step is missing, abort with exit 5. Do not retry
 steps you were not told to retry. Do not edit `flow-map.yaml`, `rules/*.csv` or
 `kb-runtime.json` by hand: every change goes through a script. Do not compose a subagent
-prompt yourself: render it with `kb_prompt.py`. Never edit the application's source, its
-Dockerfile or its pipeline. Never push.
+prompt yourself: render it with `kb_prompt.py`, and add nothing to the rendered text except
+the one `## Gaps from the last gate` section the Subagents table allows. Never edit the
+application's source, its Dockerfile or its pipeline. Never push.
 
 ## Invocation
 
@@ -80,7 +81,10 @@ Dockerfile or its pipeline. Never push.
 ## Subagents
 
 Three kinds, each driven by a prompt file `kb_prompt.py` renders for one entry. Read the
-rendered file and pass its complete text as the subagent's prompt; add nothing, remove nothing.
+rendered file and pass its complete text as the subagent's prompt; remove nothing. The only
+permitted addition is a final section `## Gaps from the last gate` holding, verbatim, the
+output that sent you back: the gate's gap list, or `merge`'s `incomplete:` line. Nothing else
+may be added, and nothing may be reworded.
 
 | Kind | Agent | May write | Returns |
 |------|-------|-----------|---------|
@@ -88,8 +92,10 @@ rendered file and pass its complete text as the subagent's prompt; add nothing, 
 | rules | read-only (Explore) | nothing | JSON with `csv` (header plus rows), `rows`, `dropped_candidates`, `notes` |
 | generate | general-purpose | files under `<tests>` only (`features/`, `stubs/`, `seed/`) | JSON listing the files written |
 
-Save every JSON reply to `<tests>/.prompts/<kind>-<slug>.json` before you feed it to a script.
-Dispatch trace subagents one at a time unless `--double-trace` asks for pairs.
+Save every JSON reply to `<tests>/.prompts/<kind>-<slug>.json` before you feed it to a script —
+one file per kind and slug, except under `--double-trace`, where the pair for one entry is
+`trace-<slug>-a.json` and `trace-<slug>-b.json`. Dispatch trace subagents one at a time unless
+`--double-trace` asks for pairs.
 
 ## Workflow
 
@@ -174,9 +180,27 @@ python scripts/flow_map.py merge <tests>/.prompts/trace-<slug>.json --ledger <te
 python scripts/kb_prompt.py render --prompt trace --ledger <tests>/flow-map.yaml --env <tests>/env-map.json --entry "<id>" --repo <root> --service-dir <sub> --focus <file:line> --out <tests>/.prompts/trace-<slug>-2.md
 ```
 
-- With `--double-trace`: dispatch two independent subagents from the same rendered prompt,
-  merge the first reply, then merge the second (the ledger keeps the union of exits; a `via`
-  present in only one reply is a disagreement to resolve with a third, `--focus` trace).
+- If `merge` reports `incomplete: no exits and no exits_none_reason` (exit 2), the trace found
+  no exit and gave no reason. Re-render with `--focus` at the entry's handler line, dispatch
+  once more with the `incomplete:` line under a final `## Gaps from the last gate` heading in
+  the rendered prompt, and merge again. If it comes
+  back incomplete a second time, leave the entry untraced and let the gate name it: do not
+  write it into `defects.md` (that file is for suspected application defects found by a run,
+  not for tracing gaps), and do not edit the ledger. `validate --phase traced` already fails on
+  `traced: false`, which is the correct end state for an entry nobody could trace.
+- With `--double-trace`: dispatch two independent subagents from the same rendered prompt and
+  save their replies as `<tests>/.prompts/trace-<slug>-a.json` and `-b.json`. Merge the first,
+  then merge the second with `--union`, which keeps the union of exits, reads and responses
+  (an exit that differs only in `via` is the same exit; the first `via` is kept) and prints one
+  `disagreement: <kind> <what> via <file:line>` line per item only one reply saw:
+
+```bash
+python scripts/flow_map.py merge <tests>/.prompts/trace-<slug>-a.json --ledger <tests>/flow-map.yaml
+python scripts/flow_map.py merge <tests>/.prompts/trace-<slug>-b.json --ledger <tests>/flow-map.yaml --union
+```
+
+  Run a `--focus` trace on the `file:line` of every `disagreement:` line, merging each result
+  with `--union` too, before the gate.
 - Gate:
 
 ```bash
@@ -214,6 +238,11 @@ python scripts/kb_rules.py mark-scanned "<id>" <source-file> --ledger <tests>/fl
   Omit `--service-dir` when there is no sub-directory. `add` de-duplicates on field, mutation
   and value and assigns `rule_id`s; run it once per rows file even when the file is empty of
   new rows.
+- An entry whose `responses` carry a validation response (`rules: true`) but whose
+  `rules.sources` is empty still needs a pass, or the Step 6 gate fails with "validation
+  responses but no rules file" and Step 8 cannot fix it: render the rules prompt with
+  `--source` set to that entry's `request.schema_ref` file, then `add` and `mark-scanned` it
+  exactly as above.
 - Postcondition: every entry with validation responses has `rules.file` and a `rules.count`
   matching its CSV, and every source is `scanned: true`. The generated gate in Step 6 checks
   this.
@@ -268,8 +297,8 @@ python scripts/flow_map.py validate --phase generated --ledger <tests>/flow-map.
   Gaps name the entry and what is missing (a feature, a `Db.` assertion for a written table, a
   `Jms.` assertion for a published destination, a `Stubs.verify` for an outbound call, a rules
   count mismatch, an exclusive-state call without `@parallel=false`). Re-dispatch the generate
-  subagent for that entry with the gap text appended to the rendered prompt, then `mark` and
-  validate again.
+  subagent for that entry with the gate's output verbatim under a final
+  `## Gaps from the last gate` heading in the rendered prompt, then `mark` and validate again.
 - Postcondition: `validate --phase generated` prints `phase generated: pass`. Then:
 
 ```bash
