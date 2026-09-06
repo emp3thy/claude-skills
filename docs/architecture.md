@@ -108,7 +108,13 @@ the user's settings, MCP servers and slash commands out of the run,
 `SCOUT_OUTPUT_SCHEMA` or `VERDICT_SCHEMA`, `--tools Read,Grep,Glob
 --allowedTools Read,Grep,Glob` keep the agent read-only, `--max-budget-usd`
 caps each call and `cwd` is the repository so the read tools see the tree. The
-reply is the envelope's `structured_output` when it carries one and otherwise
+prompt itself is piped to the child's stdin and is never an argument:
+`claude -p` with no positional argument reads a piped stdin as the prompt,
+Windows caps a `CreateProcess` command line at 32,767 characters, and
+`list2cmdline`'s quote and backslash escaping pushes a quote-heavy verifier
+prompt past that ceiling. Nothing is trimmed, so the last candidates and the
+verdict contract always reach the agent. The reply is the envelope's
+`structured_output` when it carries one and otherwise
 `result` with Markdown fences stripped; a payload that fails the contract is
 retried once with an appended re-emit instruction, and a second failure ends
 the run. `--skip-agents` reuses the scout and verdict files already in the

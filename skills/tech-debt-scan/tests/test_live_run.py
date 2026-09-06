@@ -26,11 +26,16 @@ FAKE = '''#!/usr/bin/env python
 import json, sys
 from pathlib import Path
 
-prompt = sys.argv[-1]
+# `claude -p` reads a piped stdin as the prompt; the harness sends it that way, so
+# no prompt text may appear in argv (a Windows command line caps at 32 767 chars).
+prompt = sys.stdin.read()
 mode = "scout" if "read-only scout" in prompt else "verifier"
 state = Path(__file__).with_suffix(".state")
+Path(__file__).with_suffix(".prompt").write_text(str(len(prompt)), encoding="utf-8")
 if "--json-schema" not in sys.argv:
     raise SystemExit(9)
+if any("read-only" in arg for arg in sys.argv[1:]):
+    raise SystemExit(8)
 if mode == "scout":
     family = prompt.split("debt family: ")[1].split(".")[0].strip()
     findings = []
@@ -71,20 +76,22 @@ LOG_HEADER_TEXT = (
 
 
 @pytest.fixture
-def fake_claude(tmp_path: Path) -> str:
+def fake_claude_script(tmp_path: Path) -> Path:
     script = tmp_path / "fake_claude.py"
     script.write_text(FAKE, encoding="utf-8")
     if os.name != "nt":
         script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    return script
+
+
+@pytest.fixture
+def fake_claude(fake_claude_script: Path) -> str:
     # The harness accepts a "<python> <script>" launcher so Windows needs no shebang support.
-    return f"{sys.executable} {script}"
+    return f"{sys.executable} {fake_claude_script}"
 
 
-def test_claude_argv_is_a_list_with_the_isolation_flags(tmp_path: Path) -> None:
-    prompt = tmp_path / "p.md"
-    prompt.write_text("hello", encoding="utf-8")
-    argv = claude_argv(prompt, model="sonnet", budget=1.0, schema=SCOUT_OUTPUT_SCHEMA,
-                       claude="claude")
+def test_claude_argv_is_a_list_with_the_isolation_flags_and_no_prompt() -> None:
+    argv = claude_argv(model="sonnet", budget=1.0, schema=SCOUT_OUTPUT_SCHEMA, claude="claude")
     assert argv[:2] == ["claude", "-p"]
     for flag in ("--setting-sources", "--strict-mcp-config", "--disable-slash-commands",
                  "--output-format", "--json-schema", "--tools", "--allowedTools", "--model",
@@ -93,7 +100,9 @@ def test_claude_argv_is_a_list_with_the_isolation_flags(tmp_path: Path) -> None:
     assert argv[argv.index("--setting-sources") + 1] == "project"
     assert argv[argv.index("--tools") + 1] == "Read,Grep,Glob"
     assert argv[argv.index("--max-budget-usd") + 1] == "1.00"
-    assert argv[-1] == "hello"
+    # The prompt travels on stdin, so the argv ends at the budget and carries no
+    # positional argument at all.
+    assert argv[-2:] == ["--max-budget-usd", "1.00"]
     assert "--bare" not in argv
 
 
@@ -106,10 +115,7 @@ def test_the_array_verdict_contract_travels_as_an_object_schema(tmp_path: Path) 
     assert wired["properties"]["verdicts"] == VERDICT_SCHEMA
     assert wire_schema(SCOUT_OUTPUT_SCHEMA) is SCOUT_OUTPUT_SCHEMA
 
-    prompt = tmp_path / "p.md"
-    prompt.write_text("hello", encoding="utf-8")
-    argv = claude_argv(prompt, model="sonnet", budget=1.0, schema=VERDICT_SCHEMA,
-                       claude="claude")
+    argv = claude_argv(model="sonnet", budget=1.0, schema=VERDICT_SCHEMA, claude="claude")
     assert json.loads(argv[argv.index("--json-schema") + 1])["type"] == "object"
 
     items = [{"fingerprint": "abc", "verdict": "confirm"}]
@@ -142,6 +148,34 @@ def test_dispatch_retries_once_on_invalid_payload(tmp_path: Path, fake_claude: s
     assert result.cost_usd == pytest.approx(0.03)
     assert json.loads(out.read_bytes())["family"] == "security"
     assert "previous response failed the schema" in result.last_prompt
+
+
+def test_dispatch_sends_an_over_long_quote_heavy_prompt_whole_on_stdin(
+    tmp_path: Path, fake_claude: str, fake_claude_script: Path
+) -> None:
+    """A prompt past the Windows command-line ceiling reaches the agent complete.
+
+    ``CreateProcess`` caps a command line at 32 767 characters and
+    ``subprocess.list2cmdline`` escapes every quote and backslash on the way
+    there, so a 30 000-character quote-heavy prompt passed as the positional
+    argument grew past the ceiling; the trim that kept it under would have cut
+    the last candidates and the verdict contract off a verifier prompt. On stdin
+    there is no ceiling and no escaping, so nothing is trimmed.
+    """
+    body = 'You are a read-only scout for one debt family: security.\n' + "\n".join(
+        f'{i:5d} | token = "value \\ {i}"' for i in range(2000)
+    )
+    assert len(body) > 32_767
+    prompt = tmp_path / "scout.md"
+    # write_bytes, as write_plan does: write_text would turn every LF into CRLF here.
+    prompt.write_bytes(body.encode("utf-8"))
+    out = tmp_path / "scouts" / "security.json"
+    result = dispatch(prompt, out, cwd=tmp_path, model="haiku", budget=0.1,
+                      schema=SCOUT_OUTPUT_SCHEMA, claude=fake_claude, timeout=60)
+    assert result.status == "ok" and result.attempts == 1, result.error
+    seen = int(fake_claude_script.with_suffix(".prompt").read_text(encoding="utf-8"))
+    assert seen == len(body)
+    assert json.loads(out.read_bytes())["family"] == "security"
 
 
 def test_dispatch_writes_a_list_payload_for_the_verifier_contract(

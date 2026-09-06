@@ -17,6 +17,15 @@ level), read-only tools only, user settings and MCP servers excluded
 dollar budget. A reply that fails the contract is retried once with an appended
 instruction; a second failure stops the run with exit 4.
 
+**The prompt goes on stdin, never in argv.** ``claude -p`` with no positional
+argument reads a piped stdin as the prompt, so ``dispatch`` passes the text as
+``subprocess.run(..., input=text)``. Windows caps a ``CreateProcess`` command
+line at 32 767 characters and ``list2cmdline`` escapes every quote and backslash
+on the way there, so a verifier prompt (30 lines of context per span, quotes
+throughout) overflowed the ceiling as an argument; trimming it to fit would have
+cut the last candidates and the verdict contract off the end, which is worse
+than failing. On stdin there is no ceiling, no escaping and no trim.
+
 Redaction is asymmetric, by contract. A verdict reply (the array contract) is
 walked through ``redaction.redact`` as it is written, because nothing downstream
 reads its prose back against the repository. A scout reply (the object contract)
@@ -62,9 +71,6 @@ ISOLATION: Final[tuple[str, ...]] = (
     "--setting-sources", "project", "--strict-mcp-config", "--disable-slash-commands",
 )
 TOOLS: Final[str] = "Read,Grep,Glob"
-# Windows caps a CreateProcess command line at 32 767 characters and the prompt is the
-# positional argument; a rendered prompt with 40 leads stays well under this.
-PROMPT_LIMIT: Final[int] = 30_000
 RETRY_SUFFIX: Final[str] = (
     "\n\nThe previous response failed the schema; re-emit valid JSON only.\n"
 )
@@ -119,15 +125,8 @@ def resolve_claude(claude: str) -> str | None:
 
 
 def prompt_text(prompt_file: Path) -> str:
-    """The prompt's UTF-8 text, trimmed to ``PROMPT_LIMIT`` with a warning when oversized."""
-    text = prompt_file.read_bytes().decode("utf-8")
-    if len(text) > PROMPT_LIMIT:
-        print(
-            f"warning: {prompt_file.name} is {len(text)} chars; trimming to {PROMPT_LIMIT}",
-            file=sys.stderr,
-        )
-        text = text[:PROMPT_LIMIT]
-    return text
+    """The prompt's UTF-8 text, whole: it is written to the agent's stdin, not to argv."""
+    return prompt_file.read_bytes().decode("utf-8")
 
 
 def wire_schema(schema: dict[str, Any]) -> dict[str, Any]:
@@ -154,25 +153,21 @@ def unwrap_payload(payload: Any, schema: dict[str, Any]) -> Any:
     return payload
 
 
-def _argv(
-    text: str, *, model: str, budget: float, schema: dict[str, Any], claude: str
+def claude_argv(
+    *, model: str, budget: float, schema: dict[str, Any], claude: str
 ) -> list[str]:
+    """The list argv for one read-only ``claude -p`` call; the prompt travels on stdin.
+
+    There is no positional argument: ``claude -p`` reads a piped stdin as the
+    prompt, which keeps a long prompt off a command line Windows caps at 32 767
+    characters (and ``list2cmdline`` inflates with quote and backslash escapes).
+    """
     return [
         *launcher_argv(claude), "-p", *ISOLATION,
         "--output-format", "json", "--json-schema", json.dumps(wire_schema(schema)),
         "--tools", TOOLS, "--allowedTools", TOOLS,
         "--model", model, "--max-budget-usd", f"{budget:.2f}",
-        text,
     ]
-
-
-def claude_argv(
-    prompt_file: Path, *, model: str, budget: float, schema: dict[str, Any], claude: str
-) -> list[str]:
-    """The list argv for one read-only ``claude -p`` call over ``prompt_file``."""
-    return _argv(
-        prompt_text(prompt_file), model=model, budget=budget, schema=schema, claude=claude
-    )
 
 
 def _strip_fences(text: str) -> str:
@@ -260,16 +255,19 @@ def dispatch(
     claude: str,
     timeout: int,
 ) -> DispatchResult:
-    """One agent call, retried once with an appended instruction when the reply is invalid."""
+    """One agent call, retried once with an appended instruction when the reply is invalid.
+
+    The prompt is written to the child's stdin; ``argv`` carries the flags alone.
+    """
     result = DispatchResult(status="failed")
     text = prompt_text(prompt_file)
+    argv = claude_argv(model=model, budget=budget, schema=schema, claude=claude)
     for attempt in (1, 2):
         result.attempts = attempt
         result.last_prompt = text
-        argv = _argv(text, model=model, budget=budget, schema=schema, claude=claude)
         try:
             proc = subprocess.run(
-                argv, cwd=str(cwd), capture_output=True, text=True, encoding="utf-8",
+                argv, input=text, cwd=str(cwd), capture_output=True, text=True, encoding="utf-8",
                 errors="replace", timeout=timeout, check=False,
             )
         except (OSError, subprocess.SubprocessError) as exc:
