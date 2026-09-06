@@ -1,0 +1,252 @@
+"""Every pinned SKILL.md command, in order, on both fixture repos, with canned subagent replies.
+
+No mocking and no containers: the trace, rules and generate subagents are replaced by the
+JSON, CSV and feature text a real run would have produced; everything else is the real
+script wired exactly as SKILL.md prescribes, run through subprocess so the CLI surface is
+exercised too. Git steps run against a throwaway repository.
+"""
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import sys
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+from kb_common import read_json
+from kb_helpers import line_of
+from kb_rules import slug_for
+
+SKILL = Path(__file__).resolve().parent.parent
+FIXTURES = Path(__file__).parent / "fixtures"
+REPORTS = FIXTURES / "karate-reports"
+IMAGE = "registry.example/db-manager:1"
+
+
+def run(*args: str, cwd: Path | None = None) -> str:
+    proc = subprocess.run([sys.executable, *args], cwd=cwd or SKILL, capture_output=True,
+                          text=True)
+    assert proc.returncode == 0, f"{' '.join(args)}\n{proc.stdout}\n{proc.stderr}"
+    return proc.stdout
+
+
+def git(repo: Path, *args: str) -> str:
+    proc = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True)
+    return proc.stdout.strip()
+
+
+def spring_traces(repo: Path) -> dict[str, dict[str, Any]]:
+    service = "src/main/java/com/acme/shipments/ShipmentService.java"
+    listener = "src/main/java/com/acme/shipments/ShipmentEventsListener.java"
+    request = "src/main/java/com/acme/shipments/ShipmentRequest.java"
+    return {
+        "POST /api/shipments": {
+            "id": "POST /api/shipments", "auth": "required",
+            "request": {"content_type": "application/json", "schema_ref": request,
+                        "example": "seed/examples/post-api-shipments.json"},
+            "responses": [{"status": 201, "when": "happy"},
+                          {"status": 400, "when": "validation", "rules": True}],
+            "reads": [{"kind": "http-in", "host_key": "PRICING_BASE_URL", "method": "GET",
+                       "path": "/rates/{countryCode}"}],
+            "exits": [
+                {"kind": "db-write", "table": "shipments", "op": "insert",
+                 "via": f"{service}:{line_of(repo / service, 'repository.save')}"},
+                {"kind": "amq-publish", "destination": "shipment.created", "type": "queue",
+                 "via": f"{service}:{line_of(repo / service, 'convertAndSend')}"},
+                {"kind": "http-out", "host_key": "PRICING_BASE_URL", "method": "GET",
+                 "path": "/rates/{countryCode}",
+                 "via": f"{service}:{line_of(repo / service, 'getForObject')}"},
+            ],
+            "rules": {"sources": [{"file": request, "scanned": False}]},
+            "unresolved": [],
+        },
+        "GET /api/shipments/{id}": {
+            "id": "GET /api/shipments/{id}", "exits": [], "exits_none_reason": "read-only lookup",
+            "unresolved": [], "responses": [{"status": 200, "when": "found"},
+                                            {"status": 404, "when": "missing"}],
+        },
+        "amq shipment.requested": {
+            "id": "amq shipment.requested", "unresolved": [],
+            "exits": [{"kind": "db-write", "table": "shipments", "op": "insert",
+                       "via": f"{listener}:{line_of(repo / listener, 'repository.save')}"}],
+        },
+    }
+
+
+def dotnet_traces(repo: Path) -> dict[str, dict[str, Any]]:
+    service = "Services/DealService.cs"
+    consumer = "Messaging/DealRequestedConsumer.cs"
+    validator = "Validators/DealRequestValidator.cs"
+    return {
+        "POST /api/deals": {
+            "id": "POST /api/deals", "auth": "required",
+            "request": {"content_type": "application/json", "schema_ref": "Data/Deal.cs",
+                        "example": "seed/examples/post-api-deals.json"},
+            "responses": [{"status": 201, "when": "happy"},
+                          {"status": 400, "when": "validation", "rules": True}],
+            "reads": [{"kind": "http-in", "host_key": "Pricing__BaseUrl", "method": "GET",
+                       "path": "/prices/{product}"}],
+            "exits": [
+                {"kind": "db-write", "table": "deals", "op": "insert",
+                 "via": f"{service}:{line_of(repo / service, 'SaveChangesAsync')}"},
+                {"kind": "amq-publish", "destination": "deal.created", "type": "queue",
+                 "via": f"{service}:{line_of(repo / service, '_producer.Send(')}"},
+                {"kind": "http-out", "host_key": "Pricing__BaseUrl", "method": "GET",
+                 "path": "/prices/{product}",
+                 "via": f"{service}:{line_of(repo / service, 'GetFromJsonAsync')}"},
+            ],
+            "rules": {"sources": [{"file": validator, "scanned": False}]},
+            "unresolved": [],
+        },
+        "GET /api/deals/{id}": {
+            "id": "GET /api/deals/{id}", "exits": [], "exits_none_reason": "read-only lookup",
+            "unresolved": [], "responses": [{"status": 200, "when": "found"},
+                                            {"status": 404, "when": "missing"}],
+        },
+        "amq deal.requested": {
+            "id": "amq deal.requested", "unresolved": [],
+            "exits": [{"kind": "db-write", "table": "deals", "op": "update",
+                       "via": f"{consumer}:{line_of(repo / consumer, '_db.SaveChanges()')}"}],
+        },
+    }
+
+
+def feature_text(table: str, destination: str, downstream_path: str) -> str:
+    return (
+        f"@smoke\nFeature: canned\n\nBackground:\n  * def uid = java.util.UUID.randomUUID() + ''\n"
+        f"  * call read('classpath:common/reset.feature') {{ watch: ['{destination}'] }}\n\n"
+        f"Scenario: happy\n  * def row = Db.row('{table}', {{ reference: uid }})\n"
+        f"  * def msg = Jms.await('{destination}', 5000, {{ id: uid }})\n"
+        f"  * Stubs.verify('GET', '{downstream_path}', 1)\n"
+    )
+
+
+CASES: dict[str, tuple[Callable[[Path], dict[str, dict[str, Any]]], str, str, str, str]] = {
+    "spring-mini": (spring_traces, "POST /api/shipments", "shipments", "shipment.created",
+                    "/pricing/rates/GB"),
+    "dotnet-mini": (dotnet_traces, "POST /api/deals", "deals", "deal.created",
+                    "/pricing/prices/BRENT"),
+}
+
+
+@pytest.mark.parametrize("fixture", sorted(CASES))
+def test_pinned_command_chain_runs_green(tmp_path: Path, fixture: str) -> None:
+    traces_for, post_id, table, destination, downstream_path = CASES[fixture]
+    repo = tmp_path / "repo"
+    shutil.copytree(FIXTURES / fixture, repo)
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "config", "user.email", "kb@example.com")
+    git(repo, "config", "user.name", "kb")
+    git(repo, "add", "--", ".")
+    git(repo, "commit", "-q", "-m", "fixture")
+    tests = repo / "karate-tests"
+    tests.mkdir()
+    ledger, env, stack = tests / "flow-map.yaml", tests / "env-map.json", tests / "stack.json"
+    prompts = tests / ".prompts"
+    traces = traces_for(repo)
+    post_slug = slug_for(post_id)
+
+    # Step 0 and 1
+    assert "karate-bootstrap" in run("scripts/kb_checkpoint.py", "begin", "--repo", str(repo))
+    assert git(repo, "branch", "--show-current") == "karate-bootstrap"
+    run("scripts/detect.py", str(repo), "--out", str(stack), "--skip-toolchain")
+    run("scripts/discover.py", str(repo), "--stack", str(stack), "--out-env", str(env),
+        "--out-ledger", str(ledger))
+    seeded = yaml.safe_load(ledger.read_text(encoding="utf-8"))
+    assert {e["id"] for e in seeded["entry_points"]} == set(traces)
+
+    # Step 3: trace loop with rendered prompts and canned replies
+    while True:
+        pending = json.loads(run("scripts/flow_map.py", "next", "--phase", "traced",
+                                 "--ledger", str(ledger)))
+        if pending.get("done"):
+            break
+        prompt = prompts / "trace.md"
+        run("scripts/kb_prompt.py", "render", "--prompt", "trace", "--ledger", str(ledger),
+            "--env", str(env), "--entry", pending["id"], "--repo", str(repo), "--out", str(prompt))
+        assert pending["id"] in prompt.read_text(encoding="utf-8")
+        reply = prompts / "trace.json"
+        reply.write_text(json.dumps(traces[pending["id"]]), encoding="utf-8")
+        assert "unresolved: 0" in run("scripts/flow_map.py", "merge", str(reply),
+                                      "--ledger", str(ledger))
+    assert "phase traced: pass" in run("scripts/flow_map.py", "validate", "--phase", "traced",
+                                       "--ledger", str(ledger), "--repo", str(repo),
+                                       "--env", str(env))
+
+    # Step 4: rules, candidates confirmed verbatim
+    run("scripts/kb_rules.py", "extract", str(repo), "--ledger", str(ledger),
+        "--out-dir", str(tests))
+    source = traces[post_id]["rules"]["sources"][0]["file"]
+    run("scripts/kb_prompt.py", "render", "--prompt", "rules", "--ledger", str(ledger),
+        "--entry", post_id, "--source", source, "--repo", str(repo), "--tests-dir", str(tests),
+        "--out", str(prompts / "rules.md"))
+    candidates = tests / "rules" / f"{post_slug}.candidates.csv"
+    rows = tests / "rules" / f"{post_slug}.rows.csv"
+    rows.write_text(candidates.read_text(encoding="utf-8"), encoding="utf-8")
+    assert f"{post_id}:" in run("scripts/kb_rules.py", "add", post_id, str(rows),
+                                "--ledger", str(ledger), "--out-dir", str(tests))
+    run("scripts/kb_rules.py", "mark-scanned", post_id, source, "--ledger", str(ledger))
+
+    # Step 5: scaffold and checkpoint
+    run("scripts/kb_scaffold.py", str(repo), "--ledger", str(ledger), "--env", str(env),
+        "--out", str(tests), "--migrations-image", IMAGE)
+    runtime = read_json(tests / "src/test/resources/kb-runtime.json")
+    assert runtime["migrations"]["image"] == IMAGE and runtime["amq"]["queues"]
+    assert '"committed": true' in run("scripts/kb_checkpoint.py", "commit", "--repo", str(repo),
+                                      "--phase", "5", "--message", "scaffold")
+
+    # Step 6: generate loop with a canned feature, stub and seed per entry
+    features = tests / "src/test/resources/features"
+    (tests / "stubs/pricing").mkdir(parents=True)
+    (tests / "stubs/pricing/default.json").write_text('{"mappings":[]}', encoding="utf-8")
+    (tests / "seed/examples").mkdir(parents=True)
+    (tests / "seed/examples" / f"{post_slug}.json").write_text("{}", encoding="utf-8")
+    (tests / "seed" / f"{post_slug}.sql").write_text("-- nothing to seed\n", encoding="utf-8")
+    while True:
+        pending = json.loads(run("scripts/flow_map.py", "next", "--phase", "generated",
+                                 "--ledger", str(ledger)))
+        if pending.get("done"):
+            break
+        run("scripts/kb_prompt.py", "render", "--prompt", "generate", "--ledger", str(ledger),
+            "--env", str(env), "--entry", pending["id"], "--repo", str(repo),
+            "--tests-dir", str(tests), "--out", str(prompts / "generate.md"))
+        (features / f"{post_slug}.feature").write_text(
+            feature_text(table, destination, downstream_path), encoding="utf-8")
+        run("scripts/flow_map.py", "mark", "--entry", pending["id"], "--generated",
+            "--feature", f"features/{post_slug}.feature", "--stub", "stubs/pricing/default.json",
+            "--seed", f"seed/{post_slug}.sql", "--ledger", str(ledger))
+    assert "phase generated: pass" in run("scripts/flow_map.py", "validate", "--phase",
+                                          "generated", "--ledger", str(ledger),
+                                          "--repo", str(repo), "--tests-dir", str(tests))
+    run("scripts/kb_checkpoint.py", "commit", "--repo", str(repo), "--phase", "6",
+        "--message", "generate")
+
+    # Step 7: a captured green run stands in for mvn test
+    reports = tests / "target/karate-reports"
+    reports.mkdir(parents=True)
+    shutil.copy2(REPORTS / "features.harness-smoke.json", reports / "features.harness-smoke.json")
+    report = tests / "target/report.json"
+    run("scripts/kb_report.py", "parse", "--reports", str(reports), "--out", str(report))
+    assert "failing: 0" in run("scripts/flow_map.py", "record-run", "--ledger", str(ledger),
+                               "--report", str(report))
+    assert "phase green: pass" in run("scripts/flow_map.py", "validate", "--phase", "green",
+                                      "--ledger", str(ledger), "--repo", str(repo),
+                                      "--report", str(report),
+                                      "--defects", str(tests / "defects.md"))
+    assert run("scripts/kb_iterate.py", "check-stop", "--log", str(tests / ".iterations.log"),
+               "--report", str(report), "--max-iterations", "15").strip() == "done"
+
+    # Step 9: report and final checkpoint
+    run("scripts/kb_report.py", "summary", "--ledger", str(ledger), "--defects",
+        str(tests / "defects.md"), "--report", str(report), "--template",
+        str(SKILL / "templates/karate-tests/README.md.tmpl"), "--out", str(tests / "README.md"))
+    readme = (tests / "README.md").read_text(encoding="utf-8")
+    assert "| Entry points | 3 |" in readme and "$" not in readme.replace("${XDG_RUNTIME_DIR}", "")
+    run("scripts/kb_checkpoint.py", "commit", "--repo", str(repo), "--phase", "9",
+        "--message", "report")
+    assert git(repo, "status", "--short") == ""
+    assert not any(".prompts" in line for line in git(repo, "ls-files").splitlines())
