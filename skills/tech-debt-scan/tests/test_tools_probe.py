@@ -1001,11 +1001,23 @@ class TestPredicateAgreesWithArgv:
         argv = argv_for(TOOLS["jscpd"], "jscpd", tmp_path, network=True)
         assert "--format" in argv
         assert argv[argv.index("--format") + 1] == JSCPD_FORMATS
+        # Which jscpd format parses each extension the gate names. .mjs and
+        # .cjs were missing from the gate although --format javascript parses
+        # both -- verified by running jscpd over a tree of them, which it
+        # duplicate-matched as format "javascript" -- so a pure-ESM package
+        # was reported "skipped, no matching artefact" with the tool never
+        # invoked. The map is the statement that the gate and the invocation
+        # select the same files; nothing may be gated that no declared format
+        # reads, and no declared format may be unreachable from the gate.
+        extension_format = {
+            "js": "javascript", "mjs": "javascript", "cjs": "javascript",
+            "ts": "typescript", "tsx": "tsx", "jsx": "jsx",
+        }
         gated = {pattern.rsplit(".", 1)[1] for pattern in ARTEFACTS["jscpd"]}
         formats = set(JSCPD_FORMATS.split(","))
-        assert gated == {"js", "ts", "tsx", "jsx"}
+        assert gated == set(extension_format)
         assert formats == {"javascript", "typescript", "tsx", "jsx"}
-        assert len(gated) == len(formats)
+        assert set(extension_format.values()) == formats
 
     def test_jscpd_is_told_to_ignore_the_trees_the_inventory_never_walks(
         self, tmp_path: Path
@@ -1052,8 +1064,19 @@ class TestPredicateAgreesWithArgv:
         assert lizard.count("-x") == len(_ignore_globs())
         assert lizard[-1] == str(tmp_path)
 
+        # ruff takes --extend-exclude, never --exclude: --exclude replaces
+        # ruff's built-in defaults (.git, .venv, node_modules, the caches)
+        # while --extend-exclude adds to them, so the shared list can be
+        # passed without switching ruff's own list off. Leaving ruff alone
+        # entirely -- the position this test used to take -- was wrong: its
+        # defaults cover .venv and node_modules but say nothing about
+        # vendor/, third_party/, generated/ or *_pb2.py, and on a fixture
+        # holding all of those 24 of ruff's 30 signals came from trees the
+        # repository does not own.
         ruff = argv_for(TOOLS["ruff"], "ruff", tmp_path, network=True)
         assert "--exclude" not in ruff
+        assert "--extend-exclude" in ruff
+        assert ruff[ruff.index("--extend-exclude") + 1] == ",".join(_ignore_globs())
 
     def test_lizard_gates_on_every_extension_its_parsers_accept(self, tmp_path: Path) -> None:
         """The predicate named six extensions while the invocation scans every
@@ -1066,6 +1089,39 @@ class TestPredicateAgreesWithArgv:
             assert f"**/*.{extension}" in patterns
         (tmp_path / "app.rb").write_text("def f; end\n", encoding="utf-8")
         assert artefact_present(TOOLS["lizard"], tmp_path) is True
+
+    def test_ruff_gates_on_every_extension_its_own_include_list_names(
+        self, tmp_path: Path
+    ) -> None:
+        """ruff's default ``include`` is *.py, *.pyi, *.ipynb and
+        pyproject.toml (read from ``ruff check --show-settings``), while the
+        gate named *.py alone -- so a stubs-only distribution or a notebook
+        repository was skipped although ruff would have linted every file in
+        it. pyproject.toml is deliberately *not* a gate: every code in
+        RUFF_SELECT is a Python-source rule, so a repository holding only a
+        manifest gives our selection nothing to fire on."""
+        from tools_probe import ARTEFACTS, TOOLS, artefact_present
+
+        assert set(ARTEFACTS["ruff"]) == {"**/*.py", "**/*.pyi", "**/*.ipynb"}
+        assert "**/pyproject.toml" not in ARTEFACTS["ruff"]
+        (tmp_path / "stubs.pyi").write_text("def f() -> None: ...\n", encoding="utf-8")
+        assert artefact_present(TOOLS["ruff"], tmp_path) is True
+        # vulture parses runtime Python only, so its row stays narrower and a
+        # stubs-only tree must not wake it.
+        assert artefact_present(TOOLS["vulture"], tmp_path) is False
+
+    def test_a_pure_esm_package_is_offered_to_jscpd(self, tmp_path: Path) -> None:
+        """The end of N4, stated as the shape that was skipped: two .mjs files
+        and nothing else. Before the row was widened this was
+        "jscpd: skipped, no matching artefact"."""
+        from tools_probe import TOOLS, artefact_present
+
+        for name in ("a.mjs", "b.cjs"):
+            (tmp_path / name).write_text("export const x = 1;\n", encoding="utf-8")
+        assert artefact_present(TOOLS["jscpd"], tmp_path) is True
+        # madge is blind to .mjs on both sides -- gate and --extensions agree
+        # -- so it stays skipped. That is a behaviour choice, not a defect.
+        assert artefact_present(TOOLS["madge"], tmp_path) is False
 
     def test_every_builder_names_an_absolute_target(self, tmp_path: Path) -> None:
         """The convention argv_for documents: no builder may depend on cwd for
@@ -1083,6 +1139,157 @@ class TestPredicateAgreesWithArgv:
             argv = argv_for(spec, name, tmp_path, network=True)
             named = [part for part in argv[1:] if str(tmp_path) in part]
             assert named, f"{name} names no absolute target: {argv}"
+
+
+# One directory per shape ``_is_vendored`` has to recognise, with the class
+# inventory.py assigns it. Kept as data so the fixture below and the
+# assertions cannot drift apart.
+VENDORED_TREES: Final[tuple[str, ...]] = (
+    "vendor", "third_party", "extern", "generated", "node_modules", ".venv", "dist",
+)
+
+
+class TestVendoredTreesAreOutOfScopeForEveryTool:
+    """N2: the classification borrowed from inventory.py reached three of the
+    six tools that walk the tree. ruff emitted 8 of its 10 signals from
+    vendored paths, knip 5 of 5, madge 1 of 1, and hadolint's operand list
+    included node_modules/dep-a/Dockerfile -- a dependency's Dockerfile,
+    reported as a ``fact=True`` finding about this repository.
+
+    Each tool is now covered by one of three mechanisms, chosen by what the
+    tool itself accepts: an ignore flag (jscpd, vulture, lizard, ruff), a
+    filtered operand list (hadolint, actionlint), or a filter over the signals
+    it produced (madge, knip, gitleaks, osv-scanner -- none of which has a
+    path-ignore flag that does not mean writing a config file into the
+    repository being scanned). The signal filter runs for all ten regardless,
+    so a tool that ignores its ignore list still cannot reach the document.
+    """
+
+    def test_the_predicate_is_the_inventory_classification_not_a_second_one(self) -> None:
+        """The point of the rule: one notion of "vendored", derived from
+        inventory.py's own constants, so the probe and the inventory cannot
+        drift. ``_ignore_globs`` expresses it as globs for the tools that take
+        an ignore flag; ``_is_vendored`` expresses the same thing as a
+        predicate for the tools that do not. Both must answer alike."""
+        from inventory import DEFAULT_IGNORE, PATH_CLASS_GLOBS, _classify_path
+        from tools_probe import VENDORED_CLASSES, _is_vendored
+
+        assert VENDORED_CLASSES == ("vendored", "generated")
+        for name in DEFAULT_IGNORE:
+            assert _is_vendored(f"{name}/pkg/a.py") is True
+        for path_class in VENDORED_CLASSES:
+            for pattern in PATH_CLASS_GLOBS[path_class]:
+                sample = pattern.replace("*/", "x/", 1) if pattern.startswith("*/") else pattern
+                sample = sample.replace("*", "a") if "*" in sample else sample
+                assert _classify_path(sample) == path_class
+                assert _is_vendored(sample) is True
+        # Source, tests and docs are not vendored: the rule takes two of
+        # inventory.py's four path classes, not all of them.
+        for kept in ("src/pay/ledger.py", "tests/test_ledger.py", "docs/adr/0001.md"):
+            assert _is_vendored(kept) is False
+        assert _is_vendored("") is False
+
+    def test_ruff_and_hadolint_no_longer_reach_a_vendored_tree(
+        self, tmp_path: Path
+    ) -> None:
+        """The two tools whose mechanism is not a signal filter: ruff is told
+        (--extend-exclude), hadolint's operand list is filtered before it is
+        ever invoked."""
+        from tools_probe import TOOLS, _glob_operands, _ignore_globs, argv_for
+
+        (tmp_path / "Dockerfile").write_text("FROM python\n", encoding="utf-8")
+        for tree in VENDORED_TREES:
+            directory = tmp_path / tree
+            directory.mkdir()
+            (directory / "Dockerfile").write_text("FROM python\n", encoding="utf-8")
+            (directory / "mod.py").write_text("x = 1\n", encoding="utf-8")
+
+        operands = _glob_operands(TOOLS["hadolint"], tmp_path)
+        assert operands == [str(tmp_path / "Dockerfile")]
+
+        ruff = argv_for(TOOLS["ruff"], "ruff", tmp_path, network=True)
+        excluded = ruff[ruff.index("--extend-exclude") + 1].split(",")
+        for tree in VENDORED_TREES:
+            assert f"**/{tree}/**" in excluded
+        assert set(excluded) == set(_ignore_globs())
+
+    def test_a_repository_whose_only_dockerfile_is_vendored_skips_hadolint(
+        self, tmp_path: Path
+    ) -> None:
+        """The predicate has to move with the operand list, or the gate claims
+        work the invocation cannot do -- and ``probe`` would reach the
+        empty-operand guard, reporting a reason that is true for the wrong
+        reason."""
+        from tools_probe import TOOLS, artefact_present
+
+        vendored = tmp_path / "node_modules" / "dep-a"
+        vendored.mkdir(parents=True)
+        (vendored / "Dockerfile").write_text("FROM python\n", encoding="utf-8")
+        assert artefact_present(TOOLS["hadolint"], tmp_path) is False
+        (tmp_path / "Dockerfile").write_text("FROM python\n", encoding="utf-8")
+        assert artefact_present(TOOLS["hadolint"], tmp_path) is True
+
+    def test_a_repository_whose_only_python_is_vendored_skips_the_python_tools(
+        self, tmp_path: Path
+    ) -> None:
+        from tools_probe import TOOLS, artefact_present
+
+        generated = tmp_path / "generated"
+        generated.mkdir()
+        (generated / "api.py").write_text("x = 1\n", encoding="utf-8")
+        (tmp_path / "thing_pb2.py").write_text("x = 1\n", encoding="utf-8")
+        for name in ("ruff", "vulture", "lizard"):
+            assert artefact_present(TOOLS[name], tmp_path) is False, name
+        (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+        for name in ("ruff", "vulture", "lizard"):
+            assert artefact_present(TOOLS[name], tmp_path) is True, name
+
+    def test_a_signal_citing_a_vendored_path_never_reaches_the_document(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The mechanism for the four tools that cannot be told -- madge,
+        knip, gitleaks and osv-scanner -- driven through probe() end to end
+        with a stubbed normaliser, so deleting the filter from the call site
+        fails here rather than only in a helper's own test."""
+        import tools_probe
+        from config import load_config
+
+        (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+        paths = [
+            "src/cart/cart.ts", "vendor/tiny-emitter.js", "third_party/lib/a.js",
+            "src/generated/api-types.ts", "node_modules/dep-a/index.js",
+            ".venv/lib/site.py", "thing_pb2.py", "bundle.min.js", "tests/test_cart.ts",
+        ]
+        monkeypatch.setattr(tools_probe, "find_tool", lambda name, root: "fake-ruff")
+        monkeypatch.setattr(
+            tools_probe, "run_tool",
+            lambda spec, argv, root, timeout: tools_probe.ToolResult("ran", payload=[]),
+        )
+        monkeypatch.setitem(
+            tools_probe.NORMALISERS, "ruff",
+            lambda payload, root: [{
+                "tool": "ruff", "family": "dead-code", "kind": "unused",
+                "file": path, "line_start": 1, "line_end": 1,
+                "message": "unused", "fact": False, "extra": {},
+            } for path in paths],
+        )
+        config = load_config(tmp_path)
+        config["tools"]["deny"] = [name for name in tools_probe.TOOLS if name != "ruff"]
+        document = tools_probe.probe(tmp_path, config)
+        # tests/ is not vendored: the rule takes two path classes, not four.
+        assert [s["file"] for s in document["signals"]] == [
+            "src/cart/cart.ts", "tests/test_cart.ts",
+        ]
+
+    def test_a_signal_with_no_file_is_kept(self) -> None:
+        """Nothing about it says where it came from, so dropping it would be a
+        guess. No normaliser emits one today -- every one drops a row whose
+        path ``rel_path`` rejects -- but the filter must not decide that."""
+        from tools_probe import _drop_vendored
+
+        kept = _drop_vendored([{"tool": "knip", "file": None, "message": "x"}])  # type: ignore[list-item]
+        assert len(kept) == 1
+
 
 class TestSignalSortKeyTotality:
     def test_signals_tied_on_file_line_kind_message_still_sort_deterministically(

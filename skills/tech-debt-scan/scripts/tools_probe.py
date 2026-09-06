@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Final, cast
 
 from config import ConfigError, load_config
-from inventory import DEFAULT_IGNORE, PATH_CLASS_GLOBS, write_json
+from inventory import DEFAULT_IGNORE, PATH_CLASS_GLOBS, _classify_path, write_json
 from redaction import redact
 from tool_normalisers import (
     Signal,
@@ -292,11 +292,29 @@ ARTEFACTS: Final[dict[str, tuple[str, ...]]] = {
                     "**/poetry.lock", "**/requirements.txt", "**/Pipfile.lock",
                     "**/go.sum", "**/Cargo.lock", "**/composer.lock", "**/Gemfile.lock"),
     "gitleaks": ("*",),
-    "ruff": ("**/*.py",),
+    # ruff's own default ``include`` is *.py, *.pyi, *.ipynb and pyproject.toml
+    # (read from ``ruff check --show-settings``), so a stubs-only distribution
+    # or a notebook repository was gated out of a tool that would have linted
+    # every file in it. pyproject.toml is deliberately not a gate: every code
+    # in RUFF_SELECT is a Python-source rule, so a repository holding only a
+    # manifest gives ruff nothing our selection can fire on.
+    "ruff": ("**/*.py", "**/*.pyi", "**/*.ipynb"),
+    # vulture parses Python source only -- no .pyi (a stub has no runtime use
+    # to be dead) and no notebooks -- so its row stays narrower than ruff's.
     "vulture": ("**/*.py",),
     "lizard": tuple(f"**/*.{extension}" for extension in _LIZARD_EXTENSIONS),
-    "jscpd": ("**/*.js", "**/*.ts", "**/*.tsx", "**/*.jsx"),
+    # .mjs and .cjs are in the row because jscpd's ``javascript`` format parses
+    # them -- verified by running it over a tree of .mjs and .cjs files, which
+    # it duplicate-matched as format ``javascript``. Without them a pure-ESM
+    # package was reported "skipped, no matching artefact" although the tool
+    # would have read every file in it. lizard's own extension list has had
+    # ``mjs`` and ``cjs`` all along.
+    "jscpd": ("**/*.js", "**/*.ts", "**/*.tsx", "**/*.jsx", "**/*.mjs", "**/*.cjs"),
     "knip": ("package.json",),
+    # Narrower than jscpd's row on purpose, and still symmetric: madge is
+    # invoked with ``--extensions js,jsx,ts,tsx``, so it is blind to .mjs and
+    # .cjs on both sides. Teaching madge to read them would be a behaviour
+    # change (both sides move together), not the correction jscpd's row was.
     "madge": ("**/*.js", "**/*.ts", "**/*.tsx", "**/*.jsx"),
     "hadolint": ("Dockerfile", "**/Dockerfile", "**/Dockerfile.*"),
     # Root-only on purpose: GitHub reads workflows from the repository root's
@@ -339,13 +357,67 @@ def _ignore_globs() -> tuple[str, ...]:
     return tuple(sorted(globs))
 
 
+# The two path classes a scan does not own. ``vendored`` is somebody else's
+# source checked in here, ``generated`` is this repository's build output;
+# neither is debt a human can act on, and ``patterns.py`` already refuses to
+# scan either (:866, :884) -- including for its credential rule, so applying
+# the same rule to gitleaks is consistency rather than a new policy.
+VENDORED_CLASSES: Final[tuple[str, ...]] = ("vendored", "generated")
+
+
+def _is_vendored(rel: str) -> bool:
+    """True when a root-relative forward-slashed path is one a scan does not own.
+
+    The classification is ``inventory.py``'s, not a second one invented here:
+    ``_classify_path`` is the function that decides every inventory entry's
+    ``path_class`` from ``PATH_CLASS_GLOBS``, and ``DEFAULT_IGNORE`` is the set
+    of directory names the inventory walk never enters. ``_ignore_globs``
+    below translates the same two sources into the glob syntax a tool's
+    ``--ignore`` flag wants; this is the same rule expressed as a predicate,
+    for the tools that have no such flag. Deriving both from the same
+    constants is what stops the probe and the inventory drifting into two
+    different ideas of "vendored".
+
+    Only directory segments are tested against ``DEFAULT_IGNORE``, which is
+    what those names mean -- ``_ignore_globs`` writes them as ``**/<name>/**``
+    for the same reason.
+    """
+    if not rel:
+        return False
+    segments = rel.split("/")
+    if any(segment in DEFAULT_IGNORE for segment in segments[:-1]):
+        return True
+    return _classify_path(rel) in VENDORED_CLASSES
+
+
+def _relative(root: Path, path: Path) -> str | None:
+    """``path`` as a root-relative forward-slashed string, or None if outside."""
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return None
+
+
 def artefact_present(spec: ToolSpec, root: Path) -> bool:
-    """True when the repository holds something ``spec``'s tool could read."""
+    """True when the repository holds something ``spec``'s tool could read.
+
+    A match inside a vendored or generated tree does not count, because no
+    tool is invoked against those any more: whichever mechanism a tool uses to
+    stay out of them (an ignore flag, a filtered operand list, a filtered
+    signal list -- see ``_ignore_globs``), a repository whose only Python
+    lives in ``.venv`` or whose only Dockerfile lives in ``node_modules`` has
+    nothing for that tool to do. Counting such a match would leave the
+    predicate claiming work the invocation cannot produce, which is the
+    predicate-versus-argv disagreement the whole-branch review found in
+    osv-scanner and jscpd, one column over.
+    """
     for pattern in ARTEFACTS[spec.name]:
         if pattern == "*":
             return True
-        if next(root.glob(pattern), None) is not None:
-            return True
+        for match in root.glob(pattern):
+            rel = _relative(root, match)
+            if rel is not None and not _is_vendored(rel):
+                return True
     return False
 
 
@@ -367,12 +439,22 @@ GLOB_OPERAND_TOOLS: Final[frozenset[str]] = frozenset({"hadolint", "actionlint"}
 
 
 def _glob_operands(spec: ToolSpec, root: Path) -> list[str]:
-    """Every path under ``root`` matching one of ``spec``'s ARTEFACTS patterns."""
+    """Every non-vendored path under ``root`` matching one of ``spec``'s patterns.
+
+    Neither hadolint nor actionlint has an ignore flag, so for these two the
+    operand list *is* the ignore mechanism: without the filter hadolint's
+    operands included ``node_modules/dep-a/Dockerfile`` and
+    ``vendor/Dockerfile``, and it emits ``fact=True`` signals, so a
+    dependency's Dockerfile became a fact about this repository.
+    """
     found: set[str] = set()
     for pattern in ARTEFACTS[spec.name]:
         if pattern == "*":
             continue
-        found.update(str(path) for path in root.glob(pattern))
+        for path in root.glob(pattern):
+            rel = _relative(root, path)
+            if rel is not None and not _is_vendored(rel):
+                found.add(str(path))
     return sorted(found)
 
 
@@ -401,7 +483,16 @@ def argv_for(spec: ToolSpec, executable: str, root: Path, *, network: bool) -> l
     """
     target = str(root)
     if spec.name == "ruff":
+        # --extend-exclude, not --exclude: --exclude *replaces* ruff's built-in
+        # default exclude list (.git, .venv, node_modules, the caches) while
+        # --extend-exclude adds to it, so the shared list can be passed without
+        # silently switching ruff's own defaults off. Ruff's defaults are not
+        # this list -- they cover .venv and node_modules but say nothing about
+        # vendor/, third_party/, generated/ or *_pb2.py, and eight of ruff's
+        # ten signals on a fixture holding all of those came from trees the
+        # repository does not own.
         return [executable, "check", "--isolated", "--no-cache", "--output-format", "json",
+                "--extend-exclude", ",".join(_ignore_globs()),
                 "--select", RUFF_SELECT, target]
     if spec.name == "vulture":
         # Same reason jscpd gets --ignore: vulture has no default exclusions,
@@ -506,6 +597,41 @@ def redact_document(document: dict[str, Any]) -> dict[str, Any]:
     return cast(dict[str, Any], _redact_value(document))
 
 
+def _drop_vendored(tool_signals: list[Signal]) -> list[Signal]:
+    """``tool_signals`` without those citing a tree the repository does not own.
+
+    Three of the ten tools take an ignore list in the same glob vocabulary
+    ``_ignore_globs`` speaks (jscpd ``--ignore``, vulture ``--exclude``,
+    lizard ``-x``) and a fourth now does too (ruff ``--extend-exclude``); two
+    more are handed an operand list this module globs itself, so
+    ``_glob_operands`` filters it. The remaining four cannot be told:
+
+    * **madge** has ``-x``, but it takes a *regular expression*, not globs.
+      Translating twenty-five globs into a regex would be a second notion of
+      "vendored" living beside the first, which is the drift the shared list
+      exists to prevent.
+    * **knip**'s ``--exclude`` selects *issue types*, not paths; its only path
+      ignore is a ``knip.json`` in the repository being scanned, which a
+      read-only probe must not write.
+    * **gitleaks** likewise takes its allowlist from a config file in the
+      scanned tree.
+    * **osv-scanner** discovers lockfiles with ``--recursive`` and has no
+      ignore flag; a lockfile under ``node_modules`` describes a dependency's
+      own dependencies, not this repository's.
+
+    So those four are filtered here instead, on the one field every normaliser
+    populates. Running the filter over *every* tool rather than only those
+    four is deliberate: it costs one predicate per signal and it means a tool
+    that ignores the ignore list it was given -- or a future tool added with
+    neither mechanism -- still cannot put a vendored path in the document.
+
+    A signal with no file (none today; every normaliser drops a row whose path
+    ``rel_path`` rejects) is kept, because nothing about it says where it came
+    from and dropping it would be a guess.
+    """
+    return [sig for sig in tool_signals if not _is_vendored(sig.get("file") or "")]
+
+
 def probe(root: Path, config: dict[str, Any], *, skip_all: bool = False) -> dict[str, Any]:
     """Run every allowed, present tool and return the ``tool-signals.json`` document.
 
@@ -577,6 +703,7 @@ def probe(root: Path, config: dict[str, Any], *, skip_all: bool = False) -> dict
                     duration_s=result.duration_s,
                 )
                 continue
+            tool_signals = _drop_vendored(tool_signals)
             tool_signals.sort(key=_signal_sort_key)
             signals.extend(tool_signals)
 

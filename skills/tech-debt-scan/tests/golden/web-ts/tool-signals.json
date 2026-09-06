@@ -111,34 +111,6 @@
       }
     },
     {
-      "tool": "knip",
-      "family": "dead-code",
-      "kind": "unused",
-      "file": "src/generated/api-types.ts",
-      "line_start": null,
-      "line_end": null,
-      "message": "unused file src/generated/api-types.ts",
-      "fact": false,
-      "extra": {
-        "issue": "files",
-        "symbol": "src/generated/api-types.ts"
-      }
-    },
-    {
-      "tool": "knip",
-      "family": "dead-code",
-      "kind": "unused",
-      "file": "vendor/tiny-emitter.js",
-      "line_start": null,
-      "line_end": null,
-      "message": "unused file vendor/tiny-emitter.js",
-      "fact": false,
-      "extra": {
-        "issue": "files",
-        "symbol": "vendor/tiny-emitter.js"
-      }
-    },
-    {
       "tool": "madge",
       "family": "architecture",
       "kind": "cycle",
