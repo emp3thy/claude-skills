@@ -4,7 +4,7 @@ entry_points:
     method: POST
     path: /api/shipments
     exits:
-      - { kind: http-out, host_key: PRICING_BASE_URL, method: GET, path: /rates/{countryCode} }
+      - { kind: http-out, host_key: PRICING_BASE_URL, method: GET, path: "/rates/{countryCode}" }
       - { kind: db-write, table: shipments, op: insert }
       - { kind: amq-publish, destination: shipment.created, type: queue }
   - id: GET /api/shipments/{id}
