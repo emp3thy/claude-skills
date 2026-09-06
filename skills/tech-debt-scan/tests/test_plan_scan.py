@@ -177,6 +177,36 @@ def test_lead_cap_applies_to_pattern_leads_and_spares_the_other_kinds(
     assert len([lead for lead in leads if lead.kind == "satd"]) == len(docs.patterns["satd"])
 
 
+def test_satd_and_inventory_leads_are_capped_per_kind(
+    corpus_workdirs: dict[str, tuple[Path, Path]]
+) -> None:
+    """A TODO-heavy repository must not blow the prompt: SATD and inventory leads cap too."""
+    from copy import deepcopy
+
+    from plan_scan import KIND_CAPS, LEAD_CAP, ScanDocs, leads_for, load_docs
+
+    _, workdir = corpus_workdirs["service-py"]
+    docs = load_docs(workdir)
+    inflated = ScanDocs(
+        inventory=docs.inventory,
+        coupling=docs.coupling,
+        patterns=deepcopy(docs.patterns),
+        rules=docs.rules,
+    )
+    inflated.patterns["satd"] = [
+        {"marker": "TODO", "file": f"src/z{i}.py", "line": 1, "quote": "# TODO x",
+         "ticket_ref": False, "age_days": None, "commits_since": None, "path_class": "source"}
+        for i in range(80)
+    ] + list(inflated.patterns["satd"])
+    leads = leads_for("half-finished", inflated, DEFAULTS)
+    by_kind: dict[str, int] = {}
+    for lead in leads:
+        by_kind[lead.kind] = by_kind.get(lead.kind, 0) + 1
+    assert by_kind["satd"] == KIND_CAPS["satd"] == LEAD_CAP
+    assert by_kind.get("pattern", 0) <= LEAD_CAP
+    assert by_kind["hotspot"] == len(docs.inventory["hotspot_band"]), "the band is never capped"
+
+
 def test_path_class_disables_drop_leads_and_are_named_in_the_prompt(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     (repo / "tests").mkdir(parents=True)

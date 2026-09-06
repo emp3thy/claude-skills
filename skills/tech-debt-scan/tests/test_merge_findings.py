@@ -244,6 +244,19 @@ def test_malformed_items_are_dropped_and_counted(tmp_path: Path) -> None:
     assert "not an object" in joined, "the bare string item"
 
 
+def test_a_corrupt_scout_file_is_counted_not_fatal(tmp_path: Path) -> None:
+    """One malformed scout document must not discard thirteen good ones."""
+    repo, workdir = _repo(tmp_path)
+    _scout(workdir, "error-masking", [
+        _finding("error-masking", "swallowed", "src/pay.py", 7, 8, SWALLOW),
+    ])
+    (workdir / "scouts" / "security.json").write_bytes(b'{"family": "security", "findings": [')
+    doc = merge(workdir, repo, DEFAULTS)
+    assert [c["title"] for c in doc["candidates"] if c["source"] == "scout"] == ["swallowed"]
+    assert doc["stats"]["security"]["read_failed"] == 1
+    assert doc["stats"]["security"]["raw"] == 0
+
+
 def test_dropped_reason_is_redacted_before_recording(tmp_path: Path) -> None:
     repo, workdir = _repo(tmp_path)
     credential_debt_type = 'token = "abcdefghijkl0123"'

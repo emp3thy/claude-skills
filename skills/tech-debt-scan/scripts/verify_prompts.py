@@ -48,6 +48,12 @@ FAMILY_TRAPS_HEADER: Final[str] = (
     "known non-debt shapes for this family (a match is a reject with trap_matched):")
 REPO_TRAPS_HEADER: Final[str] = (
     "traps recorded for this repository (a match is a reject with trap_matched):")
+# `_reference_edges` returns None when the graph cannot be built. `render_verify_prompt`
+# treats `edges=None` as "not supplied, build one", so passing that None through would
+# rebuild (and re-read every source file) once per batch. build_verify_plan substitutes
+# this sentinel instead: an empty edge list that renders "not computed" exactly as a
+# failure does, without a second attempt.
+GRAPH_FAILED: Final[list[tuple[str, str]]] = []
 
 VERDICT_CONTRACT: Final[str] = """\
 Reply with one JSON array, one object per candidate, exactly these keys:
@@ -224,8 +230,14 @@ def _reference_edges(
 
 
 def _referrers(edges: list[tuple[str, str]] | None, file: str) -> str:
-    """Files whose import lines reference ``file``'s stem; never fatal to a verification."""
-    if edges is None:
+    """Files whose import lines reference ``file``'s stem; never fatal to a verification.
+
+    ``edges is GRAPH_FAILED`` is an identity check, not ``==``: an empty list the
+    graph legitimately built (no edges found) is not the sentinel and must still
+    read as "none found", while the sentinel and a bare ``None`` both read as
+    "not computed".
+    """
+    if edges is None or edges is GRAPH_FAILED:
         return "not computed"
     stem = file_stem(file)
     referrers = sorted({src for src, dst in edges if dst == file or file_stem(dst) == stem})
@@ -328,7 +340,12 @@ def build_verify_plan(
     selected, unverified = select_candidates(list(candidates_doc["candidates"]), config, top)
     batches = build_batches(selected, int(config["verifier"]["batch_size"]))
     # One graph for the plan: it reads every source and tests file in the inventory.
+    # A failed build becomes GRAPH_FAILED here, once, so every batch's prompt renders
+    # "not computed" without render_verify_prompt attempting (and re-reading the whole
+    # repository for) a second build per batch.
     edges = _reference_edges(root, inventory, config)
+    if edges is None:
+        edges = GRAPH_FAILED
     prompts: dict[str, str] = {}
     entries = []
     for number, batch in enumerate(batches, start=1):

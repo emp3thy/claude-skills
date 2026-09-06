@@ -6,8 +6,11 @@ Reads ``scan-plan.json`` (which scout files to expect), ``scouts/<family>.json``
 ``candidates.json``. Coupling is not read here: ``coupling_degree`` reaches a
 candidate through the inventory signals ``evidence.signals_for`` attaches.
 
-Steps, in order: validate each scout item (malformed items are dropped and
-counted, with the reason string collected under
+Steps, in order: read each family's scout file (one missing is counted under
+``stats[family].missing_file``, one present but unreadable or malformed JSON
+under ``stats[family].read_failed``; neither aborts the merge, every other
+family's scout file is still read); validate each scout item (malformed items
+are dropped and counted, with the reason string collected under
 ``stats[family].dropped_reasons`` when at least one item was dropped);
 normalise paths; verify every quote on disk through
 ``evidence.find_quote`` (a finding with no verified evidence is diverted to
@@ -16,12 +19,16 @@ evidence; cluster same-family, same-file findings within ``CLUSTER_WINDOW``
 lines; corroborate from pattern leads of the candidate's own family, SATD
 markers, rule findings, coupling and the hotspot band; attach inventory
 signals; apply suppressions and path-class disables; redact every quote, title
-and note.
+and note. ``missing_file``, ``read_failed`` and ``dropped_reasons`` are all
+out-of-band stat keys, appended only when they apply.
 
 Rule findings enter as tier A candidates with ``source: "rule"`` and are never
 merged into a scout candidate: they corroborate it (``rule:<id>`` in
 ``confirmed_by``) and stand beside it, so a verified-by-construction fact is
-never diluted by a scout claim.
+never diluted by a scout claim. Rule findings are not re-checked against
+path-class disables here: ``rules.py`` drops disabled-class artefacts before
+emitting them, so a rule finding reaching this module has already passed that
+filter.
 """
 from __future__ import annotations
 
@@ -367,7 +374,11 @@ def merge(
     for entry in plan.get("entries") or []:
         family = str(entry["family"])
         stats.setdefault(family, _new_stats())
-        doc = _read_json(workdir / str(entry["output"]))
+        try:
+            doc = _read_json(workdir / str(entry["output"]))
+        except (OSError, ValueError):
+            stats[family]["read_failed"] = 1
+            continue
         if not isinstance(doc, dict):
             stats[family]["missing_file"] = 1
             continue
@@ -425,8 +436,9 @@ def merge(
             stats[family]["suppressed"] += 1
             continue
         rule_kept.append(cand)
-    # dropped_reasons is recorded out-of-band (like missing_file) so a family with nothing
-    # dropped keeps the exact six pinned stat keys; it is appended last, after missing_file.
+    # dropped_reasons is recorded out-of-band (like missing_file and read_failed) so a
+    # family with nothing dropped keeps the exact six pinned stat keys; it is appended
+    # last, after missing_file and read_failed.
     final_stats: dict[str, dict[str, Any]] = {}
     for family, counts in stats.items():
         stat_entry: dict[str, Any] = dict(counts)
