@@ -204,3 +204,51 @@ def normalise_vulture(payload: Any, root: Path) -> list[Signal]:
             )
         )
     return out
+
+
+# A unit is worth a signal when it is genuinely hard to hold in the head.
+# lizard reports every function it parses, so without a threshold a
+# medium repository would fill the lead cap with two-line constructors.
+LIZARD_MIN_CCN: Final[int] = 10
+LIZARD_MIN_NLOC: Final[int] = 60
+
+# lizard --csv writes no header. Columns, in order: NLOC, CCN, token count,
+# parameter count, length, "name@start-end@file", file, name, signature,
+# start line, end line.
+_LIZARD_COLUMNS: Final[int] = 11
+
+
+def normalise_lizard(payload: Any, root: Path) -> list[Signal]:
+    """lizard's CSV rows as complexity signals.
+
+    lizard has no JSON mode and always exits 0, so the rows themselves are
+    the only signal that it ran. Only units at or above ``LIZARD_MIN_CCN``
+    cyclomatic complexity or ``LIZARD_MIN_NLOC`` lines are reported.
+    """
+    if not isinstance(payload, list):
+        return []
+    out: list[Signal] = []
+    for row in payload:
+        if not isinstance(row, list) or len(row) < _LIZARD_COLUMNS:
+            continue
+        try:
+            nloc, ccn, _tokens, parameters = (int(row[0]), int(row[1]), int(row[2]), int(row[3]))
+            start, end = int(row[9]), int(row[10])
+        except (TypeError, ValueError):
+            continue
+        if ccn < LIZARD_MIN_CCN and nloc < LIZARD_MIN_NLOC:
+            continue
+        rel = rel_path(root, row[6])
+        if rel is None:
+            continue
+        name = str(row[7])
+        out.append(
+            signal(
+                "lizard", "complex-units", "complexity",
+                file=rel, line_start=start, line_end=end,
+                message=f"{name} has cyclomatic complexity {ccn} over {nloc} lines",
+                fact=False,
+                extra={"name": name, "ccn": ccn, "nloc": nloc, "parameters": parameters},
+            )
+        )
+    return out

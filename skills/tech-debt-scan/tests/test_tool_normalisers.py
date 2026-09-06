@@ -1,6 +1,7 @@
 """Tests for the pure tool-output normalisers (spec 4.5)."""
 from __future__ import annotations
 
+import csv
 import json
 import sys
 from pathlib import Path
@@ -150,4 +151,51 @@ class TestNormaliseVulture:
         assert normalise_vulture(["*** not a finding ***"], ROOT) == []
 
     def test_every_vulture_signal_is_inference_class(self) -> None:
+        assert all(s["fact"] is False for s in self._signals())
+
+
+class TestNormaliseLizard:
+    def _signals(self) -> list:
+        from tool_normalisers import normalise_lizard
+
+        text = (FIXTURES / "lizard.csv").read_text(encoding="utf-8")
+        rows = [row for row in csv.reader(text.splitlines()) if row]
+        return normalise_lizard(rows, ROOT)
+
+    def test_only_units_over_the_threshold_are_reported(self) -> None:
+        """lizard reports every function; a signal per function would swamp
+        the lead cap, so only complex or long units become signals."""
+        assert {s["extra"]["name"] for s in self._signals()} == {"issue_partial", "settle"}
+
+    def test_line_range_comes_from_the_last_two_columns(self) -> None:
+        partial = next(s for s in self._signals() if s["extra"]["name"] == "issue_partial")
+        assert (partial["line_start"], partial["line_end"]) == (41, 74)
+
+    def test_ccn_and_nloc_are_carried_in_extra(self) -> None:
+        partial = next(s for s in self._signals() if s["extra"]["name"] == "issue_partial")
+        assert partial["extra"]["ccn"] == 13
+        assert partial["extra"]["nloc"] == 34
+        assert partial["extra"]["parameters"] == 4
+
+    def test_backslashed_path_is_forward_slashed(self) -> None:
+        settle = next(s for s in self._signals() if s["extra"]["name"] == "settle")
+        assert settle["file"] == "src/pay/settlement.py"
+
+    def test_kind_and_family_are_complexity(self) -> None:
+        assert {(s["kind"], s["family"]) for s in self._signals()} == {
+            ("complexity", "complex-units")
+        }
+
+    def test_a_short_row_is_skipped_not_fatal(self) -> None:
+        from tool_normalisers import normalise_lizard
+
+        assert normalise_lizard([["2", "1", "18"]], ROOT) == []
+
+    def test_a_non_numeric_row_is_skipped_not_fatal(self) -> None:
+        from tool_normalisers import normalise_lizard
+
+        row = ["x", "y", "1", "2", "3", "c", "src/a.py", "f", "f()", "a", "b"]
+        assert normalise_lizard([row], ROOT) == []
+
+    def test_every_lizard_signal_is_inference_class(self) -> None:
         assert all(s["fact"] is False for s in self._signals())
