@@ -120,10 +120,11 @@ def _rejected_exit_reason(returncode: int, stderr: str) -> str:
     return f"exit {returncode}"
 
 
-def run_tool(
-    spec: ToolSpec, executable: str, argv: list[str], root: Path, timeout_s: int
-) -> ToolResult:
+def run_tool(spec: ToolSpec, argv: list[str], root: Path, timeout_s: int) -> ToolResult:
     """Run one tool and classify the attempt.
+
+    ``argv`` already carries the executable as its first element; the caller
+    builds it (see ``argv_for``).
 
     ``ran`` means the process exited with a code the spec's table allows and
     its output parsed. Anything else is ``failed``, carrying the first

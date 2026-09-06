@@ -180,7 +180,7 @@ class TestRunTool:
             print(json.dumps([{"ok": True}]))
             sys.exit(0)
         """)
-        result = run_tool(TOOLS["ruff"], exe, argv, tmp_path, 30)
+        result = run_tool(TOOLS["ruff"], argv, tmp_path, 30)
         assert result.status == "ran"
         assert result.payload == [{"ok": True}]
 
@@ -193,7 +193,7 @@ class TestRunTool:
             print(json.dumps([{"code": "BLE001"}]))
             sys.exit(1)
         """)
-        result = run_tool(TOOLS["ruff"], exe, argv, tmp_path, 30)
+        result = run_tool(TOOLS["ruff"], argv, tmp_path, 30)
         assert result.status == "ran"
 
     def test_vulture_exit_three_is_ran_not_failed(self, tmp_path: Path) -> None:
@@ -206,7 +206,7 @@ class TestRunTool:
             print("a.py:1: unused function 'f' (60% confidence)")
             sys.exit(3)
         """)
-        result = run_tool(TOOLS["vulture"], exe, argv, tmp_path, 30)
+        result = run_tool(TOOLS["vulture"], argv, tmp_path, 30)
         assert result.status == "ran"
         assert result.payload == ["a.py:1: unused function 'f' (60% confidence)"]
 
@@ -219,7 +219,7 @@ class TestRunTool:
             sys.stderr.write("E" * 500)
             sys.exit(1)
         """)
-        result = run_tool(TOOLS["ruff"], exe, argv, tmp_path, 30)
+        result = run_tool(TOOLS["ruff"], argv, tmp_path, 30)
         assert result.status == "failed"
         assert len(result.reason) <= STDERR_CHARS
         assert result.reason.startswith("EEE")
@@ -232,7 +232,7 @@ class TestRunTool:
             print(json.dumps([]))
             sys.exit(42)
         """)
-        result = run_tool(TOOLS["ruff"], exe, argv, tmp_path, 30)
+        result = run_tool(TOOLS["ruff"], argv, tmp_path, 30)
         assert result.status == "failed"
         assert "42" in result.reason
 
@@ -243,7 +243,7 @@ class TestRunTool:
             import time
             time.sleep(30)
         """)
-        result = run_tool(TOOLS["ruff"], exe, argv, tmp_path, 1)
+        result = run_tool(TOOLS["ruff"], argv, tmp_path, 1)
         assert result.status == "failed"
         assert "timed out" in result.reason
         assert "1" in result.reason
@@ -262,7 +262,7 @@ class TestRunTool:
                 json.dump({"duplicates": [{"lines": 8}]}, fh)
             sys.exit(0)
         """)
-        result = run_tool(TOOLS["jscpd"], exe, argv, tmp_path, 30)
+        result = run_tool(TOOLS["jscpd"], argv, tmp_path, 30)
         assert result.status == "ran"
         assert result.payload == {"duplicates": [{"lines": 8}]}
 
@@ -274,7 +274,7 @@ class TestRunTool:
             print("wrote nothing")
             sys.exit(0)
         """)
-        result = run_tool(TOOLS["jscpd"], exe, argv, tmp_path, 30)
+        result = run_tool(TOOLS["jscpd"], argv, tmp_path, 30)
         assert result.status == "failed"
         assert "report" in result.reason
 
@@ -289,13 +289,13 @@ class TestRunTool:
                 json.dump({"duplicates": []}, fh)
         """)
         before = set(tmp_path.iterdir())
-        run_tool(TOOLS["jscpd"], exe, argv, tmp_path, 30)
+        run_tool(TOOLS["jscpd"], argv, tmp_path, 30)
         assert set(tmp_path.iterdir()) == before
 
     def test_missing_executable_is_failed_not_an_exception(self, tmp_path: Path) -> None:
         from tools_probe import TOOLS, run_tool
 
-        result = run_tool(TOOLS["ruff"], "no-such-exe", ["no-such-exe"], tmp_path, 5)
+        result = run_tool(TOOLS["ruff"], ["no-such-exe"], tmp_path, 5)
         assert result.status == "failed"
 
     def test_report_file_valid_survives_nonzero_exit(self, tmp_path: Path) -> None:
@@ -312,7 +312,7 @@ class TestRunTool:
                 json.dump({"duplicates": [{"lines": 8}]}, fh)
             sys.exit(1)
         """)
-        result = run_tool(TOOLS["jscpd"], exe, argv, tmp_path, 30)
+        result = run_tool(TOOLS["jscpd"], argv, tmp_path, 30)
         assert result.status == "ran"
         assert result.payload == {"duplicates": [{"lines": 8}]}
 
@@ -329,7 +329,7 @@ class TestRunTool:
                 fh.write("not json at all")
             sys.exit(0)
         """)
-        result = run_tool(TOOLS["jscpd"], exe, argv, tmp_path, 30)
+        result = run_tool(TOOLS["jscpd"], argv, tmp_path, 30)
         assert result.status == "failed"
 
     def test_cleanup_error_does_not_lose_the_result(self, tmp_path: Path, monkeypatch) -> None:
@@ -353,6 +353,6 @@ class TestRunTool:
                 json.dump({"duplicates": []}, fh)
             sys.exit(0)
         """)
-        result = run_tool(TOOLS["jscpd"], exe, argv, tmp_path, 30)
+        result = run_tool(TOOLS["jscpd"], argv, tmp_path, 30)
         assert result.status == "ran"
         assert result.payload == {"duplicates": []}
