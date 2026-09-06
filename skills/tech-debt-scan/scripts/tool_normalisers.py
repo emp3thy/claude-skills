@@ -64,6 +64,26 @@ def rel_path(root: Path, raw: Any) -> str | None:
     is relativised rather than rejected. This is the one deliberate
     difference from ``merge_findings._normalise_path``, which rejects every
     absolute path because a scout must never cite one.
+
+    A colon in *any* segment is rejected, not just in the first. The first-
+    segment rule existed to reject a Windows drive letter, and a legitimate
+    Windows absolute path under ``root`` never reaches it because the
+    relativisation above has already removed the drive prefix. What the
+    narrower rule let through was a pseudo-path: jscpd names a code block
+    embedded in a document ``<path>.md:<format>``, and 1,879 of 3,267 signals
+    from a scan of this repository -- 57% -- cited such a path, which no
+    consumer can open. The chosen rule is "reject what cannot be a real file"
+    rather than "check the file exists", because this module reads nothing
+    from disk: every normaliser stays testable from a captured payload, and a
+    path that is valid today can be deleted tomorrow without the signal
+    becoming retrospectively malformed.
+
+    One known consequence, recorded here for phase 4b rather than papered
+    over: osv-scanner reports a docker image or a git remote in
+    ``results[].source.path``, and those carry colons. They are dropped by
+    this rule, which is correct for a field that is supposed to name a file
+    on disk -- but when 4b consumes osv-scanner's output, a non-file source
+    needs its own labelled route rather than a widened path rule here.
     """
     if not isinstance(raw, str) or not raw.strip():
         return None
@@ -75,7 +95,8 @@ def rel_path(root: Path, raw: Any) -> str | None:
         text = text[2:]
     if not text:
         return None
-    if text.startswith("/") or ".." in text.split("/") or ":" in text.split("/")[0]:
+    segments = text.split("/")
+    if text.startswith("/") or ".." in segments or any(":" in part for part in segments):
         return None
     return text
 

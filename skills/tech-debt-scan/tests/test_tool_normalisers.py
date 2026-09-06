@@ -50,6 +50,28 @@ class TestRelPath:
         assert rel_path(Path("C:/repo"), "   ") is None
         assert rel_path(Path("C:/repo"), None) is None  # type: ignore[arg-type]
 
+    def test_a_jscpd_pseudo_path_is_rejected(self) -> None:
+        """jscpd names a code block embedded in a document
+        ``<path>.md:<format>``. Those passed the old first-segment-only colon
+        check and became the ``file`` of 57% of the signals from a scan of
+        this repository -- a path no consumer can open."""
+        from tool_normalisers import rel_path
+
+        assert rel_path(Path("C:/repo"), "docs/plans/phase-4a.md:markdown") is None
+        assert rel_path(Path("C:/repo"), "task-1-brief.md:bash") is None
+
+    def test_a_legitimate_windows_absolute_path_still_survives(self) -> None:
+        """Rejecting a colon in every segment must not cost the drive-letter
+        case the relativiser exists for: an absolute path under root has its
+        drive prefix removed before the colon rule is reached, so it is kept,
+        while an absolute path outside root is still rejected."""
+        from tool_normalisers import rel_path
+
+        root = Path("C:/repo")
+        assert rel_path(root, "C:\\repo\\src\\pay\\refund.py") == "src/pay/refund.py"
+        assert rel_path(root, "C:\\repo\\src\\a b\\c-d.py") == "src/a b/c-d.py"
+        assert rel_path(root, "D:\\other\\a.py") is None
+
     @pytest.mark.parametrize(
         "raw", ["src/a.py", "src\\a.py", "./src/a.py", "../outside.py", "  ", "/abs/a.py"]
     )
@@ -59,12 +81,30 @@ class TestRelPath:
         merge_findings._normalise_path rejects absolute paths outright because a
         scout must never cite one. The probe must accept an absolute path a tool
         emitted and turn it into a relative one, so the two differ deliberately on
-        exactly that input class and nowhere else.
+        that input class -- and, since the whole-branch review, on one more:
+        see the divergence test below.
         """
         from merge_findings import _normalise_path
         from tool_normalisers import rel_path
 
         assert rel_path(Path("C:/repo"), raw) == _normalise_path(raw)
+
+    def test_the_colon_rule_is_stricter_than_merge_findings_deliberately(self) -> None:
+        """Documents the second deliberate divergence rather than hiding it.
+
+        ``merge_findings._normalise_path`` still carries the first-segment-only
+        colon rule, so it accepts ``docs/x.md:markdown``. That is a scout-facing
+        cleaner in phase 2 with its own goldens, and no scout emits a jscpd
+        pseudo-path, so it is left alone here; the probe's rule is tightened
+        because a real installed tool emits those paths in volume. If phase 5
+        ever unifies the two, this test is the record of why they differ.
+        """
+        from merge_findings import _normalise_path
+        from tool_normalisers import rel_path
+
+        raw = "docs/x.md:markdown"
+        assert _normalise_path(raw) == raw
+        assert rel_path(Path("C:/repo"), raw) is None
 
 
 class TestNormaliseRuff:
