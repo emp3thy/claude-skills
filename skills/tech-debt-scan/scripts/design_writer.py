@@ -526,8 +526,18 @@ def notes_by_fingerprint(inputs: RenderInputs) -> dict[str, dict[str, Any]]:
     return result
 
 
-def _finding_section(inputs: RenderInputs, row: Row, *, compact: bool = False) -> list[str]:
-    """One H2 finding section. ``compact`` stops after Evidence (below the cut)."""
+def _finding_section(
+    inputs: RenderInputs,
+    row: Row,
+    notes: dict[str, dict[str, Any]],
+    *,
+    compact: bool = False,
+) -> list[str]:
+    """One H2 finding section. ``compact`` stops after Evidence (below the cut).
+
+    ``notes`` is ``notes_by_fingerprint(inputs)``, computed once by the caller
+    (``render_design``) and passed down rather than recomputed per finding.
+    """
     finding = row.finding
     lines = [
         "",
@@ -549,7 +559,7 @@ def _finding_section(inputs: RenderInputs, row: Row, *, compact: bool = False) -
     if compact:
         return lines
     lines += ["", "### Signals", "", *_signal_lines(finding)]
-    note = notes_by_fingerprint(inputs).get(str(finding.get("fingerprint")))
+    note = notes.get(str(finding.get("fingerprint")))
     if note is None:
         lines += ["", "### Remediation", "", NOTE_PLACEHOLDER]
         lines += ["", "### Acceptance criteria", "", NOTE_PLACEHOLDER]
@@ -560,13 +570,15 @@ def _finding_section(inputs: RenderInputs, row: Row, *, compact: bool = False) -
     return lines
 
 
-def _top_section(inputs: RenderInputs, rows: list[Row]) -> list[str]:
+def _top_section(
+    inputs: RenderInputs, rows: list[Row], notes: dict[str, dict[str, Any]]
+) -> list[str]:
     """``# Top <count>`` and one full finding section per top-N fingerprint."""
     top_n = {str(fp) for fp in inputs.ranked.get("top_n") or []}
     selected = [row for row in rows if str(row.finding.get("fingerprint")) in top_n]
     lines = ["", f"# Top {len(selected)}"]
     for row in selected:
-        lines += _finding_section(inputs, row)
+        lines += _finding_section(inputs, row, notes)
     return lines
 
 
@@ -634,14 +646,18 @@ def _primary_location(finding: dict[str, Any]) -> str:
     return NO_FILE
 
 
-def _below_the_cut(inputs: RenderInputs, rows: list[Row], name: str) -> list[str]:
+def _below_the_cut(
+    inputs: RenderInputs, rows: list[Row], name: str, notes: dict[str, dict[str, Any]]
+) -> list[str]:
     """``# Below the cut``: a compact H2 per tier A/B finding outside the top N.
 
     The anchor is the same as a top-N finding's, so the user can approve one of
     these straight from the document; only the Signals and note sections are
     dropped, because those are the expensive parts the note agent fills in.
     Built here rather than through ``_section`` because ``_finding_section``
-    supplies its own leading blank line.
+    supplies its own leading blank line. ``notes`` is unused in ``compact``
+    mode (there is no Remediation/Acceptance criteria to fill in here) but is
+    threaded through anyway to keep ``_finding_section``'s signature uniform.
     """
     top_n = {str(fp) for fp in inputs.ranked.get("top_n") or []}
     selected = [
@@ -654,7 +670,7 @@ def _below_the_cut(inputs: RenderInputs, rows: list[Row], name: str) -> list[str
         return _section(name, [])
     lines = ["", f"# {name}"]
     for row in selected:
-        lines += _finding_section(inputs, row, compact=True)
+        lines += _finding_section(inputs, row, notes, compact=True)
     return lines
 
 
@@ -747,14 +763,17 @@ def _not_assessed(inputs: RenderInputs) -> list[str]:
 def render_design(inputs: RenderInputs, scan_date: str) -> str:
     """Render the whole ``design.md`` as an LF-only string ending in one newline."""
     rows = _rows(inputs)
+    # Computed once here rather than once per top-N/below-the-cut finding inside
+    # _finding_section, which recomputed the same top-N notes dict on every call.
+    notes = notes_by_fingerprint(inputs)
     # SECTION_ORDER is the single source of the six H1 names; unpacking it here
     # means a section added to that tuple fails loudly instead of going unwritten.
     below, tier_c, rejected, fine, questions, not_assessed = SECTION_ORDER[1:]
     parts: list[str] = []
     parts += _frontmatter(inputs, scan_date)
     parts += _header(inputs, scan_date)
-    parts += _top_section(inputs, rows)
-    parts += _below_the_cut(inputs, rows, below)
+    parts += _top_section(inputs, rows, notes)
+    parts += _below_the_cut(inputs, rows, below, notes)
     parts += _section(tier_c, _tier_c_table(rows))
     parts += _section(rejected, _considered_and_rejected(rows))
     parts += _section(fine, _looks_bad_but_fine(inputs, rows))

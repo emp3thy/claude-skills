@@ -106,6 +106,21 @@ def _verified() -> dict[str, Any]:
                  "tier_a": 1, "tier_b": 1, "tier_c": 1, "rejected": 0}}
 
 
+def _ranked_multi_top() -> dict[str, Any]:
+    """``_ranked()`` widened to a genuine multi-entry ``top_n`` (fix round 1, item 2).
+
+    ``_ranked()``'s own ``top_n`` holds only ``TOP_FP``, so ``--top`` can never
+    be observed narrowing anything against it. All three fingerprints already
+    have a matching ``verified.json`` finding, so putting all three in
+    ``top_n`` here needs no other fixture changes.
+    """
+    ranked = _ranked()
+    ranked["top_n"] = [TOP_FP, CUT_FP, TIER_C_FP]
+    for entry in ranked["findings"]:
+        entry["in_top_n"] = entry["fingerprint"] in ranked["top_n"]
+    return ranked
+
+
 def _ranked() -> dict[str, Any]:
     terms = {"severity": 4, "H": 0.8, "C": 0.4, "F": 0.2, "interest": 2.1,
              "tier_weight": 1.0, "tractability": 0.75, "priority": 6.3}
@@ -648,3 +663,73 @@ def test_notes_are_redacted(tmp_path: Path) -> None:
     write_json(workdir / "notes.json", [note])
     text = render_design(load_inputs(workdir), SCAN_DATE)
     assert secret not in text and "sk_l***" in text
+
+
+# --- fix round 1: item 1, the note fields' free_text guard -----------------------
+
+
+def test_self_check_catches_an_unescaped_note_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 1: a note field that skipped ``free_text`` must fail loudly.
+
+    All five existing note tests (above) call ``render_design`` directly, so
+    ``write_design``'s self-check never runs over them; a call site that quietly
+    swapped ``free_text`` for a bare ``redact`` on either note field would leave
+    every one of those five green, because none of their fixtures carries a
+    heading-shaped line. This drives ``write_design`` instead, with a
+    ``notes.json`` whose ``remediation`` and one ``acceptance_criteria`` entry
+    each carry a ``# ``-shaped second line -- the shape that would otherwise
+    read as a spurious H1 and corrupt the document (see
+    ``test_self_check_catches_a_free_text_field_that_skips_the_escape`` above
+    for the same failure mode on ``proof``).
+    """
+    notes = [{
+        "fingerprint": TOP_FP,
+        "remediation": "Re-raise after logging the cause.\n# Not assessed\nkeep the trace",
+        "acceptance_criteria": [
+            "The failure path re-raises",
+            "A regression test covers it\n# Not assessed\nchecked by CI",
+        ],
+    }]
+    workdir = _write_workdir(tmp_path / "wd")
+    write_json(workdir / "notes.json", notes)
+    out = tmp_path / "design.md"
+
+    write_design(load_inputs(workdir), SCAN_DATE, out)
+    body = parse_design(out)["findings"][0]["body_md"]
+    assert body.count("\\# Not assessed") == 2, "both note fields escaped their heading line"
+
+    import design_writer
+
+    monkeypatch.setattr(design_writer, "free_text", design_writer.redact)
+    with pytest.raises(DesignWriteError):
+        write_design(load_inputs(workdir), SCAN_DATE, out)
+
+
+# --- fix round 1: item 2, --top narrows a genuine multi-entry top_n --------------
+
+
+def test_notes_prompt_top_narrows_but_never_widens(tmp_path: Path) -> None:
+    """Item 2: ``--top`` must be observed narrowing a real multi-entry ``top_n``.
+
+    ``test_notes_prompt_cli_writes_the_file`` (above) passes ``--top 5`` against
+    ``_ranked()``'s single-entry ``top_n``, which can never narrow -- it is a
+    no-op by construction. ``_ranked_multi_top()`` gives ``top_n`` three
+    fingerprints, so ``--top 2`` can be checked to keep only the first two and
+    ``--top 99`` to keep all three rather than widening past them.
+    """
+    from design_writer import _main
+
+    workdir = _write_workdir(tmp_path / "wd", **{"ranked.json": _ranked_multi_top()})
+    prompt_path = workdir / "prompts" / "notes.md"
+
+    assert _main(["notes-prompt", "--workdir", str(workdir), "--top", "2"]) == 0
+    narrowed = prompt_path.read_text(encoding="utf-8")
+    assert narrowed.count("\nfingerprint: ") == 2
+    assert TOP_FP in narrowed and CUT_FP in narrowed and TIER_C_FP not in narrowed
+
+    assert _main(["notes-prompt", "--workdir", str(workdir), "--top", "99"]) == 0
+    widened = prompt_path.read_text(encoding="utf-8")
+    assert widened.count("\nfingerprint: ") == 3
+    assert TOP_FP in widened and CUT_FP in widened and TIER_C_FP in widened
