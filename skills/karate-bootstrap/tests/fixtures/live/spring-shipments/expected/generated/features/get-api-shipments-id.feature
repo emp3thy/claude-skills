@@ -4,6 +4,7 @@ Feature: GET /api/shipments/{id}
 
 Background:
   * def uid = java.util.UUID.randomUUID() + ''
+  * Stubs.reset()
   * call read('classpath:common/reset.feature') { stubs: ['classpath:stubs/pricing/default.json'] }
   * def base = read('classpath:seed/examples/post-api-shipments.json')
   * set base.reference = 'REF-' + uid
