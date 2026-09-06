@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import time
 import uuid
@@ -20,11 +21,8 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = [
-    pytest.mark.containers,
-    pytest.mark.skipif(os.environ.get("KB_CONTAINERS") != "1",
-                       reason="set KB_CONTAINERS=1 to run containers"),
-]
+CONTAINERS_SKIP = pytest.mark.skipif(os.environ.get("KB_CONTAINERS") != "1",
+                                     reason="set KB_CONTAINERS=1 to run containers")
 
 ARTEMIS_IMAGE = "apache/activemq-artemis:2.44.0-alpine"
 POSTGRES_IMAGE = "postgres:16-alpine"
@@ -33,16 +31,46 @@ QPID_PROTON = "python-qpid-proton==0.40.0"
 PROTON_BUILD_DEPS = "gcc cmake swig libssl-dev python3-dev"
 
 
+def resolve_docker_binary() -> str:
+    """The container CLI these tests invoke.
+
+    ``KB_DOCKER`` from the environment wins outright; otherwise ``docker`` if it is on PATH,
+    else ``podman`` if that is on PATH, else ``docker`` regardless so a missing-binary failure
+    still names the binary a reader would expect. Testcontainers itself honours ``DOCKER_HOST``
+    on either engine; this resolver covers the harness's own ``docker build``/``docker run``
+    calls, which otherwise always shelled out to the literal ``docker`` binary.
+    """
+    override = os.environ.get("KB_DOCKER")
+    if override:
+        return override
+    if shutil.which("docker"):
+        return "docker"
+    if shutil.which("podman"):
+        return "podman"
+    return "docker"
+
+
+DOCKER_BIN = resolve_docker_binary()
+
+
 def docker(*args: str, check: bool = True,
            timeout: int = 600) -> subprocess.CompletedProcess[str]:
-    """Run the docker CLI, capturing output. Raises on a non-zero exit when ``check``."""
-    proc = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
+    """Run the resolved container CLI, capturing output. Raises on a non-zero exit when
+    ``check``."""
+    proc = subprocess.run([DOCKER_BIN, *args], capture_output=True, text=True, timeout=timeout)
     if check and proc.returncode != 0:
         raise AssertionError(
-            f"docker {' '.join(args)} exited {proc.returncode}\n"
+            f"{DOCKER_BIN} {' '.join(args)} exited {proc.returncode}\n"
             f"stdout:\n{proc.stdout[-4000:]}\nstderr:\n{proc.stderr[-4000:]}"
         )
     return proc
+
+
+def test_resolve_docker_binary_honours_kb_docker_override(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runs in the default suite, unlike the rest of this module: no container is started."""
+    monkeypatch.setenv("KB_DOCKER", "kb-docker-sentinel")
+    assert resolve_docker_binary() == "kb-docker-sentinel"
 
 
 @pytest.fixture()
@@ -64,6 +92,8 @@ def _stop(name: str) -> None:
     docker("rm", "-f", name, check=False)
 
 
+@pytest.mark.containers
+@CONTAINERS_SKIP
 def test_flyway_wrapper_migrates_from_pg_environment(tmp_path: Path, network: str) -> None:
     """The db-manager shape every fixture uses: PG* in, a migrated schema out."""
     build = tmp_path / "db-manager"
@@ -101,6 +131,8 @@ def test_flyway_wrapper_migrates_from_pg_environment(tmp_path: Path, network: st
         docker("image", "rm", "-f", tag, check=False)
 
 
+@pytest.mark.containers
+@CONTAINERS_SKIP
 def test_artemis_creates_the_destinations_the_harness_asks_for(network: str) -> None:
     """``artemisExtraArgs`` builds ``--queues a,b --addresses c``; both must exist."""
     name = f"kb-spike-mq-{uuid.uuid4().hex[:8]}"
@@ -126,6 +158,8 @@ def test_artemis_creates_the_destinations_the_harness_asks_for(network: str) -> 
         _stop(name)
 
 
+@pytest.mark.containers
+@CONTAINERS_SKIP
 def test_qpid_proton_builds_from_source_on_slim_python() -> None:
     """``fastapi-orders`` consumes AMQP 1.0 with proton; no manylinux wheel exists for it, so
     Task 5's fixture image must install build tools and compile the C core from source."""

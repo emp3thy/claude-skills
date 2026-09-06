@@ -17,7 +17,7 @@ testpaths = ["skills/tech-debt-scan/tests", "skills/karate-bootstrap/tests"]
 markers = [
   "live: hits a real LLM (off by default)",
   "maven: compiles and smoke-runs the Karate template with Maven (needs JDK 17+; opt in with KB_MAVEN=1)",
-  "containers: starts real containers (needs Docker or Podman; opt in with KB_CONTAINERS=1)",
+  "containers: starts real containers (needs Docker or Podman; set KB_DOCKER to override the binary the harness invokes; opt in with KB_CONTAINERS=1)",
 ]
 addopts = "-m 'not live and not maven and not containers'"
 # The corpus fixture trees legitimately contain files named test_*.py (they
