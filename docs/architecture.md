@@ -15,10 +15,11 @@ they are the source of truth, and the test suite pins their behaviour.
   is a union of idioms across languages; a test greps the scripts for any
   branch on a language name. Scout prompts and synthesis are language-neutral.
 - **LLM does the judgement, scripts do the determinism.** The model dispatches
-  scout agents and picks the top 5. File walking, prompt rendering, markdown
+  scout agents and picks the top N (5 by default; in the v2 chain it also gives
+  the per-candidate verdicts). File walking, prompt rendering, markdown
   rendering, parsing, validation, and bundle writing are all pure Python with
   pinned commands and pinned output files — no improvisation.
-- **Human in the loop.** Phase 1 never applies a fix. A single `design.md`
+- **Human in the loop.** Nothing is fixed automatically. A single `design.md`
   round-trips through human review: scan writes it, a human edits `status:`
   fields, promote reads it back.
 - **Direct-path invocable scripts.** Every script runs as
@@ -33,7 +34,7 @@ they are the source of truth, and the test suite pins their behaviour.
 /tech-debt-scan <repo>                         /tech-debt-promote
 ─────────────────────────                      ──────────────────
 inventory.py        → inventory.json           (human edits design.md:
-scouts (Agent x6)   → [findings]                pending → approved/rejected)
+scouts (Agent x8)   → [findings]                pending → approved/rejected)
   (Claude writes)   → raw-findings.json
 build_synthesis_    → synthesis-prompt.txt     design_parser.py → (inspect)
   prompt.py                                     promote.py       → chore-<slug>-<date>/
@@ -48,7 +49,7 @@ All intermediate artefacts default to `.tech-debt/` under the scanned repo (the
 directory is gitignored and is itself in the inventory ignore list). Bundles
 default to `./tech-debt-pbis`.
 
-## Deterministic signals (v2 phase 1)
+## Deterministic signals (v2 phases 1 and 2)
 
 Phases 1 and 2 of the v2 design (`docs/superpowers/specs/2026-09-04-tech-debt-scan-v2-design.md`)
 add the scripts below, which run by hand until phase 3 wires them into the workflow:
@@ -60,10 +61,11 @@ add the scripts below, which run by hand until phase 3 wires them into the workf
 | `rules.py <repo> --workdir .tech-debt` | `inventory.json`, the artefacts | `rule-findings.json` | tier-A findings for CI jobs, Dockerfiles and compose images, Kubernetes manifests, manifests without lockfiles, release cadence and stale environment branches, and ownership (knowledge islands, inactive top authors, CODEOWNERS coverage); an island also needs `churn >= island_min_churn` (2) in the window; a CODEOWNERS the inventory skipped or that sits under a disabled tree is not consulted; migration leads for `setup.py` beside `pyproject.toml` and `tslint` beside `eslint`; an artefact under a tests, vendored or generated tree is skipped, an artefact the inventory marked `skipped_large` is never read, and every finding carries the artefact's `path_class` in `signals` |
 | `plan_scan.py --workdir .tech-debt [--families <set>] [--top N]` | `inventory.json`, `coupling.json`, `patterns.json`, `rule-findings.json` | `scan-plan.json`, `prompts/scout-<family>.md` | the adaptive rule (a family runs only when it has at least one lead after path-class disables), the 40-lead cap with hotspot-band files first, the fourteen family blocks; `chunked` is always false until phase 4 |
 | `merge_findings.py --workdir .tech-debt` | `scan-plan.json`, the `scouts/<family>.json` it names, `rule-findings.json`, `inventory.json`, `patterns.json`, `.tech-debt.yaml` | `candidates.json` | one verified candidate list: malformed scout items are dropped with a reason and counted, and paths are normalised to root-relative forward slashes; every quote is re-found on disk (cited range first, then anywhere, whitespace-insensitive) so the recorded range is the real one, and a finding with no verified evidence becomes an `open_questions` entry with reason `quote not found` instead of a candidate; scout candidates of the same family whose primary evidence sits in the same file within 10 lines cluster into one (union of evidence, maximum severity, minimum effort, title and note from the highest-severity member, the lowest fingerprint keeping the identity); `confirmed_by` collects `scout:<family>` plus every pattern lead of the candidate's own family and every SATD marker and rule finding, each within 10 lines, `coupling` and `hotspot` from the primary file's signals, and `signal:no-mapped-tests` for `test-gaps`; suppressions match by fingerprint with an optional `until` expiry and path-class disables drop a family the config switches off for that class, both counted in `stats`; every title, note and quote is redacted before writing, and rule findings are appended unchanged after the scout candidates as tier A |
-| `verify_prompts.py --workdir .tech-debt [--top N]` | `candidates.json`, `inventory.json`, `coupling.json`, `.tech-debt.yaml` | `verify-plan.json`, `prompts/verify-<nn>.md` | the budget rule of spec 4.8: every candidate with `tier: null` is ranked by provisional priority (the 4.9 formula at tier B, with `H`, `C` and `F` normalised against the candidate pool's own maxima, so a large raw signal such as a `coupling_degree` of 12 cannot outweigh severity in this provisional order), ties broken on fingerprint ascending; the first `max(top_multiple x N, min_candidates)` (3N or 30, whichever is larger) are selected, then every candidate at or above `always_min_severity` (5) and every candidate in `always_families` (`security`) is added, and the selection is truncated to `max_candidates` (72) in that same order; tier A candidates (rules and tool facts) are never sent to a verifier and appear in neither list, and every other unselected candidate is listed under `unverified`; batches of `batch_size` (6) sorted by primary file then fingerprint keep one file's candidates together; each prompt carries the read-only rule and an allowance of three further files the verifier may open and must name in `opened`, then per candidate its fingerprint, title, family, severity, effort, note, `confirmed_by`, the deterministic signals, every cited span read from disk with `context_lines` (30) lines of context either side and 1-based line numbers (the cited lines marked `>`), the change-coupled partners of the primary file from `coupling.pairs`, approximate referrers from the stem graph (`not computed` when the graph raises, so a graph failure never aborts a verification), the family's `verifier_questions`, the family block's own traps (the same list the scout prompt carries, under `known non-debt shapes for this family`) and then the `traps` from config whose `family` matches and whose `path_glob` fnmatches the primary file; every line of repository text passes through `redact`, and the prompt shares no text with the scout prompts beyond the read-only rule |
+| `verify_prompts.py --workdir .tech-debt [--top N]` | `candidates.json`, `inventory.json`, `coupling.json`, `.tech-debt.yaml` | `verify-plan.json`, `prompts/verify-<nn>.md` | the budget rule of spec 4.8: every candidate with `tier: null` is ranked by provisional priority (the 4.9 formula at tier B, with `H`, `C` and `F` normalised against the candidate pool's own maxima, so a large raw signal such as a `coupling_degree` of 12 cannot outweigh severity in this provisional order), ties broken on fingerprint ascending; the first `max(top_multiple x N, min_candidates)` (3N or 30, whichever is larger) are selected, then every candidate at or above `always_min_severity` (5) and every candidate in `always_families` (`security`) is added, and the selection is truncated to `max_candidates` (72) in that same order; tier A candidates (rules and tool facts) are never sent to a verifier and appear in neither list, and every other unselected candidate is listed under `unverified`; batches of `batch_size` (6) sorted by primary file then fingerprint keep one file's candidates together; each prompt carries the read-only rule and an allowance of three further files the verifier may open and must name in `opened`, then per candidate its fingerprint, title, family, severity, effort, note, `confirmed_by`, the deterministic signals, every cited span read from disk with `context_lines` (30) lines of context either side and 1-based line numbers (the cited lines marked `>`), the change-coupled partners of the primary file from `coupling.pairs`, approximate referrers from the stem graph (`not computed` when the graph raises, so a graph failure never aborts a verification), the family's `verifier_questions`, the family block's own traps (the same list the scout prompt carries, under `known non-debt shapes for this family`) and then the `traps` from config whose `family` matches and whose `path_glob` fnmatches the primary file; every line of repository text passes through `redact`, and the prompt shares no text with the scout prompts beyond the read-only rule and that family trap list, restated on purpose so the verifier can match a known non-debt shape |
 | `apply_verdicts.py --workdir .tech-debt` | `candidates.json`, `verify-plan.json`, the `verdicts/verify-<nn>.json` files `verify-plan.json`'s batches name | `verified.json` | the tier table of spec 4.8: a candidate already `tier: "A"` (rule findings, tool facts) stays A with no verifier; `confirm` with every cited quote `quote_verified` and at least one `confirmed_by` entry beyond the scout's own `scout:<family>` (a `pattern:`, `rule:`, `tool:`, `signal:` prefix, `satd`, `coupling`, `hotspot`, or a second `scout:` family counts as corroboration) earns A, otherwise B; `downgrade` or `refer` earns C; `reject` keeps `tier: null` with `verified: true` and the verdict's `proof` for the report's considered-and-rejected section; a candidate that was never selected, or was selected but no batch returned a verdict for it, is C with `verdict: "unverified"` and `verified: false`; the 2.3 family caps then weaken a confirmed tier (never strengthen it) — duplication and architecture (unless `tool:` or `coupling`), god-classes TD-20 (unless `coupling`), test-gaps (unless `signal:no-mapped-tests`), test-quality (severity also capped at 3), dependency-debt, security and migration (unless `coupling`) cap at B; dead-code caps at C unless churn and fan-in are both 0 and `path_class` is `source` (then B) or a `tool:` is present (then no cap); doc-drift and pipeline-infra scout candidates cap at B unconditionally; every other family is uncapped; where a verdict exists its `severity` (1-5) and validated `effort` replace the scout's, and its `checked`, `opened`, `proof` and `trap_matched` are copied onto the finding; a verdict whose `fingerprint` matches no candidate is counted `unknown_fingerprint` and ignored, and a batch whose output file is missing on disk prints a warning and leaves its candidates `unverified` rather than failing the run; exits 2 (with an `error:` line to stderr) when `candidates.json` or `verify-plan.json` is missing or unreadable/malformed |
 | `rank.py --workdir .tech-debt [--preset balanced\|hotspot-first\|architecture\|quick-wins] [--top N]` | `verified.json`, `inventory.json`, `.tech-debt.yaml` | `ranked.json` | spec 4.9's priority formula: `priority = severity x interest x tier_weight x tractability`, `interest = 1 + wH*H + wC*C + wF*F` with `H`, `C` and `F` the finding's `hotspot_score`, `coupling_degree` and (`0` when the primary file's `fan_in_mode` is `anywhere`) `fan_in_approx`, each normalised against `repo_maxima(inventory)`; `tier_weight` is A 1.0, B 0.7, C 0.35; `tractability` is S 1.0, M 0.75, L 0.5 (`quick-wins`: 1.0, 0.5, 0.2); the four presets (`balanced`, `hotspot-first`, `architecture`, `quick-wins`) fix their own weights and tractability by name, `--preset` overrides `ranking.preset`, and only `balanced` reads `ranking.weights`/`ranking.tractability` from config; only tier A and B findings are eligible for the top N, and under `quick-wins` a duplication finding without `tool:` or `coupling` corroboration and every ownership finding are excluded from it too (still emitted with `in_top_n: false`); findings are walked in priority-descending, fingerprint-ascending order (the tie-break) filling the top N while each family holds fewer than `ceil(spread_cap x N)` (spread_cap 0.5) chosen entries, a finding a family cap displaces is marked `spread_capped: true` and keeps its priority-ordered `rank` (numbered over every finding, top or not); `formula_version` (1), every term, the preset name, weights and tractability are recorded on the document so any priority can be recomputed; the output is byte-identical across runs on identical inputs; exits 2 (with an `error:` line to stderr) when `verified.json` or `inventory.json` is missing, unreadable, malformed, of the wrong top-level shape, or `--preset` names an unknown preset |
-| `evaluate.py --planted <planted.json> --workdir <dir>` | `findings.json` or `verified.json`, `ranked.json` | stdout | per-family precision, recall and decoy hits by tier, tier A precision, and decoys in tier A or the top N, against a fixture's `planted.json` |
+| `evaluate.py --planted <planted.json> [--workdir <dir>] [--top N] [--json]` | `findings.json` (preferred) or `verified.json`, and `ranked.json` when present | stdout: the table, or the JSON report with `--json` | per-family precision, recall and decoy hits by tier, tier A precision, and decoys in tier A or the top N, against a fixture's `planted.json` |
+| `live_run.py <fixture-or-repo> [--workdir <dir>] [--families <set>] [--top N] [--preset <name>] [--churn-months N] [--model <alias>] [--max-budget-usd <n>] [--claude <path>] [--timeout <seconds>] [--log <path>] [--skip-agents]` | a corpus fixture (replayed) or a repository, then each stage's own inputs | every file the chain writes plus `evaluation.json`, and one row appended to `docs/evaluation-log.md` | the whole chain with real agents: the signal scripts, `plan_scan.py`, one `claude -p` call per scout prompt, `merge_findings.py`, `verify_prompts.py`, one call per verifier batch, `apply_verdicts.py`, `rank.py` and, when a `planted.json` is present, `evaluate.py`; manual only, never CI — the [Live harness](#live-harness) section below has the argv, the retry rule and the exit codes |
 
 `config.py` loads `.tech-debt.yaml` with the spec defaults; `git_history.py`
 and `reference_graph.py` hold the git pass and the stem graph that
@@ -118,40 +120,57 @@ an agent call fails after its retry or `--skip-agents` finds no cached reply.
 
 ## Scout categories
 
-Six language-agnostic debt categories, defined in `scripts/categories.py`
-(`CATEGORIES` + `get_prompt(name)`). One scout agent is dispatched per category:
+Eight language-agnostic debt categories, defined in `scripts/categories.py`
+(`CATEGORIES` + `get_prompt(name)`). One scout agent is dispatched per category;
+`CORE_CATEGORIES` (`god-modules`, `duplication`, `test-gaps`, `half-finished`)
+is the recommended quick-scan subset:
 
 | Category | Looks for |
 | --- | --- |
-| `god-modules` | Oversized files/classes/functions doing too much |
-| `duplication` | Copy-pasted or near-duplicate logic |
-| `dead-code` | Unreferenced functions, modules, exports |
-| `test-gaps` | Critical paths with no or thin test coverage |
-| `doc-drift` | Docs/comments that no longer match the code |
-| `half-finished` | TODO/FIXME, stubbed work, abandoned branches |
+| `god-modules` | Single files or units carrying far too much responsibility |
+| `duplication` | The same logic copy-pasted in multiple places |
+| `dead-code` | Code that is never reached or never used |
+| `test-gaps` | Important behaviour with no automated coverage |
+| `doc-drift` | Documentation that no longer matches the code |
+| `half-finished` | Incomplete or abandoned changes, self-admitted debt |
+| `dependency-debt` | Third-party and platform liabilities in manifests and lockfiles |
+| `architecture` | Structural problems above the single-file level |
 
-Each scout returns a JSON array of `ScoutFinding` objects:
+These eight are the v1 categories `/tech-debt-scan` still dispatches. The v2
+chain above uses a different, larger set: the fourteen family blocks in
+`categories.FAMILY_BLOCKS` (`FAMILIES`), which `plan_scan.py` renders into scout
+prompts and `verify_prompts.py` reads for each family's `verifier_questions` and
+traps. Phase 3 cuts SKILL.md over to the families and retires the eight.
+
+Each v1 scout returns a JSON array of `ScoutFinding` objects:
 
 ```json
 { "title": "...", "severity": 1, "category": "dead-code",
+  "debt_type": "code", "effort": "M", "confidence": "high",
   "evidence": [{ "file": "...", "line": 1, "note": "..." }],
   "suggested_fix": "..." }
 ```
 
-`title` ≤ 80 chars, `suggested_fix` ≤ 500 chars, `severity` an integer 1–5.
+`title` ≤ 80 chars, `suggested_fix` ≤ 500 chars, `severity` an integer 1–5,
+`debt_type` one of `validation.VALID_DEBT_TYPES`, `effort` `S`/`M`/`L` and
+`confidence` `low`/`medium`/`high`.
 
 ## Synthesis
 
-`build_synthesis_prompt.py` reads `raw-findings.json`, sorts findings by
-`severity` descending, caps at the top 30 (logging how many were truncated to
-stderr), and renders a picker prompt that asks the synthesis Agent to choose the
-single most important finding per category and return exactly five.
+`build_synthesis_prompt.py <raw-findings.json> [--out <path>] [--top N]
+[--inventory <inventory.json>]` reads `raw-findings.json`, sorts findings by a
+composite priority score (severity x effort weight x confidence weight x hotspot
+boost, hotspots read from `--inventory` when given) descending, caps at
+`MAX_FINDINGS` (30, logging how many were truncated to stderr), and renders a
+picker prompt that asks the synthesis Agent to rank on impact, interest and
+tractability and return exactly `--top` findings (default 5).
 
 The Agent's response (`top5.json`) is validated by
 `build_synthesis_prompt.validate_synthesis_output`, which raises `SynthesisError`
-if the response is not valid JSON, does not contain a `top5` array of exactly 5
-items, is missing a required field, or carries a bad `slug` / out-of-range
-`severity` / unknown `category`.
+if the response is not valid JSON, does not contain a `top5` array of exactly
+`expected_count` items (default 5), is missing a required field, or carries a bad
+`slug` / out-of-range `severity` / unknown `category`; `debt_type`, `effort` and
+`confidence` are validated only when present.
 
 ## design.md format
 
@@ -175,9 +194,18 @@ platforms regardless of `core.autocrlf`.
 Shared validators live in `scripts/validation.py`:
 
 - **Status** (`validate_status`): one of `pending`, `approved`, `rejected`,
-  `promoted`.
+  `accepted`, `promoted`.
 - **Slug** (`validate_slug`): matches `^[a-z][a-z0-9-]{0,63}$` (starts with a
   lowercase letter, 1–64 chars total) and must not end with a hyphen.
+- **Debt type** (`validate_debt_type`): one of `code`, `design`, `architecture`,
+  `test`, `documentation`, `dependency`, `build`, `requirement`, `security`,
+  `infrastructure`, `knowledge-process`, `defect`.
+- **Effort** (`validate_effort`): `S`, `M` or `L`.
+- **Confidence** (`validate_confidence`): `low`, `medium` or `high`.
+- **Type id** (`validate_type_id`): `TD-01` to `TD-35`; checked only when present.
+- **Tier** (`validate_tier`): `A`, `B` or `C`.
+
+Every one raises `ValidationError` (a `ValueError`) naming the offending value.
 
 ## Promotion
 
@@ -221,5 +249,9 @@ succeeded bundles persist and their findings are still marked promoted).
 
 ## Scope
 
-Phase 1 (human-in-the-loop) only. Phase 2 — autonomously applying fixes without
-review — is deferred.
+Human in the loop throughout: nothing is fixed automatically. The v2 delivery
+phases run from phase 1 (deterministic signals) to phase 5 (baseline and
+evaluation). Phases 1 and 2 have landed, so the chain above runs by hand or
+through `live_run.py`, while `/tech-debt-scan` still follows the v1 steps until
+phase 3 cuts SKILL.md over. Autonomously applying fixes without review is a
+separate follow-on, deferred and out of scope.

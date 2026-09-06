@@ -5,9 +5,10 @@ dispatches read-only LLM scout agents per debt category, synthesises the top-5
 findings into a single `design.md`, and — after a human reviews and approves
 findings — emits ralph-friendly PBI bundles you can drop into a queue.
 
-Phase 1 is human-in-the-loop: nothing is fixed automatically. The LLM does only
-two things (dispatch scouts, pick the top 5); every other step is a deterministic
-pure-Python script with a pinned command and a pinned output file.
+Human in the loop: nothing is fixed automatically. The LLM does only the
+judgement calls (dispatch scouts, pick the top 5, and in the v2 chain give the
+per-candidate verdicts); every other step is a deterministic pure-Python script
+with a pinned command and a pinned output file.
 
 ## Install
 
@@ -46,8 +47,9 @@ Two commands, with a human review step in between.
    /tech-debt-scan <repo-path>
    ```
 
-   This inventories the repo, runs six scout agents, picks the top-5 debt items,
-   and writes `.tech-debt/design.md`.
+   This inventories the repo, runs eight scout agents (one per category in
+   `categories.CATEGORIES`), picks the top-5 debt items, and writes
+   `.tech-debt/design.md`.
 
 2. **Review** — open `.tech-debt/design.md`. Each finding has a `status:` field
    set to `pending`. Change it to `approved` to promote the finding, or
@@ -79,18 +81,23 @@ follows, including every pinned command and pre/post-condition.
 | `verify-plan.json` | `verify_prompts.py` | `{schema_version: 2, top, batch_size, selected[], unverified[], batches[{prompt, output, fingerprints[]}]}`; `selected` is every fingerprint sent for verification, in batch order, and `unverified` every `tier: null` candidate the budget rule left out; tier A candidates are in neither list; each batch names the prompt written at `prompts/verify-<nn>.md` (two digits from 01) and the `output` path `verdicts/verify-<nn>.json` the read-only verifier's reply must be stored at, a JSON array of `{fingerprint, verdict, proof, severity, effort, trap_matched, checked[], opened[]}` with `verdict` one of `confirm`, `downgrade`, `reject`, `refer` |
 | `verified.json` | `apply_verdicts.py` | `{schema_version: 2, findings[<candidate keys> + verdict, proof, checked, opened, trap_matched, verified], stats{selected, verdicts, unknown_fingerprint, missing_verdict, tier_a, tier_b, tier_c, rejected}}`; each finding is a candidate with `tier` overwritten by the earned tier (`A`/`B`/`C`/`null`, spec 4.8 plus the 2.3 family caps) and `verdict` one of `confirm`, `downgrade`, `reject`, `refer`, `rule` (tier-A candidates verified by construction) or `unverified` (not selected, or selected with no returned verdict; `verified: false`); a `reject` keeps `tier: null` with `verified: true` and its `proof` |
 | `ranked.json` | `rank.py` | `{schema_version: 2, formula_version: 1, preset, top, weights{wH, wC, wF}, tractability{S, M, L}, top_n[], findings[{fingerprint, rank, priority, terms{severity, H, C, F, interest, tier_weight, tractability, priority}, tier, in_top_n, spread_capped}]}`; `findings` is every finding ordered by priority descending then fingerprint ascending (the tie-break), `rank` numbering that order; `top_n` is the fingerprints, in that same order, of the findings that made the top `top` under the chosen `preset` (`balanced`, `hotspot-first`, `architecture` or `quick-wins`) — tier A and B only, minus (under `quick-wins`) uncorroborated duplication and every ownership finding, capped at `ceil(spread_cap x top)` per family with the excess marked `spread_capped: true`; byte-identical for identical inputs |
-| `raw-findings.json` | Claude (from scouts) | `[{title, severity, category, evidence, suggested_fix}]` |
-| `top5.json` | synthesis Agent | `{top5: [{slug, title, severity, category, reasoning, evidence, suggested_fix}]}` (exactly 5) |
+| `evaluation.json` | `live_run.py` (the `evaluate.py` report) | `{schema_version: 2, top, churn_months, families{<family>: {planted, found, recall, reported, precise, precision, decoy_hits{A, B, C}}}, planted[{id, family, found, tiers[], tier_met}], decoys[{id, family, hit_tiers[], in_top_n}], decoys_in_tier_a, decoys_in_top_n, tier_a{reported, precise, precision}, counts{reported, on_planted, on_decoys, unplanted}}`; written only when the target carries a `planted.json`, and the same report is printed as a table and condensed into the `docs/evaluation-log.md` row. A finding counts as `reported` at tier A or B; `tier_a.precision` counts tier A alone, which is the release bar, while the per-family `precision` spans A and B. `churn_months` is the window the run was scored under (null when the fixture records none) |
+| `raw-findings.json` | Claude (from scouts) | `[{title, severity, category, debt_type, effort, confidence, evidence[{file, line, note}], suggested_fix}]`; `title` at most 80 characters, `suggested_fix` at most 500, `severity` an integer 1-5, and `debt_type`, `effort` and `confidence` validated by `validation.py` when present |
+| `top5.json` | synthesis Agent | `{top5: [{slug, title, severity, category, reasoning, evidence, suggested_fix}]}`, exactly as many items as `build_synthesis_prompt.py --top` asked for (default 5); the key stays `top5` whatever the count |
 | `design.md` | `design_writer.py render` | frontmatter + one H2 section per finding, each with a `yaml` status anchor |
 | `chore-<slug>-<date>/` | `promote.py` | a PBI bundle: `PBI.md`, `PLAN.md`, `HISTORY.md` |
 
 All intermediate artefacts live under `.tech-debt/` in the scanned repo (gitignore
-it). The v2 signal scripts (`inventory.py --workdir`, `patterns.py`, `rules.py`,
-`evaluate.py`) run by hand for now; `/tech-debt-scan` still follows the v1 steps
-until phase 3. Every threshold they use comes from an optional `.tech-debt.yaml`
-at the repository root; `python scripts/config.py <repo>` prints the effective
-values. See [`docs/architecture.md`](docs/architecture.md) for the full design,
-the debt categories, and the validation rules.
+it). The v2 scripts run by hand for now, in this order: the signals
+(`inventory.py --workdir`, `patterns.py`, `rules.py`), then the chain
+(`plan_scan.py`, the scout agents, `merge_findings.py`, `verify_prompts.py`, the
+verifier agents, `apply_verdicts.py`, `rank.py`) and `evaluate.py`;
+`live_run.py` drives all of it end to end with real agents. `/tech-debt-scan`
+still follows the v1 steps until phase 3. Every threshold they use comes from an
+optional `.tech-debt.yaml` at the repository root; `python scripts/config.py
+<repo>` prints the effective values. See
+[`docs/architecture.md`](docs/architecture.md) for the full design, the debt
+categories, and the validation rules.
 
 ## Language support
 
@@ -113,9 +120,9 @@ than as code.
 
 ## Live evaluation
 
-`live_run.py` runs the whole scan chain against a corpus fixture with real
-Claude scouts and verifiers, scores the result against the fixture's planted
-debt and decoys, and appends a row to
+`live_run.py` runs the whole scan chain against a corpus fixture (or any
+repository path) with real Claude scouts and verifiers, scores the result
+against the fixture's planted debt and decoys, and appends a row to
 [`docs/evaluation-log.md`](docs/evaluation-log.md) — date, fixture, model,
 `churn_months` (the fixture's `planted.json` value when present, else
 `--churn-months`, else the config default; a conflicting `--churn-months` is
@@ -133,8 +140,20 @@ code path with a fake `claude` executable passed through `--claude`.
 
 ## Status
 
-Phase 1 (human-in-the-loop) only. Phase 2 ("mow the lawn" autonomy — apply fixes
-without review) is deferred and out of scope.
+Human in the loop throughout — nothing is fixed automatically.
+
+The v2 design ships in five phases. Phase 1 landed the deterministic signals
+(`config.py`, inventory v2 with `coupling.json`, `patterns.py`, `rules.py`,
+`evaluate.py`, the fixture corpus). Phase 2 lands the detect, verify and rank
+chain — `categories.py` v2 with its fourteen family blocks, `plan_scan.py`,
+`merge_findings.py`, `verify_prompts.py`, `apply_verdicts.py` and `rank.py` —
+runnable by hand or behind the `live_run.py` harness, with the goldens and the
+evaluation log that scores it; `/tech-debt-scan` still runs v1. Phase 3 rewrites
+the report and cuts SKILL.md over to the v2 chain; phases 4 and 5 add external
+tools and the baseline.
+
+"Mow the lawn" autonomy — applying fixes without review — is a separate
+follow-on, deferred and out of scope.
 
 ## References
 

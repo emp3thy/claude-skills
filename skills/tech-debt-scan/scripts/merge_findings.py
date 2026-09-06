@@ -1,9 +1,10 @@
 """Turn scout output and rule findings into one verified candidate list (spec 4.7).
 
 Reads ``scan-plan.json`` (which scout files to expect), ``scouts/<family>.json``,
-``rule-findings.json``, ``inventory.json``, ``coupling.json`` and
-``patterns.json`` from ``--workdir``, and ``.tech-debt.yaml`` from the
-repository root. Writes ``candidates.json``.
+``rule-findings.json``, ``inventory.json`` and ``patterns.json`` from
+``--workdir``, and ``.tech-debt.yaml`` from the repository root. Writes
+``candidates.json``. Coupling is not read here: ``coupling_degree`` reaches a
+candidate through the inventory signals ``evidence.signals_for`` attaches.
 
 Steps, in order: validate each scout item (malformed items are dropped and
 counted, with the reason string collected under

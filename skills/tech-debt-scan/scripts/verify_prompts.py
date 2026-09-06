@@ -15,7 +15,9 @@ candidates by primary file. Each prompt carries the cited spans with
 ``context_lines`` of context, the change-coupled files, approximate referrers,
 the family's verification questions, the family block's own traps and the
 repository's traps; every line of repository text is redacted. The verifier
-prompt shares no text with the scout prompts beyond the read-only rule.
+prompt shares no text with the scout prompts beyond the read-only rule and the
+family's trap list, restated here on purpose so the verifier can match a known
+non-debt shape and reject with ``trap_matched``.
 """
 from __future__ import annotations
 
