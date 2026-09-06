@@ -32,12 +32,13 @@ names.
 
 ## Java helpers
 
-Exposed by `karate-config.js` as `Db`, `Jms`, `Stubs`, `Jwt` (only when containers run) plus
-`appBaseUrl`, `mutate` and `skipContainers`. JavaScript maps pass to Java as `Map<String,
-Object>`; arrays as `List`. `Jms.await(dest, ms, { key: value })` matches on message body
-fields by string comparison and leaves other messages in the inbox in order.
-`Stubs.verify(method, urlPath, times)` counts journal entries; the four-argument form adds a
-body `contains` clause. Failures raise `AssertionError` with the expected and recorded counts.
+Exposed by `karate-config.js` as `mutate`, `checkError` and `skipContainers` unconditionally;
+`appBaseUrl`, `Db`, `Jms`, `Stubs` and `Jwt` only when containers start (not under
+`-Dkb.skipContainers=true`). JavaScript maps pass to Java as `Map<String, Object>`; arrays as
+`List`. `Jms.await(dest, ms, { key: value })` matches on message body fields by string
+comparison and leaves other messages in the inbox in order. `Stubs.verify(method, urlPath,
+times)` counts journal entries; the four-argument form adds a body `contains` clause. Failures
+raise `AssertionError` with the expected and recorded counts.
 
 ## Reports
 

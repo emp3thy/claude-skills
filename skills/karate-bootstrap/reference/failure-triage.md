@@ -33,7 +33,7 @@ The app answered consistently and not erroneously, and the generated expectation
 guess: a 200 where 201 was assumed, a different field name, a message published on a
 different destination, a validation message worded differently. Adopt the observed behaviour
 in the feature or the rules CSV, and record it with
-`flow_map.py override --entry <id> --scenario <name> --field <what> --old <expected> --new <observed> --reason "..."`
+`flow_map.py override --ledger <tests>/flow-map.yaml --entry <id> --scenario <name> --field <what> --old <expected> --new <observed> --reason "..."`
 so the README lists it.
 
 ## 4. Suspected app defect
