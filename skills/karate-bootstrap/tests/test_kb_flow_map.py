@@ -286,6 +286,22 @@ def test_merge_without_union_still_replaces_the_exits(
     assert "disagreement:" not in capsys.readouterr().out
 
 
+def test_union_clears_a_stale_exits_none_reason(spring_ledger: tuple[Path, dict[str, Any]]) -> None:
+    _, ledger = spring_ledger
+    read_only = {"id": "GET /api/shipments/{id}", "exits": [],
+                 "exits_none_reason": "read-only lookup", "responses": [{"status": 200}]}
+    merge_entry(ledger, read_only)
+    entry = find_entry(ledger, "GET /api/shipments/{id}")
+    assert entry["exits_none_reason"] == "read-only lookup"
+    second = {"id": "GET /api/shipments/{id}",
+              "exits": [{"kind": "db-read-through-cache", "table": "shipments", "op": "update",
+                         "via": f"{SERVICE}:52"}]}
+    second["exits"][0]["kind"] = "db-write"
+    merge_entry(ledger, second, union=True)
+    assert entry["exits"], "the union added the exit the second trace found"
+    assert not entry.get("exits_none_reason"), "an entry with exits cannot also claim it has none"
+
+
 def test_cli_merge_without_exits_or_reason_reports_incomplete_and_exits_2(
     spring_ledger: tuple[Path, dict[str, Any]], tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

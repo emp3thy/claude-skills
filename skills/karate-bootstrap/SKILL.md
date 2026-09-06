@@ -188,6 +188,9 @@ python scripts/kb_prompt.py render --prompt trace --ledger <tests>/flow-map.yaml
   suspected application defects found by a run, not for tracing gaps), and do not edit the
   ledger. `validate --phase traced` already fails on `traced: false`, which is the correct end
   state for an entry nobody could trace.
+  When a reply is both unresolved and incomplete, follow the unresolved bullet first: its
+  `--focus` location is the specific line the tracer stopped at, and a re-trace from there
+  usually resolves both.
 - With `--double-trace`: dispatch two independent subagents from the same rendered prompt and
   save their replies as `<tests>/.prompts/trace-<slug>-a.json` and `-b.json`. Merge the first,
   then merge the second with `--union`, which keeps the union of exits, reads and responses
@@ -201,6 +204,9 @@ python scripts/flow_map.py merge <tests>/.prompts/trace-<slug>-b.json --ledger <
 
   Run a `--focus` trace on the `file:line` of every `disagreement:` line, merging each result
   with `--union` too, before the gate.
+  One `--focus` round per disagreement is the cap: merge each result with `--union`, then run
+  the gate. A `via` still seen by only one trace after that round is a disagreement the gate's
+  `verify-refs` check adjudicates, not grounds for a third trace.
 - Gate:
 
 ```bash

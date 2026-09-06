@@ -281,6 +281,8 @@ def merge_entry(ledger: dict[str, Any], traced: dict[str, Any], union: bool = Fa
         entry["reads"] = _union(before_reads, _prepared(list(traced.get("reads", []))))
         entry["responses"] = _union_responses(before_responses,
                                               list(traced.get("responses", [])))
+        if entry["exits"]:
+            entry.pop("exits_none_reason", None)
     incoming_sources = traced.get("rules", {}).get("sources", [])
     rules = entry.setdefault("rules", {"file": None, "count": 0, "sources": []})
     known = {s["file"] for s in rules["sources"]}
@@ -746,7 +748,7 @@ def build_parser() -> argparse.ArgumentParser:
     val = sub.add_parser("validate", help="Run a phase gate")
     val.add_argument("--phase", choices=("traced", "generated", "green"), required=True)
     val.add_argument("--ledger", type=Path, required=True)
-    val.add_argument("--repo", type=Path, required=True, help="service root")
+    val.add_argument("--repo", type=Path, required=True, help="repository root")
     val.add_argument("--service-dir", default=None, help="Sub-directory holding the service")
     val.add_argument("--env", type=Path, default=None, help="env-map.json (traced phase)")
     val.add_argument("--tests-dir", type=Path, default=None, help="karate-tests dir (generated)")
@@ -756,7 +758,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     refs = sub.add_parser("verify-refs", help="Check every exit via points at a marker")
     refs.add_argument("--ledger", type=Path, required=True)
-    refs.add_argument("--repo", type=Path, required=True)
+    refs.add_argument("--repo", type=Path, required=True, help="repository root")
     refs.add_argument("--service-dir", default=None, help="Sub-directory holding the service")
     refs.set_defaults(func=_cmd_verify_refs)
     return parser

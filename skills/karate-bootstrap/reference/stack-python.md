@@ -59,10 +59,12 @@ Loaded for `stack.framework: python` (FastAPI, Flask or Django). Marker regexes 
   without one cannot be injected by the harness.
 - `db`: `assign_role` gives `db` only when the key contains one of `datasource`,
   `connectionstrings`, `database_url`, `jdbc`, `db_url`, `db-url`, `hibernate.connection`,
-  `pghost`, `pgdatabase`, or the placeholder value matches `jdbc:`, `postgres`, or `host=`. That
-  covers `DATABASE_URL`, `PGHOST`, and `PGDATABASE`; a bare `DB_HOST`/`DB_PORT` pair contains
-  none of those substrings — `DB_HOST` ends in the `host` suffix and is classified
-  `downstream:db` instead, and `DB_PORT` falls through to `passthrough`.
+  `pghost`, `pgdatabase`, `db_host`, `db_port`, `db_name`, `db_user`, `db_password`, `pgport`,
+  `pguser`, `pgpassword`, or the placeholder value matches `jdbc:`, `postgres`, or `host=`. That
+  covers `DATABASE_URL`, `PGHOST`, `PGDATABASE`, and a bare `DB_HOST`/`DB_PORT` pair along with
+  its `DB_NAME`/`DB_USER`/`DB_PASSWORD` siblings; the scaffold turns a part key into the single
+  token it names (`{{db.host}}`, `{{db.port}}`, `{{db.name}}`, `{{db.user}}`,
+  `{{db.password}}`) and a URL key into the full `postgresql://` template.
 - `amq`: `AMQ_*`, `BROKER_*`, `ARTEMIS_*`, `STOMP_*`, any `amqp://` or `stomp://` placeholder.
   `auth`: keys containing `JWT`, `OIDC`, `ISSUER`, `JWKS`, `AUTH`. `downstream:<name>`: other `*_URL` and
   `*_BASE_URL` keys, named after the prefix (`PRICING_BASE_URL` becomes `pricing`).
