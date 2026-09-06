@@ -27,11 +27,11 @@ REPORTS = FIXTURES / "karate-reports"
 IMAGE = "registry.example/db-manager:1"
 
 
-def run(*args: str, cwd: Path | None = None) -> str:
+def run(*args: str, cwd: Path | None = None, expect_exit: int = 0) -> str:
     proc = subprocess.run([sys.executable, *args], cwd=cwd or SKILL, capture_output=True,
                           text=True)
-    assert proc.returncode == 0, f"{' '.join(args)}\n{proc.stdout}\n{proc.stderr}"
-    return proc.stdout
+    assert proc.returncode == expect_exit, f"{' '.join(args)}\n{proc.stdout}\n{proc.stderr}"
+    return proc.stdout if expect_exit == 0 else proc.stdout + proc.stderr
 
 
 def git(repo: Path, *args: str) -> str:
@@ -125,17 +125,17 @@ def feature_text(table: str, destination: str, downstream_path: str) -> str:
     )
 
 
-CASES: dict[str, tuple[Callable[[Path], dict[str, dict[str, Any]]], str, str, str, str]] = {
+CASES: dict[str, tuple[Callable[[Path], dict[str, dict[str, Any]]], str, str, str, str, str]] = {
     "spring-mini": (spring_traces, "POST /api/shipments", "shipments", "shipment.created",
-                    "/pricing/rates/GB"),
+                    "/pricing/rates/GB", "APP_SECURITY_ENABLED"),
     "dotnet-mini": (dotnet_traces, "POST /api/deals", "deals", "deal.created",
-                    "/pricing/prices/BRENT"),
+                    "/pricing/prices/BRENT", "Auth__Enabled"),
 }
 
 
 @pytest.mark.parametrize("fixture", sorted(CASES))
 def test_pinned_command_chain_runs_green(tmp_path: Path, fixture: str) -> None:
-    traces_for, post_id, table, destination, downstream_path = CASES[fixture]
+    traces_for, post_id, table, destination, downstream_path, auth_key = CASES[fixture]
     repo = tmp_path / "repo"
     shutil.copytree(FIXTURES / fixture, repo)
     git(repo, "init", "-q", "-b", "main")
@@ -158,6 +158,20 @@ def test_pinned_command_chain_runs_green(tmp_path: Path, fixture: str) -> None:
         "--out-ledger", str(ledger))
     seeded = yaml.safe_load(ledger.read_text(encoding="utf-8"))
     assert {e["id"] for e in seeded["entry_points"]} == set(traces)
+
+    # Step 2: re-confirm the auth switch discover.py already guessed, and reject an
+    # add-entry for an id the discover regexes already seeded
+    auth_out = run("scripts/flow_map.py", "set-auth", "--ledger", str(ledger), "--mode",
+                   "disabled", "--key", auth_key, "--value", "false")
+    assert '"mode": "disabled"' in auth_out
+    assert f'"key": "{auth_key}"' in auth_out
+    assert '"confirmed": true' in auth_out
+    dup = run("scripts/flow_map.py", "add-entry", "--ledger", str(ledger), "--id", post_id,
+             "--kind", "http", "--handler", "src/Duplicate.txt:1", "--method", "POST",
+             "--path", "/duplicate", expect_exit=2)
+    assert f"{post_id}: already in the ledger" in dup
+    unchanged = yaml.safe_load(ledger.read_text(encoding="utf-8"))
+    assert {e["id"] for e in unchanged["entry_points"]} == set(traces)
 
     # Step 3: trace loop with rendered prompts and canned replies
     while True:
@@ -239,6 +253,19 @@ def test_pinned_command_chain_runs_green(tmp_path: Path, fixture: str) -> None:
                                       "--defects", str(tests / "defects.md"))
     assert run("scripts/kb_iterate.py", "check-stop", "--log", str(tests / ".iterations.log"),
                "--report", str(report), "--max-iterations", "15").strip() == "done"
+
+    # Step 8: record an observed-behaviour override (no failure to iterate on here, but the
+    # command is pinned and runs with no containers)
+    override_item = {"scenario": "happy", "field": "status", "old": "201", "new": "200",
+                     "reason": "observed 200 not 201 on a clean run"}
+    override_out = run("scripts/flow_map.py", "override", "--ledger", str(ledger), "--entry",
+                       post_id, "--scenario", override_item["scenario"], "--field",
+                       override_item["field"], "--old", override_item["old"], "--new",
+                       override_item["new"], "--reason", override_item["reason"])
+    assert f"override on {post_id}:" in override_out
+    overridden = yaml.safe_load(ledger.read_text(encoding="utf-8"))
+    post_entry = next(e for e in overridden["entry_points"] if e["id"] == post_id)
+    assert post_entry["observed_overrides"] == [override_item]
 
     # Step 9: report and final checkpoint
     run("scripts/kb_report.py", "summary", "--ledger", str(ledger), "--defects",
