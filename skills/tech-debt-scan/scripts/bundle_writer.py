@@ -93,14 +93,22 @@ def _severity_word(severity: Any) -> str:
 def acceptance_criteria(body_md: str) -> list[str]:
     """The checklist items under ``### Acceptance criteria``, in order.
 
+    A criterion's text continues onto the following lines until the next
+    ``- [ ]`` item, a blank line, or a heading of any level -- the shape
+    design_writer.free_text produces when a note field's own text carries an
+    embedded newline (escaping any resulting ``#``-shaped line to ``\\#`` so
+    it does not read as a heading). Continuation lines are stripped and joined
+    to the criterion with single spaces, so one criterion is one PLAN.md step
+    and nothing is silently dropped. A continuation line that begins with an
+    escaped ``\\#`` joins as ordinary text, unescaped by nothing here -- it is
+    body text, not a formatting instruction to this parser.
+
     Stops at the next heading of any level, so a later section's checkboxes are
     never absorbed. Returns [] when the section is absent or holds the writer's
-    placeholder rather than a list. A criterion's own text is taken as written --
-    it may carry a leading ``\\#`` (design_writer.free_text escapes a criterion
-    that would otherwise read as a heading), and that backslash is not stripped
-    here; it is body text, not a formatting instruction to this parser.
+    placeholder rather than a list.
     """
     criteria: list[str] = []
+    current: list[str] | None = None
     in_section = False
     for line in body_md.split("\n"):
         stripped = line.strip()
@@ -110,9 +118,20 @@ def acceptance_criteria(body_md: str) -> list[str]:
             continue
         if stripped.startswith("#"):
             break
+        if stripped == "":
+            if current is not None:
+                criteria.append(" ".join(current))
+                current = None
+            continue
         match = _CRITERION_RE.match(line)
         if match:
-            criteria.append(match.group("text"))
+            if current is not None:
+                criteria.append(" ".join(current))
+            current = [match.group("text")]
+        elif current is not None:
+            current.append(stripped)
+    if current is not None:
+        criteria.append(" ".join(current))
     return criteria
 
 

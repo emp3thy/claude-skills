@@ -157,12 +157,51 @@ def test_v1_finding_still_writes_the_v1_golden_bytes(tmp_path: Path) -> None:
         ("### Acceptance criteria\n\nremediation note not available", []),
         ("### Proof\n\np", []),
         ("", []),
+        (
+            "### Acceptance criteria\n\n- [ ] one\n\\# Not assessed\nchecked by CI",
+            ["one \\# Not assessed checked by CI"],
+        ),
+        (
+            "### Acceptance criteria\n\n"
+            "- [ ] first\ncontinued first\n"
+            "- [ ] second\ncontinued second\n\n"
+            "### Next section\n\n- [ ] not mine",
+            ["first continued first", "second continued second"],
+        ),
     ],
 )
 def test_acceptance_criteria_parser(body: str, expected: list[str]) -> None:
     from bundle_writer import acceptance_criteria
 
     assert acceptance_criteria(body) == expected
+
+
+def test_multiline_acceptance_criterion_survives_into_plan(tmp_path: Path) -> None:
+    """A criterion with an embedded newline -- the shape design_writer.free_text
+
+    produces when a note field's own text carries a line break, escaping any
+    resulting ``#``-shaped line to ``\\#`` -- keeps every continuation line as
+    one PLAN.md step, joined by single spaces, instead of being cut to its
+    first physical line.
+
+    ``body_md`` here is shaped exactly as design_writer renders a finding
+    section: the ``### Acceptance criteria`` heading, a blank line, then the
+    checklist items.
+    """
+    finding = {
+        "title": "T", "status": "approved", "slug": "t", "severity": 3,
+        "category": "security",
+        "body_md": "\n".join([
+            "### Acceptance criteria",
+            "",
+            "- [ ] A regression test covers it",
+            "\\# Not assessed",
+            "checked by CI",
+        ]),
+    }
+    bundle = write_bundle(finding, out_root=tmp_path, source_design="d.md", date="2026-09-06")
+    plan = (bundle / "PLAN.md").read_text(encoding="utf-8")
+    assert "- [ ] 1. A regression test covers it \\# Not assessed checked by CI" in plan
 
 
 def test_v2_written_files_byte_match_golden(tmp_path: Path) -> None:
