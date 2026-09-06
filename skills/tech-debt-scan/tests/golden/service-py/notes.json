@@ -1,0 +1,47 @@
+[
+  {
+    "fingerprint": "2e969b3499636196",
+    "remediation": "In `issue()` in `src/pay/refund.py`, drop the bare `except Exception: pass` around `ledger.post(entry)` and let the ledger failure be loud: log it on the module logger and re-raise, so the `gateway.refund` call below it is never reached without an audit entry. Do that first, then add the test that pins it. Only after that decide, with the payments owner, whether a refund may still be issued while the ledger is down; if it may, make that an explicit branch that records a compensating entry and returns a distinct result, not a swallowed exception.",
+    "acceptance_criteria": [
+      "`src/pay/refund.py` contains no bare `except Exception` that discards the ledger error; the failure is logged and re-raised.",
+      "A test in `tests/test_refund.py` makes `ledger.post` raise and asserts `Gateway.refund` is never called.",
+      "A caller can tell a ledger failure apart from a gateway rejection by the exception or return value."
+    ]
+  },
+  {
+    "fingerprint": "b459099b48e0a272",
+    "remediation": "Replace the process-local `_seen` set in `src/pay/refund.py` (declared line 14, checked lines 27-29) with an idempotency key the gateway honours: derive a stable key per refund from `order_id`, `amount_cents` and `reason_code`, persist it alongside the ledger entry, and pass it into `gateway.refund` so a gateway-side retry collapses onto the same refund. Land the persisted key first; `_seen` may stay until it is live, but must not be the last guard standing. Remove `_seen` and the FIXME at line 35 in the change that lands the key.",
+    "acceptance_criteria": [
+      "`_seen` is gone from `src/pay/refund.py` and the duplicate guard survives a process restart.",
+      "`gateway.refund` receives an idempotency key derived from the refund, and two calls with the same key move money once.",
+      "The duplicate-refund FIXME at `src/pay/refund.py:35` is deleted in the same commit as the guard."
+    ]
+  },
+  {
+    "fingerprint": "cad19db020b88f9f",
+    "remediation": "`src/pay/refund.py` is the money path and every line in the churn window is by one author, so no second engineer has had to read the ledger-then-gateway ordering in `issue()` or the cents conversion in `issue_partial()`. Get a second person through the file for real: have them review those two, then author the missing refund tests themselves so the review leaves a commit behind. Add `src/pay/` to CODEOWNERS with two owners so later changes need a second reader. This is a review-process fix; do not reshuffle the module to manufacture authorship.",
+    "acceptance_criteria": [
+      "CODEOWNERS covers `src/pay/` and names at least two reviewers.",
+      "At least one merged commit touching `src/pay/refund.py` is authored by someone other than the current sole author.",
+      "The second reviewer has signed off on the ledger-then-gateway ordering in `issue()`."
+    ]
+  },
+  {
+    "fingerprint": "4b10ada7bef4b500",
+    "remediation": "Add tests for `issue_partial()` to `tests/test_refund.py`. Cover the arithmetic first: the fraction-to-cents conversion at `src/pay/refund.py:46` needs exact expected cents at the rounding boundaries, including an odd amount and a fraction that lands on a half cent. Then cover the delegation: a fake gateway asserting the `Refund` handed on keeps the original `order_id` and `reason_code` and carries only the reduced amount. Do not copy the `@pytest.mark.skip` that sits on `test_issue_calls_gateway`; these tests have to run in the default suite.",
+    "acceptance_criteria": [
+      "`tests/test_refund.py` has at least one unskipped test that calls `issue_partial` directly.",
+      "A rounding assertion pins the exact cents for a fraction that does not divide evenly.",
+      "A test asserts the `Refund` passed on to the gateway keeps the original `order_id` and `reason_code`."
+    ]
+  },
+  {
+    "fingerprint": "74967b275a61fb33",
+    "remediation": "`src/pay/refund.py` is imported as a library, so the refund outcome at line 41 should not go to stdout. Emit it on the `log` logger already bound at line 11, at info level, with lazy `%s` arguments to match the `log.exception` call two lines above; leave the gateway-unreachable path exactly as it is. While the file is open, sweep the rest of `src/pay/` for other stdout writes and convert them in the same change, so the module has one output channel rather than two on the same code path.",
+    "acceptance_criteria": [
+      "No stdout write remains in `src/pay/refund.py`; the refund outcome goes through `log`.",
+      "The outcome message uses lazy `%s` logger arguments rather than an f-string.",
+      "The gateway-unreachable path still logs via `log.exception` and re-raises unchanged."
+    ]
+  }
+]

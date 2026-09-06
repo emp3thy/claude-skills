@@ -1,0 +1,38 @@
+[
+  {
+    "fingerprint": "141175ed2e56d821",
+    "remediation": "Add a test file for `src/api/client-admin.ts` beside the two that exist in `src/__tests__`. Stub `fetch` and cover the three paths nothing asserts today: the outgoing request carries the `Authorization` bearer built from `ADMIN_TOKEN` and the `X-Retry` header; the abort signal is the 5000 ms one; and a rejected fetch or a non-JSON body resolves to `null` after the `console.error`. Assert that `null` explicitly, because the catch collapses every failure into it. Then decide whether `null` is the contract callers should get, while `getAdminJson` still has none.",
+    "acceptance_criteria": [
+      "A test file covering `src/api/client-admin.ts` exists and is picked up by the default test glob.",
+      "Tests assert both the `Authorization` and `X-Retry` headers on the outgoing request.",
+      "A test asserts `getAdminJson` resolves to `null` when fetch rejects, and that the timeout is 5000 ms."
+    ]
+  },
+  {
+    "fingerprint": "882069e3ebcd041d",
+    "remediation": "`src/api/client-admin.ts` is the repository's hottest file by churn, has one author, and has no caller yet, so nobody else has needed to read it. Settle that before it acquires callers: first decide whether `getAdminJson` is kept or deleted as dead code. If it is kept, have a second engineer review the module-load token read, the header shape it shares with `src/api/client.ts`, and the catch-to-`null` contract, and let them author the missing test file so the review leaves a commit. Add `src/api/` to CODEOWNERS with two owners.",
+    "acceptance_criteria": [
+      "A decision is recorded on whether `getAdminJson` stays or is deleted as unused.",
+      "If it stays, a commit touching `src/api/client-admin.ts` is authored by a second contributor.",
+      "CODEOWNERS covers `src/api/` and names at least two owners."
+    ]
+  },
+  {
+    "fingerprint": "3c1370050f312692",
+    "remediation": "`src/api/client.ts` also has a single author across the window, and it duplicates the bearer plus `X-Retry` header block and the `BASE`-plus-path fetch of `src/api/client-admin.ts`. Pay both down at once: have a second engineer extract that shared request construction into one helper both modules call, and let that be their first commit on the file. Have them look at the empty `catch (e) {}` in `getJson` while they are in there, since it is the reason this module's failures are invisible. Add `src/api/` to CODEOWNERS with two owners.",
+    "acceptance_criteria": [
+      "The bearer and `X-Retry` header construction lives in one place used by both `client.ts` and `client-admin.ts`.",
+      "A commit touching `src/api/client.ts` is authored by someone other than the current sole author.",
+      "The empty catch block in `getJson` either logs or is replaced by a deliberate, documented fallback."
+    ]
+  },
+  {
+    "fingerprint": "37123abc76b1359b",
+    "remediation": "Add a test file for `src/checkout/checkout.ts`; `src/__tests__/cart.test.ts` never imports it, so neither side of the `newCheckout` switch is exercised. Stub `isEnabled` rather than mutating the flag store. With the flag on, pin the `new:` string against `total(cart)`. With it off, pin the `legacy:` string against `legacyFormat(priceOf(sku))` for the first item, and add the empty-cart case where the label collapses to the empty string. `src/index.ts` discards the return value, so these assertions are the only thing holding the string shape.",
+    "acceptance_criteria": [
+      "A test exercises `checkout` with `newCheckout` enabled and again with it disabled.",
+      "The empty-cart legacy branch is asserted, including the empty label.",
+      "Both branches assert the returned string itself, not merely that the call does not throw."
+    ]
+  }
+]

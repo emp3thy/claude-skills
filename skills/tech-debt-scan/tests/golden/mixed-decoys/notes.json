@@ -1,0 +1,47 @@
+[
+  {
+    "fingerprint": "81123c5aab0571a0",
+    "remediation": "Add `internal/dispatch/dispatch_test.go`; `internal/store/store_test.go` is the repository's only test file today. Table-drive `Run`: empty args returns the no-command error, an unknown name returns an error that echoes the name back, and a registered command such as `status` returns nil. Cover the `legacy` key separately with a recover, and expect that case to be rewritten once the panic becomes an error. `cmd/app/main.go` hands `os.Args[1:]` straight to `Run`, so each of these is reachable from the command line.",
+    "acceptance_criteria": [
+      "`internal/dispatch/dispatch_test.go` covers the empty-args, unknown-command and registered-command paths.",
+      "The unknown-command case asserts the offending name appears in the returned error.",
+      "`go test ./internal/dispatch/...` passes."
+    ]
+  },
+  {
+    "fingerprint": "a9f954d154719182",
+    "remediation": "`legacyHandler` in `internal/dispatch/dispatch.go` panics, and the `handlers` map puts it one command-line argument away from any user, beside `start`, `stop` and `status`. Make it behave like its siblings: either return a plain error saying the command was withdrawn, or drop the `legacy` key so `Run` produces its own unknown-command error. Prefer dropping the key unless the name has to stay recognised for compatibility. Whichever way it goes, the process must exit on a message rather than a stack trace, and the dispatch tests must cover the argument.",
+    "acceptance_criteria": [
+      "Running the binary with the `legacy` argument exits with an error rather than a panic.",
+      "No panic remains in `internal/dispatch/dispatch.go`.",
+      "A test covers the `legacy` argument path."
+    ]
+  },
+  {
+    "fingerprint": "a8a0b3c16057f8e1",
+    "remediation": "`Fetch` in `internal/httpc/httpc.go` disables certificate verification by reassigning the TLS config on `http.DefaultTransport`, and `cmd/app/main.go` calls it unconditionally at startup, so every later HTTPS call in the process inherits it. Shrink the blast radius first: stop touching `DefaultTransport` and use the package-level client already declared in `internal/httpc/httpc_safe.go`. Then remove the skip-verify setting outright, since the health-check host is a public HTTPS endpoint needing no exemption. Move the hard-coded API token constant in the same file into configuration.",
+    "acceptance_criteria": [
+      "Nothing under `internal/httpc` assigns to `http.DefaultTransport`.",
+      "Certificate verification is never disabled anywhere in the repository.",
+      "The API token literal is gone from `internal/httpc/httpc.go` and read from the environment instead."
+    ]
+  },
+  {
+    "fingerprint": "bf52c33dda8e609a",
+    "remediation": "Every one of the 290 entries in the `paths` map in `internal/lookup/lookup.go` is the same string the fallback in `PathFor` already builds, so the table adds nothing but a second place to keep the naming scheme. Confirm that once mechanically, by generating the fallback string for each key and diffing, so no exception hiding mid-table is lost. Then delete the map and let `PathFor` compute every path. Check `internal/store/store.go`, the only caller, for anything that depends on a lookup hit rather than the fallback.",
+    "acceptance_criteria": [
+      "The `paths` map is gone from `internal/lookup/lookup.go` and `PathFor` computes the path for every name.",
+      "A test asserts `PathFor` returns the same string for a name that was in the old table and for one that never was.",
+      "`internal/store/store.go` resolves the same paths for existing store names as before."
+    ]
+  },
+  {
+    "fingerprint": "45d73ee57cd37a54",
+    "remediation": "The replacement already exists: `FetchWithTimeout` in `internal/httpc/httpc_safe.go` has a bounded client and no callers, and the deprecation comment on `Fetch` points straight at it. Finish the migration. Switch the startup health check in `cmd/app/main.go` to `FetchWithTimeout` and handle the status code and error it returns instead of discarding the result, then delete `Fetch` and its deprecation comment once that call site is gone. Doing this also retires the skip-verify assignment, which lives inside `Fetch`.",
+    "acceptance_criteria": [
+      "`cmd/app/main.go` calls `FetchWithTimeout` and does not discard its error.",
+      "`Fetch` is deleted from `internal/httpc/httpc.go`, or gains a timeout and a documented caller.",
+      "The startup health check cannot block for longer than the client timeout."
+    ]
+  }
+]
