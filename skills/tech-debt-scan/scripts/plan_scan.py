@@ -7,13 +7,16 @@ SKILL.md (phase 3) dispatches exactly the plan's entries. In phase 2 ``chunked``
 is always false and the chunking thresholds are recorded only.
 
 Leads are one union of deterministic signals per family (the table in the phase 2
-plan), each kind sorted hotspot-band files first. ``LEAD_CAP`` bounds the pattern
-leads alone (spec 4.6: "40 per family, hotspot-band first" is said of pattern
-leads and tool signals); the band, the coupled pairs, the SATD markers and the
-artefacts are separate items of that sentence and are emitted in full, the band
-already bounded by ``hotspot_band.max``. Path-class disables from
-``families.per_path_class`` drop leads before the adaptive rule counts them, and
-the prompt names the disabled families.
+plan), each kind sorted hotspot-band files first. ``KIND_CAPS`` bounds the
+pattern, SATD and inventory leads at ``LEAD_CAP`` each, band files first within
+each kind (spec 4.6: "40 per family, hotspot-band first" is said of pattern leads
+and tool signals; the SATD table and the per-file inventory leads are unbounded
+in the documents and are capped here for the same reason). The hotspot band, the
+coupled pairs, the artefacts, the cycles and the docs and tests signals are the
+remaining kinds and are emitted in full, the band already bounded by
+``hotspot_band.max``. Path-class disables from ``families.per_path_class`` drop
+leads before the adaptive rule counts them, and the prompt names the disabled
+families.
 
 An inventory lead only counts towards the adaptive rule when the family's primary
 metric clears a floor: ``max_indent >= 1`` and ``loc >= 1`` hold for every
@@ -38,6 +41,12 @@ from inventory import write_json
 
 SCHEMA_VERSION: Final[int] = 2
 LEAD_CAP: Final[int] = 40
+# Spec 4.6 caps pattern leads and tool signals at LEAD_CAP; the SATD table and the
+# per-file inventory leads are unbounded in the documents and are capped here for the
+# same reason (a TODO-heavy or large repository would otherwise fill the prompt). The
+# hotspot band is bounded by hotspot_band.max, and the coupling, artefact, cycle, docs
+# and tests kinds are bounded by the repository's own structure, so they are emitted whole.
+KIND_CAPS: Final[dict[str, int]] = {"pattern": LEAD_CAP, "satd": LEAD_CAP, "inventory": LEAD_CAP}
 KIND_ORDER: Final[tuple[str, ...]] = (
     "hotspot", "coupling", "pattern", "satd", "artefact", "cycle", "inventory", "docs", "tests",
 )
@@ -359,12 +368,14 @@ def _raw_leads(family: str, docs: ScanDocs) -> list[Lead]:
 def leads_for(family: str, docs: ScanDocs, config: dict[str, Any]) -> list[Lead]:
     """Filtered, ordered leads for one family (hotspot-band first, then path).
 
-    ``LEAD_CAP`` bounds the pattern leads alone, band files first within that
-    kind. Spec 4.6 says "40 per family, hotspot-band first" of the pattern leads
-    and tool signals; the band, the pairs, the SATD list and the artefacts are
-    separate items of the same sentence. Capping the whole block instead is
-    kind-major, so a repository with 40 or more band files (``hotspot_band.max``
-    is 50) would send a prompt of band lines and no pattern leads at all.
+    ``KIND_CAPS`` bounds the pattern, SATD and inventory leads at ``LEAD_CAP``
+    each, band files first within each kind (a kind absent from ``KIND_CAPS`` is
+    uncapped). Spec 4.6 says "40 per family, hotspot-band first" of the pattern
+    leads and tool signals; the SATD table and the per-file inventory leads are
+    unbounded in the documents and are capped here for the same reason. Capping
+    per kind rather than the whole block kept together is kind-major, so a
+    repository with 40 or more band files (``hotspot_band.max`` is 50) would
+    otherwise send a prompt of band lines and no pattern leads at all.
     """
     classes = _path_classes(docs)
     band = set(docs.inventory.get("hotspot_band", []))
@@ -376,12 +387,13 @@ def leads_for(family: str, docs: ScanDocs, config: dict[str, Any]) -> list[Lead]
         KIND_ORDER.index(lead.kind), lead.path not in band, -lead.score, lead.path, lead.line or 0,
     ))
     out: list[Lead] = []
-    capped = 0
+    counts: dict[str, int] = {}
     for lead in kept:
-        if lead.kind == "pattern":
-            if capped >= LEAD_CAP:
+        cap = KIND_CAPS.get(lead.kind)
+        if cap is not None:
+            if counts.get(lead.kind, 0) >= cap:
                 continue
-            capped += 1
+            counts[lead.kind] = counts.get(lead.kind, 0) + 1
         out.append(lead)
     return out
 

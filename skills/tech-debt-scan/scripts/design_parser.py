@@ -6,13 +6,34 @@ finding's ``status:`` from ``pending`` to ``approved`` / ``rejected``). This
 module reads it back into a list of findings the promote orchestrator can act
 on.
 
-Document structure (see tests/golden/design.md):
+Document structure (see tests/golden/design-v1.md):
   - An optional top-level YAML frontmatter block delimited by ``---`` lines,
     surfaced as ``metadata``.
   - One ``## <title>`` H2 heading per finding.
   - Under each heading, a fenced ```yaml block (the "anchor") carrying the
     machine-readable keys: status, slug, severity, category.
-  - The remaining prose under the heading is the finding's ``body_md``.
+  - The remaining prose under the heading is the finding's ``body_md``. A
+    finding's section ends at the next H2 *or* the next H1 (spec 4.11), so a
+    negative-space section (e.g. "# Considered and rejected") following the
+    last finding is never absorbed into that finding's body. This boundary
+    check ignores headings inside fenced code blocks, so a hand-edited quote
+    or diff containing a line starting ``# `` or ``## `` (e.g. a code comment)
+    does not truncate the body. Fence tracking is length-aware (CommonMark's
+    own rule): a line opens a fence when its stripped text starts with three
+    or more backticks, and the length of that leading run is recorded; while
+    inside a fence, only a line whose stripped text is backticks alone, with a
+    run at least as long as the opening one, closes it -- a shorter run, or a
+    run followed by other text such as a language tag, is body text. This is
+    what lets a quote carry its own complete fenced block (e.g. a hand-edited
+    docstring or Ruby heredoc) nested inside design_writer's wider wrapper
+    fence without the wrapper closing early. An unclosed fence (a hand-edited
+    quote whose closing marker was dropped, or shortened below the opening
+    marker's length) is a parse error, not a silent absorption of every later
+    finding: reaching the end of the document with a fence still open raises
+    DesignParseError naming the opening marker's line. Because only one fence
+    can be open at a time under this rule, that line is always the true
+    origin -- there is no cascade of mismatched pairs to misattribute it, the
+    way there was under the length-agnostic parity toggle this replaced.
 
 Only ``yaml.safe_load`` is used (never ``yaml.load``). Every DesignParseError
 carries the 1-based source line of the offending heading or anchor so the user
@@ -36,8 +57,22 @@ REQUIRED_KEYS: Final[tuple[str, ...]] = ("status", "slug", "severity", "category
 
 # Classification axes carried through when the anchor has them (newer designs);
 # absent in older documents, never required. Values are passed through as-is —
-# promote must not die on a hand-edited effort/confidence.
-OPTIONAL_KEYS: Final[tuple[str, ...]] = ("debt_type", "effort", "confidence")
+# promote must not die on a hand-edited effort/confidence. v2 (spec 2-4) adds
+# family, fingerprint, tier, priority, type_id, diff, reason and until; v1's
+# confidence is kept so the writer can discard it (spec 8 compatibility).
+OPTIONAL_KEYS: Final[tuple[str, ...]] = (
+    "debt_type",
+    "effort",
+    "confidence",
+    "family",
+    "fingerprint",
+    "tier",
+    "priority",
+    "type_id",
+    "diff",
+    "reason",
+    "until",
+)
 
 _FRONTMATTER_FENCE: Final[str] = "---"
 _YAML_OPEN: Final[str] = "```yaml"
@@ -51,6 +86,29 @@ class DesignParseError(Exception):
 def _is_h2(line: str) -> bool:
     """True for a level-2 heading (``## ``), False for H1/H3 and deeper."""
     return line.startswith("## ") and not line.startswith("### ")
+
+
+def _is_h1(line: str) -> bool:
+    """True for a level-1 heading (``# ``), which never starts a finding (spec 4.11).
+
+    A finding section therefore ends at the next H2 *or* the next H1, so the negative-space
+    sections that follow the last finding are not absorbed into its body and copied into a PBI.
+    """
+    return line.startswith("# ")
+
+
+def _ends_section(line: str) -> bool:
+    return _is_h2(line) or _is_h1(line)
+
+
+def _leading_backtick_run(stripped: str) -> int:
+    """Length of the run of ``\\`\\`\\``` characters at the very start of ``stripped``."""
+    count = 0
+    for ch in stripped:
+        if ch != "`":
+            break
+        count += 1
+    return count
 
 
 def _extract_frontmatter(lines: list[str]) -> tuple[dict[str, Any], int]:
@@ -191,9 +249,33 @@ def parse_design(path: Path) -> dict[str, Any]:
         title = lines[idx][3:].strip()
         section: list[tuple[int, str]] = []
         cursor = idx + 1
-        while cursor < n and not _is_h2(lines[cursor]):
-            section.append((cursor + 1, lines[cursor]))
+        in_fence = False
+        fence_len = 0
+        fence_open_line: int | None = None
+        while cursor < n:
+            line = lines[cursor]
+            stripped = line.strip()
+            if in_fence:
+                run = _leading_backtick_run(stripped)
+                if run == len(stripped) and run >= fence_len:
+                    in_fence = False
+                    fence_len = 0
+            else:
+                run = _leading_backtick_run(stripped)
+                if run >= 3:
+                    in_fence = True
+                    fence_len = run
+                    fence_open_line = cursor + 1
+                elif _ends_section(line):
+                    break
+            section.append((cursor + 1, line))
             cursor += 1
+
+        if in_fence:
+            raise DesignParseError(
+                f"unclosed fence: last fence marker is at line {fence_open_line}, "
+                "still inside a fenced block at end of document"
+            )
 
         anchor, anchor_lineno = _parse_anchor(section, heading_lineno)
         finding = _build_finding(anchor, title, anchor_lineno)

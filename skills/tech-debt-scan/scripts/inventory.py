@@ -27,7 +27,7 @@ hotspot analysis (Tornhill, "Your Code as a Crime Scene"):
 
 ``hotspots`` ranks files by normalised churn x complexity (0-100). Hotspots
 are where debt accrues the highest interest: complex code the team keeps
-having to change. Scouts and the synthesis step use this list to prioritise.
+having to change. Scouts use this list to prioritise.
 
 v2 (spec 4.2) adds path classes on every entry (tests, generated, vendored,
 docs, source), an ``artefacts`` block for the files the extension map skips

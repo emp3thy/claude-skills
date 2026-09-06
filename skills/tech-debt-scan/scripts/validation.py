@@ -42,9 +42,6 @@ _TYPE_ID_MAX: Final[int] = 35
 # Effort: S (< half a day), M (half a day to ~2 days), L (larger / needs a plan).
 VALID_EFFORTS: Final[frozenset[str]] = frozenset({"S", "M", "L"})
 
-# Confidence the evidence really is debt (vs. intentional or a false positive).
-VALID_CONFIDENCES: Final[frozenset[str]] = frozenset({"low", "medium", "high"})
-
 # Slug: starts with a lowercase letter, then 0-63 more of [a-z0-9-] (max 64
 # chars total), must not end with a hyphen. The leading-letter + length-1
 # allowance are fixed by test_validation.py (accepts "a", rejects "1-good"),
@@ -81,13 +78,6 @@ def validate_effort(value: str) -> None:
     if value not in VALID_EFFORTS:
         raise ValidationError(
             f"unknown effort: {value!r}; expected one of {sorted(VALID_EFFORTS)}"
-        )
-
-
-def validate_confidence(value: str) -> None:
-    if value not in VALID_CONFIDENCES:
-        raise ValidationError(
-            f"unknown confidence: {value!r}; expected one of {sorted(VALID_CONFIDENCES)}"
         )
 
 

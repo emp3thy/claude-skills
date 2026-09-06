@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from promote import PromoteResult, run_promote
 
-GOLDEN = Path(__file__).parent / "golden" / "design.md"
+# design-v1.md is the v1 compatibility document (spec 8), not the v2 golden Task 7 adds.
+GOLDEN = Path(__file__).parent / "golden" / "design-v1.md"
 
 
 def test_no_approved_returns_zero(tmp_path: Path):
@@ -100,3 +101,23 @@ def test_summary_line_reports_accepted(
     out = capsys.readouterr().out
     assert "accepted: 2" in out
     assert "pending: 3" in out
+
+
+def test_accepted_is_counted_and_never_pending(tmp_path: Path) -> None:
+    design = tmp_path / "design.md"
+    design.write_bytes("\n".join([
+        "## Accepted finding", "", "```yaml", "status: accepted", "slug: accepted-finding",
+        "severity: 3", "category: security", "reason: waiting for the rewrite",
+        "until: 2027-01-31", "```", "", "body", "",
+        "## Pending finding", "", "```yaml", "status: pending", "slug: pending-finding",
+        "severity: 2", "category: security", "```", "", "body", "",
+    ]).encode("utf-8"))
+    result = run_promote(design, out_root=tmp_path / "out", date="2026-09-06")
+    assert result.accepted_count == 1 and result.pending_count == 1
+    assert result.emitted_count == 0 and result.exit_code == 0
+
+
+def test_write_back_exit_code_is_reserved() -> None:
+    from promote import EXIT_WRITE_BACK
+
+    assert EXIT_WRITE_BACK == 6

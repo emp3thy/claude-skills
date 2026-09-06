@@ -6,8 +6,11 @@ Reads ``scan-plan.json`` (which scout files to expect), ``scouts/<family>.json``
 ``candidates.json``. Coupling is not read here: ``coupling_degree`` reaches a
 candidate through the inventory signals ``evidence.signals_for`` attaches.
 
-Steps, in order: validate each scout item (malformed items are dropped and
-counted, with the reason string collected under
+Steps, in order: read each family's scout file (one missing is counted under
+``stats[family].missing_file``, one present but unreadable or malformed JSON
+under ``stats[family].read_failed``; neither aborts the merge, every other
+family's scout file is still read); validate each scout item (malformed items
+are dropped and counted, with the reason string collected under
 ``stats[family].dropped_reasons`` when at least one item was dropped);
 normalise paths; verify every quote on disk through
 ``evidence.find_quote`` (a finding with no verified evidence is diverted to
@@ -16,12 +19,16 @@ evidence; cluster same-family, same-file findings within ``CLUSTER_WINDOW``
 lines; corroborate from pattern leads of the candidate's own family, SATD
 markers, rule findings, coupling and the hotspot band; attach inventory
 signals; apply suppressions and path-class disables; redact every quote, title
-and note.
+and note. ``missing_file``, ``read_failed`` and ``dropped_reasons`` are all
+out-of-band stat keys, appended only when they apply.
 
 Rule findings enter as tier A candidates with ``source: "rule"`` and are never
 merged into a scout candidate: they corroborate it (``rule:<id>`` in
 ``confirmed_by``) and stand beside it, so a verified-by-construction fact is
-never diluted by a scout claim.
+never diluted by a scout claim. Rule findings are not re-checked against
+path-class disables here: ``rules.py`` drops disabled-class artefacts before
+emitting them, so a rule finding reaching this module has already passed that
+filter.
 """
 from __future__ import annotations
 
@@ -94,7 +101,30 @@ def _clean_evidence(evidence: list[Any]) -> list[dict[str, Any]]:
 
 
 def _validate(item: Any, family: str) -> dict[str, Any] | str:
-    """A cleaned finding, or the reason it was dropped."""
+    """A cleaned finding, or the reason it was dropped.
+
+    The title and the note are redacted *before* they are cut to their caps,
+    the same order ``rules.py`` uses. Every branch of ``redaction``'s
+    ``SECRET_TOKEN_RE`` is length-gated, so cutting first and redacting later
+    hands the redactor a token already broken in half: it stops matching its
+    own pattern and the fragment reaches ``candidates.json``, ``design.md``,
+    ``findings.json`` and a promoted ``PBI.md`` verbatim, because every
+    write-time ``redact`` downstream is gated identically and misses it too.
+    Cutting an already-redacted string can only shorten the ``value[:4] + "***"``
+    stub, which carries nothing the stub had not already given away.
+
+    The evidence quotes are *not* redacted here: ``_verify`` has to match them
+    against the file first, so they are redacted later, in ``_redact_candidate``.
+
+    The title's internal whitespace is collapsed to single spaces as well as
+    stripped at the ends. Every consumer renders it on a line it owns -- the
+    verifier prompt's ``title:`` line, ``design.md``'s ``## <title>`` heading,
+    the notes prompt's ``## <n>. <title>`` -- so an embedded newline is a
+    structural break, not content, and collapsing it here also makes the
+    80-character cap count the characters a reader will actually see.
+    ``design_writer.heading_text`` collapses it again at write time, so a title
+    from a producer that never passed through this module is safe too.
+    """
     if not isinstance(item, dict):
         return "not an object"
     title = item.get("title")
@@ -122,7 +152,7 @@ def _validate(item: Any, family: str) -> dict[str, Any] | str:
     note = item.get("note")
     cited = item.get("signals_cited")
     return {
-        "title": title.strip()[:TITLE_MAX],
+        "title": redact(" ".join(title.split()))[:TITLE_MAX],
         "family": family,
         "debt_type": str(item["debt_type"]),
         "type_id": str(type_id) if type_id is not None else None,
@@ -130,7 +160,7 @@ def _validate(item: Any, family: str) -> dict[str, Any] | str:
         "effort": str(item["effort"]),
         "signals_cited": sorted({str(s) for s in cited}) if isinstance(cited, list) else [],
         "evidence": cleaned,
-        "note": (note.strip() if isinstance(note, str) else "")[:NOTE_MAX],
+        "note": redact(note.strip() if isinstance(note, str) else "")[:NOTE_MAX],
     }
 
 
@@ -327,6 +357,15 @@ def _candidate(
 
 
 def _redact_candidate(cand: dict[str, Any]) -> None:
+    """Redact the verified quotes, and re-assert the title and note.
+
+    The quotes could not be redacted before now: ``_verify`` matches each one
+    against the file on disk, and a redacted quote would no longer match. The
+    title and note were already redacted in ``_validate``, before their caps
+    were applied; ``redact`` is idempotent, so repeating it here costs nothing
+    and keeps this the single place a reader can check that every string a
+    candidate carries has been through it.
+    """
     cand["title"] = redact(cand["title"])
     cand["note"] = redact(cand["note"])
     for ev in cand["evidence"]:
@@ -367,7 +406,11 @@ def merge(
     for entry in plan.get("entries") or []:
         family = str(entry["family"])
         stats.setdefault(family, _new_stats())
-        doc = _read_json(workdir / str(entry["output"]))
+        try:
+            doc = _read_json(workdir / str(entry["output"]))
+        except (OSError, ValueError):
+            stats[family]["read_failed"] = 1
+            continue
         if not isinstance(doc, dict):
             stats[family]["missing_file"] = 1
             continue
@@ -425,8 +468,9 @@ def merge(
             stats[family]["suppressed"] += 1
             continue
         rule_kept.append(cand)
-    # dropped_reasons is recorded out-of-band (like missing_file) so a family with nothing
-    # dropped keeps the exact six pinned stat keys; it is appended last, after missing_file.
+    # dropped_reasons is recorded out-of-band (like missing_file and read_failed) so a
+    # family with nothing dropped keeps the exact six pinned stat keys; it is appended
+    # last, after missing_file and read_failed.
     final_stats: dict[str, dict[str, Any]] = {}
     for family, counts in stats.items():
         stat_entry: dict[str, Any] = dict(counts)

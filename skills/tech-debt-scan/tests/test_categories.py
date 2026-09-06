@@ -1,23 +1,18 @@
-"""categories.py: the v1 prompts (skipped until phase 3) and the v2 family blocks (spec 4.6)."""
+"""categories.py: the v2 family blocks and the scout output contract (spec 4.6)."""
 from __future__ import annotations
 
 import json
 
-import pytest
+import categories
 from categories import (
-    CATEGORIES,
-    CORE_CATEGORIES,
     FAMILIES,
     FAMILY_BLOCKS,
     SCOUT_OUTPUT_SCHEMA,
     SEVERITY_RUBRIC,
-    get_prompt,
     render_scout_prompt,
 )
 from config import FAMILY_SETS
 from validation import VALID_DEBT_TYPES, validate_type_id
-
-V1_SKIP = pytest.mark.skip(reason="v1 scout prompts are retired in phase 3 (spec 11)")
 
 EXPECTED_FAMILIES = (
     "complex-units", "god-classes", "duplication", "dead-code", "error-masking",
@@ -37,18 +32,31 @@ def _render(family: str) -> str:
     )
 
 
-# --- v1 (kept until phase 3) ----------------------------------------------------
+# --- v1 deletion (spec 3.2) -----------------------------------------------------
 
 
-@V1_SKIP
-def test_eight_categories() -> None:
-    assert len(set(CATEGORIES)) == 8 and set(CORE_CATEGORIES) <= set(CATEGORIES)
+def test_the_v1_scout_prompt_symbols_are_gone() -> None:
+    """Spec 3.2: phase 3 deletes the v1 scout-prompt symbols outright.
 
+    Phase 2 kept ``CATEGORY_PROMPTS``, ``CATEGORIES``, ``CORE_CATEGORIES`` and
+    ``get_prompt`` beside the family blocks so SKILL.md v1 and
+    ``build_synthesis_prompt.py`` kept working; both of those consumers are
+    deleted by this branch, so the symbols have no reader left. ``_OUTPUT_SCHEMA``
+    goes with them: it was appended to each of the eight v1 prompts and nothing
+    else read it, and it still described a ``confidence`` field that this phase
+    removed from ``validation.py`` -- two contradicting scout contracts in one
+    module if it survived. The v2 contract is ``SCOUT_OUTPUT_SCHEMA``, which is
+    a different symbol and stays.
 
-@V1_SKIP
-def test_v1_prompts_carry_the_v1_schema() -> None:
-    for cat in CATEGORIES:
-        assert '"suggested_fix"' in get_prompt(cat)
+    A v1 ``design.md`` is unaffected: its ``category`` value (``god-modules``
+    and the rest) is a string in a document that ``design_parser`` reads as
+    ``family``; no v1 path ever reads a scout prompt.
+    """
+    for name in ("CATEGORY_PROMPTS", "CATEGORIES", "CORE_CATEGORIES", "get_prompt",
+                 "_OUTPUT_SCHEMA"):
+        assert not hasattr(categories, name), f"{name} should have been deleted in phase 3"
+    assert "suggested_fix" not in categories.SCOUT_OUTPUT_CONTRACT
+    assert "confidence" not in categories.SCOUT_OUTPUT_CONTRACT
 
 
 # --- v2 -------------------------------------------------------------------------

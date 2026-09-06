@@ -10,12 +10,29 @@ from typing import Any
 from config import DEFAULTS
 from evidence import fingerprint
 from inventory import build_all, write_json, write_outputs
-from merge_findings import CLUSTER_WINDOW, _main, _normalise_path, merge
+from merge_findings import (
+    CLUSTER_WINDOW,
+    NOTE_MAX,
+    TITLE_MAX,
+    _main,
+    _normalise_path,
+    merge,
+)
 from patterns import run_patterns
 from rules import run_rules
 
 SECRET = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"
 SWALLOW = "except Exception:\n        pass"
+AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
+# The key starts at character 62 and ends at 82, so a cut at TITLE_MAX (80) lands
+# inside it. Every branch of SECRET_TOKEN_RE is length-gated -- the AWS branch
+# needs 16 characters after the four-letter prefix -- so the surviving fragment
+# no longer matches its own pattern and a later redact() is a no-op on it.
+STRADDLING_TITLE = (
+    f"Long-lived AWS access key committed in src/config/settings.py {AWS_KEY} and never rotated"
+)
+# The same shape against NOTE_MAX (300): the key spans characters 282 to 302.
+STRADDLING_NOTE = ("The key below is committed in plain text. " * 7)[: NOTE_MAX - 18] + AWS_KEY
 
 
 def _repo(tmp_path: Path) -> tuple[Path, Path]:
@@ -244,6 +261,19 @@ def test_malformed_items_are_dropped_and_counted(tmp_path: Path) -> None:
     assert "not an object" in joined, "the bare string item"
 
 
+def test_a_corrupt_scout_file_is_counted_not_fatal(tmp_path: Path) -> None:
+    """One malformed scout document must not discard thirteen good ones."""
+    repo, workdir = _repo(tmp_path)
+    _scout(workdir, "error-masking", [
+        _finding("error-masking", "swallowed", "src/pay.py", 7, 8, SWALLOW),
+    ])
+    (workdir / "scouts" / "security.json").write_bytes(b'{"family": "security", "findings": [')
+    doc = merge(workdir, repo, DEFAULTS)
+    assert [c["title"] for c in doc["candidates"] if c["source"] == "scout"] == ["swallowed"]
+    assert doc["stats"]["security"]["read_failed"] == 1
+    assert doc["stats"]["security"]["raw"] == 0
+
+
 def test_dropped_reason_is_redacted_before_recording(tmp_path: Path) -> None:
     repo, workdir = _repo(tmp_path)
     credential_debt_type = 'token = "abcdefghijkl0123"'
@@ -313,6 +343,70 @@ def test_secret_is_redacted_everywhere_and_rule_candidates_pass_through(tmp_path
     assert doc["looks_bad_but_fine"] == [
         {"file": "src/util.py", "line_start": 1, "why": "helper by design"}
     ]
+
+
+def test_a_secret_straddling_the_title_or_note_cut_is_redacted_before_truncation(
+    tmp_path: Path,
+) -> None:
+    """Redaction must run before the length cap, or truncation is a redaction bypass.
+
+    ``_validate`` used to cut the title to ``TITLE_MAX`` and the note to
+    ``NOTE_MAX`` and leave the redaction to ``_redact_candidate``, which runs
+    three steps later. Every branch of ``SECRET_TOKEN_RE`` is length-gated, so a
+    token cut in half no longer matches its own pattern: the fragment reached
+    ``candidates.json`` verbatim, and then ``design.md``, ``findings.json`` and a
+    promoted ``PBI.md``, whose own write-time ``redact`` is gated identically and
+    misses it too. ``rules.py`` has always done it the other way round.
+    """
+    repo, workdir = _repo(tmp_path)
+    for value, cap in ((STRADDLING_TITLE, TITLE_MAX), (STRADDLING_NOTE, NOTE_MAX)):
+        start = value.index(AWS_KEY)
+        assert start < cap < start + len(AWS_KEY), "the fixture must straddle its own cut"
+    _scout(
+        workdir,
+        "error-masking",
+        [
+            _finding(
+                "error-masking", STRADDLING_TITLE, "src/pay.py", 7, 8, SWALLOW,
+                note=STRADDLING_NOTE,
+            )
+        ],
+    )
+    _scout(workdir, "security", [])
+    doc = merge(workdir, repo, DEFAULTS)
+    text = json.dumps(doc)
+    # 16 characters is the shortest fragment that still identifies the key.
+    assert AWS_KEY[:16] not in text, "a truncated fragment of the key reached candidates.json"
+    cand = next(c for c in doc["candidates"] if c["source"] == "scout")
+    assert "AKIA***" in cand["title"] and "AKIA***" in cand["note"]
+    assert len(cand["title"]) <= TITLE_MAX and len(cand["note"]) <= NOTE_MAX
+
+
+def test_a_title_is_collapsed_to_one_line(tmp_path: Path) -> None:
+    """``strip()`` alone let an embedded newline through to every title consumer.
+
+    The verifier prompt's ``title:`` line, ``design.md``'s ``## <title>`` and the
+    notes prompt's ``## <n>. <title>`` each render the title on a line they own,
+    so a newline in it is a structural break rather than content -- a
+    ``# ``-shaped continuation used to abort the whole design render. Collapsing
+    here also makes the 80-character cap count characters a reader will see.
+    """
+    repo, workdir = _repo(tmp_path)
+    _scout(
+        workdir,
+        "error-masking",
+        [
+            _finding(
+                "error-masking",
+                "  Refund fails\n# Considered and rejected\t\tsilently  ",
+                "src/pay.py", 7, 8, SWALLOW,
+            )
+        ],
+    )
+    _scout(workdir, "security", [])
+    doc = merge(workdir, repo, DEFAULTS)
+    cand = next(c for c in doc["candidates"] if c["source"] == "scout")
+    assert cand["title"] == "Refund fails # Considered and rejected silently"
 
 
 def test_cli(tmp_path: Path) -> None:

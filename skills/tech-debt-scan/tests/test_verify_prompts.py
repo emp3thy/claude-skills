@@ -7,6 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import pytest
 import verify_prompts
 from categories import FAMILIES, FAMILY_BLOCKS, SEVERITY_RUBRIC
 from config import DEFAULTS
@@ -296,6 +297,38 @@ def test_the_reference_graph_is_built_once_per_plan(tmp_path: Path, monkeypatch:
     assert len(plan["batches"]) == 2
     assert len(builds) == 1, f"the graph was built {len(builds)} times"
     assert all("approximate referrers: src/caller.py" in text for text in prompts.values())
+
+
+def test_a_failed_graph_is_not_rebuilt_for_every_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A graph build that fails once must not be retried per batch (it re-reads every file)."""
+    import verify_prompts as vp
+
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    for name in ("alpha", "bravo", "charlie"):
+        body = "\n".join(f"line {i}" for i in range(1, 40)) + "\n"
+        (repo / "src" / f"{name}.py").write_text(body, encoding="utf-8")
+    inventory, coupling = build_all(repo, config=DEFAULTS)
+    workdir = tmp_path / "wd"
+    write_outputs(inventory, coupling, workdir)
+    cands = [_cand("dead-code", f"src/{n}.py", i, 2)
+             for n in ("alpha", "bravo", "charlie") for i in range(1, 4)]
+    write_json(workdir / "candidates.json", {"schema_version": 2, "candidates": cands,
+                                             "open_questions": [], "looks_bad_but_fine": [],
+                                             "stats": {}})
+    calls: list[int] = []
+
+    def boom(*_args: Any, **_kwargs: Any) -> Any:
+        calls.append(1)
+        raise RuntimeError("graph unavailable")
+
+    monkeypatch.setattr(vp, "build_reference_graph", boom)
+    plan, prompts = vp.build_verify_plan(workdir, repo, DEFAULTS, top=5)
+    assert len(plan["batches"]) >= 2
+    assert len(calls) == 1, "the failed build must be attempted once, not once per batch"
+    assert all("approximate referrers: not computed" in text for text in prompts.values())
 
 
 def test_cli_reports_a_malformed_candidates_document_instead_of_a_traceback(
