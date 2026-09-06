@@ -443,6 +443,26 @@ class TestProbe:
         assert document["tools"]["osv-scanner"]["status"] == "skipped"
         assert document["tools"]["osv-scanner"]["reason"] == "no local database"
 
+    def test_offline_with_a_nonexistent_database_directory_skips_osv_scanner(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The env var being *set* is not enough (review finding Q8): it must
+        also name a directory that actually exists, or an operator's typo or
+        a stale path is indistinguishable from a real local database."""
+        import tools_probe
+        from config import load_config
+
+        (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(tools_probe, "find_tool", lambda name, root: "osv-scanner")
+        monkeypatch.setenv(
+            "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY", str(tmp_path / "does-not-exist")
+        )
+        config = load_config(tmp_path)
+        config["tools"]["network"] = False
+        document = tools_probe.probe(tmp_path, config)
+        assert document["tools"]["osv-scanner"]["status"] == "skipped"
+        assert document["tools"]["osv-scanner"]["reason"] == "no local database"
+
     def test_offline_with_a_database_passes_the_offline_flag(
         self, tmp_path: Path, monkeypatch
     ) -> None:
@@ -467,18 +487,215 @@ class TestProbe:
         assert "--extensions" in argv
         assert "--circular" in argv
 
+    def test_ruff_argv_carries_isolated_and_no_cache(self, tmp_path: Path) -> None:
+        """Pins both Task 8 ruff fixes (review finding Q3): --isolated so the
+        scanned repository's own config cannot silence the rules asked for,
+        and --no-cache so a probe run never writes .ruff_cache into the
+        scanned tree. Neither was asserted anywhere before this."""
+        from tools_probe import TOOLS, argv_for
+
+        argv = argv_for(TOOLS["ruff"], "ruff", tmp_path, network=True)
+        assert "--isolated" in argv
+        assert "--no-cache" in argv
+
     def test_signals_are_redacted_before_they_are_written(self, tmp_path: Path) -> None:
+        """Redaction must reach every string in a signal, not only ``message``:
+        rule ids, symbol names and cycle-member paths inside ``extra`` are
+        tool-supplied text too, wherever they sit -- a plain value, or nested
+        inside a list within ``extra``."""
         from tools_probe import redact_signals
 
+        secret = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"
         signals = [{
             "tool": "ruff", "family": "security", "kind": "error-masking",
             "file": "a.py", "line_start": 1, "line_end": 1,
-            "message": 'token = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"',
-            "fact": False, "extra": {"code": "E722"},
+            "message": f'token = "{secret}"',
+            "fact": False,
+            "extra": {
+                "code": "E722",
+                "note": f"rotated credential was {secret}",
+                "aliases": [f"backup: {secret}"],
+            },
         }]
         out = redact_signals(signals)
-        assert "sk_live_51H8f2kL9mN3pQ7rS4tU6vW" not in json.dumps(out)
-        assert "sk_l***" in out[0]["message"]
+        serialised = json.dumps(out)
+        assert secret not in serialised
+        assert "sk_l***" in serialised
+
+    def test_probe_redacts_secrets_reaching_the_document_via_a_normaliser(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Pins the wiring, not just the helper (review finding Q4): every
+        other redaction test calls redact_signals directly, so deleting
+        ``redact_signals(signals)`` from probe()'s return statement would
+        leave them all green. This one drives probe() end to end with a
+        stubbed run_tool and normaliser, so the secret must pass through the
+        actual call site to be caught."""
+        import tools_probe
+        from config import load_config
+
+        secret = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"
+        (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+        monkeypatch.setattr(tools_probe, "find_tool", lambda name, root: "fake-ruff")
+        monkeypatch.setattr(
+            tools_probe,
+            "run_tool",
+            lambda spec, argv, root, timeout: tools_probe.ToolResult("ran", payload=[]),
+        )
+        monkeypatch.setitem(
+            tools_probe.NORMALISERS,
+            "ruff",
+            lambda payload, root: [{
+                "tool": "ruff", "family": "security", "kind": "error-masking",
+                "file": "a.py", "line_start": 1, "line_end": 1,
+                "message": "fine",
+                "fact": False,
+                "extra": {"note": f"token was {secret}"},
+            }],
+        )
+        config = load_config(tmp_path)
+        config["tools"]["deny"] = [name for name in tools_probe.TOOLS if name != "ruff"]
+        document = tools_probe.probe(tmp_path, config)
+        assert secret not in json.dumps(document)
+
+
+class TestGlobOperandGuard:
+    """Review finding Q2: hadolint's artefact predicate and its argv builder
+    globbed different patterns, so a repository whose only Dockerfile is
+    Dockerfile.prod passed artefact_present and then reached hadolint with no
+    file operand -- hadolint reads a Dockerfile from inherited stdin in that
+    case and hangs until the timeout."""
+
+    def test_dockerfile_prod_only_is_correctly_invoked(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, argv_for, artefact_present
+
+        (tmp_path / "Dockerfile.prod").write_text("FROM python\n", encoding="utf-8")
+        spec = TOOLS["hadolint"]
+        assert artefact_present(spec, tmp_path) is True
+        argv = argv_for(spec, "hadolint", tmp_path, network=True)
+        assert any(part.endswith("Dockerfile.prod") for part in argv)
+
+    @pytest.mark.parametrize(
+        "dockerfile_path", ["Dockerfile", "nested/Dockerfile", "Dockerfile.prod"]
+    )
+    def test_every_hadolint_artefact_shape_yields_a_nonempty_operand_list(
+        self, dockerfile_path: str, tmp_path: Path
+    ) -> None:
+        """Every shape ARTEFACTS["hadolint"] accepts must also be a shape
+        _glob_operands finds -- the two are built from the same patterns, so
+        the artefact predicate passing can never again mean an empty argv."""
+        from tools_probe import TOOLS, _glob_operands, argv_for, artefact_present
+
+        path = tmp_path / dockerfile_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("FROM python\n", encoding="utf-8")
+        spec = TOOLS["hadolint"]
+        assert artefact_present(spec, tmp_path) is True
+        assert _glob_operands(spec, tmp_path) != []
+        argv = argv_for(spec, "hadolint", tmp_path, network=True)
+        assert len(argv) > 3  # more than just [executable, "--format", "json"]
+
+    def test_probe_skips_rather_than_runs_a_glob_operand_tool_with_no_files(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The structural guard, not just the alignment fix above: even if a
+        glob expansion for a GLOB_OPERAND_TOOLS member ever comes back empty
+        again, probe() must skip it rather than hand run_tool an argv with no
+        file operand."""
+        import tools_probe
+        from config import load_config
+
+        (tmp_path / "Dockerfile").write_text("FROM python\n", encoding="utf-8")
+        monkeypatch.setattr(tools_probe, "find_tool", lambda name, root: "hadolint")
+        monkeypatch.setattr(tools_probe, "_glob_operands", lambda spec, root: [])
+        document = tools_probe.probe(tmp_path, load_config(tmp_path))
+        assert document["tools"]["hadolint"]["status"] == "skipped"
+        assert document["tools"]["hadolint"]["reason"] == "no matching artefact"
+
+    def test_hadolint_is_the_only_registered_glob_operand_tool(self) -> None:
+        """Documents the hazard's current scope: every other builder passes
+        the target directory itself (always non-empty) or no file operand at
+        all, so this is where the guard needs to apply today."""
+        from tools_probe import GLOB_OPERAND_TOOLS
+
+        assert {"hadolint"} == GLOB_OPERAND_TOOLS
+
+
+class TestSignalSortKeyTotality:
+    def test_signals_tied_on_file_line_kind_message_still_sort_deterministically(
+        self,
+    ) -> None:
+        """Reproduces the review's jscpd tie (finding Q1): one block
+        duplicated in two different places produces two signals equal on
+        file, line_start, kind and message, differing only in extra. Without
+        extra in the key, a stable sort falls back to preserving the tool's
+        own (not guaranteed stable) emission order for the tied pair --
+        exactly the non-determinism the sort exists to remove."""
+        import random
+
+        from tools_probe import _signal_sort_key
+
+        base: dict[str, Any] = {
+            "tool": "jscpd", "family": "duplication", "kind": "clone",
+            "file": "a.ts", "line_start": 10, "line_end": 30,
+            "message": "20 duplicated lines shared with b.ts", "fact": False,
+        }
+        first: dict[str, Any] = {**base, "extra": {"other_line_start": 200, "other_line_end": 220}}
+        second: dict[str, Any] = {**base, "extra": {"other_line_start": 400, "other_line_end": 420}}
+        canonical_order = sorted([first, second], key=_signal_sort_key)
+        assert canonical_order in ([first, second], [second, first])
+        for _ in range(20):
+            shuffled = [first, second]
+            random.shuffle(shuffled)
+            assert sorted(shuffled, key=_signal_sort_key) == canonical_order
+
+
+class TestRuffRuleSetsAgree:
+    def test_ruff_select_and_ruff_kinds_name_the_same_codes(self) -> None:
+        """RUFF_SELECT (tools_probe) and RUFF_KINDS (tool_normalisers) are two
+        independently maintained lists of the same rule codes (review finding
+        Q5); adding a code to only one silently breaks the pairing with no
+        test failure until now."""
+        from tool_normalisers import RUFF_KINDS
+        from tools_probe import RUFF_SELECT
+
+        assert set(RUFF_SELECT.split(",")) == set(RUFF_KINDS)
+
+
+class TestRegistryCompleteness:
+    def test_every_tool_has_a_normaliser_and_an_artefact_row(self) -> None:
+        """Review finding Q6: registering a tool without a NORMALISERS row
+        raises an uncaught KeyError from the CLI the first time that tool
+        actually runs. _main now also catches KeyError as a defence in
+        depth (verified by hand below; the CLI itself has no test coverage
+        yet -- review finding Q7, out of scope for this round)."""
+        from tools_probe import ARTEFACTS, NORMALISERS, TOOLS
+
+        assert set(NORMALISERS) == set(ARTEFACTS) == set(TOOLS)
+
+
+class TestRuffNoCacheLeak:
+    def test_probe_leaves_no_ruff_cache_in_a_scratch_copy_of_the_corpus(
+        self, tmp_path: Path
+    ) -> None:
+        """Pins the Task 8 --no-cache fix (review finding Q3): deleting the
+        flag leaves every test in this file green and instead breaks
+        test_corpus.py's byte-identical-fixture check in an unrelated file,
+        with no visible connection to the cause. Runs against a scratch copy
+        under pytest's own tmp_path -- never the corpus fixture in place."""
+        import shutil
+
+        if shutil.which("ruff") is None:
+            pytest.skip("ruff is not installed on this machine")
+
+        from config import load_config
+        from tools_probe import probe
+
+        source = CORPUS / "service-py" / "files"
+        scratch = tmp_path / "service-py-scratch"
+        shutil.copytree(source, scratch)
+        probe(scratch, load_config(scratch))
+        assert not (scratch / ".ruff_cache").exists()
 
 
 GOLDEN = Path(__file__).resolve().parent / "golden"

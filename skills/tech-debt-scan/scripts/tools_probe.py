@@ -268,6 +268,32 @@ def artefact_present(spec: ToolSpec, root: Path) -> bool:
     return False
 
 
+# Tools whose argv is a list of files found by globbing, rather than the
+# target directory itself. ``artefact_present`` only asks "does *something*
+# match one of this tool's patterns" -- it says nothing about whether the
+# specific glob an argv builder happens to use would find that same thing.
+# hadolint is the one tool built this way today: its ARTEFACTS row accepts
+# ``Dockerfile``, ``**/Dockerfile`` and ``**/Dockerfile.*``, and its operand
+# list is built from exactly the same patterns via ``_glob_operands`` below,
+# so the two can no longer disagree. ``probe`` additionally refuses to run
+# any tool in this set when the expansion comes back empty, as a second,
+# structural line of defence against the same class of bug reappearing (a
+# future pattern added to one side and not the other, or a new tool built the
+# same way) -- hadolint given no file operand reads a Dockerfile from
+# inherited stdin and hangs until the timeout, which is worse than skipping.
+GLOB_OPERAND_TOOLS: Final[frozenset[str]] = frozenset({"hadolint"})
+
+
+def _glob_operands(spec: ToolSpec, root: Path) -> list[str]:
+    """Every path under ``root`` matching one of ``spec``'s ARTEFACTS patterns."""
+    found: set[str] = set()
+    for pattern in ARTEFACTS[spec.name]:
+        if pattern == "*":
+            continue
+        found.update(str(path) for path in root.glob(pattern))
+    return sorted(found)
+
+
 def argv_for(spec: ToolSpec, executable: str, root: Path, *, network: bool) -> list[str]:
     """The exact command line for one tool.
 
@@ -299,8 +325,7 @@ def argv_for(spec: ToolSpec, executable: str, root: Path, *, network: bool) -> l
         return [executable, "detect", "--no-git", "--report-format", "json",
                 "--report-path", "-", "--source", target]
     if spec.name == "hadolint":
-        dockerfiles = [str(path) for path in sorted(root.glob("**/Dockerfile"))]
-        return [executable, "--format", "json", *dockerfiles]
+        return [executable, "--format", "json", *_glob_operands(spec, root)]
     if spec.name == "actionlint":
         return [executable, "-format", "{{json .}}", "-no-color"]
     if spec.name == "osv-scanner":
@@ -311,14 +336,34 @@ def argv_for(spec: ToolSpec, executable: str, root: Path, *, network: bool) -> l
     raise ValueError(f"no argv builder for {spec.name!r}")
 
 
+def _redact_value(value: Any) -> Any:
+    """``value`` with every string it holds redacted, recursing into dicts and lists.
+
+    Tool-supplied text is not confined to ``message``: ``extra`` carries rule
+    ids, symbol names and cycle-member paths straight from the tool, and a
+    string nested inside a list or dict within ``extra`` (a cycle's member
+    list, a set of duplicate locations) is just as capable of holding a
+    credential-shaped token as ``message`` is. Non-string, non-container
+    values (``None``, ``int``, ``bool``) pass through untouched.
+    """
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, dict):
+        return {key: _redact_value(inner) for key, inner in value.items()}
+    if isinstance(value, list):
+        return [_redact_value(inner) for inner in value]
+    return value
+
+
 def redact_signals(signals: list[Any]) -> list[Any]:
-    """Every signal message run through the shared redactor before writing."""
-    out = []
-    for item in signals:
-        copied = dict(item)
-        copied["message"] = redact(str(copied.get("message", "")))
-        out.append(copied)
-    return out
+    """Every string value in every signal run through the shared redactor.
+
+    Recursive over the whole signal -- every top-level field and everything
+    reachable inside ``extra`` -- rather than rewriting ``message`` alone,
+    because a secret-shaped token can arrive in any tool-supplied string, not
+    only the one field a first cut happened to redact.
+    """
+    return [_redact_value(item) for item in signals]
 
 
 def probe(root: Path, config: dict[str, Any], *, skip_all: bool = False) -> dict[str, Any]:
@@ -340,15 +385,22 @@ def probe(root: Path, config: dict[str, Any], *, skip_all: bool = False) -> dict
         if not artefact_present(spec, root):
             tools[name] = _entry("skipped", reason="no matching artefact")
             continue
+        if name in GLOB_OPERAND_TOOLS and not _glob_operands(spec, root):
+            # Belt-and-braces: artefact_present and _glob_operands already
+            # read the same ARTEFACTS patterns, so this is unreachable today,
+            # but it makes an empty-operand invocation structurally
+            # impossible even if that alignment is ever broken again.
+            tools[name] = _entry("skipped", reason="no matching artefact")
+            continue
         executable = find_tool(name, root)
         if executable is None:
             tools[name] = _entry("absent")
             continue
-        if name == "osv-scanner" and not network and not os.environ.get(
-            "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY"
-        ):
-            tools[name] = _entry("skipped", reason="no local database")
-            continue
+        if name == "osv-scanner" and not network:
+            db_dir = os.environ.get("OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY")
+            if not (db_dir and Path(db_dir).is_dir()):
+                tools[name] = _entry("skipped", reason="no local database")
+                continue
         timeout = spec.timeout_s or default_timeout
         result = run_tool(spec, argv_for(spec, executable, root, network=network),
                           root, timeout)
@@ -365,7 +417,7 @@ def probe(root: Path, config: dict[str, Any], *, skip_all: bool = False) -> dict
     }
 
 
-def _signal_sort_key(sig: Any) -> tuple[str, int, str, str]:
+def _signal_sort_key(sig: Any) -> tuple[str, int, str, str, str]:
     """A total order for one tool's own signals.
 
     Some tools do not guarantee their own JSON emits findings in a stable
@@ -374,11 +426,23 @@ def _signal_sort_key(sig: Any) -> tuple[str, int, str, str]:
     Sorting within each tool's contribution keeps ``tool-signals.json``
     byte-identical across regenerations regardless of that. The across-tool
     order is already deterministic: it follows ``TOOLS`` registry order.
+
+    The first four elements are the human-meaningful ordering (file, line,
+    kind, message); the last is a canonical JSON dump of the whole signal,
+    included so the key is total rather than merely usually-distinguishing.
+    Two signals that agree on file, line_start, kind and message are the
+    normal shape of one source block reported as duplicated with several
+    other regions -- jscpd's own ``other_line_start``/``other_line_end`` in
+    ``extra`` is exactly what tells them apart, and without it in the key a
+    stable sort falls back to silently preserving the tool's own emission
+    order for that tied pair, which is the non-determinism this function
+    exists to remove.
     """
     file_ = sig.get("file") or ""
     line_start = sig.get("line_start")
     row = line_start if isinstance(line_start, int) else -1
-    return (file_, row, sig.get("kind") or "", sig.get("message") or "")
+    canonical = json.dumps(sig, sort_keys=True, default=str)
+    return (file_, row, sig.get("kind") or "", sig.get("message") or "", canonical)
 
 
 def _entry(status: str, *, reason: str = "", duration_s: float = 0.0) -> dict[str, Any]:
@@ -400,7 +464,7 @@ def _main(argv: list[str] | None = None) -> int:
         return 2
     try:
         document = probe(root, load_config(root), skip_all=args.skip_all)
-    except (OSError, ValueError, ConfigError) as exc:
+    except (OSError, ValueError, ConfigError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     out_path = Path(args.workdir) / "tool-signals.json"
