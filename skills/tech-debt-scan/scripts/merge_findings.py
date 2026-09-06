@@ -115,6 +115,15 @@ def _validate(item: Any, family: str) -> dict[str, Any] | str:
 
     The evidence quotes are *not* redacted here: ``_verify`` has to match them
     against the file first, so they are redacted later, in ``_redact_candidate``.
+
+    The title's internal whitespace is collapsed to single spaces as well as
+    stripped at the ends. Every consumer renders it on a line it owns -- the
+    verifier prompt's ``title:`` line, ``design.md``'s ``## <title>`` heading,
+    the notes prompt's ``## <n>. <title>`` -- so an embedded newline is a
+    structural break, not content, and collapsing it here also makes the
+    80-character cap count the characters a reader will actually see.
+    ``design_writer.heading_text`` collapses it again at write time, so a title
+    from a producer that never passed through this module is safe too.
     """
     if not isinstance(item, dict):
         return "not an object"
@@ -143,7 +152,7 @@ def _validate(item: Any, family: str) -> dict[str, Any] | str:
     note = item.get("note")
     cited = item.get("signals_cited")
     return {
-        "title": redact(title.strip())[:TITLE_MAX],
+        "title": redact(" ".join(title.split()))[:TITLE_MAX],
         "family": family,
         "debt_type": str(item["debt_type"]),
         "type_id": str(type_id) if type_id is not None else None,

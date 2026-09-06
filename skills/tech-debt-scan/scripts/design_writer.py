@@ -48,7 +48,10 @@ Format invariants (the round-trip partner is design_parser.parse_design):
     or trap, and the note text in Task 5) goes through ``free_text`` instead,
     which redacts and also escapes any line that would otherwise read as a
     heading and truncate the finding's body (design_parser._ends_section) or as
-    a code fence and desynchronise the two fence scanners on this path.
+    a code fence and desynchronise the two fence scanners on this path. A
+    finding's title goes through ``heading_text``, which redacts and collapses
+    it to the one line a ``## `` heading can hold, so a title carrying an
+    embedded newline cannot splice a second heading into the document.
   - An evidence quote is wrapped in a fence one backtick longer than the longest
     backtick run inside it (``_fence_for``), so a quote lifted from a Markdown or
     Ruby fixture cannot close the writer's own fence and spill into the document
@@ -356,6 +359,31 @@ def free_text(value: str) -> str:
     return "\n".join(escaped)
 
 
+def heading_text(value: str) -> str:
+    """A finding's title, redacted and collapsed to the single line a heading is.
+
+    The title is the one agent-supplied string the writer splices into a line it
+    also owns (``## <title>``, and ``## <n>. <title>`` in the notes prompt).
+    ``merge_findings._validate`` strips only leading and trailing whitespace, so
+    an embedded newline reaches the writer intact, and the continuation line
+    lands in the document as a line of its own: a ``# ``-shaped one becomes a
+    section heading to ``design_parser``, which then finds no anchor under the
+    finding's heading and aborts the whole render -- one stray line from one
+    agent discarding a run's twelve scouts, its verifier batches and its note
+    agent.
+
+    A title is a single line by nature, so this collapses every whitespace run
+    to one space rather than escaping each shape a continuation might take
+    (``free_text``'s job, for the fields that are genuinely multi-line). After
+    the collapse the ``## `` prefix guarantees the rendered line can be neither a
+    heading of another level nor a fence to either scanner, whatever the title
+    holds, and the heading still reads as the words the agent wrote -- where an
+    escape would leave a backslash in the title that ``findings.json`` and a
+    promoted ``PBI.md`` would carry as part of the name.
+    """
+    return " ".join(redact(value).split())
+
+
 def _scalar(value: Any) -> str:
     """A YAML scalar for an anchor value; ``None`` renders as ``null``."""
     if value is None:
@@ -569,7 +597,7 @@ def _finding_section(
     finding = row.finding
     lines = [
         "",
-        f"## {redact(str(finding.get('title') or ''))}",
+        f"## {heading_text(str(finding.get('title') or ''))}",
         "",
         "```yaml",
         *_anchor(inputs, row),
@@ -635,7 +663,7 @@ def render_notes_prompt(inputs: RenderInputs) -> str:
         finding = row.finding
         parts += [
             "",
-            f"## {index}. {redact(str(finding.get('title') or ''))}",
+            f"## {index}. {heading_text(str(finding.get('title') or ''))}",
             f"fingerprint: {finding.get('fingerprint')}",
             f"family: {finding.get('family')}  severity: {finding.get('severity')}  "
             f"effort: {finding.get('effort')}",
@@ -730,7 +758,12 @@ def _considered_and_rejected(rows: list[Row]) -> list[str]:
         if finding.get("verdict") != "reject":
             continue
         detail = finding.get("trap_matched") or finding.get("proof") or NO_PROOF
-        title = free_text(str(finding.get("title") or ""))
+        # The title goes through heading_text, not free_text: it is rendered inside
+        # a bullet this function owns, so a newline in it breaks the bullet in half
+        # rather than adding a line of prose. Collapsing keeps the bullet one line;
+        # the escape free_text would add is then unreachable, since nothing the
+        # title holds can start a line.
+        title = heading_text(str(finding.get("title") or ""))
         lines.append(
             f"- **{title}** - `{_primary_file(finding)}` - {free_text(str(detail))}"
         )
@@ -837,7 +870,7 @@ def render_findings_json(inputs: RenderInputs) -> dict[str, Any]:
             {
                 "fingerprint": fingerprint,
                 "slug": row.slug,
-                "title": redact(str(finding.get("title") or "")),
+                "title": heading_text(str(finding.get("title") or "")),
                 "family": finding.get("family"),
                 "debt_type": finding.get("debt_type"),
                 "type_id": finding.get("type_id"),

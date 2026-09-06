@@ -899,3 +899,69 @@ def test_free_text_leaves_a_tilde_line_and_a_short_backtick_run_alone() -> None:
     assert free_text("```") == "\\```"
     assert free_text("  ```py") == "  \\```py"
     assert free_text("`````") == "\\`````"
+
+
+@pytest.mark.parametrize(
+    "continuation",
+    [
+        "# Considered and rejected",
+        "## Considered and rejected",
+        "```",
+        "```python",
+        "~~~",
+        "an ordinary continuation",
+    ],
+    ids=["h1", "h2", "fence", "info-fence", "tilde", "plain"],
+)
+def test_a_title_with_an_embedded_newline_renders_as_one_heading(
+    tmp_path: Path, continuation: str
+) -> None:
+    """The H2 title is the last agent-supplied channel that could break the render.
+
+    ``merge_findings._validate`` strips only leading and trailing whitespace, so
+    an embedded newline survives into ``verified.json``; the writer then splices
+    it straight into ``## <title>``, and the continuation line becomes a
+    document-level heading or a fence to ``design_parser``. A title of
+    ``"Refund fails\\n# Considered and rejected"`` used to abort the whole render
+    with ``DesignWriteError`` -- the same run-discarding failure the fix wave
+    closed for the other five channels.
+
+    A title is a single line by nature, so the writer collapses it to one rather
+    than escaping each shape a continuation might take: the ``## `` prefix then
+    guarantees the line can be neither a heading of another level nor a fence to
+    either scanner, and the heading still reads as the words the agent wrote.
+    """
+    from design_writer import render_notes_prompt
+
+    verified = _verified()
+    verified["findings"][0]["title"] = f"Refund fails\n{continuation}"
+    verified["findings"].append(
+        _finding("4444555566667777", "dead-code", f"Ledger drift\n{continuation}",
+                 "src/pay/ledger.py", 1, 1, "pass", tier=None, verdict="reject",
+                 proof="a decoy, not debt"))
+    ranked = _ranked()
+    ranked["findings"].append(
+        {"fingerprint": "4444555566667777", "rank": 4, "priority": 0.0, "terms": {},
+         "tier": None, "in_top_n": False, "spread_capped": False})
+    inputs = _inputs(tmp_path, **{"verified.json": verified, "ranked.json": ranked})
+    out = tmp_path / "design.md"
+    write_design(inputs, SCAN_DATE, out)
+    text = out.read_text(encoding="utf-8")
+
+    assert f"## Refund fails {continuation}\n" in text, "the title renders as one heading line"
+    headings = [line[2:].strip() for line in text.split("\n") if line.startswith("# ")]
+    headings = ["Top" if h.startswith("Top ") else h for h in headings[1:]]
+    assert headings == list(SECTION_ORDER), "no continuation line became a section heading"
+
+    parsed = parse_design(out)
+    assert [f["title"] for f in parsed["findings"]] == [
+        f"Refund fails {continuation}",
+        "Hard-coded credential in the gateway client",
+    ]
+    for finding in parsed["findings"]:
+        assert "### Evidence" in finding["body_md"], finding["slug"]
+
+    doc = json.loads((inputs.workdir / "findings.json").read_bytes())
+    assert doc["findings"][0]["title"] == f"Refund fails {continuation}", "the twin agrees"
+    assert f"## 1. Refund fails {continuation}\n" in render_notes_prompt(inputs)
+    assert f"- **Ledger drift {continuation}** - " in text, "the rejection bullet stays one line"

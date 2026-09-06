@@ -382,6 +382,33 @@ def test_a_secret_straddling_the_title_or_note_cut_is_redacted_before_truncation
     assert len(cand["title"]) <= TITLE_MAX and len(cand["note"]) <= NOTE_MAX
 
 
+def test_a_title_is_collapsed_to_one_line(tmp_path: Path) -> None:
+    """``strip()`` alone let an embedded newline through to every title consumer.
+
+    The verifier prompt's ``title:`` line, ``design.md``'s ``## <title>`` and the
+    notes prompt's ``## <n>. <title>`` each render the title on a line they own,
+    so a newline in it is a structural break rather than content -- a
+    ``# ``-shaped continuation used to abort the whole design render. Collapsing
+    here also makes the 80-character cap count characters a reader will see.
+    """
+    repo, workdir = _repo(tmp_path)
+    _scout(
+        workdir,
+        "error-masking",
+        [
+            _finding(
+                "error-masking",
+                "  Refund fails\n# Considered and rejected\t\tsilently  ",
+                "src/pay.py", 7, 8, SWALLOW,
+            )
+        ],
+    )
+    _scout(workdir, "security", [])
+    doc = merge(workdir, repo, DEFAULTS)
+    cand = next(c for c in doc["candidates"] if c["source"] == "scout")
+    assert cand["title"] == "Refund fails # Considered and rejected silently"
+
+
 def test_cli(tmp_path: Path) -> None:
     _repo(tmp_path)
     workdir = tmp_path / "wd"
