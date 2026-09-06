@@ -5,6 +5,8 @@ from pathlib import Path
 from detect import detect
 from detect import main as detect_main
 from discover import (
+    _CLASS_DECL_RE,
+    _class_prefix,
     assign_role,
     build_env_map,
     detect_auth,
@@ -381,3 +383,43 @@ def test_cli_writes_env_map_and_seeded_ledger(tmp_path: Path) -> None:
                                "passing": False}
     assert first["exits"] == [] and first["rules"] == {"file": None, "count": 0, "sources": []}
     assert ledger["unresolved"] == []
+
+
+def test_class_prefix_handles_annotation_on_the_class_line() -> None:
+    lines = [
+        "package com.acme;",
+        '@RestController @RequestMapping("/api/shipments") public class ShipmentController {',
+        '    @GetMapping("/{id}")',
+        '    public String get() { return "x"; }',
+        "}",
+    ]
+    assert _class_prefix("spring", lines) == ("/api/shipments", 1)
+
+
+def test_class_prefix_handles_csharp_attribute_on_the_class_line() -> None:
+    lines = [
+        "namespace Deals.Api.Controllers;",
+        '[ApiController] [Route("api/[controller]")] public class DealsController : ControllerBase',
+        "{",
+        "}",
+    ]
+    assert _class_prefix("aspnetcore", lines) == ("api/deals", 1)
+
+
+def test_detect_auth_jwks_dedupes_manifest_and_config_spellings() -> None:
+    # Regression guard: detect_auth already sorts a set. It passes before any change.
+    result = detect_auth(_keys(
+        ("AUTH_ISSUER_URI", "https://login.example/realms/acme", "AUTH_ISSUER_URI"),
+        ("spring.security.oauth2.resourceserver.jwt.issuer-uri", "${AUTH_ISSUER_URI}",
+         "AUTH_ISSUER_URI"),
+    ), "spring-security")
+    assert result == {"mode": "jwks", "keys": ["AUTH_ISSUER_URI"]}
+
+
+def test_class_decl_regex_is_linear_on_long_attribute_lines() -> None:
+    # A bracketed run that never reaches a class keyword must fail fast, not backtrack
+    # exponentially: discovery scans every line of every source file with this regex.
+    for length in (30, 200, 2000):
+        assert _CLASS_DECL_RE.search("[" + "a" * length + "] somethingElse") is None
+        assert _CLASS_DECL_RE.search("[" + "a" * length) is None
+        assert _CLASS_DECL_RE.search('[Route("' + "x" * length + '")] public class C {') is not None

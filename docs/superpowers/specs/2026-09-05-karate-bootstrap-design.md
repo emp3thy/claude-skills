@@ -1,7 +1,7 @@
 # karate-bootstrap — design
 
 **Date:** 2026-09-05
-**Status:** Approved in brainstorm, awaiting written-spec review
+**Status:** Approved 2026-09-05 (Plan 1 landed as PR #7). Harness amendment (sections 3 H1 to H8, 4.2, 4.3, 5.5 to 5.8, 9, 10, 12) brainstormed 2026-09-05 evening, awaiting written review.
 **Repo:** `claude-skills`, skill path `skills/karate-bootstrap/`
 
 ## 1. Purpose
@@ -16,7 +16,7 @@ Target population: roughly 80 repositories at the user's workplace. Almost all a
 
 These come from the project's standards document and high-confidence reflections. They shape the implementation plan that follows this spec.
 
-- **Confidence scoring on every plan task.** Any task below 90% confidence carries its mitigation inside the task body, not as an optional follow-up. Verify unfamiliar APIs (Karate, Testcontainers, MockServer, Artemis image, ADO tasks) by reading docs or running a one-line check at plan-write time.
+- **Confidence scoring on every plan task.** Any task below 90% confidence carries its mitigation inside the task body, not as an optional follow-up. Verify unfamiliar APIs (Karate, Testcontainers, WireMock admin API, Artemis image, Qpid JMS, ADO tasks) by reading docs or running a spike at plan-write time; the harness amendment was spike-backed (section 12).
 - **Scripts own determinism, the model owns judgement.** Same principle as `tech-debt-scan` in this repo. Every phase has a pinned command and a pinned output file. Missing output means abort with a defined exit code. No improvisation between phases.
 - **Feature branch at task start.** Already done: `feat/karate-testcontainers-skill` in a worktree under `.claude/worktrees/karate-testcontainers`.
 - **Visualiser at every document handoff.** Spec and plan are rendered in the brainstorming visual companion, Bootstrap 5 light theme, mermaid for flows.
@@ -27,7 +27,7 @@ These come from the project's standards document and high-confidence reflections
 | # | Decision |
 |---|----------|
 | Q1 | Per-repo `karate-tests/` Maven module. JUnit5 runner, Testcontainers Java. App under test is a black-box Docker image built from the repo's own Dockerfile. Same module shape regardless of app language. |
-| Q2 | Downstream HTTP calls are stubbed in v1 with a MockServer container. Outbound HTTP calls are treated as exit points and asserted with MockServer verify. |
+| Q2 | Downstream HTTP calls are stubbed in v1 with a stub container (WireMock since H3; originally MockServer). Outbound HTTP calls are treated as exit points and asserted with `Stubs.verify`. |
 | Q3 | A persisted ledger, `karate-tests/flow-map.yaml`, is the only cross-phase memory. A script validates it. Tracing is done by one subagent per entry point. |
 | Q4 | The fix loop may change anything under `karate-tests/`, never app source or the app Dockerfile. Suspected app defects are quarantined with `@known-defect` and documented with root cause in `karate-tests/defects.md`, in a format a future promote step can turn into ralph PBIs. |
 | Q5 | Scenario depth: happy path plus every visible branch. Observed behaviour wins over code-derived expectation unless the observed behaviour is clearly erroneous. |
@@ -38,8 +38,16 @@ These come from the project's standards document and high-confidence reflections
 | C2 | Schema comes from the shared `db-manager` image, run as a one-shot container before the app. Image reference from a flag or a central config file. |
 | C3 | Postgres only in v1. The DB engine is a single seam in the harness so SQL Server can return later. |
 | C4 | Weaker-model tracing is guarded by a reference-verification gate, an unresolved-hop loop and a depth cap. An optional `--double-trace` flag exists for very large Java repos, off by default. |
-| C5 | Auth is normally switchable off. Detection order: off/mock switch, then configurable JWKS issuer served from MockServer, then `blocked` with a README note. |
+| C5 | Auth is normally switchable off. Detection order: off/mock switch, then configurable JWKS issuer served from the stub container (WireMock since H3), then `blocked` with a README note. |
 | C6 | No Docker Desktop. Developers use podman or the docker CLI and have a local JDK and Maven. Primary run path is plain `mvn test`. The skill emits podman-oriented Testcontainers settings and README instructions. `mvnw` is kept for ADO reproducibility only. |
+| H1 | (Harness brainstorm, 2026-09-05 evening) Repo-specific values live in `src/test/resources/kb-runtime.json`, written by the scaffold and read by `KbRuntime.java`. The Java harness is identical for every repo and is kept in the skill as a real Maven project that compiles in this repo's CI. |
+| H2 | Testcontainers 1.21.4, not the 2.x line. Compiled in the spike. |
+| H3 | The stub server is WireMock 3.13.2 (image `wiremock/wiremock:3.13.2-alpine`) as a plain `GenericContainer`, driven over its admin REST API with no client jar. Replaces MockServer everywhere in this spec. |
+| H4 | The template module is verified on every PR by a `maven`-marked pytest (opt-in via `KB_MAVEN=1`) in a CI job with a JDK. |
+| H5 | All messaging is AMQP 1.0. The harness uses `org.apache.qpid:qpid-jms-client` 1.17.0 (`javax.jms` over AMQP) against Artemis port 5672, the same protocol every app uses. |
+| H6 | Java release level 17 (Karate 1.5 minimum); developers have 17 or 21; CI and ADO run 21. |
+| H7 | Parallel execution by isolation-by-data (spec 5.6), 4 threads default, Karate's `@parallel=false` as the escape hatch. If Plan 4 shows it cannot be made reliable, fall back to `kb.threads=1` by default: a flag, not a redesign. |
+| H8 | Four plans: 1 analysis core (landed as PR #7), 2 harness and loop, 3 skill assembly, 4 fixture apps and end-to-end evals. |
 
 ## 4. Architecture
 
@@ -54,11 +62,11 @@ flowchart TD
   P2 --> V2{"flow_map.py validate --phase traced"}
   V2 -- gaps --> P2
   V2 -- pass --> P3["3 Rules - kb_rules.py extract, subagent per validator - rules/*.csv"]
-  P3 --> P4["4 Scaffold - scaffold.py - karate-tests/ module"]
+  P3 --> P4["4 Scaffold - kb_scaffold.py - karate-tests/ module + kb-runtime.json"]
   P4 --> P5["5 Generate - subagent per entry point - features, stubs, seeds"]
   P5 --> V5{"flow_map.py validate --phase generated"}
   V5 -- gaps --> P5
-  V5 -- pass --> P6["6 Run and iterate - mvn test, report.py, iterate.py"]
+  V5 -- pass --> P6["6 Run and iterate - mvn test, kb_report.py, kb_iterate.py"]
   P6 --> D6{"green or stop condition"}
   D6 -- failures --> P6
   D6 -- app defect --> Q["quarantine, defects.md"]
@@ -83,19 +91,19 @@ flowchart LR
     APP["App container - built from repo Dockerfile"]
     DB[("Postgres")]
     MQ["Artemis"]
-    MS["MockServer - downstream stubs and JWKS"]
+    MS["WireMock - downstream stubs and JWKS"]
   end
   DBM --> DB
   K -- HTTP --> APP
   APP --> DB
-  APP --> MQ
+  APP -- AMQP 1.0 --> MQ
   APP --> MS
   J --> DB
-  M --> MQ
-  C --> MS
+  M -- AMQP 1.0 --> MQ
+  C -- admin API --> MS
 ```
 
-Start order: network, Postgres, Artemis, MockServer, db-manager (must exit 0), app (wait on readiness).
+Start order: network, Postgres, Artemis (queues and addresses pre-created from the ledger), WireMock (health wait, then JWKS and discovery mappings when auth mode is `jwks`), db-manager (must exit 0), app (env from `kb-runtime.json`, wait on readiness). Containers start lazily from `karate-config.js`; `-Dkb.skipContainers=true` runs container-free features only, which is how the template's smoke feature and CI exercise the module without a runtime.
 
 ### 4.3 What the skill leaves in a target repo
 
@@ -109,14 +117,17 @@ karate-tests/
   stack.json                         detected stack
   defects.md                         quarantined suspected app defects
   README.md                          how to run, counts, modes used, notes
+                                     (rendered here; README.md.tmpl stays in the skill)
   rules/<endpoint>.csv
   seed/<feature>.sql
   seed/examples/<endpoint>.json      base request bodies
-  stubs/<feature>/<downstream>.json  MockServer expectations
-  src/test/java/<pkg>/
-    KarateRunner.java Containers.java Db.java Jms.java Stubs.java Jwt.java
+  stubs/<downstream>/*.json          WireMock mappings, suite-level, matched by request data
+  src/test/java/kb/harness/
+    KarateRunner.java KbRuntime.java Containers.java Db.java Jms.java Stubs.java Jwt.java
   src/test/resources/
+    kb-runtime.json                  repo-specific values the harness reads (schema in 5.5)
     testcontainers.properties        podman-friendly defaults
+    logback-test.xml
     common/reset.feature common/mutate.js
     features/<endpoint>.feature features/<subscription>.feature
   target/                            reports, app.log, db-manager.log (ignored)
@@ -160,7 +171,7 @@ Config-key roles: `db`, `amq`, `downstream:<name>`, `auth`, `passthrough`. Role 
 Auth detection, in preference order:
 
 1. **Off or mock switch.** A boolean or profile that removes the auth filter (`Auth__Enabled`, `quarkus.oidc.enabled`, a Spring profile guard on the security config, custom `AUTH_MODE=mock`). Ledger `app.auth.mode: disabled` with the key and value. 401/403 responses on entry points are marked `testable: false`.
-2. **Configurable issuer or JWKS URL.** Ledger `app.auth.mode: jwks`, with the issuer and JWKS keys. Harness serves discovery and JWKS from MockServer and mints tokens.
+2. **Configurable issuer or JWKS URL.** Ledger `app.auth.mode: jwks`, with the issuer and JWKS keys. Harness serves discovery and JWKS from WireMock under `/auth` and mints tokens.
 3. **Neither.** Ledger `app.auth.mode: blocked`. README lists what a developer would need to change. Unauthenticated endpoints are still tested.
 
 A switch found by name pattern alone is recorded with `confirmed: false`; the traced gate fails until the model confirms it (Plan 2 adds `flow_map.py set-auth`).
@@ -222,11 +233,30 @@ R003,deliveryDate,cross_field,before:tradeDate,400,VALIDATION,delivery before tr
 
 Mutations: `missing`, `null`, `empty`, `too_long`, `too_short`, `invalid_format`, `out_of_range`, `invalid_enum`, `cross_field`. `mutate.js` in the scaffold implements each.
 
-### 5.5 Phase 4 — Scaffold, `scaffold.py`
+### 5.5 Phase 4 — Scaffold, `kb_scaffold.py`
 
-Command: `python scripts/scaffold.py <repo> --ledger karate-tests/flow-map.yaml --env karate-tests/env-map.json --migrations-image <ref> --out karate-tests`
+Command: `python scripts/kb_scaffold.py <repo> --ledger karate-tests/flow-map.yaml --env karate-tests/env-map.json --out karate-tests [--service-dir <sub>] [--migrations-image <ref>] [--config ~/.karate-bootstrap/config.yaml] [--force]`
 
-Renders `templates/karate-tests/` with `string.Template`. Values come from `stack.json`, `env-map.json`, the ledger, and the central config.
+Copies `templates/karate-tests/`, a real Maven project that compiles in this repo, into the target repo and writes `src/test/resources/kb-runtime.json`, the only file carrying repo-specific values. Java sources are never templated. Generated content (`features/`, `rules/`, `stubs/`, `seed/`, `defects.md`, `README.md`) is never overwritten; harness files are overwritten only with `--force`; `kb-runtime.json` is always rewritten; nothing is deleted.
+
+`kb-runtime.json` v1:
+
+```json
+{ "version": 1, "repo": "shipments", "stack": "spring",
+  "app": { "repoRootRel": "..", "dockerfileRel": "Dockerfile", "port": 8080,
+           "readinessPath": "/actuator/health/readiness", "serverless": true, "startupTimeoutSeconds": 120 },
+  "env": [ { "name": "SPRING_DATASOURCE_URL", "role": "db", "value": "jdbc:postgresql://{{db.host}}:{{db.port}}/{{db.name}}" },
+           { "name": "PRICING_BASE_URL", "role": "downstream:pricing", "value": "{{stubs.url}}/pricing" },
+           { "name": "APP_SECURITY_ENABLED", "role": "auth", "value": "false" } ],
+  "db": { "name": "shipments", "user": "app", "password": "app" },
+  "migrations": { "strategy": "migration-container", "image": "registry/db-manager:1",
+                  "env": { "PGHOST": "{{db.host}}", "PGDATABASE": "{{db.name}}", "PGUSER": "{{db.user}}", "PGPASSWORD": "{{db.password}}" } },
+  "amq": { "user": "artemis", "password": "artemis", "queues": ["shipment.requested"], "topics": ["shipment.created"] },
+  "downstreams": [ { "name": "pricing", "envVar": "PRICING_BASE_URL" } ],
+  "auth": { "mode": "disabled", "key": "APP_SECURITY_ENABLED", "value": "false" } }
+```
+
+`env[].value` templates are produced by the scaffold from each key's role and original placeholder: db keys become the JDBC, Npgsql or `postgresql://` form the stack expects, or a single `{{db.user}}`-style token for user, password, host, port and name keys; amq keys become `amqp://{{amq.host}}:{{amq.amqpPort}}` or single tokens; `downstream:<name>` becomes `{{stubs.url}}/<name>`; the auth switch key becomes its confirmed value, and in `jwks` mode issuer keys become `{{auth.url}}` and JWKS keys `{{auth.url}}/.well-known/jwks.json`. `Containers.java` substitutes the tokens with network-alias values at start: `db:5432`, `artemis:5672`, `http://wiremock:8080`, `http://wiremock:8080/auth`. `db.name` comes from the central config entry, else a `Database=` or URL path found in a db placeholder, else a `ConnectionStrings__<Name>` key, else `app`. `auth.mode` is `disabled` (key, value), `jwks` (`issuerKeys`), `none` or `blocked`.
 
 Schema strategy `migration-container`:
 
@@ -249,33 +279,38 @@ db_managers:
 
 - `Containers.java` runs the db-manager as a one-shot container with `OneShotStartupCheckStrategy`, captures output to `target/db-manager.log`, and treats non-zero exit as an infra failure.
 
-Pinned dependencies in `pom.xml`:
+Pinned dependencies in `pom.xml`, every coordinate and image tag checked against Maven Central or Docker Hub on 2026-09-05 and compiled together in a spike on JDK 21:
 
-| Concern | Artifact |
-|---------|----------|
-| Karate | `io.karatelabs:karate-junit5` 1.5.x |
-| Containers | `org.testcontainers:testcontainers`, `junit-jupiter`, `postgresql`, `mockserver` 1.20.x |
-| Artemis | `GenericContainer("apache/activemq-artemis:2.x")` — no official module |
-| JDBC | `org.postgresql:postgresql` |
-| JMS | `org.apache.activemq:artemis-jms-client` |
-| Stubs | `org.mock-server:mockserver-client-java` |
-| Auth | `com.nimbusds:nimbus-jose-jwt` |
+| Concern | Artifact or image |
+|---------|-------------------|
+| Karate | `io.karatelabs:karate-junit5` 1.5.2 (needs Java 17) |
+| Containers | `org.testcontainers:testcontainers-bom` 1.21.4 with `testcontainers`, `junit-jupiter`, `postgresql` |
+| Postgres | `postgres:16-alpine` |
+| Artemis | `GenericContainer("apache/activemq-artemis:2.44.0-alpine")`, no official module |
+| Stubs | `GenericContainer("wiremock/wiremock:3.13.2-alpine")`, official module is alpha so not used; driven over `/__admin` with `java.net.http` |
+| JDBC | `org.postgresql:postgresql` 42.7.13 |
+| JMS over AMQP 1.0 | `org.apache.qpid:qpid-jms-client` 1.17.0 (`javax.jms`) |
+| Auth | `com.nimbusds:nimbus-jose-jwt` 9.37.3 |
+| JSON | `com.fasterxml.jackson.core:jackson-databind` 2.17.2 (reads `kb-runtime.json`) |
+| Test engine | `org.junit.jupiter:junit-jupiter` 5.10.3, `maven-surefire-plugin` 3.2.5 including `**/*Test.java` and `**/KarateRunner.java` |
+| Logging | `ch.qos.logback:logback-classic` 1.5.6 |
+| Build | Maven wrapper 3.3.2 only-script (`only-mvnw`, `only-mvnw.cmd` from the `maven-wrapper-3.3.2` tag) pinned to Apache Maven 3.9.9; `maven.compiler.release` 17 |
 
-Exact versions are pinned at plan-write time after a one-line check against Maven Central.
+Harness classes (package `kb.harness`):
 
-Harness classes:
+- **`KbRuntime.java`.** Typed view over `kb-runtime.json`, loaded once per JVM.
+- **`Containers.java`.** Singleton started lazily from `karate-config.js` unless `-Dkb.skipContainers=true`. Order: network, Postgres, Artemis, WireMock, db-manager, app. Artemis gets `EXTRA_ARGS` with `--queues` (anycast) and `--addresses` (multicast) built from the ledger's destinations. WireMock waits on `GET /__admin/health`; when `auth.mode` is `jwks`, `Jwt.publishJwks()` imports the discovery and JWKS mappings. App image from `ImageFromDockerfile` with the service root as context, or `-Dapp.image=<tag>`. Env values are `kb-runtime.json` templates with tokens substituted. Readiness from the ledger; port wait when none; serverless doubles the startup timeout. Every container's output is written to `target/<name>.log`. A failed start is remembered and rethrown by later scenarios instead of retried; a JVM shutdown hook stops the containers and closes the JMS connection when Ryuk is disabled.
+- **`Db.java`.** `run(sqlPath)`, `row(table, whereMap)`, `awaitRow(table, whereMap, timeoutMs)`, `count(table, whereMap)`, `truncate(tables)`. Identifiers validated against `^[A-Za-z_][A-Za-z0-9_]*$`, values bound through `PreparedStatement`.
+- **`Jms.java`.** `watch(destination)` subscribes once per destination before any request; `await(destination, timeoutMs)` and `await(destination, timeoutMs, matchMap)` return `{body, properties, messageId}`, the match form taking only the message whose body contains every key and value in `matchMap` while other messages stay in the inbox, in order, for other scenarios; `publish(destination, body, headers)` drives AMQ-subscribe entry points. Queue versus topic from the ledger.
+- **`Stubs.java`.** `reset()` = `POST /__admin/reset`; `load(path)` = `POST /__admin/mappings/import` with a `{"mappings":[...]}` document; `verify(method, urlPath, times)` and `verify(method, urlPath, bodyContains, times)` = `POST /__admin/requests/count` with a request pattern (the four-argument form adds `"bodyPatterns":[{"contains":bodyContains}]`) compared to `times`; `unmatched()` writes `GET /__admin/requests/unmatched` and `/near-misses` to `target/stubs-unmatched.json` for the fix loop.
+- **`Jwt.java`.** One RSA key per JVM. `token(claimsMap)` signs RS256 with `iss` = `http://wiremock:8080/auth`; `publishJwks()` imports mappings for `/auth/.well-known/openid-configuration` and `/auth/.well-known/jwks.json`.
+- **`KarateRunner.java`.** JUnit 5, `Runner.path("classpath:features").tags("~@known-defect").outputCucumberJson(true).outputJunitXml(true).parallel(Integer.getInteger("kb.threads", 4))`. Under `-Dkb.skipContainers=true` the runner also requires the `@harness` tag, so only container-free features run; after a containerised run it writes `target/stubs-unmatched.json` via `Stubs.unmatched()`.
+- **`karate-config.js`.** Defines `skipContainers`, `mutate` (from `common/mutate.js`) and, when containers run, `appBaseUrl`, `Db`, `Jms`, `Stubs`, `Jwt` via `Java.type`.
+- **`features/harness-smoke.feature`.** Container-free self-test of `mutate`, `KbRuntime` and a CSV-driven outline; it is what the template's CI job and a developer's first `mvn test -Dkb.skipContainers=true` run.
 
-- **`Containers.java`.** Singleton started once per JVM. Network, Postgres, Artemis, MockServer, db-manager, app. App image from `ImageFromDockerfile` with the repo root as context, or `-Dapp.image=<tag>` to skip the build. Env rendered from `env-map.json` using network aliases: `db` role gets `db:5432`, `amq` role gets `artemis:5672` or `artemis:61616` matching the scheme already in the app's config, each `downstream:<name>` gets `http://mockserver:1080/<name>`, `auth` role gets `http://mockserver:1080/auth`. Artemis addresses are pre-created from ledger destinations with `anycast` for queues and `multicast` for topics. Wait strategy from the ledger. Publishes `app.baseUrl`, `db.jdbcUrl`, `jms.url`, `stubs.url` as system properties.
-- **`Db.java`.** `run(sqlPath)`, `row(table, whereMap)`, `awaitRow(table, whereMap, timeoutMs)`, `count(table, whereMap)`, `truncate(tables)`. Truncate only touches tables named in the ledger's `exits`, never reference data.
-- **`Jms.java`.** `watch(destination)` subscribes before the request. `await(destination, timeoutMs)` returns body and headers. `publish(destination, body, headers)` drives AMQ-subscribe entry points.
-- **`Stubs.java`.** `reset()`, `load(path)`, `verify(method, path, times)`. Unmatched requests return 404 from MockServer.
-- **`Jwt.java`.** RSA keypair per run. OIDC discovery document and JWKS loaded into MockServer at start. `token(claimsMap)` returns a signed bearer. Only active when `auth.mode: jwks`.
-- **`KarateRunner.java`.** JUnit5, `Runner.path("classpath:features").tags("~@known-defect").parallel(threads)`.
-- **`karate-config.js`.** Reads the system properties above and defines the globals every feature uses: `appBaseUrl`, `Db`, `Jms`, `Stubs`, `Jwt` (each via `Java.type`), and `mutate` (from `common/mutate.js`).
+Also rendered: `azure-pipelines.karate.yml`, `src/test/resources/testcontainers.properties`, `src/test/resources/logback-test.xml`, a `.gitignore` with `target/`, and an initial `defects.md`. `README.md` is written by `kb_report.py summary` (5.8), which reads `README.md.tmpl` from the skill; that template is never copied into the target repo.
 
-Also rendered: `run` instructions in README, `azure-pipelines.karate.yml`, `src/test/resources/testcontainers.properties`.
-
-The rendered `pom.xml` registers `rules/`, `stubs/` and `seed/` at the module root as additional test resources so `classpath:rules/...`, `classpath:stubs/...` and `classpath:seed/...` resolve; the generated gate checks those directories at the module root and features under `src/test/resources/`.
+The rendered `pom.xml` registers `rules/`, `stubs/` and `seed/` at the module root as additional test resources so `classpath:rules/...`, `classpath:stubs/...` and `classpath:seed/...` resolve (verified in the spike); the generated gate checks those directories at the module root and features under `src/test/resources/`.
 
 `testcontainers.properties` and README cover podman: `DOCKER_HOST` for the rootless podman socket on Linux or the podman machine named pipe on Windows, `ryuk.container.privileged=true`, and `TESTCONTAINERS_RYUK_DISABLED=true` as the documented fallback.
 
@@ -290,6 +325,16 @@ python scripts/flow_map.py mark --entry <id> --generated
 python scripts/flow_map.py validate --phase generated
 ```
 
+**Isolation by data (decision H7).** Scenarios run in parallel against one app, one WireMock, one Postgres and one broker, so nothing a scenario does may depend on global resets:
+
+- Stubs are suite-level: `stubs/<downstream>/*.json` WireMock mappings loaded once at start, discriminating by request data (path parameter, query, body) with `priority`. A failure path is driven by a reserved input the generator documents in the mapping, for example product code `ERR-500` answered with a 500 by a low-priority mapping. Every `urlPath` starts with `/<downstream>` because the app reaches each downstream as `{{stubs.url}}/<downstream>`.
+- The database is additive: every scenario derives a unique value in its Background (`* def uid = java.util.UUID.randomUUID() + ''`), puts it in the request, and asserts rows by it. Seeds insert unique keys. `Db.truncate` is not used in parallel scenarios.
+- Messages are matched by content: `Jms.await('deal.created', 5000, { dealId: response.id })`.
+- Downstream calls are verified by scenario-unique data: `Stubs.verify('GET', '/pricing/rates/' + uid, 1)` when the outbound path carries it, else `Stubs.verify('POST', '/pricing/quotes', base.externalId, 1)` which adds a WireMock `bodyPatterns` `contains` clause to the count request. When neither the path nor the body carries scenario data, the scenario is `@parallel=false` and verifies the exact count.
+- Anything that needs exclusive state (truncation, a static path that cannot carry a unique value, an outage simulation) carries Karate's built-in `@parallel=false` tag on the scenario or feature. The generated gate fails a scenario that calls `Stubs.reset`, `Db.truncate` or `Stubs.load` without that tag.
+- Validation outlines never write, so they are parallel-safe by construction.
+- Fallback: if Plan 4's end-to-end runs show flakiness this design cannot remove, `kb.threads` defaults to 1 and the rules above stay as good hygiene.
+
 Feature shapes:
 
 ```gherkin
@@ -297,8 +342,10 @@ Feature shapes:
 Feature: POST /api/deals
 
 Background:
-  * call read('classpath:common/reset.feature') { stubs: 'post-api-deals', seed: 'post-api-deals', watch: ['deal.created'] }
+  * def uid = java.util.UUID.randomUUID() + ''
+  * call read('classpath:common/reset.feature') { watch: ['deal.created'] }
   * def base = read('classpath:seed/examples/post-api-deals.json')
+  * set base.externalId = 'EXT-' + uid
   * header Authorization = 'Bearer ' + Jwt.token({ sub: 'test-user', roles: ['trader'] })
 
 Scenario: creates a deal, writes deals and deal_audit, publishes deal.created
@@ -311,18 +358,29 @@ Scenario: creates a deal, writes deals and deal_audit, publishes deal.created
   * def row = Db.row('deals', { external_id: base.externalId })
   * match row.status == 'PENDING'
   * match Db.count('deal_audit', { deal_id: row.id }) == 1
-  * def msg = Jms.await('deal.created', 5000)
-  * match msg.body.dealId == response.id
-  * Stubs.verify('GET', '/prices/BRENT', 1)
+  * def msg = Jms.await('deal.created', 5000, { dealId: response.id })
+  * match msg.body.externalId == base.externalId
+  * Stubs.verify('POST', '/pricing/quotes', base.externalId, 1)
 
 @error
 Scenario: unknown counterparty returns 404
-  * Db.run('classpath:seed/post-api-deals-no-counterparty.sql')
+  * set base.counterpartyId = 'CP-MISSING-' + uid
   Given url appBaseUrl
   And path '/api/deals'
   And request base
   When method post
   Then status 404
+
+@error @parallel=false
+Scenario: pricing outage returns 503
+  * Stubs.load('classpath:stubs/pricing/outage.json')
+  Given url appBaseUrl
+  And path '/api/deals'
+  And request base
+  When method post
+  Then status 503
+  * Stubs.reset()
+  * Stubs.load('classpath:stubs/pricing/default.json')
 
 @rules
 Scenario Outline: validation rule <rule_id> on <field>
@@ -339,29 +397,31 @@ Scenario Outline: validation rule <rule_id> on <field>
     | read('classpath:rules/post-api-deals.csv') |
 ```
 
-The `Authorization` header line is emitted only when `auth.mode: jwks`. AMQ-subscribe entry points use `Jms.publish` for the input and `Db.awaitRow` and `Jms.await` for the exits. Tags: `@smoke`, `@error`, `@rules`, `@amq`, `@known-defect`.
+The `Authorization` header line is emitted only when `auth.mode: jwks`. `common/reset.feature` accepts `{ watch: [destinations], seed: 'seed/x.sql', stubs: [paths], truncate: [tables] }` and applies them in the order watch, truncate, seed, stubs, so a truncate never wipes the rows the same call seeded; `seed` is additive and `stubs` and `truncate` are only legal under `@parallel=false`. AMQ-subscribe entry points use `Jms.publish` for the input and `Db.awaitRow` and `Jms.await` for the exits. Tags: `@smoke`, `@error`, `@rules`, `@amq`, `@known-defect`, `@parallel=false`.
 
-`validate --phase generated` fails when: an entry has no feature file; an `http-out` exit has no stub file; a `db-write` exit's table is not referenced by a `Db.` call in the feature; an `amq-publish` exit is not referenced by `Jms.`; an `http-out` exit is not referenced by `Stubs.verify`; a rules CSV row count differs from the ledger count; a rules source is not marked `scanned`. These are grep-level checks by design.
+`validate --phase generated` fails when: an entry has no feature file; an `http-out` exit has no stub file under `stubs/<downstream>/`; a `db-write` exit's table is not referenced by a `Db.` call in the feature; an `amq-publish` exit is not referenced by `Jms.`; an `http-out` exit is not referenced by `Stubs.verify`; a rules CSV row count differs from the ledger count; a rules source is not marked `scanned`; a scenario calls `Stubs.reset`, `Stubs.load` or `Db.truncate` without `@parallel=false`. These are grep-level checks by design.
 
 ### 5.7 Phase 6 — Run and iterate
 
 ```
-mvn -B test                                          (or ./mvnw -B test)
-python scripts/report.py parse --reports karate-tests/target/karate-reports --out karate-tests/target/iteration-<n>.json
-python scripts/iterate.py next                        -> top failure group + evidence bundle
-python scripts/iterate.py log --group <sig> --hypothesis "..." --change "..."
+mvn -B test                                          (or ./mvnw -B test; -Dkb.threads=1 for the sequential fallback)
+python scripts/kb_report.py parse --reports karate-tests/target/karate-reports --out karate-tests/target/report.json
+python scripts/kb_iterate.py next --report karate-tests/target/report.json --tests-dir karate-tests
+python scripts/kb_iterate.py log --log karate-tests/.iterations.log --signature <sig> --hypothesis "..." --change "..." --classification <class>
 mvn -B test -Dkarate.options="classpath:features/<one>.feature"
-python scripts/iterate.py check-stop                  -> continue | stop:<reason>
+python scripts/kb_iterate.py check-stop --log karate-tests/.iterations.log --report karate-tests/target/report.json --max-iterations 15
 ```
 
-Failure signature: feature, scenario or outline, first failing step, error class, expected-versus-actual shape. Rules rows sharing a signature form one group.
+`kb_report.py parse` reads Karate's cucumber JSON (`target/karate-reports/<packageQualifiedName>.json`, one per feature, `uri` already `features/<name>.feature`) into `{"passed", "skipped", "failed": [{"feature", "scenario", "tags", "step", "error"}]}`, the contract the green gate consumes.
 
-Evidence bundle per group: the failing step and its match diff, the app log slice for the scenario's time window (Testcontainers log consumer writes `target/app.log`), MockServer's unmatched-request log, DB error text, db-manager log when the failure is at startup.
+Failure signature: feature, scenario with outline example suffixes collapsed, first failing step, error class (first error line with numbers, quoted strings and URLs normalised). Rules rows sharing a signature form one group.
+
+Evidence bundle per group: the failing step and its match diff, the tail of `target/app.log`, WireMock's unmatched requests and near misses, written by the runner to `target/stubs-unmatched.json` after the run, DB error text, `target/db-manager.log` when the failure is at startup.
 
 Classification, in this order:
 
 1. **Infra.** Container did not start, wait timeout, connection refused, db-manager non-zero exit. Fix harness or env-map.
-2. **Stub or seed missing.** 404 from MockServer, foreign key violation, empty read. Add the stub or seed.
+2. **Stub or seed missing.** 404 from WireMock (it appears in `stubs-unmatched.json` with a near miss), foreign key violation, empty read. Add the stub or seed.
 3. **Expectation wrong, observed not erroneous.** Adopt observed behaviour, record `observed_override` on the entry in the ledger with old and new expectation.
 4. **Suspected app defect.** 5xx, stack trace in the response or log, behaviour that contradicts the app's own validation, data corruption. Tag the scenario `@known-defect`, write a `defects.md` entry with root cause.
 
@@ -373,7 +433,7 @@ Stop conditions: iteration cap (default 15 full runs, `--max-iterations`), the s
 
 ### 5.8 Phase 7 — Report
 
-`python scripts/report.py summary --ledger karate-tests/flow-map.yaml --defects karate-tests/defects.md --out karate-tests/README.md`
+`python scripts/kb_report.py summary --ledger karate-tests/flow-map.yaml --defects karate-tests/defects.md --report karate-tests/target/report.json --template <skill>/templates/karate-tests/README.md.tmpl --out karate-tests/README.md`
 
 README contents: how to run (`mvn test`, tag subsets, ADO), counts table (entry points, exits by kind, scenarios, rules rows, passing, quarantined), auth mode used, schema strategy and db-manager image used, wait strategy used, observed-overrides list, defects list, unresolved or fallback notes. The same table is printed to the terminal at exit.
 
@@ -422,7 +482,7 @@ entry_points:
         - { file: src/Validators/DealValidator.cs, scanned: true }
         - { file: src/Services/DealService.cs, scanned: true }
     features: [ features/post-api-deals.feature ]
-    stubs: [ stubs/post-api-deals/pricing.json ]
+    stubs: [ stubs/pricing/default.json ]
     seeds: [ seed/post-api-deals.sql ]
     observed_overrides: []
     status: { traced: true, stubbed: true, tested: true, passing: true }
@@ -479,13 +539,17 @@ Hibernate specifics in the JVM sheets: `hibernate.cfg.xml`, `persistence.xml`, `
 skills/karate-bootstrap/
   SKILL.md
   scripts/
-    detect.py discover.py flow_map.py kb_rules.py scaffold.py report.py iterate.py skill_check.py
-  templates/karate-tests/
-    pom.xml mvnw mvnw.cmd .mvn/wrapper/
-    azure-pipelines.karate.yml karate-config.js
-    src/test/resources/testcontainers.properties
-    common/reset.feature common/mutate.js
-    src/test/java/<pkg>/Containers.java Db.java Jms.java Stubs.java Jwt.java KarateRunner.java
+    detect.py discover.py flow_map.py kb_rules.py kb_scaffold.py kb_report.py kb_iterate.py kb_checkpoint.py kb_check_skill.py
+    (every new script carries the kb_ prefix: both skills' test conftests share one sys.path and one mypy_path,
+     and main already has rules.py, config.py, inventory.py, patterns.py, validation.py and others)
+  templates/karate-tests/               a real Maven project; compiles and smoke-runs in this repo's CI
+    pom.xml mvnw mvnw.cmd .mvn/wrapper/maven-wrapper.properties .gitignore
+    azure-pipelines.karate.yml README.md.tmpl
+    src/test/java/kb/harness/KbRuntime.java Containers.java Db.java Jms.java Stubs.java Jwt.java KarateRunner.java
+    src/test/java/kb/harness/JwtTest.java              host-only unit tests
+    src/test/resources/karate-config.js kb-runtime.json testcontainers.properties logback-test.xml
+    src/test/resources/common/reset.feature common/mutate.js
+    src/test/resources/features/harness-smoke.feature
   reference/
     stack-spring.md stack-quarkus.md stack-aspnetcore.md stack-python.md
     testcontainers-notes.md karate-notes.md failure-triage.md podman.md
@@ -503,7 +567,9 @@ Written for Opus 4.8 and Sonnet 4.6:
 - "No improvisation" rule as in `tech-debt-scan`: a missing expected output means abort with exit 5.
 - Subagent prompts are files rendered by script with the entry-point context filled in. The main agent never composes subagent prompts freehand.
 - Cheat sheets are loaded only for the detected stack.
-- Only Python dependency is `pyyaml`. Templates use `string.Template`.
+- Only Python dependency is `pyyaml`. The Java harness is copied verbatim; repo-specific values go to `kb-runtime.json`, never into Java source. `README.md.tmpl` is the one `string.Template` file.
+
+Git checkpoints are `kb_checkpoint.py begin` (branch behaviour below) and `kb_checkpoint.py commit --phase <n> --message "..."` (stages `karate-tests/` only).
 
 Invocation:
 
@@ -520,16 +586,17 @@ Exit codes: 0 green, 3 unsupported stack, 4 no schema source, 5 missing expected
 
 ## 10. Local and CI execution
 
-- **Local.** `cd karate-tests && mvn test`. Podman users export `DOCKER_HOST` per `reference/podman.md` and the README section. The classpath `testcontainers.properties` sets `ryuk.container.privileged=true`.
+- **Local.** `cd karate-tests && mvn test` (JDK 17 or newer). `mvn test -Dkb.skipContainers=true` runs the harness smoke feature with no container runtime. `-Dkb.threads=1` is the sequential fallback. Podman users export `DOCKER_HOST` per `reference/podman.md` and the README section (`unix://${XDG_RUNTIME_DIR}/podman/podman.sock` for rootless Linux, the socket from `podman machine inspect` on Windows or macOS); the classpath `testcontainers.properties` sets `ryuk.container.privileged=true`, and `TESTCONTAINERS_RYUK_DISABLED=true` is the documented fallback.
+- **This repo's CI.** A `karate-templates` job installs Temurin 21 and runs `KB_MAVEN=1 pytest -m maven`, which copies `templates/karate-tests` to a temp dir, compiles it and runs the smoke feature. The default `pytest` excludes the `maven` marker.
 - **ADO.** `azure-pipelines.karate.yml` is a reusable job on a hosted agent with Docker: optional `Docker@2` build then `./mvnw -B test -Dapp.image=$(imageTag)`, `PublishTestResults@2` on `target/karate-reports/*.xml`, `PublishBuildArtifacts@1` on the HTML report. The template will be aligned to the user's existing Testcontainers pipeline at work.
 
 ## 11. Evals
 
-- **Script tests.** pytest per script: ledger merge and validate against fixtures, `verify-refs` against planted good and bad refs, rules extraction against sample validators in all four stacks, report parsing against captured Karate output, scaffold rendering against golden files, iterate stop-condition logic.
+- **Script tests.** pytest per script: ledger merge and validate against fixtures, `verify-refs` against planted good and bad refs, rules extraction against sample validators in all four stacks, report parsing against captured Karate output, scaffold output against a golden `kb-runtime.json` per fixture, the template module compiled and smoke-run under `KB_MAVEN=1 pytest -m maven`, iterate stop-condition logic.
 - **Fixture runs.** The skill run end to end on each fixture app on the author's laptop. Pass criteria: exit 0, every entry in `expected-flow-map.yaml` present in the ledger, zero unresolved, `defects.md` contains the planted defect.
 - **Trigger eval.** skill-creator description evals: fires on "add karate tests", "bootstrap integration tests", "testcontainers suite for this service"; does not fire on unit-test requests.
 
-Fixtures: `dotnet-deals` (ASP.NET Core minimal API, EF Core, Npgsql, Apache.NMS.AMQP, one downstream call, FluentValidation, auth switch), `fastapi-orders` (FastAPI, SQLAlchemy, qpid-proton, one downstream call, Pydantic), `spring-shipments` (Spring Boot, JPA, spring-jms, one downstream call, Bean Validation). Each has a `db-manager/` Flyway image and one planted 500.
+Fixtures: `dotnet-deals` (ASP.NET Core minimal API, EF Core, Npgsql, Apache.NMS.AMQP, one downstream call, FluentValidation, auth switch), `fastapi-orders` (FastAPI, SQLAlchemy, qpid-proton, one downstream call, Pydantic), `spring-shipments` (Spring Boot, JPA, spring-jms over Qpid JMS so the fixture speaks AMQP 1.0 like the real services, one downstream call, Bean Validation). Each has a `db-manager/` Flyway image and one planted 500.
 
 ## 12. Assumptions
 
@@ -544,19 +611,37 @@ Fixtures: `dotnet-deals` (ASP.NET Core minimal API, EF Core, Npgsql, Apache.NMS.
 | C5 | Auth blocked | Auth is normally switchable off. Blocked stays a fallback message. |
 | C6 | No Docker Desktop | Plain `mvn test` with local JDK and Maven. Podman settings and docs emitted. Docker-run wrapper dropped. |
 
+### Harness amendment (2026-09-05 evening): concerns and how they were resolved
+
+| # | Concern | Resolution |
+|---|---------|------------|
+| H-C1 | Parallel scenarios share one WireMock, one Postgres, one broker; per-scenario resets would make parallel runs flaky | Isolation by data (5.6) with `@parallel=false` as the escape hatch and a gate that enforces it; sequential `kb.threads=1` is the fallback if Plan 4 shows flakiness |
+| H-C2 | Java release level | `release 17`; developers have 17 or 21; CI and ADO run 21 |
+| H-C3 | Broker protocol: harness core versus apps on AMQP | All apps speak AMQP 1.0, so the harness does too via Qpid JMS; no conversion path to trust |
+
 ### Verified safe
 
+- Spike (2026-09-05, JDK 21, only-script Maven wrapper 3.3.2 with Maven 3.9.9): the pinned pom compiles `KbRuntime`, `Containers`, `Db`, `Jms` (Qpid JMS, `javax.jms`), `Stubs` (WireMock admin API), `Jwt`, `KarateRunner` and a JUnit 5 test class; `mvn test -Dkb.skipContainers=true` runs 3 unit tests and 5 Karate scenarios green, including a dynamic outline reading `classpath:rules/sample.csv` from a `rules/` directory registered as a Maven test resource.
+- Spike: Karate's cucumber JSON is `<packageQualifiedName>.json` with `uri` = `features/<name>.feature` (no prefix), `elements[].type`, `tags[].name`, `steps[].result.status`; JUnit XML names the suite by that path. `karate-summary-json.txt` carries `featureSummary[].relativePath` and counts.
+- Fetched: WireMock image tags `3.13.2` and `3.13.2-alpine` exist; admin endpoints `POST /__admin/reset`, `POST /__admin/mappings/import`, `POST /__admin/requests/count`, `GET /__admin/requests/unmatched`, `GET /__admin/requests/unmatched/near-misses`, `GET /__admin/health` are in its OpenAPI document.
+- Fetched: Artemis image env `ARTEMIS_USER`, `ARTEMIS_PASSWORD`, `ANONYMOUS_LOGIN`, `EXTRA_ARGS` appended to `artemis create`; `--queues` defaults to anycast, `--addresses` to multicast.
+- Karate 1.5 documents the `@parallel=false` tag on features and scenarios.
 - Karate supports `Examples: | read('file.csv') |` dynamic outlines.
 - Testcontainers `ImageFromDockerfile` builds from an arbitrary Dockerfile with the repo root as context.
-- `apache/activemq-artemis` is the official image, multi-protocol on 61616, AMQP on 5672.
-- MockServer has a Testcontainers module and a Java client with reset, expectation and verify.
-- `OneShotStartupCheckStrategy` supports run-to-completion containers.
+- `apache/activemq-artemis` is the official image, multi-protocol on 61616, AMQP on 5672; the harness uses 5672.
+- `OneShotStartupCheckStrategy` supports run-to-completion containers (compiled in the spike).
 
-Exact versions of each are pinned in the implementation plan after a one-line check.
+### Minor, accepted (harness amendment)
+
+- WireMock's official Testcontainers module is alpha; a plain `GenericContainer` with a health wait is used instead.
+- `Db.run` splits seed SQL on `;` at end of line; seeds are inserts, not functions.
+- `ImageFromDockerfile` sends the whole service root as build context; Testcontainers honours `.dockerignore`. Plan 4 measures build time.
+- Testcontainers 2.x upgrade deferred; one seam in `pom.xml` and `Containers.java`.
+- Nimbus 9.37.3 chosen over 10.x for the widest JDK compatibility; the API used is identical.
 
 ### Minor, accepted
 
-- Karate 1.5 needs JDK 17 or newer. Templates target 21.
+- Karate 1.5 needs JDK 17 or newer. Templates compile at release 17; this repo's CI and ADO run 21.
 - Monorepos are handled only through `--service-dir` in v1.
 - Quarkus has a cheat sheet but no fixture app in v1.
 - Defect promotion to ralph is a later step.

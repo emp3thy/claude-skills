@@ -153,6 +153,25 @@ _RULEFOR_RE = re.compile(
 _CHAIN_RE = re.compile(r"\.(\w+)\(([^)]*)\)")
 
 
+def _ends_statement(line: str) -> bool:
+    """True when ``line`` holds a ``;`` outside every double-quoted string literal."""
+    in_string = False
+    escaped = False
+    for char in line:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == ";":
+            return True
+    return False
+
+
 def _fluent_statements(text: str) -> list[tuple[int, str]]:
     """Join each ``RuleFor(...)`` statement onto one line, keyed by its first line.
 
@@ -168,7 +187,7 @@ def _fluent_statements(text: str) -> list[tuple[int, str]]:
                 continue
             start = number
         parts.append(line.strip())
-        if ";" in line:
+        if _ends_statement(line):
             statements.append((start, " ".join(parts)))
             start, parts = None, []
     if start is not None:

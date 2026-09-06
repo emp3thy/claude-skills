@@ -1,0 +1,4 @@
+rule_id,field,mutation,value,expected
+R001,a,too_long,3,'xxx'
+R002,b,out_of_range,0,0
+R003,a,invalid_format,,'!!'

@@ -1,0 +1,5 @@
+[{"line":2,"elements":[
+ {"start_timestamp":"2026-09-05T20:15:36.000Z","line":4,"name":"runtime configuration is on the classpath","description":"","id":"runtime-configuration-is-on-the-classpath","type":"scenario","keyword":"Scenario",
+  "steps":[{"name":"match skipContainers == true","result":{"duration":1000000,"status":"passed"},"match":{"location":"karate"},"keyword":"*","line":5}],
+  "tags":[{"name":"@harness","line":1}]}
+ ],"name":"features/harness-smoke.feature","description":"harness self-test that needs no containers","id":"harness-self-test-that-needs-no-containers","keyword":"Feature","uri":"features/harness-smoke.feature","tags":[{"name":"@harness","line":1}]}]

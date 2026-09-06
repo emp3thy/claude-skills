@@ -1,0 +1,42 @@
+# Reusable Azure DevOps job for the generated Karate suite (design spec section 10).
+# Include from the service pipeline:
+#   - template: karate-tests/azure-pipelines.karate.yml
+#     parameters: { imageTag: $(imageTag) }      # omit to let the harness build the app image
+parameters:
+  - name: imageTag
+    type: string
+    default: ''
+  - name: workingDirectory
+    type: string
+    default: karate-tests
+
+jobs:
+  - job: karate
+    displayName: Karate integration tests (Testcontainers)
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - task: JavaToolInstaller@0
+        inputs:
+          versionSpec: '21'
+          jdkArchitectureOption: x64
+          jdkSourceOption: PreInstalled
+      - ${{ if eq(parameters.imageTag, '') }}:
+          - script: sh mvnw -B test
+            workingDirectory: ${{ parameters.workingDirectory }}
+            displayName: mvnw test (harness builds the app image from the Dockerfile)
+      - ${{ if ne(parameters.imageTag, '') }}:
+          - script: sh mvnw -B test -Dapp.image=${{ parameters.imageTag }}
+            workingDirectory: ${{ parameters.workingDirectory }}
+            displayName: mvnw test against the prebuilt image
+      - task: PublishTestResults@2
+        condition: always()
+        inputs:
+          testResultsFormat: JUnit
+          testResultsFiles: '${{ parameters.workingDirectory }}/target/karate-reports/*.xml'
+          testRunTitle: karate
+      - task: PublishBuildArtifacts@1
+        condition: always()
+        inputs:
+          pathToPublish: '${{ parameters.workingDirectory }}/target/karate-reports'
+          artifactName: karate-reports

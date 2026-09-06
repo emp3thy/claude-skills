@@ -115,6 +115,24 @@ def test_extract_fluent_validation_joins_a_multi_line_chain() -> None:
     assert rows[0]["source"] == "V.cs:5"
 
 
+def test_extract_fluent_validation_ignores_semicolons_inside_strings() -> None:
+    text = (
+        "public class V : AbstractValidator<Req>\n"
+        "{\n"
+        "    public V()\n"
+        "    {\n"
+        "        RuleFor(x => x.Note)\n"
+        '            .WithMessage("no;semi")\n'
+        "            .MaximumLength(10);\n"
+        "    }\n"
+        "}\n"
+    )
+    rows = extract_fluent_validation(text, "V.cs")
+    assert [(r["field"], r["mutation"], r["value"], r["source"]) for r in rows] == [
+        ("Note", "too_long", "11", "V.cs:5"),
+    ]
+
+
 def test_extract_data_annotations() -> None:
     text = (
         "public class Req\n{\n    [Required]\n    [StringLength(10, MinimumLength = 2)]\n"
