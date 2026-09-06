@@ -34,9 +34,11 @@ $csv_header
 `out_of_range`, `invalid_enum`, `cross_field`. Boundary conventions: `too_long` uses max+1,
 `too_short` uses min-1, `out_of_range` uses the first excluded integer (0 for "greater than 0"),
 `invalid_format` uses the literal `!!` unless the field needs a specific shape, `invalid_enum`
-uses `NOT_A_VALUE`, `cross_field` carries a short expression such as `before:tradeDate` that the
-generate step turns into a concrete pair of values. `rule_id` stays empty; the skill assigns it.
-`source` is `file:line` of the check.
+uses `NOT_A_VALUE`, `cross_field` carries an expression naming the relationship to another field
+(`before:<field>`, `after:<field>`, `gt:<field>`, `lt:<field>`, `eq:<field>` or `ne:<field>`, for
+example `before:tradeDate`), and the generate step writes a dedicated scenario for each
+cross-field row by hand instead of driving it through the outline. `rule_id` stays empty; the
+skill assigns it. `source` is `file:line` of the check.
 
 ## Method
 

@@ -122,6 +122,34 @@ Scenario Outline: validation rule <rule_id> on <field>
     | read('classpath:rules/post-api-deals.csv') |
 ```
 
+## Cross-field rules
+
+`mutate`'s `cross_field` case cannot turn a symbolic expression such as `before:tradeDate` into
+two concrete values, so a `cross_field` row never goes through the outline. When `$rules_file`
+holds any such rows, first drop them from the outline's `Examples` cell: `| karate.filter(read('classpath:$rules_file'), function(r){ return r.mutation != 'cross_field' }) |`
+(Karate evaluates the cell as a JS expression). Then write one `@rules` scenario by hand for
+each dropped row: take `base`, set the row's `field` to a concrete value that violates the
+expression against the other field it names (a date earlier than `base.tradeDate` for
+`before:tradeDate` on `settlementDate`; a value not greater than `base.limit` for `gt:limit`;
+and so on for `after`, `lt`, `eq` and `ne`), send it, and assert the row's literal
+`expected_status`, `expected_code` and `expected_message_contains`. Name the rule id in the
+scenario title:
+
+```gherkin
+@rules
+Scenario: validation rule R003 settlementDate before tradeDate
+  * set base.settlementDate = '2024-01-01'
+  Given url appBaseUrl
+  And path '/api/deals'
+  And request base
+  When method post
+  Then status 422
+  * match checkError(response, 'DATE_ORDER', 'settlement before trade') == []
+```
+
+When `$rules_file` has no `cross_field` rows, the outline stays exactly as the "Feature shape"
+section shows.
+
 ## Stub mapping shape
 
 One file per downstream, suite-level. `priority` 1 wins over 5.

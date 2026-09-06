@@ -111,6 +111,7 @@ def test_rules_context_needs_a_source_and_its_example_rows_load(
     text = render("rules", context, PROMPTS_DIR)
     assert "rule_id,field,mutation,value,expected_status,expected_code," in text
     assert _PLACEHOLDER_RE.search(text) is None
+    assert "before:<field>" in text
     reply = json.loads(_block(text, "## Reply", "json"))
     assert reply["csv"].startswith("rule_id,field,mutation,value,")
     assert set(reply) == {"csv", "rows", "dropped_candidates", "notes"}
@@ -154,11 +155,15 @@ def test_generate_context_and_example_feature_is_parallel_safe(
     text = render("generate", context, PROMPTS_DIR)
     assert "@parallel=false" in text and "Jms.await(" in text and "Stubs.verify(" in text
     assert _PLACEHOLDER_RE.search(text) is None
+    assert "## Cross-field rules" in text
+    assert "karate.filter(" in text and "cross_field" in text
     feature = _block(text, "## Feature shape", "gherkin")
     assert "checkError(response, '<expected_code>'" in feature
     parsed = parse_feature(feature)
     assert len(parsed.scenarios()) >= 3
     assert unsafe_parallel_scenarios(feature) == []
+    cross_field_scenario = _block(text, "## Cross-field rules", "gherkin")
+    assert unsafe_parallel_scenarios(cross_field_scenario) == []
     summary = json.loads(_block(text, "## Reply", "json"))
     assert set(summary) >= {"features", "stubs", "seeds"}
 
