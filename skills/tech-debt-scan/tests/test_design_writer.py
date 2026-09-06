@@ -806,3 +806,96 @@ def test_notes_prompt_top_narrows_but_never_widens(tmp_path: Path) -> None:
     widened = prompt_path.read_text(encoding="utf-8")
     assert widened.count("\nfingerprint: ") == 3
     assert TOP_FP in widened and CUT_FP in widened and TIER_C_FP in widened
+
+
+# --- branch review: Important 1, fence-shaped lines in free text ----------------
+
+
+def test_free_text_neutralises_a_fence_shaped_line_in_every_channel(tmp_path: Path) -> None:
+    """Branch review Important 1: an unbalanced fence in free text must not abort the render.
+
+    ``free_text`` escaped a heading-shaped line but left a line of three or more
+    backticks alone. Both fence trackers on the write path -- ``_h1_names``'
+    whole-document scan and ``design_parser``'s per-section scan -- read such a
+    line as a fence delimiter, and they do not agree with each other (the
+    parser's *outer* H2 scan tracks no fences at all). A free-text field
+    carrying an **odd** number of fence-shaped lines therefore desynchronised
+    the two scanners: ``_h1_names`` swallowed every H1 that followed and
+    ``_check_headings`` raised ``DesignWriteError: self-check failed: unexpected
+    heading ...``, throwing away a whole run's worth of agent work over one
+    stray line and naming a *section* rather than the field that carried it.
+
+    Every free-text channel an LLM writes is driven here at once, each with
+    exactly one (odd, unbalanced) fence-shaped line, in the four shapes the
+    parsers recognise: a bare info-string fence, an indented fence, a
+    four-backtick fence, and a plain three-backtick fence. Only backticks are
+    covered: neither ``_h1_names`` nor ``design_parser._leading_backtick_run``
+    honours a ``~~~`` fence, so a tilde line is not a boundary and is left
+    alone.
+    """
+    verified = _verified()
+    verified["findings"][0]["proof"] = "The catch swallows it.\n```python\nexcept Exception:"
+    candidates = _candidates()
+    candidates["looks_bad_but_fine"].append(
+        {"file": "src/pay/misc4.py", "line_start": 9,
+         "why": "Fine because the helper is generated.\n   ```\nSee the generator."})
+    candidates["open_questions"].append(
+        {"file": "src/pay/misc3.py", "line_start": 9,
+         "question": "Is this shape reachable?\n````\nrefund(None)", "reason": None})
+    notes = [{
+        "fingerprint": TOP_FP,
+        "remediation": "Re-raise after logging.\n```python\nraise",
+        "acceptance_criteria": [
+            "The failure path re-raises",
+            "A regression test covers it\n```\nassert raised",
+        ],
+    }]
+    workdir = _write_workdir(
+        tmp_path / "wd",
+        **{"verified.json": verified, "candidates.json": candidates},
+    )
+    write_json(workdir / "notes.json", notes)
+    out = tmp_path / "design.md"
+
+    # The reviewer's exact failure mode: this call raised DesignWriteError before the fix.
+    write_design(load_inputs(workdir), SCAN_DATE, out)
+
+    text = out.read_text(encoding="utf-8")
+    # One escaped fence marker per channel: proof, why, question, remediation, criterion.
+    assert text.count("\\`") == 5, "every channel neutralised its fence-shaped line"
+    assert "\n```python\n" not in text.replace("\n\\```python\n", "\n")
+
+    # The document still renders every section, in order, with nothing swallowed.
+    headings = [line[2:].strip() for line in text.split("\n") if line.startswith("# ")]
+    headings = ["Top" if h.startswith("Top ") else h for h in headings[1:]]
+    assert headings == list(SECTION_ORDER)
+
+    # ... and parses back with both promotable findings and every section intact.
+    parsed = parse_design(out)
+    assert [f["slug"] for f in parsed["findings"]] == [
+        "refund-failure-swallowed-by-a-bare-except",
+        "hard-coded-credential-in-the-gateway-client",
+    ]
+    for finding in parsed["findings"]:
+        assert "### Evidence" in finding["body_md"], finding["slug"]
+    top_body = parsed["findings"][0]["body_md"]
+    assert "### Proof" in top_body and "### Remediation" in top_body
+    assert "### Acceptance criteria" in top_body
+    assert top_body.count("\\```") == 3, "proof, remediation and the criterion, all escaped"
+
+
+def test_free_text_leaves_a_tilde_line_and_a_short_backtick_run_alone() -> None:
+    """Only a 3+ backtick run is a fence to either scanner, so only that is escaped.
+
+    ``design_parser._leading_backtick_run`` and ``design_writer._h1_names`` both
+    count backticks and nothing else, so a ``~~~`` line is ordinary text and a
+    one- or two-backtick line cannot open a fence. Escaping either would change
+    what a reader sees for no boundary benefit.
+    """
+    from design_writer import free_text
+
+    assert free_text("~~~python\nbody\n~~~") == "~~~python\nbody\n~~~"
+    assert free_text("`inline` and ``double``") == "`inline` and ``double``"
+    assert free_text("```") == "\\```"
+    assert free_text("  ```py") == "  \\```py"
+    assert free_text("`````") == "\\`````"

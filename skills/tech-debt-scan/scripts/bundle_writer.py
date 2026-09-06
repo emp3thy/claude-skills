@@ -96,12 +96,13 @@ def acceptance_criteria(body_md: str) -> list[str]:
     A criterion's text continues onto the following lines until the next
     ``- [ ]`` item, a blank line, or a heading of any level -- the shape
     design_writer.free_text produces when a note field's own text carries an
-    embedded newline (escaping any resulting ``#``-shaped line to ``\\#`` so
-    it does not read as a heading). Continuation lines are stripped and joined
+    embedded newline (escaping any resulting ``#``-shaped line to ``\\#`` so it
+    does not read as a heading, and any fence-shaped line to ``\\``` `` so it
+    does not read as a code fence). Continuation lines are stripped and joined
     to the criterion with single spaces, so one criterion is one PLAN.md step
     and nothing is silently dropped. A continuation line that begins with an
-    escaped ``\\#`` joins as ordinary text, unescaped by nothing here -- it is
-    body text, not a formatting instruction to this parser.
+    escaped ``\\#`` or ``\\``` `` joins as ordinary text, unescaped by nothing
+    here -- it is body text, not a formatting instruction to this parser.
 
     Stops at the next heading of any level, so a later section's checkboxes are
     never absorbed. Returns [] when the section is absent or holds the writer's

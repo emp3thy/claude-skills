@@ -47,7 +47,8 @@ Format invariants (the round-trip partner is design_parser.parse_design):
     rendered outside a fenced block (proof, question, why, the rejection proof
     or trap, and the note text in Task 5) goes through ``free_text`` instead,
     which redacts and also escapes any line that would otherwise read as a
-    heading and truncate the finding's body (design_parser._ends_section).
+    heading and truncate the finding's body (design_parser._ends_section) or as
+    a code fence and desynchronise the two fence scanners on this path.
   - An evidence quote is wrapped in a fence one backtick longer than the longest
     backtick run inside it (``_fence_for``), so a quote lifted from a Markdown or
     Ruby fixture cannot close the writer's own fence and spill into the document
@@ -316,11 +317,26 @@ def _diff_for(inputs: RenderInputs, fingerprint: str) -> str:
 def free_text(value: str) -> str:
     """Redacted free text safe to drop into the document body.
 
-    A line that begins with ``#`` would read as a heading and end the finding's
-    section (design_parser._ends_section), taking Evidence and the note sections
-    out of the body that bundle_writer copies into a PBI. Markdown renders ``\\#``
-    as a literal ``#``, and the parser's predicates no longer match, so an escaped
-    line is both correct on screen and inert to the boundary.
+    Two line shapes are structural to the readers of this document and are
+    neutralised the same way, by a leading backslash:
+
+    - A line that begins with ``#`` would read as a heading and end the
+      finding's section (design_parser._ends_section), taking Evidence and the
+      note sections out of the body that bundle_writer copies into a PBI.
+    - A line whose stripped text opens with a run of three or more backticks is
+      a fence delimiter to both fence scanners on the write path -- ``_h1_names``
+      here and design_parser's per-section scan -- each of which computes the run
+      with an ``lstrip("`")`` over the stripped line. An *odd* number of such
+      lines in one field leaves the two scans disagreeing (design_parser's outer
+      H2 scan tracks no fences at all), ``_h1_names`` swallows every H1 that
+      follows, and ``_check_headings`` aborts the whole render over one stray
+      line from one agent. A backslash makes the leading-backtick run zero for
+      both scanners, so the line is no longer a delimiter to either.
+
+    Markdown renders ``\\#`` and ``\\```` as a literal ``#`` and a literal
+    backtick, so an escaped line is both correct on screen and inert to the
+    boundary. Only backticks are escaped: neither scanner recognises a ``~~~``
+    fence, so a tilde line is not a boundary and is left as the agent wrote it.
 
     Every free-text field the writer places outside a fenced block (proof, and in
     Tasks 4/5 note, question, why and the remediation text) must go through this
@@ -332,7 +348,7 @@ def free_text(value: str) -> str:
     escaped: list[str] = []
     for line in redacted.split("\n"):
         stripped = line.lstrip()
-        if stripped.startswith("#"):
+        if stripped.startswith("#") or len(stripped) - len(stripped.lstrip("`")) >= 3:
             indent = line[: len(line) - len(stripped)]
             escaped.append(f"{indent}\\{stripped}")
         else:
