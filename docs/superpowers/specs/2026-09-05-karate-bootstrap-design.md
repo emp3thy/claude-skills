@@ -117,6 +117,7 @@ karate-tests/
   stack.json                         detected stack
   defects.md                         quarantined suspected app defects
   README.md                          how to run, counts, modes used, notes
+                                     (rendered here; README.md.tmpl stays in the skill)
   rules/<endpoint>.csv
   seed/<feature>.sql
   seed/examples/<endpoint>.json      base request bodies
@@ -298,16 +299,16 @@ Pinned dependencies in `pom.xml`, every coordinate and image tag checked against
 Harness classes (package `kb.harness`):
 
 - **`KbRuntime.java`.** Typed view over `kb-runtime.json`, loaded once per JVM.
-- **`Containers.java`.** Singleton started lazily from `karate-config.js` unless `-Dkb.skipContainers=true`. Order: network, Postgres, Artemis, WireMock, db-manager, app. Artemis gets `EXTRA_ARGS` with `--queues` (anycast) and `--addresses` (multicast) built from the ledger's destinations. WireMock waits on `GET /__admin/health`; when `auth.mode` is `jwks`, `Jwt.publishJwks()` imports the discovery and JWKS mappings. App image from `ImageFromDockerfile` with the service root as context, or `-Dapp.image=<tag>`. Env values are `kb-runtime.json` templates with tokens substituted. Readiness from the ledger; port wait when none; serverless doubles the startup timeout. Every container's output is written to `target/<name>.log`.
+- **`Containers.java`.** Singleton started lazily from `karate-config.js` unless `-Dkb.skipContainers=true`. Order: network, Postgres, Artemis, WireMock, db-manager, app. Artemis gets `EXTRA_ARGS` with `--queues` (anycast) and `--addresses` (multicast) built from the ledger's destinations. WireMock waits on `GET /__admin/health`; when `auth.mode` is `jwks`, `Jwt.publishJwks()` imports the discovery and JWKS mappings. App image from `ImageFromDockerfile` with the service root as context, or `-Dapp.image=<tag>`. Env values are `kb-runtime.json` templates with tokens substituted. Readiness from the ledger; port wait when none; serverless doubles the startup timeout. Every container's output is written to `target/<name>.log`. A failed start is remembered and rethrown by later scenarios instead of retried; a JVM shutdown hook stops the containers and closes the JMS connection when Ryuk is disabled.
 - **`Db.java`.** `run(sqlPath)`, `row(table, whereMap)`, `awaitRow(table, whereMap, timeoutMs)`, `count(table, whereMap)`, `truncate(tables)`. Identifiers validated against `^[A-Za-z_][A-Za-z0-9_]*$`, values bound through `PreparedStatement`.
-- **`Jms.java`.** `watch(destination)` subscribes once per destination before any request; `await(destination, timeoutMs)` and `await(destination, timeoutMs, matchMap)` return `{body, properties, messageId}`, the match form taking only the message whose body contains every key and value in `matchMap` and leaving the rest for other scenarios; `publish(destination, body, headers)` drives AMQ-subscribe entry points. Queue versus topic from the ledger.
+- **`Jms.java`.** `watch(destination)` subscribes once per destination before any request; `await(destination, timeoutMs)` and `await(destination, timeoutMs, matchMap)` return `{body, properties, messageId}`, the match form taking only the message whose body contains every key and value in `matchMap` while other messages stay in the inbox, in order, for other scenarios; `publish(destination, body, headers)` drives AMQ-subscribe entry points. Queue versus topic from the ledger.
 - **`Stubs.java`.** `reset()` = `POST /__admin/reset`; `load(path)` = `POST /__admin/mappings/import` with a `{"mappings":[...]}` document; `verify(method, urlPath, times)` and `verify(method, urlPath, bodyContains, times)` = `POST /__admin/requests/count` with a request pattern (the four-argument form adds `"bodyPatterns":[{"contains":bodyContains}]`) compared to `times`; `unmatched()` writes `GET /__admin/requests/unmatched` and `/near-misses` to `target/stubs-unmatched.json` for the fix loop.
 - **`Jwt.java`.** One RSA key per JVM. `token(claimsMap)` signs RS256 with `iss` = `http://wiremock:8080/auth`; `publishJwks()` imports mappings for `/auth/.well-known/openid-configuration` and `/auth/.well-known/jwks.json`.
-- **`KarateRunner.java`.** JUnit 5, `Runner.path("classpath:features").tags("~@known-defect").outputCucumberJson(true).outputJunitXml(true).parallel(Integer.getInteger("kb.threads", 4))`.
+- **`KarateRunner.java`.** JUnit 5, `Runner.path("classpath:features").tags("~@known-defect").outputCucumberJson(true).outputJunitXml(true).parallel(Integer.getInteger("kb.threads", 4))`. Under `-Dkb.skipContainers=true` the runner also requires the `@harness` tag, so only container-free features run; after a containerised run it writes `target/stubs-unmatched.json` via `Stubs.unmatched()`.
 - **`karate-config.js`.** Defines `skipContainers`, `mutate` (from `common/mutate.js`) and, when containers run, `appBaseUrl`, `Db`, `Jms`, `Stubs`, `Jwt` via `Java.type`.
 - **`features/harness-smoke.feature`.** Container-free self-test of `mutate`, `KbRuntime` and a CSV-driven outline; it is what the template's CI job and a developer's first `mvn test -Dkb.skipContainers=true` run.
 
-Also rendered: `azure-pipelines.karate.yml`, `src/test/resources/testcontainers.properties`, `src/test/resources/logback-test.xml`, a `.gitignore` with `target/`, and an initial `defects.md`. `README.md` is written by `kb_report.py summary` (5.8).
+Also rendered: `azure-pipelines.karate.yml`, `src/test/resources/testcontainers.properties`, `src/test/resources/logback-test.xml`, a `.gitignore` with `target/`, and an initial `defects.md`. `README.md` is written by `kb_report.py summary` (5.8), which reads `README.md.tmpl` from the skill; that template is never copied into the target repo.
 
 The rendered `pom.xml` registers `rules/`, `stubs/` and `seed/` at the module root as additional test resources so `classpath:rules/...`, `classpath:stubs/...` and `classpath:seed/...` resolve (verified in the spike); the generated gate checks those directories at the module root and features under `src/test/resources/`.
 
@@ -396,7 +397,7 @@ Scenario Outline: validation rule <rule_id> on <field>
     | read('classpath:rules/post-api-deals.csv') |
 ```
 
-The `Authorization` header line is emitted only when `auth.mode: jwks`. `common/reset.feature` accepts `{ watch: [destinations], seed: 'seed/x.sql', stubs: [paths], truncate: [tables] }`; `seed` is additive and `stubs` and `truncate` are only legal under `@parallel=false`. AMQ-subscribe entry points use `Jms.publish` for the input and `Db.awaitRow` and `Jms.await` for the exits. Tags: `@smoke`, `@error`, `@rules`, `@amq`, `@known-defect`, `@parallel=false`.
+The `Authorization` header line is emitted only when `auth.mode: jwks`. `common/reset.feature` accepts `{ watch: [destinations], seed: 'seed/x.sql', stubs: [paths], truncate: [tables] }` and applies them in the order watch, truncate, seed, stubs, so a truncate never wipes the rows the same call seeded; `seed` is additive and `stubs` and `truncate` are only legal under `@parallel=false`. AMQ-subscribe entry points use `Jms.publish` for the input and `Db.awaitRow` and `Jms.await` for the exits. Tags: `@smoke`, `@error`, `@rules`, `@amq`, `@known-defect`, `@parallel=false`.
 
 `validate --phase generated` fails when: an entry has no feature file; an `http-out` exit has no stub file under `stubs/<downstream>/`; a `db-write` exit's table is not referenced by a `Db.` call in the feature; an `amq-publish` exit is not referenced by `Jms.`; an `http-out` exit is not referenced by `Stubs.verify`; a rules CSV row count differs from the ledger count; a rules source is not marked `scanned`; a scenario calls `Stubs.reset`, `Stubs.load` or `Db.truncate` without `@parallel=false`. These are grep-level checks by design.
 
@@ -415,7 +416,7 @@ python scripts/kb_iterate.py check-stop --log karate-tests/.iterations.log --rep
 
 Failure signature: feature, scenario with outline example suffixes collapsed, first failing step, error class (first error line with numbers, quoted strings and URLs normalised). Rules rows sharing a signature form one group.
 
-Evidence bundle per group: the failing step and its match diff, the tail of `target/app.log`, WireMock's unmatched requests and near misses from `target/stubs-unmatched.json`, DB error text, `target/db-manager.log` when the failure is at startup.
+Evidence bundle per group: the failing step and its match diff, the tail of `target/app.log`, WireMock's unmatched requests and near misses, written by the runner to `target/stubs-unmatched.json` after the run, DB error text, `target/db-manager.log` when the failure is at startup.
 
 Classification, in this order:
 

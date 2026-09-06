@@ -4485,7 +4485,7 @@ Surfaced in the three buckets the standards document asks for. **Real concerns: 
 ### Minor, accepted
 
 - Live container start (`Containers.start()`) is compile-checked here and first exercised by Plan 4's end-to-end fixtures, as the spec states. Plan 4 is also where `kb.threads=1` becomes the default if isolation by data proves flaky (spec H7).
-- `Jms.await` requeues non-matching messages behind messages that arrived meanwhile. Scenarios match by content, so order is irrelevant.
+- `Jms.await` scans the inbox under its monitor and leaves non-matching messages in place, in order.
 - `Db.run` splits seed SQL on `;` at end of line; seeds are inserts, not functions (spec 12).
 - The Maven-marked pytest needs `JAVA_HOME` (or a JDK on `PATH` for the Unix wrapper) and Maven Central; on this machine `JAVA_HOME` must be set explicitly ([[maven-needs-java-home]]).
 - `kb_report.py parse` counts a quarantined `Scenario Outline` once, not per example row; the README table calls the column "Quarantined".
@@ -4508,3 +4508,24 @@ Run after the plan was written, against spec commit `3c99756`.
 2. **Placeholder scan.** No TBD, TODO, "similar to Task N", or "add error handling". Every code step carries the code.
 3. **Type and name consistency.** `kb_features.parse_feature`, `Block`, `ParsedFeature`, `known_defect_scenario_count`, `unsafe_parallel_scenarios`, `PARALLEL_FALSE_TAG` are used with the same names in Tasks 2 and 6. Report keys `feature`, `scenario`, `outline`, `tags`, `step`, `error` are identical in Tasks 6 and 7 and match what `flow_map._validate_green` reads. `Containers.tokenValues`, `substitute`, `artemisExtraArgs`, `appWait`, `Stubs.countBody(method, urlPath, bodyContains)`, `Jms.takeMatching`, `Jms.matches`, `Jwt.mapping`, `Jwt.mappings`, `Jwt.tokenFor`, `Jwt.key` match between the Java sources and the JUnit tests. `RUNTIME_REL`, `TEMPLATE_DIR`, `build_runtime`, `copy_template` match between `kb_scaffold.py` and its tests. Forward references: none; the one compile cycle (Containers and its helpers) lives inside a single task.
 4. **Cross-read.** The `Jms.await` prose in Task 4 says order is not preserved, matching the corrected test. The `kb_report` docstring and the report contract in Global Constraints list the same keys (`outline` is an addition the green gate ignores).
+
+## Post-execution amendments
+
+Changes made while executing this plan that the task bodies above do not describe. The plan text
+is left as written; this list is the record of what the branch actually landed.
+
+- `_CLASS_DECL_RE` in `discover.py` rewritten as a linear regex, no catastrophic backtracking (1cba5e4).
+- The Maven-marked template test launches the wrapper by absolute path (b6d95ee).
+- One JMS session per listener-driven consumer, with a separate producer session (ca2d4fc).
+- `kb_checkpoint` test asserts that `begin` on a non-default branch reports the current branch (ddc00a4).
+- Final-review fix wave (199e78f): the smoke feature asserts `skipContainers == '#boolean'` and
+  `kb_scaffold.HARNESS_FILES` lets `--force` refresh it (C1); `KarateRunner` ANDs `@harness` under
+  `-Dkb.skipContainers=true` (I1) and writes `target/stubs-unmatched.json` after a containerised run
+  (I7); `reset.feature` applies watch, truncate, seed, stubs (I2); `Db.stripComments` keeps a
+  statement under a leading `--` comment (I3); `Jms` scans a monitor-guarded `Inbox` in place instead
+  of parking other scenarios' messages (I4); a failed `Containers.start()` is remembered, not retried
+  (I5); a JVM shutdown hook stops the topology and closes JMS, and `Jms.ensureConnection` assigns the
+  field only after `start()` succeeds (I8); `env_value` returns `None` for db-role keys naming no part
+  of the connection (I6); the ADO job runs `sh mvnw` and `kb_checkpoint` marks `karate-tests/mvnw`
+  `100755` (I9). Minors: `Jwt.publishJwks` checks the import response, `README.md.tmpl` is no longer
+  copied into the target repo, and the built app image name is sanitised.
