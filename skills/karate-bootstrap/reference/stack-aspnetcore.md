@@ -73,6 +73,11 @@ sheet explains them for a tracer and lists the tokens the `verify-refs` gate acc
 
 - Manifest probe when present; common app paths are `/health/ready`, `/health`, `/healthz`.
   Fallback: port wait.
+- `discover.py` does not exempt this path from entry-point detection: a readiness route written
+  as an ordinary `[HttpGet]` controller action or `Map*` minimal API is picked up like any other
+  and must be traced with no exits, while ASP.NET Core's own health-check middleware
+  (`AddHealthChecks()` / `MapHealthChecks(...)`) avoids this because it registers no `[Http*]`
+  or `Map*` call for the marker regex to match.
 
 ## Auth switches
 

@@ -70,6 +70,10 @@ explains them for a tracer and lists the tokens the `verify-refs` gate accepts.
 
 - Manifest probe when present; Quarkus' own paths are `/q/health/ready` and `/q/health`.
   Fallback: port wait.
+- `discover.py` does not exempt this path from entry-point detection: a readiness route written
+  as an ordinary `@Path`/`@GET` resource method is picked up like any other and must be traced
+  with no exits, while the `quarkus-smallrye-health` extension's own `/q/health/ready` avoids
+  this because it registers no `@GET`-annotated resource method for the marker regex to match.
 
 ## Auth switches
 

@@ -73,6 +73,11 @@ Loaded for `stack.framework: python` (FastAPI, Flask or Django). Marker regexes 
 
 - Manifest probe when present; otherwise a port wait (the default port is 8000 for uvicorn
   unless the Dockerfile exposes another).
+- `discover.py` does not exempt this path from entry-point detection: a readiness route is an
+  ordinary `@app.get`/`@router.get`/`@app.route` handler like any other, so it is picked up and
+  must be traced with no exits; FastAPI, Flask and Django have no framework health-check
+  middleware to fall back on, so this cannot be sidestepped the way it can in ASP.NET Core or
+  Spring.
 
 ## Auth switches
 

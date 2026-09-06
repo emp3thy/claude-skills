@@ -77,6 +77,10 @@ explains them for a tracer and lists the tokens the `verify-refs` gate accepts.
 
 - Manifest `readinessProbe.httpGet.path` when present; Spring Boot's own paths are
   `/actuator/health/readiness` or `/actuator/health`. Fallback: port wait.
+- `discover.py` does not exempt this path from entry-point detection: a readiness route written
+  as an ordinary `@RestController` handler is picked up like any other and must be traced with
+  no exits, while Spring Boot Actuator's own health endpoints avoid this because they carry no
+  `@GetMapping`/`@RequestMapping` for the marker regex to match.
 
 ## Auth switches
 
