@@ -53,8 +53,13 @@ explains them for a tracer and lists the tokens the `verify-refs` gate accepts.
 
 - Files: `application.properties`, `application.yml`, `application.yaml` (base profile;
   `%dev.` and `%test.` prefixed keys are ignored).
-- `db`: `quarkus.datasource.jdbc.url`, `quarkus.datasource.username|password`,
-  `quarkus.hibernate-orm.*`. `amq`: `quarkus.qpid-jms.url|username|password`, `amqp-host`,
+- `db`: `assign_role` gives `db` only when the key contains one of `datasource`,
+  `connectionstrings`, `database_url`, `jdbc`, `db_url`, `db-url`, `hibernate.connection`,
+  `pghost`, `pgdatabase`, or the placeholder value matches `jdbc:`, `postgres`, or `host=`. That
+  covers `quarkus.datasource.jdbc.url` and `quarkus.datasource.username|password` (both contain
+  `datasource`); most of `quarkus.hibernate-orm.*` does not qualify —
+  `quarkus.hibernate-orm.database.generation` is `passthrough`.
+- `amq`: `quarkus.qpid-jms.url|username|password`, `amqp-host`,
   `amqp-port`, `mp.messaging.*`, any `amqp://` placeholder. `auth`: `quarkus.oidc.*`, keys
   containing `jwt`, `issuer`, `jwks`. `downstream:<name>`: `quarkus.rest-client.<name>.url`
   and other `*.url` keys, named after the key.

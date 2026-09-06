@@ -59,8 +59,13 @@ explains them for a tracer and lists the tokens the `verify-refs` gate accepts.
 - Files: `application.yml`, `application.yaml`, `application.properties` (base profile only;
   `application-<profile>.*` and `src/test` variants are ignored). Manifest env wins over the
   Dockerfile which wins over config placeholders.
-- `db`: `spring.datasource.url|username|password`, `spring.jpa.*`, `hibernate.connection.*`,
-  any `jdbc:` placeholder. `amq`: `spring.artemis.broker-url|user|password`, `spring.jms.*`,
+- `db`: `assign_role` gives `db` only when the key contains one of `datasource`,
+  `connectionstrings`, `database_url`, `jdbc`, `db_url`, `db-url`, `hibernate.connection`,
+  `pghost`, `pgdatabase`, or the placeholder value matches `jdbc:`, `postgres`, or `host=`. That
+  covers `spring.datasource.url|username|password` and any `hibernate.connection.*` key; most of
+  `spring.jpa.*` does not qualify — `spring.jpa.show-sql` and `spring.jpa.hibernate.ddl-auto` are
+  `passthrough`.
+- `amq`: `spring.artemis.broker-url|user|password`, `spring.jms.*`,
   any `tcp://`, `amqp://` or `failover:` placeholder. `auth`: keys containing `security`,
   `oauth2`, `jwt`, `issuer`, `jwks`, `oidc`. `downstream:<name>`: any other key ending in
   `url`, `uri`, `base-url`, `endpoint` or `host`, named after the key (`pricing.base-url` and
@@ -91,7 +96,7 @@ explains them for a tracer and lists the tokens the `verify-refs` gate accepts.
 
 ## Migrations and boot behaviour
 
-- Flyway under `src/main/resources/db/migration`, Liquibase under `db/changelog`.
+- Flyway under `src/main/resources/db/migration`, Liquibase under `src/main/resources/db/changelog`.
   `spring.jpa.hibernate.ddl-auto` in `create`, `create-drop`, `update` means the app also
   migrates on boot (`also_on_boot`).
 

@@ -57,9 +57,14 @@ Loaded for `stack.framework: python` (FastAPI, Flask or Django). Marker regexes 
 - Sources: `settings.py`, `config.py` attributes read from `os.environ`/`os.getenv`, and
   `.env.example`. Only keys read from the environment carry an env var; a settings attribute
   without one cannot be injected by the harness.
-- `db`: `DATABASE_URL`, `DB_*`, `PG*`, any `postgresql://` placeholder. `amq`: `AMQ_*`,
-  `BROKER_*`, `ARTEMIS_*`, `STOMP_*`, any `amqp://` or `stomp://` placeholder. `auth`: keys
-  containing `JWT`, `OIDC`, `ISSUER`, `JWKS`, `AUTH`. `downstream:<name>`: other `*_URL` and
+- `db`: `assign_role` gives `db` only when the key contains one of `datasource`,
+  `connectionstrings`, `database_url`, `jdbc`, `db_url`, `db-url`, `hibernate.connection`,
+  `pghost`, `pgdatabase`, or the placeholder value matches `jdbc:`, `postgres`, or `host=`. That
+  covers `DATABASE_URL`, `PGHOST`, and `PGDATABASE`; a bare `DB_HOST`/`DB_PORT` pair contains
+  none of those substrings — `DB_HOST` ends in the `host` suffix and is classified
+  `downstream:db` instead, and `DB_PORT` falls through to `passthrough`.
+- `amq`: `AMQ_*`, `BROKER_*`, `ARTEMIS_*`, `STOMP_*`, any `amqp://` or `stomp://` placeholder.
+  `auth`: keys containing `JWT`, `OIDC`, `ISSUER`, `JWKS`, `AUTH`. `downstream:<name>`: other `*_URL` and
   `*_BASE_URL` keys, named after the prefix (`PRICING_BASE_URL` becomes `pricing`).
 
 ## Readiness
