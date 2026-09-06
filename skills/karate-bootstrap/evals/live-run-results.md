@@ -28,6 +28,63 @@ Rows are added as each fixture's live run goes green.
 | dotnet-deals | aspnetcore | 3 (`POST /api/deals`, `GET /api/deals/{id}`, `amq deal.requested`) | 20 of 21 (1 quarantined) | DEF-001: quantity over 10000 answers 500, not 400 | pre-built via `docker build` before the Karate run (`-Dapp.image=kb-live-app-dotnet-deals-<hash>`) | [34042475664](https://github.com/emp3thy/claude-skills/actions/runs/34042475664), 2026-09-06, job wall-clock 2m0s |
 | fastapi-orders | python | 4 (`GET /healthz`, `POST /api/orders`, `GET /api/orders/{order_id}`, `amq order.requested`) | 20 of 21 (1 quarantined) | DEF-001: quantity over 500 answers 500, not 422 | built in-run from the fixture's `Dockerfile` (`-Dapp.image` not used; `prebuild_app_image=False`) | [34044805100](https://github.com/emp3thy/claude-skills/actions/runs/34044805100), 2026-09-06, job wall-clock 2m25s (pytest 127.84s), after a first red run at [34044513286](https://github.com/emp3thy/claude-skills/actions/runs/34044513286) |
 
+Pass criteria, from the spec: the second Maven run exits 0, every entry in
+`expected-flow-map.yaml` is present in the ledger, zero unresolved, and `defects.md` carries
+the planted defect. All four hold for every row above.
+
+Not covered by these runs, and why:
+
+- **A Podman host.** All three jobs ran on `ubuntu-latest` with Docker; `reference/podman.md`'s
+  `DOCKER_HOST` and rootless-socket instructions are documented, not exercised here.
+- **The ADO pipeline.** `azure-pipelines.karate.yml` ships a reusable job; no hosted ADO agent
+  has run it in this plan.
+- **A multi-service repository.** All three fixtures are single-service repos discovered at
+  their root; `--service-dir` is untested by these runs.
+- **The Quarkus stack.** It has a cheat sheet (`reference/stack-quarkus.md`) but no live
+  fixture in v1, so its regex and mapping have never run against a real container.
+
+## Known limitation: `discover.py` can mistake a readiness route for an entry point
+
+`discover.py`'s `parse_manifest` reads the deployment manifest's `readinessProbe.httpGet.path`
+into `env_map["readiness"]`, but `find_entry_points` never cross-checks that path: it scans
+source files for HTTP route markers with no exemption for whatever route the manifest names as
+the readiness check. An application whose readiness route is an ordinary mapped handler — not
+framework health-check middleware — is therefore detected as a spurious extra entry point that
+then has to be traced, ruled and scaffolded like any other.
+
+Both live fixtures hit this, with different outcomes:
+
+- **dotnet-deals sidesteps it.** `Program.cs` wires up ASP.NET Core's built-in health-check
+  middleware (`AddHealthChecks()` / `app.MapHealthChecks("/health/ready")`) instead of a
+  `[Route]`-attributed controller action or a `.MapGet`/`.MapPost`/... minimal-API call, so the
+  `aspnetcore` `entry-http` marker — which only matches `.Map(Get|Post|Put|Delete|Patch)` — never
+  fires on it, and the manifest's `/health/ready` never becomes an entry point.
+- **fastapi-orders cannot.** FastAPI has no framework health-check middleware to fall back on;
+  `@app.get("/healthz")` is an ordinary route and matches the `python` `entry-http` marker like
+  any other handler. The fixture's `app/main.py` documents the choice inline and declares
+  `GET /healthz` as a real entry point with no exits rather than hide it from discovery.
+
+Neither workaround is a fix in `discover.py` itself: exempting the manifest's readiness path in
+`find_entry_points` needs its own test and a cheat-sheet note across all four stacks, and is out
+of scope this late in the plan. A future fixture author, or a user running the skill against a
+real repository, should expect an ordinary readiness handler to surface as an entry point unless
+the framework's own health-check middleware hides it the way ASP.NET Core's does.
+
+## Deferred, noted for a future plan
+
+- `flow_map.py`'s non-union merge path (`merge_entry(..., union=False)`, the default) only
+  clears a stale `exits_none_reason` inside the `union` branch; a non-union re-merge that
+  supplies `exits` without that key leaves the old `exits_none_reason` on the entry even though
+  it now has exits.
+- `dotnet-deals`'s `Deals.Api.csproj` pins `Apache.NMS.AMQP` at `2.2.0`, which carries a NuGet
+  security advisory; bumping to `2.4.0` or later would clear the `dotnet restore` warning.
+- This file's proton line above (under "Consequences for the fixtures") doesn't say that
+  `apt-get update` must run before the package install; the proven command does run it, and so
+  does `fastapi-orders/Dockerfile`.
+- Karate 1.5.2's feature-level `@parallel=false` did not reliably serialise a tagged feature
+  against other tagged features in practice (see spring-shipments item 5 below); the fixtures
+  isolate by data instead of relying on it.
+
 ### spring-shipments: what the first red run forced
 
 Confidence going in was 93%; it took seven pushes to `Live containers (spring-shipments)` to go green, all fixes to the fixture itself, never to the harness under `templates/`:
