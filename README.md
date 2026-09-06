@@ -163,8 +163,9 @@ fixture corpus, the goldens and the evaluation log that scores it. **Phase 3
 is complete:** `design_writer.py`, `design_parser.py`, `bundle_writer.py` and
 `promote.py` render and promote the v2 report, and `/tech-debt-scan` and
 `/tech-debt-promote` now run this chain end to end — without external tool
-signals or a baseline diff. Phase 4 adds external tool signals
-(`tools_probe.py`, tier caps lifted by tool presence, the deep set, module
+signals or a baseline diff. `--families deep` already selects the full
+fourteen-family set today (`plan_scan.py`, phase 2). Phase 4 adds external
+tool signals (`tools_probe.py`, tier caps lifted by tool presence, module
 chunking) and phase 5 adds the baseline (`baseline.py`, the `diff` anchor key,
 promote write-back, `accepted` expiry).
 

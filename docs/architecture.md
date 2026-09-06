@@ -318,7 +318,9 @@ Human in the loop throughout: nothing is fixed automatically. The v2 delivery
 phases run from phase 1 (deterministic signals) to phase 5 (baseline and
 evaluation). Phases 1 to 3 have landed: `/tech-debt-scan` and
 `/tech-debt-promote` run the full detect-verify-rank chain end to end, without
-external tool signals or a baseline diff. Phase 4 adds the tool probe and the
-deep set; phase 5 adds the baseline, its `diff` reporting, and promote
-write-back. Autonomously applying fixes without review is a separate
-follow-on, deferred and out of scope.
+external tool signals or a baseline diff. `--families deep` already selects
+the full fourteen-family set today (`plan_scan.py`, phase 2). Phase 4 adds
+the tool probe, tier caps lifted by tool presence and module chunking; phase 5
+adds the baseline, its `diff` reporting, and promote write-back. Autonomously
+applying fixes without review is a separate follow-on, deferred and out of
+scope.
