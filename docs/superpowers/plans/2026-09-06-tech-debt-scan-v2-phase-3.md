@@ -544,7 +544,7 @@ from validation import ValidationError, validate_slug
         ("123 leading digits", "f-123-leading-digits"),
         ("", "finding"),
         ("---", "finding"),
-        ("Ünïcode tïtle", "nicode-t-tle"),
+        ("Ünïcode tïtle", "n-code-t-tle"),
     ],
 )
 def test_slugify_is_deterministic_and_valid(title: str, expected: str) -> None:
@@ -858,7 +858,7 @@ def unique_slugs(titles: Sequence[str]) -> list[str]:
     return out
 ```
 
-Note on the non-ASCII case: `_NON_SLUG` strips any character outside `[a-z0-9]`, so `Ünïcode tïtle` becomes `nicode-t-tle` (the accented letters are dropped, not transliterated). That is the pinned behaviour; no `unicodedata` normalisation is added.
+Note on the non-ASCII case: `_NON_SLUG` strips any character outside `[a-z0-9]`, so `Ünïcode tïtle` becomes `n-code-t-tle` (each accented letter becomes a separator, not a transliteration; verified at plan-write time). That is the pinned behaviour; no `unicodedata` normalisation is added.
 
 - [ ] **Step 4: Write the v2 `render` half of `design_writer.py`**
 
