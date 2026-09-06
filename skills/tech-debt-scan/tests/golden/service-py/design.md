@@ -1254,7 +1254,7 @@ requests==2.32.3
 - `docs/übersicht.md:1` - Flagged as stale, but content is a one-line placeholder with no technical claims about code, so there is nothing for the code to contradict.
 - `docs/adr/0001-ledger.md:5` - Flagged as stale, but the described design (JSON-lines append-only ledger, reversals as new entries) matches src/pay/ledger.py's current implementation.
 - `src/pay/refund.py:6` - refund.py imports ledger, gateway, models, and utils but none of those import back from refund.py, so this is a simple acyclic layering, not a dependency cycle.
-- `tests/fixtures/seed.py:2` - api_key value is 'sk_test_placeholder_xxx_do_not_use', clearly a test fixture placeholder, not a real credential.
+- `tests/fixtures/seed.py:2` - api_key value is 'sk_t***', clearly a test fixture placeholder, not a real credential.
 - `tests/test_ledger.py:15` - assert ledger.balance("a", path) == 100 restates the amount_cents=100 posted two lines above in the same test, so the value is locally traceable rather than an unexplained magic number.
 - `.github/workflows/ci.yml:1` - Differs substantially in purpose/steps from release.yml (test job vs. publish job); not hand-copied duplication.
 - `.github/workflows/release.yml:10` - Checkout action is pinned to a full commit SHA rather than a floating tag — this is a stricter, not weaker, practice.

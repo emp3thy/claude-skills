@@ -1811,7 +1811,7 @@
     {
       "file": "tests/fixtures/seed.py",
       "line_start": 2,
-      "why": "api_key value is 'sk_test_placeholder_xxx_do_not_use', clearly a test fixture placeholder, not a real credential."
+      "why": "api_key value is 'sk_t***', clearly a test fixture placeholder, not a real credential."
     },
     {
       "file": "tests/test_ledger.py",

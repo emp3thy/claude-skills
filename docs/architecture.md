@@ -32,6 +32,16 @@ their behaviour.
   no `-m`, no cross-module package layout (the only intra-`scripts` imports are
   flat top-level imports resolved by the test `conftest.py` and `mypy_path`).
 - **Read-only scouts.** Scout agents use Explore semantics; they never write.
+- **Redaction at every write.** Every repository-derived string passes through
+  `redaction.redact` at the point of writing, in every script. It runs two
+  patterns: `CREDENTIAL_RE` for the assignment shape `name = "value"` — which is
+  also `patterns.py`'s `security`/`credential` detection rule, so its scope is
+  frozen — and `SECRET_TOKEN_RE`, which matches a well-known secret by its
+  issuer prefix (Stripe, GitHub, AWS, Slack, Google, GitLab, npm, DigitalOcean,
+  a PEM private-key header) wherever it appears, including inside an agent's
+  prose restatement of a value it read. Both cut to `value[:4] + "***"`, so a
+  reader cannot tell which pattern caught a secret; only `redact` uses the
+  second one, so what the scan *finds* is unaffected by it.
 
 ## Two-command flow
 

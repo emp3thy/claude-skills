@@ -749,3 +749,35 @@ def test_artefact_and_path_class_namespaces_stay_disjoint() -> None:
 
     path_classes = set(PATH_CLASS_GLOBS) | {"source"}
     assert set(ARTEFACT_SCAN_CLASSES).isdisjoint(path_classes)
+
+
+def test_the_credential_rule_still_detects_only_the_assignment_shape(tmp_path: Path) -> None:
+    """Branch review Important 3: redaction widened, detection did not.
+
+    ``CREDENTIAL_RE`` is both the redaction regex and the ``security`` /
+    ``credential`` detection rule, so broadening it would change what the scan
+    finds and move every ranked golden and evaluation number. The prose fix
+    lives in ``redaction.SECRET_TOKEN_RE``, which only ``redact`` applies and no
+    ``Rule`` references. This pins that seam: a bare issuer-prefixed token in a
+    comment is not a credential *finding* (line 1 below), while the assignment
+    beside it still is (line 2) -- and the comment's token is still cut out of
+    any quote that carries the line, because redaction is the wider net.
+    """
+    from redaction import CREDENTIAL_RE, SECRET_TOKEN_RE
+
+    credential_rules = [rule for rule in RULES if rule.rule == "credential"]
+    assert len(credential_rules) == 1
+    assert credential_rules[0].regex is CREDENTIAL_RE, "the detection regex is unchanged"
+    assert all(rule.regex is not SECRET_TOKEN_RE for rule in RULES), \
+        "the prose pattern must never become a detection rule"
+
+    repo = _synthetic(
+        tmp_path,
+        {"app.py": (
+            "# vendor doc: the key looks like ghp_16C7e42F292c6912E7710c838347Ae178B4a\n"
+            'api_key = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"\n'
+        )},
+    )
+    leads = _leads(_run(repo, blame=False), "security", "credential")
+    assert list(leads) == [("app.py", 2)], "the prose token on line 1 is not a detection"
+    assert leads[("app.py", 2)]["quote"] == 'api_key = "sk_l***"'
