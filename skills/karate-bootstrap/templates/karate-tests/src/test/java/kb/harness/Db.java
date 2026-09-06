@@ -15,10 +15,12 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /** Postgres helpers exposed to Karate as {@code Db}. Identifiers are validated, values are bound. */
 public final class Db {
@@ -33,14 +35,21 @@ public final class Db {
         String sql = readText(path);
         try (Connection c = connect(); Statement st = c.createStatement()) {
             for (String statement : sql.split(";\\s*\\r?\\n")) {
-                String trimmed = statement.trim();
-                if (!trimmed.isEmpty() && !trimmed.startsWith("--")) {
+                String trimmed = stripComments(statement).trim();
+                if (!trimmed.isEmpty()) {
                     st.execute(trimmed);
                 }
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Db.run failed for " + path + ": " + e.getMessage(), e);
         }
+    }
+
+    /** Drops whole-line {@code --} comments so a chunk that opens with one still runs its SQL. */
+    static String stripComments(String chunk) {
+        return Arrays.stream(chunk.split("\r?\n"))
+            .filter(line -> !line.trim().startsWith("--"))
+            .collect(Collectors.joining("\n"));
     }
 
     public static Map<String, Object> row(String table, Map<String, Object> where) {

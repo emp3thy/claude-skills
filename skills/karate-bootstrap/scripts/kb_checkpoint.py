@@ -86,6 +86,9 @@ def commit(repo: Path, phase: int, message: str,
            tests_dir: str = DEFAULT_TESTS_DIR) -> dict[str, Any]:
     _require_repo(repo)
     _git(repo, "add", "--", tests_dir)
+    if (repo / tests_dir / "mvnw").is_file():
+        # A Windows checkout has no executable bit, and CI runs the wrapper from a POSIX shell.
+        _git(repo, "update-index", "--chmod=+x", f"{Path(tests_dir).as_posix()}/mvnw")
     staged = _git(repo, "diff", "--cached", "--name-only").stdout.strip()
     if not staged:
         return {"committed": False, "sha": None, "files": []}

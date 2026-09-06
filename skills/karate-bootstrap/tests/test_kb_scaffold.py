@@ -85,11 +85,22 @@ def test_env_name_follows_each_stacks_convention() -> None:
     ("spring", "SPRING_DATASOURCE_USERNAME", "db", "${X:shipments}", "application.yml",
      "{{db.user}}"),
     ("aspnetcore", "PGHOST", "db", "", "deployment.yml", "{{db.host}}"),
+    ("aspnetcore", "PGPORT", "db", "", "deployment.yml", "{{db.port}}"),
+    ("aspnetcore", "PGDATABASE", "db", "", "deployment.yml", "{{db.name}}"),
+    ("python", "DB_NAME", "db", "", "deployment.yml", "{{db.name}}"),
+    # db-role keys that name no part of the connection get no value: a JDBC URL in
+    # spring.datasource.driver-class-name or hikari.maximum-pool-size stops the app booting.
+    ("spring", "SPRING_DATASOURCE_DRIVER_CLASS_NAME", "db", "org.postgresql.Driver",
+     "application.yml", None),
+    ("spring", "SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE", "db", "10", "application.yml", None),
+    ("quarkus", "QUARKUS_DATASOURCE_DB_KIND", "db", "postgresql", "application.properties", None),
     ("spring", "SPRING_ARTEMIS_BROKER_URL", "amq", "tcp://artemis:61616", "deployment.yml",
      "tcp://{{amq.host}}:{{amq.corePort}}"),
     ("aspnetcore", "Amq__Url", "amq", "amqp://artemis:5672", "deployment.yml",
      "amqp://{{amq.host}}:{{amq.amqpPort}}"),
     ("python", "AMQ_URL", "amq", "", "deployment.yml", "amqp://{{amq.host}}:{{amq.amqpPort}}"),
+    ("python", "AMQ_HOST", "amq", "", "deployment.yml", "{{amq.host}}"),
+    ("python", "AMQ_PORT", "amq", "", "deployment.yml", "{{amq.amqpPort}}"),
     ("python", "STOMP_URL", "amq", "stomp://amq:61613", "deployment.yml",
      "stomp://{{amq.host}}:{{amq.stompPort}}"),
     ("aspnetcore", "Amq__Password", "amq", "artemis", "appsettings.json", "{{amq.password}}"),
@@ -216,8 +227,10 @@ def test_copy_template_never_overwrites_generated_content(tmp_path: Path) -> Non
     third = copy_template(TEMPLATE_DIR, out, force=True)
     assert "pom.xml" in third["overwritten"]
     assert (out / "pom.xml").read_text(encoding="utf-8") != "edited"
-    for kept in ("rules/harness-smoke.csv", "defects.md",
-                 "src/test/resources/features/harness-smoke.feature"):
+    # The smoke feature is harness content, so --force refreshes it despite its generated prefix.
+    assert "src/test/resources/features/harness-smoke.feature" in third["overwritten"]
+    assert smoke.read_text(encoding="utf-8") != "edited"
+    for kept in ("rules/harness-smoke.csv", "defects.md"):
         assert (out / kept).read_text(encoding="utf-8") == "edited", kept
 
 
@@ -232,6 +245,8 @@ def test_cli_scaffolds_and_rewrites_runtime(tmp_path: Path,
     runtime = read_json(out / RUNTIME_REL)
     assert runtime["repo"] == "spring-mini"
     assert (out / "mvnw").is_file() and (out / "src/test/java/kb/harness/Containers.java").is_file()
+    # kb_report summary reads README.md.tmpl from the skill, so it never lands in the repo.
+    assert not (out / "README.md.tmpl").exists()
     (out / RUNTIME_REL).write_text("{}", encoding="utf-8")
     assert run_cli(main, argv) == 0
     assert read_json(out / RUNTIME_REL)["env"] == SPRING_ENV

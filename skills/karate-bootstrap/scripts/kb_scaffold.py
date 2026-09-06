@@ -10,8 +10,10 @@ Usage:
         [--migrations-image REF] [--config ~/.karate-bootstrap/config.yaml] [--force]
 
 Copy rules: generated content (rules/, stubs/, seed/, src/test/resources/features/,
-defects.md, README.md) is never overwritten; harness files are overwritten only with
-``--force``; kb-runtime.json is always rewritten; nothing is deleted.
+defects.md, README.md) is never overwritten, except the harness smoke feature, which is
+harness content and lives under the features prefix only so the runner picks it up;
+harness files are overwritten only with ``--force``; kb-runtime.json is always rewritten;
+README.md.tmpl stays in the skill; nothing is deleted.
 
 Exit codes: 0 ok, 4 when the strategy is migration-container and no db-manager image can
 be resolved from ``--migrations-image`` or the central config, 5 when an input is missing.
@@ -45,9 +47,15 @@ DEFAULT_CONFIG = Path.home() / ".karate-bootstrap" / "config.yaml"
 RUNTIME_VERSION = 1
 STARTUP_TIMEOUT_SECONDS = 120
 
+# Never copied into the target repo: written from the ledger, or read from the skill instead.
+SKIPPED_FILES = (RUNTIME_REL, "README.md.tmpl")
+
 # Never overwritten once present: the generate phase and the developer own these.
 GENERATED_PREFIXES = ("rules/", "stubs/", "seed/", "src/test/resources/features/")
 GENERATED_FILES = ("defects.md", "README.md")
+
+# Harness content despite sitting under a generated prefix, so ``--force`` can refresh it.
+HARNESS_FILES = ("src/test/resources/features/harness-smoke.feature",)
 
 # Central config ``env`` keys name the db-manager's own variables (spec 5.5).
 MIGRATION_ENV_TOKENS = {
@@ -72,7 +80,7 @@ DB_URL_BY_STACK = {
                   "Username={{db.user}};Password={{db.password}}",
     "python": "postgresql://{{db.user}}:{{db.password}}@{{db.host}}:{{db.port}}/{{db.name}}",
 }
-_DB_URL_NEEDLES = ("url", "jdbc", "connectionstring")
+_DB_URL_NEEDLES = ("url", "jdbc", "connectionstring", "conn", "dsn")
 _DB_PART_TOKENS = (
     ("password", "{{db.password}}"),
     ("user", "{{db.user}}"),
@@ -121,7 +129,9 @@ def env_value(stack: str, name: str, role: str, placeholder: str, source: str,
         for needle, token in _DB_PART_TOKENS:
             if needle in lowered:
                 return token
-        return DB_URL_BY_STACK.get(stack, DB_URL_BY_STACK["python"])
+        # discover.assign_role calls every ``datasource`` key db; a driver class name or a
+        # pool size names no part of the connection, so the harness must leave it alone.
+        return None
     if role == "amq":
         for needle, token in _AMQ_PART_TOKENS:
             if needle in lowered:
@@ -313,11 +323,12 @@ def copy_template(template_dir: Path, out_dir: Path, force: bool) -> dict[str, l
     result: dict[str, list[str]] = {"written": [], "overwritten": [], "kept": []}
     for src in sorted(p for p in template_dir.rglob("*") if p.is_file()):
         rel = src.relative_to(template_dir).as_posix()
-        if rel == RUNTIME_REL:
-            continue  # always written from the ledger, never copied
+        if rel in SKIPPED_FILES:
+            continue  # kb-runtime.json comes from the ledger; kb_report reads the template
         dest = out_dir / rel
         if dest.exists():
-            generated = rel.startswith(GENERATED_PREFIXES) or rel in GENERATED_FILES
+            generated = rel not in HARNESS_FILES and (
+                rel.startswith(GENERATED_PREFIXES) or rel in GENERATED_FILES)
             if generated or not force:
                 result["kept"].append(rel)
                 continue

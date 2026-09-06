@@ -55,9 +55,9 @@ public final class Jwt {
             .put("issuer", issuer)
             .put("jwks_uri", issuer + "/.well-known/jwks.json");
         discovery.putArray("id_token_signing_alg_values_supported").add("RS256");
-        Stubs.post("/__admin/mappings/import", mappings(
+        Stubs.expect2xx(Stubs.post("/__admin/mappings/import", mappings(
             mapping("/auth/.well-known/openid-configuration", discovery.toString()),
-            mapping("/auth/.well-known/jwks.json", jwks)));
+            mapping("/auth/.well-known/jwks.json", jwks))), "jwks import");
     }
 
     static String mappings(String... items) {

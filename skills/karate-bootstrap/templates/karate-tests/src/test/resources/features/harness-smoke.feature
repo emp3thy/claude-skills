@@ -18,7 +18,7 @@ Scenario: runtime configuration is on the classpath
   * def rt = Runtime.load()
   * match rt.repo() == '#string'
   * match rt.appPort() == '#number'
-  * match skipContainers == true
+  * match skipContainers == '#boolean'
 
 Scenario Outline: dynamic outline from csv works: <rule_id>
   * def payload = mutate({ a: 'x', b: 2 }, '<field>', '<mutation>', '<value>')

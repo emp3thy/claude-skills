@@ -22,11 +22,11 @@ jobs:
           jdkArchitectureOption: x64
           jdkSourceOption: PreInstalled
       - ${{ if eq(parameters.imageTag, '') }}:
-          - script: ./mvnw -B test
+          - script: sh mvnw -B test
             workingDirectory: ${{ parameters.workingDirectory }}
             displayName: mvnw test (harness builds the app image from the Dockerfile)
       - ${{ if ne(parameters.imageTag, '') }}:
-          - script: ./mvnw -B test -Dapp.image=${{ parameters.imageTag }}
+          - script: sh mvnw -B test -Dapp.image=${{ parameters.imageTag }}
             workingDirectory: ${{ parameters.workingDirectory }}
             displayName: mvnw test against the prebuilt image
       - task: PublishTestResults@2

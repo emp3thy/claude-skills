@@ -52,6 +52,7 @@ public final class Containers {
     private static final Path TARGET = Paths.get("target");
 
     private static boolean started;
+    private static RuntimeException failure;
     private static Network network;
     private static PostgreSQLContainer<?> postgres;
     private static GenericContainer<?> artemis;
@@ -66,58 +67,98 @@ public final class Containers {
         if (started) {
             return;
         }
-        runtime = KbRuntime.load();
-        network = Network.newNetwork();
-
-        postgres = new PostgreSQLContainer<>(POSTGRES_IMAGE)
-            .withNetwork(network)
-            .withNetworkAliases(DB_ALIAS)
-            .withDatabaseName(runtime.dbName())
-            .withUsername(runtime.dbUser())
-            .withPassword(runtime.dbPassword())
-            .withLogConsumer(fileLog("postgres"));
-        postgres.start();
-
-        artemis = new GenericContainer<>(ARTEMIS_IMAGE)
-            .withNetwork(network)
-            .withNetworkAliases(AMQ_ALIAS)
-            .withExposedPorts(AMQ_CORE_PORT, AMQ_AMQP_PORT, AMQ_STOMP_PORT, AMQ_HTTP_PORT)
-            .withEnv("ARTEMIS_USER", runtime.amqUser())
-            .withEnv("ARTEMIS_PASSWORD", runtime.amqPassword())
-            .withEnv("ANONYMOUS_LOGIN", "false")
-            .withEnv("EXTRA_ARGS", artemisExtraArgs(runtime.amqQueues(), runtime.amqTopics()))
-            .waitingFor(Wait.forLogMessage(".*AMQ221007.*\\n", 1).withStartupTimeout(Duration.ofSeconds(120)))
-            .withLogConsumer(fileLog("artemis"));
-        artemis.start();
-
-        wiremock = new GenericContainer<>(WIREMOCK_IMAGE)
-            .withNetwork(network)
-            .withNetworkAliases(STUBS_ALIAS)
-            .withExposedPorts(STUBS_PORT)
-            .waitingFor(Wait.forHttp("/__admin/health").forPort(STUBS_PORT).forStatusCode(200))
-            .withLogConsumer(fileLog("wiremock"));
-        wiremock.start();
-        if ("jwks".equals(runtime.authMode())) {
-            Jwt.publishJwks();
+        if (failure != null) {
+            throw new IllegalStateException("topology failed earlier: " + failure.getMessage(), failure);
         }
+        try {
+            runtime = KbRuntime.load();
+            network = Network.newNetwork();
 
-        runMigrations();
+            postgres = new PostgreSQLContainer<>(POSTGRES_IMAGE)
+                .withNetwork(network)
+                .withNetworkAliases(DB_ALIAS)
+                .withDatabaseName(runtime.dbName())
+                .withUsername(runtime.dbUser())
+                .withPassword(runtime.dbPassword())
+                .withLogConsumer(fileLog("postgres"));
+            postgres.start();
 
-        Map<String, String> tokens = tokenValues(runtime);
-        app = buildApp()
-            .withNetwork(network)
-            .withNetworkAliases(APP_ALIAS)
-            .withExposedPorts(runtime.appPort())
-            .waitingFor(appWait(runtime.readinessPath(), runtime.appPort(),
-                runtime.startupTimeoutSeconds(), runtime.serverless()))
-            .withLogConsumer(fileLog("app"))
-            .withLogConsumer(new Slf4jLogConsumer(LOG).withPrefix("app"));
-        for (Map<String, String> entry : runtime.env()) {
-            app.withEnv(entry.get("name"), substitute(entry.get("value"), tokens));
+            artemis = new GenericContainer<>(ARTEMIS_IMAGE)
+                .withNetwork(network)
+                .withNetworkAliases(AMQ_ALIAS)
+                .withExposedPorts(AMQ_CORE_PORT, AMQ_AMQP_PORT, AMQ_STOMP_PORT, AMQ_HTTP_PORT)
+                .withEnv("ARTEMIS_USER", runtime.amqUser())
+                .withEnv("ARTEMIS_PASSWORD", runtime.amqPassword())
+                .withEnv("ANONYMOUS_LOGIN", "false")
+                .withEnv("EXTRA_ARGS", artemisExtraArgs(runtime.amqQueues(), runtime.amqTopics()))
+                .waitingFor(Wait.forLogMessage(".*AMQ221007.*\\n", 1).withStartupTimeout(Duration.ofSeconds(120)))
+                .withLogConsumer(fileLog("artemis"));
+            artemis.start();
+
+            wiremock = new GenericContainer<>(WIREMOCK_IMAGE)
+                .withNetwork(network)
+                .withNetworkAliases(STUBS_ALIAS)
+                .withExposedPorts(STUBS_PORT)
+                .waitingFor(Wait.forHttp("/__admin/health").forPort(STUBS_PORT).forStatusCode(200))
+                .withLogConsumer(fileLog("wiremock"));
+            wiremock.start();
+            if ("jwks".equals(runtime.authMode())) {
+                Jwt.publishJwks();
+            }
+
+            runMigrations();
+
+            Map<String, String> tokens = tokenValues(runtime);
+            app = buildApp()
+                .withNetwork(network)
+                .withNetworkAliases(APP_ALIAS)
+                .withExposedPorts(runtime.appPort())
+                .waitingFor(appWait(runtime.readinessPath(), runtime.appPort(),
+                    runtime.startupTimeoutSeconds(), runtime.serverless()))
+                .withLogConsumer(fileLog("app"))
+                .withLogConsumer(new Slf4jLogConsumer(LOG).withPrefix("app"));
+            for (Map<String, String> entry : runtime.env()) {
+                app.withEnv(entry.get("name"), substitute(entry.get("value"), tokens));
+            }
+            app.start();
+            started = true;
+            LOG.info("topology up: app={} db={} jms={}", appBaseUrl(), jdbcUrl(), jmsUrl());
+            Runtime.getRuntime().addShutdownHook(new Thread(Containers::stopAll, "kb-shutdown"));
+        } catch (RuntimeException e) {
+            failure = e;
+            throw e;
         }
-        app.start();
-        started = true;
-        LOG.info("topology up: app={} db={} jms={}", appBaseUrl(), jdbcUrl(), jmsUrl());
+    }
+
+    /**
+     * Stops the topology and closes the JMS connection. Registered as a JVM shutdown hook by a
+     * successful {@link #start()}, which is the only teardown when Ryuk is disabled.
+     */
+    static synchronized void stopAll() {
+        Jms.close();
+        stopQuietly(app, APP_ALIAS);
+        stopQuietly(wiremock, STUBS_ALIAS);
+        stopQuietly(artemis, AMQ_ALIAS);
+        stopQuietly(postgres, DB_ALIAS);
+        if (network != null) {
+            try {
+                network.close();
+            } catch (RuntimeException e) {
+                LOG.warn("Containers.stopAll: closing the network failed: {}", e.getMessage());
+            }
+            network = null;
+        }
+    }
+
+    private static void stopQuietly(GenericContainer<?> container, String name) {
+        if (container == null) {
+            return;
+        }
+        try {
+            container.stop();
+        } catch (RuntimeException e) {
+            LOG.warn("Containers.stopAll: stopping {} failed: {}", name, e.getMessage());
+        }
     }
 
     public static String appBaseUrl() { return "http://" + app.getHost() + ":" + app.getMappedPort(runtime.appPort()); }
@@ -216,7 +257,8 @@ public final class Containers {
             return new GenericContainer<>(DockerImageName.parse(prebuilt));
         }
         Path repoRoot = Paths.get(System.getProperty("user.dir")).resolve(runtime.repoRootRel()).normalize();
-        ImageFromDockerfile image = new ImageFromDockerfile("kb-app-" + runtime.repo().toLowerCase(), false)
+        String tag = "kb-app-" + runtime.repo().toLowerCase().replaceAll("[^a-z0-9._-]", "-");
+        ImageFromDockerfile image = new ImageFromDockerfile(tag, false)
             .withFileFromPath(".", repoRoot)
             .withDockerfilePath(runtime.dockerfileRel());
         return new GenericContainer<>(image);

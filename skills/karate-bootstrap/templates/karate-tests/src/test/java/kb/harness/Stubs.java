@@ -108,7 +108,7 @@ public final class Stubs {
         }
     }
 
-    private static void expect2xx(HttpResponse<String> response, String what) {
+    static void expect2xx(HttpResponse<String> response, String what) {
         if (response.statusCode() / 100 != 2) {
             throw new IllegalStateException("WireMock " + what + " failed: " + response.statusCode() + " " + response.body());
         }

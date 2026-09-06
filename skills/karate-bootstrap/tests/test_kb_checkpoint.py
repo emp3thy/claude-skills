@@ -67,6 +67,16 @@ def test_commit_stages_only_the_tests_dir(tmp_path: Path) -> None:
                                                               "files": []}
 
 
+def test_commit_marks_the_maven_wrapper_executable(tmp_path: Path) -> None:
+    # Windows checkouts have no executable bit; CI runs the wrapper from a POSIX shell.
+    repo = _repo(tmp_path)
+    (repo / "karate-tests").mkdir()
+    (repo / "karate-tests" / "mvnw").write_text("#!/bin/sh\n", encoding="utf-8")
+    (repo / "karate-tests" / "pom.xml").write_text("<project/>", encoding="utf-8")
+    assert commit(repo, 4, "scaffold the Karate module", "karate-tests")["committed"] is True
+    assert _git(repo, "ls-files", "-s", "karate-tests/mvnw").startswith("100755")
+
+
 def test_commit_and_begin_reject_a_non_repo(tmp_path: Path) -> None:
     with pytest.raises(KbError) as excinfo:
         begin(tmp_path, "karate-bootstrap")

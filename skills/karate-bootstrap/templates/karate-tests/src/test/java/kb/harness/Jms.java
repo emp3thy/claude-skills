@@ -2,16 +2,13 @@ package kb.harness;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.List;
+import java.util.LinkedList;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import javax.jms.Connection;
 import javax.jms.Destination;
 import javax.jms.JMSException;
@@ -32,11 +29,16 @@ import org.apache.qpid.jms.JmsConnectionFactory;
 public final class Jms {
 
     private static final ObjectMapper JSON = new ObjectMapper();
-    private static final Map<String, BlockingQueue<Map<String, Object>>> INBOX = new ConcurrentHashMap<>();
+    private static final Map<String, Inbox> INBOX = new ConcurrentHashMap<>();
     private static final Map<String, Session> CONSUMER_SESSIONS = new ConcurrentHashMap<>();
     private static final Map<String, MessageConsumer> CONSUMERS = new ConcurrentHashMap<>();
     private static Connection connection;
     private static Session producerSession;
+
+    /** The messages delivered on one destination. Its own monitor guards the list. */
+    static final class Inbox {
+        final LinkedList<Map<String, Object>> messages = new LinkedList<>();
+    }
 
     private Jms() {
     }
@@ -45,11 +47,17 @@ public final class Jms {
     public static synchronized void watch(String destination) {
         try {
             ensureConnection();
-            INBOX.computeIfAbsent(destination, d -> new LinkedBlockingQueue<>());
+            Inbox inbox = INBOX.computeIfAbsent(destination, d -> new Inbox());
             if (!CONSUMERS.containsKey(destination)) {
                 Session consumerSession = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
                 MessageConsumer consumer = consumerSession.createConsumer(destinationFor(consumerSession, destination));
-                consumer.setMessageListener(message -> INBOX.get(destination).offer(toMap(message)));
+                consumer.setMessageListener(message -> {
+                    Map<String, Object> mapped = toMap(message);
+                    synchronized (inbox) {
+                        inbox.messages.add(mapped);
+                        inbox.notifyAll();
+                    }
+                });
                 CONSUMER_SESSIONS.put(destination, consumerSession);
                 CONSUMERS.put(destination, consumer);
             }
@@ -65,14 +73,14 @@ public final class Jms {
 
     /**
      * The first message whose body contains every key and value of {@code matchMap}; other messages
-     * go back to the inbox for other scenarios. Returns {body, properties, messageId}.
+     * stay in the inbox, in order, for other scenarios. Returns {body, properties, messageId}.
      */
     public static Map<String, Object> await(String destination, long timeoutMs, Map<String, Object> matchMap) {
-        BlockingQueue<Map<String, Object>> queue = INBOX.get(destination);
-        if (queue == null) {
+        Inbox inbox = INBOX.get(destination);
+        if (inbox == null) {
             throw new IllegalStateException("Jms.await(" + destination + ") called without Jms.watch first");
         }
-        Map<String, Object> found = takeMatching(queue, System.currentTimeMillis() + timeoutMs, matchMap);
+        Map<String, Object> found = takeMatching(inbox, System.currentTimeMillis() + timeoutMs, matchMap);
         if (found == null) {
             throw new AssertionError("no message on " + destination
                 + (matchMap == null ? "" : " matching " + matchMap) + " within " + timeoutMs + "ms");
@@ -81,30 +89,33 @@ public final class Jms {
     }
 
     /**
-     * Polls {@code queue} until {@code deadlineMillis} for a message matching {@code matchMap} (any
-     * message when null). Non-matching messages are put back behind whatever arrived meanwhile;
-     * order is not preserved. Returns null on timeout.
+     * Scans {@code inbox} under its monitor until {@code deadlineMillis} for the first message
+     * matching {@code matchMap} (any message when null) and removes only that one; every other
+     * message stays where it is, in arrival order, visible to the other waiters. Returns null on
+     * timeout.
      */
-    static Map<String, Object> takeMatching(BlockingQueue<Map<String, Object>> queue, long deadlineMillis,
-                                            Map<String, Object> matchMap) {
-        List<Map<String, Object>> others = new ArrayList<>();
-        try {
-            while (true) {
-                long remaining = deadlineMillis - System.currentTimeMillis();
-                Map<String, Object> message = remaining > 0 ? queue.poll(remaining, TimeUnit.MILLISECONDS) : null;
-                if (message == null) {
-                    queue.addAll(others);
-                    return null;
+    static Map<String, Object> takeMatching(Inbox inbox, long deadlineMillis, Map<String, Object> matchMap) {
+        synchronized (inbox) {
+            try {
+                while (true) {
+                    Iterator<Map<String, Object>> waiting = inbox.messages.iterator();
+                    while (waiting.hasNext()) {
+                        Map<String, Object> candidate = waiting.next();
+                        if (matchMap == null || matches(candidate.get("body"), matchMap)) {
+                            waiting.remove();
+                            return candidate;
+                        }
+                    }
+                    long remaining = deadlineMillis - System.currentTimeMillis();
+                    if (remaining <= 0) {
+                        return null;
+                    }
+                    inbox.wait(remaining);
                 }
-                if (matchMap == null || matches(message.get("body"), matchMap)) {
-                    queue.addAll(others);
-                    return message;
-                }
-                others.add(message);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(e);
         }
     }
 
@@ -129,6 +140,39 @@ public final class Jms {
         }
     }
 
+    /**
+     * Closes every consumer session, the producer session and the connection, then forgets them.
+     * Called from the {@link Containers} shutdown hook, which matters when Ryuk is disabled.
+     */
+    public static synchronized void close() {
+        for (Map.Entry<String, Session> entry : CONSUMER_SESSIONS.entrySet()) {
+            try {
+                entry.getValue().close();
+            } catch (JMSException e) {
+                System.err.println("Jms.close: consumer session for " + entry.getKey() + ": " + e.getMessage());
+            }
+        }
+        if (producerSession != null) {
+            try {
+                producerSession.close();
+            } catch (JMSException e) {
+                System.err.println("Jms.close: producer session: " + e.getMessage());
+            }
+            producerSession = null;
+        }
+        if (connection != null) {
+            try {
+                connection.close();
+            } catch (JMSException e) {
+                System.err.println("Jms.close: connection: " + e.getMessage());
+            }
+            connection = null;
+        }
+        CONSUMER_SESSIONS.clear();
+        CONSUMERS.clear();
+        INBOX.clear();
+    }
+
     /** True when {@code body} is a map holding every entry of {@code matchMap} with an equal value. */
     static boolean matches(Object body, Map<String, Object> matchMap) {
         if (matchMap == null || matchMap.isEmpty()) {
@@ -150,13 +194,15 @@ public final class Jms {
         return true;
     }
 
+    /** Assigns the field only once the connection is started, so a failed start is retried. */
     private static void ensureConnection() throws JMSException {
         if (connection != null) {
             return;
         }
         JmsConnectionFactory factory = new JmsConnectionFactory(Containers.amqUser(), Containers.amqPassword(), Containers.jmsUrl());
-        connection = factory.createConnection();
-        connection.start();
+        Connection started = factory.createConnection();
+        started.start();
+        connection = started;
     }
 
     private static Destination destinationFor(Session session, String name) throws JMSException {
