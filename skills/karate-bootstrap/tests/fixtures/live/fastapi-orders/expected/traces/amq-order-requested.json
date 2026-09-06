@@ -1,0 +1,16 @@
+{
+  "id": "amq order.requested",
+  "auth": "none",
+  "request": {
+    "content_type": "application/json",
+    "schema_ref": "app/consumer.py",
+    "example": "seed/examples/amq-order-requested.json"
+  },
+  "responses": [],
+  "reads": [],
+  "exits": [
+    { "kind": "db-write", "table": "orders", "op": "insert",
+      "via": "{{line:app/consumer.py:session.add}}" }
+  ],
+  "unresolved": []
+}

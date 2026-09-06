@@ -134,6 +134,14 @@ def test_live_chain_goes_green(recipe: Recipe, tmp_path: Path) -> None:
         run("scripts/discover.py", str(repo), "--stack", str(tests / "stack.json"),
             "--out-env", str(env_path), "--out-ledger", str(ledger_path))
 
+        # Every DB_* key must take the db role, not a downstream one (Plan 4 Task 1): a
+        # misclassification here would hand the app the stub server's URL as its database host.
+        env_map = json.loads(env_path.read_text(encoding="utf-8"))
+        roles = {key["key"]: key["role"] for key in env_map["keys"]}
+        for name, role in roles.items():
+            if name.upper().startswith("DB_"):
+                assert role == "db", f"{name} took the {role} role; the app would be misconfigured"
+
         # Step 2: the auth switch this fixture ships.
         run("scripts/flow_map.py", "set-auth", "--ledger", str(ledger_path),
             "--mode", "disabled", "--key", recipe.auth_key, "--value", recipe.auth_off_value)

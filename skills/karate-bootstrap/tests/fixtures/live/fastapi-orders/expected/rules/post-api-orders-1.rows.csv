@@ -1,0 +1,5 @@
+rule_id,field,mutation,value,expected_status,expected_code,expected_message_contains,source
+,reference,missing,,422,,Field required,{{line:app/schemas.py:Field(min_length=1, max_length=50)}}
+,reference,too_long,51,422,,String should have at most 50 characters,{{line:app/schemas.py:Field(min_length=1, max_length=50)}}
+,sku,invalid_format,!!,422,,String should match pattern,{{line:app/schemas.py:Field(pattern=}}
+,quantity,out_of_range,0,422,,Input should be greater than 0,{{line:app/schemas.py:Field(gt=0)}}

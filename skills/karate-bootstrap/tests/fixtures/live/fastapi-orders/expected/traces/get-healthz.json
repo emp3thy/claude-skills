@@ -1,0 +1,11 @@
+{
+  "id": "GET /healthz",
+  "auth": "none",
+  "responses": [
+    { "status": 200, "when": "the process is ready to serve traffic" }
+  ],
+  "reads": [],
+  "exits": [],
+  "exits_none_reason": "readiness probe, no side effects",
+  "unresolved": []
+}

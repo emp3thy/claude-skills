@@ -74,4 +74,29 @@ DOTNET = Recipe(
     prebuild_app_image=True,
 )
 
-RECIPES: dict[str, Recipe] = {r.name: r for r in (SPRING, DOTNET)}
+FASTAPI = Recipe(
+    name="fastapi-orders",
+    fixture=FIXTURES / "fastapi-orders",
+    stack="python",
+    app_port=8000,
+    auth_key="AUTH_ENABLED",
+    auth_off_value="false",
+    entries=("GET /healthz", "POST /api/orders", "GET /api/orders/{order_id}",
+             "amq order.requested"),
+    rules_sources=(
+        ("POST /api/orders", "app/schemas.py"),
+        ("POST /api/orders", "app/service.py"),
+    ),
+    marks={
+        "GET /healthz": (),
+        "POST /api/orders": (("--stub", "stubs/inventory/default.json"),
+                             ("--seed", "seed/examples/post-api-orders.json")),
+        "GET /api/orders/{order_id}": (),
+        "amq order.requested": (("--seed", "seed/examples/amq-order-requested.json"),),
+    },
+    planted_scenario="rejects an order over the quantity limit",
+    planted_feature="features/post-api-orders.feature",
+    prebuild_app_image=False,
+)
+
+RECIPES: dict[str, Recipe] = {r.name: r for r in (SPRING, DOTNET, FASTAPI)}
