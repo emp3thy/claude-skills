@@ -25,7 +25,11 @@ Format invariants (the round-trip partner is design_parser.parse_design):
   - After writing, ``write_design`` re-parses its own output as a self-check so
     format drift surfaces at write time, not just in tests.
   - Every repository-derived string (title, proof, quote, note text) passes
-    through ``redaction.redact`` at the point of writing.
+    through ``redaction.redact`` at the point of writing. A free-text field
+    rendered outside a fenced block (proof; note, question, why and the
+    remediation text in Tasks 4/5) goes through ``free_text`` instead, which
+    redacts and also escapes any line that would otherwise read as a heading
+    and truncate the finding's body (design_parser._ends_section).
   - ``mark_promoted`` writes ``<path>.tmp`` then ``os.replace`` onto ``<path>``
     (atomic on POSIX + Windows) and keeps the previous content at ``<path>.bak``.
     It only touches findings currently ``approved``; an already-``promoted``
@@ -251,6 +255,33 @@ def _diff_for(inputs: RenderInputs, fingerprint: str) -> str:
 # --- rendering ------------------------------------------------------------------
 
 
+def free_text(value: str) -> str:
+    """Redacted free text safe to drop into the document body.
+
+    A line that begins with ``#`` would read as a heading and end the finding's
+    section (design_parser._ends_section), taking Evidence and the note sections
+    out of the body that bundle_writer copies into a PBI. Markdown renders ``\\#``
+    as a literal ``#``, and the parser's predicates no longer match, so an escaped
+    line is both correct on screen and inert to the boundary.
+
+    Every free-text field the writer places outside a fenced block (proof, and in
+    Tasks 4/5 note, question, why and the remediation text) must go through this
+    function rather than ``redact`` directly, so the escape cannot be forgotten
+    field by field. ``write_design``'s self-check also verifies the effect of
+    this function at write time, so a field that skips it fails loudly there.
+    """
+    redacted = redact(value)
+    escaped: list[str] = []
+    for line in redacted.split("\n"):
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            indent = line[: len(line) - len(stripped)]
+            escaped.append(f"{indent}\\{stripped}")
+        else:
+            escaped.append(line)
+    return "\n".join(escaped)
+
+
 def _scalar(value: Any) -> str:
     """A YAML scalar for an anchor value; ``None`` renders as ``null``."""
     if value is None:
@@ -400,7 +431,7 @@ def _finding_section(inputs: RenderInputs, row: Row, *, compact: bool = False) -
         "",
         "### Proof",
         "",
-        redact(str(finding.get("proof") or "")) or NO_PROOF,
+        free_text(str(finding.get("proof") or "")) or NO_PROOF,
         "",
         "### Evidence",
     ]
@@ -446,11 +477,23 @@ def write_design(inputs: RenderInputs, scan_date: str, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(text.encode("utf-8"))
 
-    # Self-check: the document must parse back through the read side cleanly.
+    # Self-check: the document must parse back through the read side cleanly, and
+    # every finding's body must still carry the "### Evidence" heading that was
+    # written for it. A free-text field that skips ``free_text`` and leaves a
+    # heading-shaped line unescaped would otherwise truncate the section
+    # (design_parser._ends_section reads it as a new H1) and vanish silently
+    # instead of failing loudly here.
     try:
-        parse_design(out_path)
+        parsed = parse_design(out_path)
     except DesignParseError as exc:
         raise DesignWriteError(f"self-check failed: {exc}") from exc
+
+    for finding in parsed["findings"]:
+        if "### Evidence" not in finding["body_md"]:
+            raise DesignWriteError(
+                f"self-check failed: finding {finding['slug']!r} lost its body "
+                "past an unescaped heading-shaped line"
+            )
 
 
 def _status_line_index(lines: list[str], anchor_lineno: int) -> int | None:

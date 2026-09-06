@@ -207,10 +207,59 @@ def test_counts_come_from_the_documents(tmp_path: Path) -> None:
 def test_every_written_string_is_redacted(tmp_path: Path) -> None:
     secret = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"
     verified = _verified()
+    verified["findings"][0]["title"] = f'Leaks token = "{secret}" right in the title'
     verified["findings"][0]["proof"] = f'the literal token = "{secret}" sits here'
     verified["findings"][0]["evidence"][0]["quote"] = f'token = "{secret}"'
     text = render_design(_inputs(tmp_path, **{"verified.json": verified}), SCAN_DATE)
     assert secret not in text and "sk_l***" in text
+
+
+# --- heading-shaped free text (finding 1, fix round 1) --------------------------
+
+
+def test_proof_with_a_heading_shaped_line_keeps_the_whole_body(tmp_path: Path) -> None:
+    """A ``# `` line in the verifier's proof must not truncate Evidence/Signals.
+
+    ``design_parser._ends_section`` ends a finding's section at the next H1 or H2
+    outside a fence. ``proof`` is written as raw prose (not inside a fence), so a
+    proof whose second line happens to start with ``#`` used to read as a new H1
+    and take Evidence, Signals, Remediation and Acceptance criteria out of the
+    finding's ``body_md`` -- silently, with ``write_design`` and ``parse_design``
+    both reporting success.
+    """
+    verified = _verified()
+    verified["findings"][0]["proof"] = (
+        "The catch swallows.\n# TODO: this is a comment the verifier quoted"
+    )
+    out = tmp_path / "design.md"
+    write_design(_inputs(tmp_path, **{"verified.json": verified}), SCAN_DATE, out)
+    parsed = parse_design(out)
+    body = parsed["findings"][0]["body_md"]
+    assert "### Evidence" in body
+    assert "### Signals" in body
+    assert "\n# TODO: this is a comment the verifier quoted" not in body
+    assert "\\# TODO: this is a comment the verifier quoted" in body
+
+
+def test_self_check_catches_a_free_text_field_that_skips_the_escape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``write_design`` must fail loudly if a field bypasses the escape helper.
+
+    Constructed by monkeypatching ``free_text`` to a passthrough (plain
+    ``redact``, no heading escape), so it is the self-check in ``write_design``
+    that has to catch the truncated body, not the escape in ``free_text`` itself.
+    """
+    import design_writer
+
+    monkeypatch.setattr(design_writer, "free_text", design_writer.redact)
+    verified = _verified()
+    verified["findings"][0]["proof"] = (
+        "The catch swallows.\n# TODO: this is a comment the verifier quoted"
+    )
+    out = tmp_path / "design.md"
+    with pytest.raises(DesignWriteError):
+        write_design(_inputs(tmp_path, **{"verified.json": verified}), SCAN_DATE, out)
 
 
 def test_missing_input_document_is_an_error(tmp_path: Path) -> None:
