@@ -189,6 +189,21 @@ list[Signal]` functions as pure code with no I/O. The split exists so a
 normaliser is testable from a captured payload with nothing mocked, and the
 runner is testable with no tool installed at all.
 
+Each registry row's artefact predicate and its argv builder must select the
+same thing. A predicate narrower than the invocation gates a tool out of work
+it would have done — osv-scanner's lockfile patterns matched the repository
+root only while its invocation is `--recursive`, so a monorepo with per-package
+lockfiles got no vulnerability scan at all. A predicate wider than the
+invocation turns a tool loose on work its gate never selected for — jscpd's
+gate is JS/TS while its invocation parsed every format it knows and descended
+into `node_modules`, which produced 92% of the signals from a scan of this
+repository. jscpd is now given `--format` restricted to its own gate's four
+languages and an `--ignore` list built from `inventory.py`'s `DEFAULT_IGNORE`
+and its vendored and generated path classes, so the probe and the inventory
+cannot disagree about what is vendored. Every builder names its target with an
+absolute path, because the runner also sets the child's working directory and
+a relative operand would be resolved against it twice.
+
 `python scripts/tools_probe.py <repo> [--workdir DIR] [--skip-all]` never
 installs anything, never invokes `npx`, and never executes project code.
 Presence detection is `shutil.which(name)` first, then
@@ -199,7 +214,8 @@ local install a repository already depends on; every other tool is
 running gets one subprocess call under a per-tool timeout, and lands in one
 of four statuses: `ran` (the process exited with a code the registry allows
 and its output parsed), `absent` (no executable found), `failed` (a rejected
-exit code, a timeout, an OSError, or output that failed to parse), or
+exit code, a timeout, an OSError, output that failed to parse, or a
+normaliser that raised — which costs that tool's signals and no others), or
 `skipped` (no matching artefact, the tool is on the config deny list,
 `--skip-all` was given, or — for osv-scanner offline — no local vulnerability
 database). `tools_probe.py` writes `tool-signals.json` to the workdir;
@@ -234,6 +250,17 @@ for the same reason. `normalise_actionlint` drops `snippet`, a line of the
 workflow file that may carry a token or an inline secret reference. In every
 case the file and line range that remain are enough to find the finding by
 hand.
+
+Dropping those four fields is the first half of the guarantee; the second is
+that **every string written into `tool-signals.json` goes through
+`redaction.redact`**, not only the strings in the `signals` array. The array
+was not the only route: `tools[<name>].reason` carries up to 200 characters
+of a failing tool's raw stderr, and a tool that fails while reading a file
+routinely prints the offending source line — vulture prints it on a syntax
+error — so a credential on that line reached the document verbatim until the
+whole-branch review found it. Redaction is applied to the document at the
+point of writing, and to dictionary keys as well as values, so a field added
+later cannot miss it.
 
 ## Scout families
 

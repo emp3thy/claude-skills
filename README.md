@@ -197,10 +197,16 @@ is complete:** `design_writer.py`, `design_parser.py`, `bundle_writer.py` and
 `promote.py` render and promote the v2 report, and `/tech-debt-scan` and
 `/tech-debt-promote` now run this chain end to end — without external tool
 signals or a baseline diff. `--families deep` already selects the full
-fourteen-family set today (`plan_scan.py`, phase 2). Phase 4 adds external
-tool signals (`tools_probe.py`, tier caps lifted by tool presence, module
-chunking) and phase 5 adds the baseline (`baseline.py`, the `diff` anchor key,
-promote write-back, `accepted` expiry).
+fourteen-family set today (`plan_scan.py`, phase 2).
+
+Phase 4 splits in two. **Phase 4a is complete:** `tools_probe.py` and
+`tool_normalisers.py` run ten already-installed external tools (osv-scanner,
+gitleaks, ruff, vulture, lizard, jscpd, knip, madge, hadolint, actionlint) —
+never installing anything and never invoking `npx` — and write
+`tool-signals.json`. Nothing reads that file yet. Phase 4b consumes it: tool
+signals become leads and corroboration, tier caps lift on tool presence, and
+long modules are chunked. Phase 5 adds the baseline (`baseline.py`, the `diff`
+anchor key, promote write-back, `accepted` expiry).
 
 "Mow the lawn" autonomy — applying fixes without review — is a separate
 follow-on, deferred and out of scope.

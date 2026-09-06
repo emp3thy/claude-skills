@@ -548,9 +548,23 @@ def _signal_sort_key(sig: Any) -> tuple[str, int, str, str, str]:
     Some tools do not guarantee their own JSON emits findings in a stable
     order across runs (knip's file-scan ordering was observed to differ
     between an isolated run and one under a full test-suite's system load).
-    Sorting within each tool's contribution keeps ``tool-signals.json``
-    byte-identical across regenerations regardless of that. The across-tool
-    order is already deterministic: it follows ``TOOLS`` registry order.
+    Sorting within each tool's contribution puts a *given set* of signals into
+    the same order every time, whatever order the tool emitted them in. The
+    across-tool order is already deterministic: it follows ``TOOLS`` registry
+    order.
+
+    That is the whole of the guarantee, and it is narrower than the claim this
+    docstring used to make. A sort cannot stabilise a *set* that changes: the
+    whole-branch review measured two consecutive probes of an unchanged tree
+    at 3,038 and 3,012 jscpd signals, differing by membership and not merely
+    by order, because jscpd's clone grouping picks which member of a group to
+    report as the pair. Scoping jscpd to the four languages its gate names and
+    out of the vendored trees removed that in every measurement taken since --
+    six consecutive probes of a 300-file TypeScript tree yielding 1,199 jscpd
+    signals, and four of a 1,027-file mixed tree, all byte-identical -- but
+    set stability is the tool's property, not this function's. Phase 5's
+    baseline diff should treat a signal that appears or disappears with no
+    corresponding source change as possible, not impossible.
 
     The first four elements are the human-meaningful ordering (file, line,
     kind, message); the last is a canonical JSON dump of the whole signal,
