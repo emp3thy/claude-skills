@@ -723,14 +723,132 @@ class TestGlobOperandGuard:
         assert document["tools"]["hadolint"]["status"] == "skipped"
         assert document["tools"]["hadolint"]["reason"] == "no matching artefact"
 
-    def test_hadolint_is_the_only_registered_glob_operand_tool(self) -> None:
+    def test_the_glob_operand_tools_are_exactly_hadolint_and_actionlint(self) -> None:
         """Documents the hazard's current scope: every other builder passes
-        the target directory itself (always non-empty) or no file operand at
-        all, so this is where the guard needs to apply today."""
+        the target directory itself, which is always non-empty, so this is
+        where the guard needs to apply today. actionlint joined in the
+        whole-branch fix wave -- with no operand it walks up from its cwd
+        looking for a .git directory and errors out when there is none."""
         from tools_probe import GLOB_OPERAND_TOOLS
 
-        assert {"hadolint"} == GLOB_OPERAND_TOOLS
+        assert {"hadolint", "actionlint"} == GLOB_OPERAND_TOOLS
 
+    def test_actionlint_is_invoked_with_its_workflow_files_as_operands(
+        self, tmp_path: Path
+    ) -> None:
+        """The predicate globs .github/workflows/*.yml; before the sweep the
+        argv passed no file operand at all, so the two selected different
+        things and actionlint's own cwd walk decided what was scanned."""
+        from tools_probe import TOOLS, argv_for, artefact_present
+
+        workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text("on: push\n", encoding="utf-8")
+        spec = TOOLS["actionlint"]
+        assert artefact_present(spec, tmp_path) is True
+        argv = argv_for(spec, "actionlint", tmp_path, network=True)
+        assert any(part.endswith("ci.yml") for part in argv)
+
+
+class TestPredicateAgreesWithArgv:
+    """The whole-branch review's sweep: every artefact predicate checked
+    against what that tool's argv actually scans. Ruling 16 fixed the one
+    disagreement it was shown (hadolint) without asking whether the table held
+    others; it held three more."""
+
+    def test_osv_scanner_finds_a_lockfile_in_a_subdirectory(self, tmp_path: Path) -> None:
+        """Its ten patterns were bare filenames, so root.glob matched the root
+        only -- while the invocation is --recursive. Proven on this repository
+        before the fix: two lockfiles under tests/fixtures/corpus and
+        "osv-scanner skipped: no matching artefact". osv-scanner is the only
+        tool on spec 4.8's fact-class tier-A bypass, so its gate being wrong
+        meant the sole unverified route to tier A never fired."""
+        from tools_probe import TOOLS, artefact_present
+
+        spec = TOOLS["osv-scanner"]
+        assert artefact_present(spec, tmp_path) is False
+        nested = tmp_path / "services" / "api"
+        nested.mkdir(parents=True)
+        (nested / "requirements.txt").write_text("flask==1.0\n", encoding="utf-8")
+        assert artefact_present(spec, tmp_path) is True
+
+    def test_osv_scanner_still_finds_a_lockfile_at_the_root(self, tmp_path: Path) -> None:
+        """``**/`` in pathlib matches the root directory too, so widening the
+        patterns is a superset of what they matched before, not a swap."""
+        from tools_probe import TOOLS, artefact_present
+
+        (tmp_path / "Cargo.lock").write_text("", encoding="utf-8")
+        assert artefact_present(TOOLS["osv-scanner"], tmp_path) is True
+
+    def test_jscpd_is_restricted_to_the_four_languages_its_gate_selects_for(
+        self, tmp_path: Path
+    ) -> None:
+        """The gate is JS/TS; the invocation parsed every format jscpd knows.
+        On a copy of this repository 3,022 of 3,267 signals were jscpd's and
+        12 of those were JS/TS."""
+        from tools_probe import ARTEFACTS, JSCPD_FORMATS, TOOLS, argv_for
+
+        argv = argv_for(TOOLS["jscpd"], "jscpd", tmp_path, network=True)
+        assert "--format" in argv
+        assert argv[argv.index("--format") + 1] == JSCPD_FORMATS
+        gated = {pattern.rsplit(".", 1)[1] for pattern in ARTEFACTS["jscpd"]}
+        formats = set(JSCPD_FORMATS.split(","))
+        assert gated == {"js", "ts", "tsx", "jsx"}
+        assert formats == {"javascript", "typescript", "tsx", "jsx"}
+        assert len(gated) == len(formats)
+
+    def test_jscpd_is_told_to_ignore_the_trees_the_inventory_never_walks(
+        self, tmp_path: Path
+    ) -> None:
+        """jscpd descended into node_modules -- reproduced on a scratch tree
+        with two identical vendored files and a .gitignore listing it. The
+        ignore list is derived from inventory.py's own classification, not a
+        second list invented here, so the probe and the inventory cannot drift
+        apart about what is vendored."""
+        from inventory import DEFAULT_IGNORE, PATH_CLASS_GLOBS
+        from tools_probe import TOOLS, _ignore_globs, argv_for
+
+        globs = _ignore_globs()
+        for name in DEFAULT_IGNORE:
+            assert f"**/{name}/**" in globs
+        for pattern in PATH_CLASS_GLOBS["vendored"]:
+            stem = pattern.removeprefix("*/").removesuffix("/*")
+            assert f"**/{stem}/**" in globs
+        assert "**/node_modules/**" in globs
+        assert "**/*.min.js" in globs
+
+        argv = argv_for(TOOLS["jscpd"], "jscpd", tmp_path, network=True)
+        assert "--ignore" in argv
+        assert "**/node_modules/**" in argv[argv.index("--ignore") + 1]
+
+    def test_lizard_gates_on_every_extension_its_parsers_accept(self, tmp_path: Path) -> None:
+        """The predicate named six extensions while the invocation scans every
+        language lizard has a parser for, so a repository written entirely in
+        one of the others was never offered to it."""
+        from tools_probe import ARTEFACTS, TOOLS, artefact_present
+
+        patterns = set(ARTEFACTS["lizard"])
+        for extension in ("py", "ts", "java", "go", "cs", "rb", "php", "rs", "c", "cpp"):
+            assert f"**/*.{extension}" in patterns
+        (tmp_path / "app.rb").write_text("def f; end\n", encoding="utf-8")
+        assert artefact_present(TOOLS["lizard"], tmp_path) is True
+
+    def test_every_builder_names_an_absolute_target(self, tmp_path: Path) -> None:
+        """The convention argv_for documents: no builder may depend on cwd for
+        *what* it scans, because run_tool sets cwd separately. knip and
+        actionlint passed no target at all before the sweep."""
+        from tools_probe import TOOLS, argv_for
+
+        (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+        (tmp_path / "Dockerfile").write_text("FROM python\n", encoding="utf-8")
+        workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text("on: push\n", encoding="utf-8")
+
+        for name, spec in TOOLS.items():
+            argv = argv_for(spec, name, tmp_path, network=True)
+            named = [part for part in argv[1:] if str(tmp_path) in part]
+            assert named, f"{name} names no absolute target: {argv}"
 
 class TestSignalSortKeyTotality:
     def test_signals_tied_on_file_line_kind_message_still_sort_deterministically(

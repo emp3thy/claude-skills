@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Final, cast
 
 from config import ConfigError, load_config
-from inventory import write_json
+from inventory import DEFAULT_IGNORE, PATH_CLASS_GLOBS, write_json
 from redaction import redact
 from tool_normalisers import (
     Signal,
@@ -237,25 +237,82 @@ NORMALISERS: Final[dict[str, Normaliser]] = {
     "actionlint": normalise_actionlint,
 }
 
-# Glob patterns whose presence makes a tool worth running at all.
+# Every extension lizard's own parsers accept (``lizard.languages()``), in
+# rough order of how likely a repository is to hold one, because
+# ``artefact_present`` stops at the first pattern that matches: the common
+# case costs one glob and only a repository lizard cannot read at all pays for
+# the whole list. The predicate has to name all of them because the
+# invocation scans all of them -- the narrower six-extension list this
+# replaced meant a repository written entirely in, say, Ruby or C was never
+# offered to a tool that would have parsed it.
+_LIZARD_EXTENSIONS: Final[tuple[str, ...]] = (
+    "py", "ts", "js", "tsx", "jsx", "java", "go", "cs", "c", "h", "cpp", "cc", "cxx",
+    "hpp", "rb", "php", "rs", "kt", "kts", "swift", "scala", "lua", "m", "mm", "pl",
+    "pm", "sql", "vue", "zig", "sol", "gd", "erl", "hrl", "escript", "es", "cjs",
+    "mjs", "r", "R", "st", "ttcn", "ttcnpp", "pck", "pkb", "pks", "plb", "pls",
+    "f", "for", "f90", "f95", "f03", "f08", "f70", "fpp", "ftn",
+)
+
+# Glob patterns whose presence makes a tool worth running at all. Each row is
+# checked against what that tool's ``argv_for`` branch actually scans; the two
+# must select the same thing, or a tool is either gated out of work it would
+# have done (osv-scanner's root-only lockfiles against its --recursive) or
+# turned loose on work its gate never selected for (jscpd's JS/TS gate against
+# an unrestricted invocation). Both were live before the whole-branch review.
 ARTEFACTS: Final[dict[str, tuple[str, ...]]] = {
-    "osv-scanner": ("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
-                    "requirements.txt", "Pipfile.lock", "go.sum", "Cargo.lock",
-                    "composer.lock", "Gemfile.lock"),
+    # ``**/`` on every lockfile: the invocation is --recursive, and pathlib's
+    # ``**`` matches the root directory too, so this is a superset of the bare
+    # names it replaced. A monorepo with per-package lockfiles and none at the
+    # root -- the common shape -- was skipped outright before.
+    "osv-scanner": ("**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml",
+                    "**/poetry.lock", "**/requirements.txt", "**/Pipfile.lock",
+                    "**/go.sum", "**/Cargo.lock", "**/composer.lock", "**/Gemfile.lock"),
     "gitleaks": ("*",),
     "ruff": ("**/*.py",),
     "vulture": ("**/*.py",),
-    "lizard": ("**/*.py", "**/*.js", "**/*.ts", "**/*.java", "**/*.go", "**/*.cs"),
+    "lizard": tuple(f"**/*.{extension}" for extension in _LIZARD_EXTENSIONS),
     "jscpd": ("**/*.js", "**/*.ts", "**/*.tsx", "**/*.jsx"),
     "knip": ("package.json",),
     "madge": ("**/*.js", "**/*.ts", "**/*.tsx", "**/*.jsx"),
     "hadolint": ("Dockerfile", "**/Dockerfile", "**/Dockerfile.*"),
+    # Root-only on purpose: GitHub reads workflows from the repository root's
+    # .github/workflows and nowhere else, so a deeper match would not be a
+    # workflow. The argv builder globs these same patterns for its operands.
     "actionlint": (".github/workflows/*.yml", ".github/workflows/*.yaml"),
 }
 
 RUFF_SELECT: Final[str] = "E722,BLE001,S110,S112,C901,PLR0911,PLR0912,PLR0913,PLR0915,F401,UP035"
 MADGE_EXTENSIONS: Final[str] = "js,jsx,ts,tsx"
 JSCPD_MIN_TOKENS: Final[str] = "50"
+# jscpd's own names for the four formats its ARTEFACTS row gates on. Without
+# this it parses every format it knows -- markdown, JSON, diffs, Python -- and
+# on a copy of this repository 3,022 of 3,267 signals came from jscpd with 12
+# of them from the language that justified running it at all.
+JSCPD_FORMATS: Final[str] = "javascript,typescript,jsx,tsx"
+
+
+def _ignore_globs() -> tuple[str, ...]:
+    """The trees a scan must not descend into, as ignore globs.
+
+    Translated from ``inventory.py``'s own classification rather than a second
+    list invented here, so the probe and the inventory cannot disagree about
+    what is vendored: ``DEFAULT_IGNORE`` is the set of directory names the
+    inventory walk never enters (``node_modules``, ``.venv``, ``dist``,
+    ``.git``, the caches), and ``PATH_CLASS_GLOBS`` holds the ``vendored`` and
+    ``generated`` path classes that ``patterns.py`` already refuses to scan.
+    The inventory's globs are anchored (``vendor/*``, ``*/vendor/*``); the
+    equivalent here is unanchored, because a tool is told to ignore a name
+    wherever it appears.
+    """
+    globs = {f"**/{name}/**" for name in DEFAULT_IGNORE}
+    for path_class in ("vendored", "generated"):
+        for pattern in PATH_CLASS_GLOBS[path_class]:
+            stripped = pattern.removeprefix("*/")
+            if stripped.endswith("/*"):
+                globs.add(f"**/{stripped[:-2]}/**")
+            else:
+                globs.add(f"**/{stripped}")
+    return tuple(sorted(globs))
 
 
 def artefact_present(spec: ToolSpec, root: Path) -> bool:
@@ -272,16 +329,17 @@ def artefact_present(spec: ToolSpec, root: Path) -> bool:
 # target directory itself. ``artefact_present`` only asks "does *something*
 # match one of this tool's patterns" -- it says nothing about whether the
 # specific glob an argv builder happens to use would find that same thing.
-# hadolint is the one tool built this way today: its ARTEFACTS row accepts
-# ``Dockerfile``, ``**/Dockerfile`` and ``**/Dockerfile.*``, and its operand
-# list is built from exactly the same patterns via ``_glob_operands`` below,
-# so the two can no longer disagree. ``probe`` additionally refuses to run
-# any tool in this set when the expansion comes back empty, as a second,
+# Both members build their operand list from exactly the same ARTEFACTS
+# patterns their predicate reads, via ``_glob_operands`` below, so the two can
+# no longer disagree. hadolint given no file operand reads a Dockerfile from
+# inherited stdin and hangs until the timeout; actionlint given none walks up
+# from its cwd looking for a .git directory and errors out when there is none,
+# which is every corpus fixture. ``probe`` additionally refuses to run any
+# tool in this set when the expansion comes back empty, as a second,
 # structural line of defence against the same class of bug reappearing (a
 # future pattern added to one side and not the other, or a new tool built the
-# same way) -- hadolint given no file operand reads a Dockerfile from
-# inherited stdin and hangs until the timeout, which is worse than skipping.
-GLOB_OPERAND_TOOLS: Final[frozenset[str]] = frozenset({"hadolint"})
+# same way).
+GLOB_OPERAND_TOOLS: Final[frozenset[str]] = frozenset({"hadolint", "actionlint"})
 
 
 def _glob_operands(spec: ToolSpec, root: Path) -> list[str]:
@@ -328,19 +386,30 @@ def argv_for(spec: ToolSpec, executable: str, root: Path, *, network: bool) -> l
     if spec.name == "madge":
         return [executable, "--extensions", MADGE_EXTENSIONS, "--circular", "--json", target]
     if spec.name == "jscpd":
-        # Ends with a bare --output on purpose: run_tool appends the report
-        # directory it created, which is the report_file channel's contract.
+        # --format restricts jscpd to the same four languages its ARTEFACTS row
+        # gates on, and --ignore keeps it out of the vendored and generated
+        # trees inventory.py already classifies. Ends with a bare --output on
+        # purpose: run_tool appends the report directory it created, which is
+        # the report_file channel's contract.
         return [executable, "--reporters", "json", "--min-tokens", JSCPD_MIN_TOKENS,
+                "--format", JSCPD_FORMATS, "--ignore", ",".join(_ignore_globs()),
                 target, "--output"]
     if spec.name == "knip":
-        return [executable, "--reporter", "json"]
+        return [executable, "--reporter", "json", "--directory", target]
     if spec.name == "gitleaks":
         return [executable, "detect", "--no-git", "--report-format", "json",
                 "--report-path", "-", "--source", target]
     if spec.name == "hadolint":
         return [executable, "--format", "json", *_glob_operands(spec, root)]
     if spec.name == "actionlint":
-        return [executable, "-format", "{{json .}}", "-no-color"]
+        # Given no file operand actionlint walks up from its cwd looking for a
+        # .git directory to establish the project root and errors out when
+        # there is none -- which is every corpus fixture and every scratch
+        # copy. Passing the workflow files its own ARTEFACTS row globs makes
+        # the predicate and the invocation select the same files and removes
+        # the dependency on cwd semantics, the shape hadolint already uses.
+        return [executable, "-format", "{{json .}}", "-no-color",
+                *_glob_operands(spec, root)]
     if spec.name == "osv-scanner":
         argv = [executable, "--format", "json", "--recursive", target]
         if not network:
