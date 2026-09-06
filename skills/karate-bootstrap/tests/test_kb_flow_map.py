@@ -286,19 +286,31 @@ def test_merge_without_union_still_replaces_the_exits(
     assert "disagreement:" not in capsys.readouterr().out
 
 
-def test_union_clears_a_stale_exits_none_reason(spring_ledger: tuple[Path, dict[str, Any]]) -> None:
-    _, ledger = spring_ledger
+def _read_only_then_exits(ledger: dict[str, Any], union: bool) -> dict[str, Any]:
+    """Trace an entry as a pure read, then re-trace it with a real exit."""
     read_only = {"id": "GET /api/shipments/{id}", "exits": [],
                  "exits_none_reason": "read-only lookup", "responses": [{"status": 200}]}
     merge_entry(ledger, read_only)
     entry = find_entry(ledger, "GET /api/shipments/{id}")
     assert entry["exits_none_reason"] == "read-only lookup"
     second = {"id": "GET /api/shipments/{id}",
-              "exits": [{"kind": "db-read-through-cache", "table": "shipments", "op": "update",
+              "exits": [{"kind": "db-write", "table": "shipments", "op": "update",
                          "via": f"{SERVICE}:52"}]}
-    second["exits"][0]["kind"] = "db-write"
-    merge_entry(ledger, second, union=True)
-    assert entry["exits"], "the union added the exit the second trace found"
+    merge_entry(ledger, second, union=union)
+    return entry
+
+
+@pytest.mark.parametrize("union", [False, True], ids=["plain", "union"])
+def test_merge_clears_a_stale_exits_none_reason(spring_ledger: tuple[Path, dict[str, Any]],
+                                                union: bool) -> None:
+    """A re-trace that finds exits must not leave the entry claiming it has none.
+
+    The plain merge is the default and the one SKILL.md's unresolved and incomplete loops use,
+    so a stale reason would reach the next trace prompt, which renders the ledger entry.
+    """
+    _, ledger = spring_ledger
+    entry = _read_only_then_exits(ledger, union)
+    assert entry["exits"], "the re-trace's exit is on the entry"
     assert not entry.get("exits_none_reason"), "an entry with exits cannot also claim it has none"
 
 

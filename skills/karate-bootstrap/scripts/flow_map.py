@@ -281,8 +281,10 @@ def merge_entry(ledger: dict[str, Any], traced: dict[str, Any], union: bool = Fa
         entry["reads"] = _union(before_reads, _prepared(list(traced.get("reads", []))))
         entry["responses"] = _union_responses(before_responses,
                                               list(traced.get("responses", [])))
-        if entry["exits"]:
-            entry.pop("exits_none_reason", None)
+    if entry["exits"]:
+        # A re-trace that found exits supersedes an earlier "this entry has none": the reason
+        # would otherwise survive into the ledger and into the next rendered trace prompt.
+        entry.pop("exits_none_reason", None)
     incoming_sources = traced.get("rules", {}).get("sources", [])
     rules = entry.setdefault("rules", {"file": None, "count": 0, "sources": []})
     known = {s["file"] for s in rules["sources"]}

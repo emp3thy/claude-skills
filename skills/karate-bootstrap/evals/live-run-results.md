@@ -79,10 +79,6 @@ the framework's own health-check middleware hides it the way ASP.NET Core's does
 
 ## Deferred, noted for a future plan
 
-- `flow_map.py`'s non-union merge path (`merge_entry(..., union=False)`, the default) only
-  clears a stale `exits_none_reason` inside the `union` branch; a non-union re-merge that
-  supplies `exits` without that key leaves the old `exits_none_reason` on the entry even though
-  it now has exits.
 - `dotnet-deals`'s `Deals.Api.csproj` pins `Apache.NMS.AMQP` at `2.2.0`, which carries a NuGet
   security advisory; bumping to `2.4.0` or later would clear the `dotnet restore` warning.
 - This file's proton line above (under "Consequences for the fixtures") doesn't say that
