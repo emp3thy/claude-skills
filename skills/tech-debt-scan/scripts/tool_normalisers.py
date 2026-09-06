@@ -272,3 +272,128 @@ def normalise_lizard(payload: Any, root: Path) -> list[Signal]:
             )
         )
     return out
+
+
+# knip issue category -> (family, kind). Categories outside this map are
+# real knip output but not debt families we act on.
+KNIP_CATEGORIES: Final[dict[str, tuple[str, str]]] = {
+    "files": ("dead-code", "unused"),
+    "exports": ("dead-code", "unused"),
+    "types": ("dead-code", "unused"),
+    "dependencies": ("dependency-debt", "unused"),
+    "devDependencies": ("dependency-debt", "unused"),
+    "unlisted": ("dependency-debt", "unused"),
+}
+
+
+def normalise_madge(payload: Any, root: Path) -> list[Signal]:
+    """madge's circular-dependency list as architecture signals.
+
+    ``argv_for`` points madge at the repository root, so its paths are
+    already root-relative. A cycle is a property of the
+    import graph rather than of any line, so the signal carries no line
+    range and names the cycle's first file.
+    """
+    if not isinstance(payload, list):
+        return []
+    out: list[Signal] = []
+    for cycle in payload:
+        if not isinstance(cycle, list) or not cycle:
+            continue
+        members = [rel_path(root, str(item)) for item in cycle]
+        kept = [member for member in members if member is not None]
+        if not kept:
+            continue
+        out.append(
+            signal(
+                "madge", "architecture", "cycle",
+                file=kept[0], line_start=None, line_end=None,
+                message=f"import cycle through {len(kept)} modules: {' -> '.join(kept)}",
+                fact=False,
+                extra={"cycle": kept},
+            )
+        )
+    return out
+
+
+def normalise_jscpd(payload: Any, root: Path) -> list[Signal]:
+    """jscpd's duplicate list as duplication signals.
+
+    ``fragment`` holds the duplicated source itself and is never copied into
+    a signal, for the same reason gitleaks' ``Secret`` is not: this file is
+    read into prompts. ``statistics.detectionDate`` is a wall-clock stamp and
+    is likewise never propagated, so a golden of these signals is stable.
+    """
+    if not isinstance(payload, dict):
+        return []
+    out: list[Signal] = []
+    for duplicate in payload.get("duplicates") or []:
+        if not isinstance(duplicate, dict):
+            continue
+        first, second = duplicate.get("firstFile") or {}, duplicate.get("secondFile") or {}
+        first_rel = rel_path(root, first.get("name"))
+        second_rel = rel_path(root, second.get("name"))
+        if first_rel is None or second_rel is None:
+            continue
+        out.append(
+            signal(
+                "jscpd", "duplication", "clone",
+                file=first_rel,
+                line_start=first.get("start"),
+                line_end=first.get("end"),
+                message=(
+                    f"{duplicate.get('lines', 0)} duplicated lines shared with {second_rel}"
+                ),
+                fact=False,
+                extra={
+                    "other_file": second_rel,
+                    "other_line_start": second.get("start"),
+                    "other_line_end": second.get("end"),
+                    "tokens": duplicate.get("tokens"),
+                    "format": duplicate.get("format"),
+                },
+            )
+        )
+    return out
+
+
+def normalise_knip(payload: Any, root: Path) -> list[Signal]:
+    """knip's issue list as dead-code and dependency signals.
+
+    knip reports per file, with one array per issue category. Without
+    ``node_modules`` it reports whole unused files and no exports; with them
+    it reports both. Each entry in a mapped category becomes one signal.
+    """
+    if not isinstance(payload, dict):
+        return []
+    out: list[Signal] = []
+    for issue in payload.get("issues") or []:
+        if not isinstance(issue, dict):
+            continue
+        rel = rel_path(root, issue.get("file"))
+        if rel is None:
+            continue
+        for category, mapping in KNIP_CATEGORIES.items():
+            family, kind = mapping
+            for entry in issue.get(category) or []:
+                if not isinstance(entry, dict):
+                    continue
+                name = str(entry.get("name", ""))
+                line = entry.get("line")
+                row = line if isinstance(line, int) else None
+                whole_file = category == "files"
+                out.append(
+                    signal(
+                        "knip", family, kind,
+                        file=rel,
+                        line_start=None if whole_file else row,
+                        line_end=None if whole_file else row,
+                        message=(
+                            f"unused file {rel}" if whole_file
+                            else f"unused {category[:-1]} '{name}'"
+                        ),
+                        fact=False,
+                        extra={"issue": category, "symbol": name},
+                    )
+                )
+    return out

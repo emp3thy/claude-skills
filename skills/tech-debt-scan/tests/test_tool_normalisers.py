@@ -251,3 +251,118 @@ class TestNormaliseLizard:
 
     def test_every_lizard_signal_is_inference_class(self) -> None:
         assert all(s["fact"] is False for s in self._signals())
+
+
+class TestNormaliseMadge:
+    def _signals(self) -> list:
+        from tool_normalisers import normalise_madge
+
+        payload = json.loads((FIXTURES / "madge.json").read_text(encoding="utf-8"))
+        return normalise_madge(payload, ROOT)
+
+    def test_one_cycle_becomes_one_signal(self) -> None:
+        assert len(self._signals()) == 1
+
+    def test_the_signal_names_the_first_file_of_the_cycle(self) -> None:
+        assert self._signals()[0]["file"] == "src/cart/cart.ts"
+
+    def test_the_whole_cycle_is_carried_in_extra(self) -> None:
+        assert self._signals()[0]["extra"]["cycle"] == [
+            "src/cart/cart.ts", "src/cart/pricing.ts", "src/cart/stock.ts",
+        ]
+
+    def test_kind_and_family_are_cycle_and_architecture(self) -> None:
+        assert (self._signals()[0]["kind"], self._signals()[0]["family"]) == (
+            "cycle", "architecture",
+        )
+
+    def test_a_cycle_has_no_line_range(self) -> None:
+        """A cycle is a property of the import graph, not of any line."""
+        assert self._signals()[0]["line_start"] is None
+        assert self._signals()[0]["line_end"] is None
+
+    def test_an_empty_graph_produces_nothing(self) -> None:
+        from tool_normalisers import normalise_madge
+
+        assert normalise_madge([], ROOT) == []
+
+    def test_every_madge_signal_is_inference_class(self) -> None:
+        assert all(s["fact"] is False for s in self._signals())
+
+
+class TestNormaliseJscpd:
+    def _signals(self) -> list:
+        from tool_normalisers import normalise_jscpd
+
+        payload = json.loads((FIXTURES / "jscpd.json").read_text(encoding="utf-8"))
+        return normalise_jscpd(payload, ROOT)
+
+    def test_one_duplicate_becomes_one_signal(self) -> None:
+        assert len(self._signals()) == 1
+
+    def test_the_signal_names_the_first_file_and_its_span(self) -> None:
+        first = self._signals()[0]
+        assert first["file"] == "src/util/format.ts"
+        assert (first["line_start"], first["line_end"]) == (1, 8)
+
+    def test_the_second_file_and_its_span_are_carried_in_extra(self) -> None:
+        extra = self._signals()[0]["extra"]
+        assert extra["other_file"] == "src/util/format-legacy.ts"
+        assert extra["other_line_start"] == 5
+        assert extra["other_line_end"] == 12
+        assert extra["tokens"] == 79
+
+    def test_the_duplicated_source_fragment_is_never_carried(self) -> None:
+        """jscpd's `fragment` holds the duplicated source itself. It is dropped
+        for the same reason gitleaks' Secret is: tool-signals.json is read into
+        prompts (spec 4.5)."""
+        blob = json.dumps(self._signals())
+        assert "fragment" not in blob
+        assert "export function compute" not in blob
+
+    def test_the_nondeterministic_detection_date_is_never_carried(self) -> None:
+        assert "detectionDate" not in json.dumps(self._signals())
+        assert "2026-09-06T16:32" not in json.dumps(self._signals())
+
+    def test_a_report_with_no_duplicates_produces_nothing(self) -> None:
+        from tool_normalisers import normalise_jscpd
+
+        assert normalise_jscpd({"duplicates": [], "statistics": {}}, ROOT) == []
+
+
+class TestNormaliseKnip:
+    def _signals(self) -> list:
+        from tool_normalisers import normalise_knip
+
+        payload = json.loads((FIXTURES / "knip.json").read_text(encoding="utf-8"))
+        return normalise_knip(payload, ROOT)
+
+    def test_an_unused_file_becomes_a_whole_file_signal(self) -> None:
+        unused_file = next(s for s in self._signals() if s["file"] == "vendor/tiny-emitter.js")
+        assert unused_file["extra"]["issue"] == "files"
+        assert unused_file["line_start"] is None
+
+    def test_an_unused_export_carries_its_line_and_symbol(self) -> None:
+        export = next(s for s in self._signals() if s["extra"].get("symbol") == "formatLegacy")
+        assert export["file"] == "src/util/format-legacy.ts"
+        assert export["line_start"] == 4 and export["line_end"] == 4
+
+    def test_an_unused_dependency_is_dependency_debt(self) -> None:
+        dependency = next(s for s in self._signals() if s["extra"].get("symbol") == "left-pad")
+        assert dependency["family"] == "dependency-debt"
+        assert dependency["kind"] == "unused"
+
+    def test_unused_files_and_exports_are_dead_code(self) -> None:
+        families = {s["family"] for s in self._signals()
+                    if s["extra"].get("issue") in {"files", "exports"}}
+        assert families == {"dead-code"}
+
+    def test_empty_categories_produce_no_signals(self) -> None:
+        from tool_normalisers import normalise_knip
+
+        payload = {"issues": [{"file": "a.ts", "exports": [], "files": [], "types": [],
+                               "dependencies": []}]}
+        assert normalise_knip(payload, ROOT) == []
+
+    def test_every_knip_signal_is_inference_class(self) -> None:
+        assert all(s["fact"] is False for s in self._signals())
