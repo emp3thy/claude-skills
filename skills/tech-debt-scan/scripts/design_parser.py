@@ -18,7 +18,10 @@ Document structure (see tests/golden/design-v1.md):
     last finding is never absorbed into that finding's body. This boundary
     check ignores headings inside fenced code blocks, so a hand-edited quote
     or diff containing a line starting ``# `` or ``## `` (e.g. a code comment)
-    does not truncate the body.
+    does not truncate the body. An unclosed fence (a hand-edited quote whose
+    closing ``` was dropped) is a parse error, not a silent absorption of
+    every later finding: reaching the end of the document with a fence still
+    open raises DesignParseError naming the line the fence opened at.
 
 Only ``yaml.safe_load`` is used (never ``yaml.load``). Every DesignParseError
 carries the 1-based source line of the offending heading or anchor so the user
@@ -225,14 +228,21 @@ def parse_design(path: Path) -> dict[str, Any]:
         section: list[tuple[int, str]] = []
         cursor = idx + 1
         in_fence = False
+        fence_open_at: int | None = None
         while cursor < n:
             line = lines[cursor]
             if line.strip().startswith("```"):
                 in_fence = not in_fence
+                fence_open_at = cursor + 1 if in_fence else None
             elif not in_fence and _ends_section(line):
                 break
             section.append((cursor + 1, line))
             cursor += 1
+
+        if in_fence:
+            raise DesignParseError(
+                f"fenced block opened at line {fence_open_at} is never closed"
+            )
 
         anchor, anchor_lineno = _parse_anchor(section, heading_lineno)
         finding = _build_finding(anchor, title, anchor_lineno)

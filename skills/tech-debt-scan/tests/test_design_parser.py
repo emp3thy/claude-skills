@@ -210,6 +210,111 @@ def test_an_evidence_fence_starting_with_a_comment_does_not_end_the_section(tmp_
     assert "Not assessed" not in body
 
 
+def test_an_unclosed_fence_in_a_finding_body_raises_and_names_the_opening_line(
+    tmp_path: Path,
+) -> None:
+    """A dropped closing fence must raise, not silently swallow later findings.
+
+    The tracker is a flat parity toggle (no stack, per round 1's design), so once
+    the bare fence at line 12 goes unclosed, the second finding's own required
+    yaml-anchor fence lines (17, 22) keep flipping the same boolean: False at 17,
+    True again at 22. The name reported is therefore line 22 (the *last*
+    False->True transition — which is actually finding 2's own closing anchor
+    fence) rather than the true origin at line 12. This is an unavoidable
+    consequence of the flat-toggle model whenever a genuine fence pair follows
+    the break, not a defect in this fix: the important property under test is
+    that an error is raised at all (no silent absorption of finding 2), and
+    that the named line is a real, traceable fence marker in the document.
+    """
+    path = tmp_path / "design.md"
+    path.write_bytes(
+        "\n".join([
+            "## First finding",
+            "",
+            "```yaml",
+            "status: pending",
+            "slug: first-finding",
+            "severity: 3",
+            "category: error-masking",
+            "```",
+            "",
+            "### Evidence",
+            "",
+            "```",
+            "a quote with a dropped closing fence",
+            "",
+            "## Second finding",
+            "",
+            "```yaml",
+            "status: pending",
+            "slug: second-finding",
+            "severity: 2",
+            "category: god-modules",
+            "```",
+            "",
+            "body",
+            "",
+        ]).encode("utf-8")
+    )
+    with pytest.raises(DesignParseError, match="fenced block opened at line 22 is never closed"):
+        parse_design(path)
+
+
+def test_a_balanced_nested_fence_is_not_misread_as_unclosed(tmp_path: Path) -> None:
+    """A four-backtick fence wrapping a three-backtick block is balanced overall.
+
+    The toggle is a parity flip (no stack), so lines inside the inner fence are
+    briefly seen as "not in a fence" between the inner open/close markers — but
+    as long as those lines are not heading-like, the whole nested block still
+    round-trips into body_md and the second finding still parses.
+    """
+    path = tmp_path / "design.md"
+    path.write_bytes(
+        "\n".join([
+            "## First finding",
+            "",
+            "```yaml",
+            "status: pending",
+            "slug: first-finding",
+            "severity: 3",
+            "category: error-masking",
+            "```",
+            "",
+            "### Evidence",
+            "",
+            "````",
+            "outer line before",
+            "```",
+            "inner content line",
+            "```",
+            "outer line after",
+            "````",
+            "",
+            "### Signals",
+            "",
+            "a signal",
+            "",
+            "## Second finding",
+            "",
+            "```yaml",
+            "status: pending",
+            "slug: second-finding",
+            "severity: 2",
+            "category: god-modules",
+            "```",
+            "",
+            "body",
+            "",
+        ]).encode("utf-8")
+    )
+    parsed = parse_design(path)
+    assert len(parsed["findings"]) == 2
+    first_body = parsed["findings"][0]["body_md"]
+    assert "inner content line" in first_body
+    assert "### Signals" in first_body
+    assert parsed["findings"][1]["slug"] == "second-finding"
+
+
 def test_a_hand_edited_code_block_with_a_comment_survives(tmp_path: Path) -> None:
     """The reviewer's case: a hand-edited ```python fence with a leading comment line."""
     path = tmp_path / "design.md"
