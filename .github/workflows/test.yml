@@ -20,6 +20,7 @@ jobs:
       - run: ruff check .
       - run: mypy
       - run: python skills/tech-debt-scan/scripts/skill_check.py
+      - run: python skills/karate-bootstrap/scripts/kb_check_skill.py
       - run: pytest -v
 
   karate-templates:

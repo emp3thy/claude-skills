@@ -79,3 +79,8 @@ def test_check_skill_collects_every_error(tmp_path: Path) -> None:
     )
     errors = check_skill(skill, scripts)
     assert len(errors) == 2
+
+
+def test_real_skill_md_lints_clean() -> None:
+    assert SKILL.is_file()
+    assert check_skill(SKILL, SCRIPTS) == []
