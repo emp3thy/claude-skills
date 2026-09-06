@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import textwrap
 from pathlib import Path
 from typing import Any, Final
 
@@ -161,3 +162,138 @@ class TestFindTool:
                 assert "npx" not in node.name.lower()
                 if node.asname:
                     assert "npx" not in node.asname.lower()
+
+
+def _fake_tool(tmp_path: Path, body: str) -> tuple[str, list[str]]:
+    """A Python script standing in for an external tool; returns (exe, argv)."""
+    script = tmp_path / "fake_tool.py"
+    script.write_text(textwrap.dedent(body), encoding="utf-8")
+    return sys.executable, [sys.executable, str(script)]
+
+
+class TestRunTool:
+    def test_exit_zero_with_valid_json_is_ran(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, run_tool
+
+        exe, argv = _fake_tool(tmp_path, """
+            import json, sys
+            print(json.dumps([{"ok": True}]))
+            sys.exit(0)
+        """)
+        result = run_tool(TOOLS["ruff"], exe, argv, tmp_path, 30)
+        assert result.status == "ran"
+        assert result.payload == [{"ok": True}]
+
+    def test_findings_exit_with_valid_json_is_ran(self, tmp_path: Path) -> None:
+        """Exit 1 is ruff's "found something", not a failure."""
+        from tools_probe import TOOLS, run_tool
+
+        exe, argv = _fake_tool(tmp_path, """
+            import json, sys
+            print(json.dumps([{"code": "BLE001"}]))
+            sys.exit(1)
+        """)
+        result = run_tool(TOOLS["ruff"], exe, argv, tmp_path, 30)
+        assert result.status == "ran"
+
+    def test_vulture_exit_three_is_ran_not_failed(self, tmp_path: Path) -> None:
+        """vulture exits 3 when it finds something; an exit table assuming 1
+        would mark every productive run a failure (spec 4.5)."""
+        from tools_probe import TOOLS, run_tool
+
+        exe, argv = _fake_tool(tmp_path, """
+            import sys
+            print("a.py:1: unused function 'f' (60% confidence)")
+            sys.exit(3)
+        """)
+        result = run_tool(TOOLS["vulture"], exe, argv, tmp_path, 30)
+        assert result.status == "ran"
+        assert result.payload == ["a.py:1: unused function 'f' (60% confidence)"]
+
+    def test_unparseable_json_is_failed_with_truncated_stderr(self, tmp_path: Path) -> None:
+        from tools_probe import STDERR_CHARS, TOOLS, run_tool
+
+        exe, argv = _fake_tool(tmp_path, """
+            import sys
+            print("not json at all")
+            sys.stderr.write("E" * 500)
+            sys.exit(1)
+        """)
+        result = run_tool(TOOLS["ruff"], exe, argv, tmp_path, 30)
+        assert result.status == "failed"
+        assert len(result.reason) <= STDERR_CHARS
+        assert result.reason.startswith("EEE")
+
+    def test_unexpected_exit_code_is_failed(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, run_tool
+
+        exe, argv = _fake_tool(tmp_path, """
+            import json, sys
+            print(json.dumps([]))
+            sys.exit(42)
+        """)
+        result = run_tool(TOOLS["ruff"], exe, argv, tmp_path, 30)
+        assert result.status == "failed"
+        assert "42" in result.reason
+
+    def test_timeout_is_failed_and_names_the_limit(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, run_tool
+
+        exe, argv = _fake_tool(tmp_path, """
+            import time
+            time.sleep(30)
+        """)
+        result = run_tool(TOOLS["ruff"], exe, argv, tmp_path, 1)
+        assert result.status == "failed"
+        assert "timed out" in result.reason
+        assert "1" in result.reason
+
+    def test_report_file_channel_reads_the_file_and_ignores_stdout(self, tmp_path: Path) -> None:
+        """jscpd writes its report to a file and fills stdout with promotional
+        text; the runner must read the file and ignore stdout (spec 4.5)."""
+        from tools_probe import TOOLS, run_tool
+
+        exe, argv = _fake_tool(tmp_path, """
+            import json, os, sys
+            print("Support jscpd project -> https://opencollective.com/jscpd")
+            out = sys.argv[1]
+            os.makedirs(out, exist_ok=True)
+            with open(os.path.join(out, "jscpd-report.json"), "w", encoding="utf-8") as fh:
+                json.dump({"duplicates": [{"lines": 8}]}, fh)
+            sys.exit(0)
+        """)
+        result = run_tool(TOOLS["jscpd"], exe, argv, tmp_path, 30)
+        assert result.status == "ran"
+        assert result.payload == {"duplicates": [{"lines": 8}]}
+
+    def test_report_file_absent_is_failed(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, run_tool
+
+        exe, argv = _fake_tool(tmp_path, """
+            import sys
+            print("wrote nothing")
+            sys.exit(0)
+        """)
+        result = run_tool(TOOLS["jscpd"], exe, argv, tmp_path, 30)
+        assert result.status == "failed"
+        assert "report" in result.reason
+
+    def test_report_directory_is_removed_after_the_run(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, run_tool
+
+        exe, argv = _fake_tool(tmp_path, """
+            import json, os, sys
+            out = sys.argv[1]
+            os.makedirs(out, exist_ok=True)
+            with open(os.path.join(out, "jscpd-report.json"), "w", encoding="utf-8") as fh:
+                json.dump({"duplicates": []}, fh)
+        """)
+        before = set(tmp_path.iterdir())
+        run_tool(TOOLS["jscpd"], exe, argv, tmp_path, 30)
+        assert set(tmp_path.iterdir()) == before
+
+    def test_missing_executable_is_failed_not_an_exception(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, run_tool
+
+        result = run_tool(TOOLS["ruff"], "no-such-exe", ["no-such-exe"], tmp_path, 5)
+        assert result.status == "failed"

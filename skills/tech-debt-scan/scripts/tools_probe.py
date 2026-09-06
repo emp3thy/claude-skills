@@ -14,7 +14,12 @@ Nothing reads ``tool-signals.json`` until phase 4b.
 """
 from __future__ import annotations
 
+import csv
+import json
 import shutil
+import subprocess
+import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -74,3 +79,96 @@ def find_tool(name: str, root: Path) -> str | None:
         if candidate.is_file():
             return str(candidate)
     return None
+
+
+STDERR_CHARS: Final[int] = 200
+REPORT_FILENAME: Final[str] = "jscpd-report.json"
+
+
+@dataclass(frozen=True)
+class ToolResult:
+    """What one attempted tool run produced."""
+
+    status: str  # "ran", "absent", "failed" or "skipped"
+    payload: Any = None
+    reason: str = ""
+    duration_s: float = 0.0
+
+
+def _parse(spec: ToolSpec, text: str) -> Any:
+    """The tool's raw output as its declared shape, or ValueError."""
+    if spec.parse == "json":
+        return json.loads(text)
+    if spec.parse == "lines":
+        return [line for line in text.splitlines() if line.strip()]
+    if spec.parse == "csv":
+        return [row for row in csv.reader(text.splitlines()) if row]
+    raise ValueError(f"unknown parse mode {spec.parse!r}")
+
+
+def run_tool(
+    spec: ToolSpec, executable: str, argv: list[str], root: Path, timeout_s: int
+) -> ToolResult:
+    """Run one tool and classify the attempt.
+
+    ``ran`` means the process exited with a code the spec's table allows and
+    its output parsed. Anything else is ``failed``, carrying the first
+    ``STDERR_CHARS`` characters of stderr, because unparseable output is the
+    failure signal for every tool in the first cut.
+
+    A ``report_file`` tool writes its result into a directory this function
+    creates and removes; its stdout is progress and promotional text and is
+    never parsed.
+    """
+    started = time.monotonic()
+    report_dir: tempfile.TemporaryDirectory[str] | None = None
+    full_argv = list(argv)
+    if spec.channel == "report_file":
+        report_dir = tempfile.TemporaryDirectory(dir=root)
+        full_argv.append(report_dir.name)
+    try:
+        try:
+            completed = subprocess.run(  # noqa: S603 - argv is built from the registry
+                full_argv,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout_s,
+                cwd=root,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return ToolResult("failed", reason=f"timed out after {timeout_s}s",
+                              duration_s=time.monotonic() - started)
+        except OSError as exc:
+            return ToolResult("failed", reason=str(exc)[:STDERR_CHARS],
+                              duration_s=time.monotonic() - started)
+
+        duration = time.monotonic() - started
+        stderr = (completed.stderr or "").strip()[:STDERR_CHARS]
+        if completed.returncode != 0 and completed.returncode not in spec.findings_exit:
+            reason = stderr or f"exit {completed.returncode}"
+            if str(completed.returncode) not in reason:
+                reason = f"exit {completed.returncode}: {reason}"
+            return ToolResult("failed", reason=reason[:STDERR_CHARS], duration_s=duration)
+
+        if spec.channel == "report_file":
+            assert report_dir is not None
+            report = Path(report_dir.name) / REPORT_FILENAME
+            if not report.is_file():
+                return ToolResult("failed", reason=f"no {REPORT_FILENAME} report written",
+                                  duration_s=duration)
+            raw = report.read_text(encoding="utf-8", errors="replace")
+        else:
+            raw = completed.stdout or ""
+
+        try:
+            payload = _parse(spec, raw)
+        except (ValueError, csv.Error):
+            return ToolResult("failed", reason=stderr or "unparseable output",
+                              duration_s=duration)
+        return ToolResult("ran", payload=payload, duration_s=duration)
+    finally:
+        if report_dir is not None:
+            report_dir.cleanup()
