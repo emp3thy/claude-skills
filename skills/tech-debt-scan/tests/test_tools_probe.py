@@ -1374,6 +1374,12 @@ CORPUS = Path(__file__).resolve().parent / "fixtures" / "corpus"
 
 FIXTURES_WITH_GOLDENS: Final[tuple[str, ...]] = ("service-py", "web-ts", "mixed-decoys")
 
+# One live probe per fixture, shared by the three tests that read it. The
+# fixtures are read-only and ``probe`` is deterministic over an unchanged tree
+# (TestSignalSortKeyTotality and spec 4.5), so re-probing would only cost time
+# -- and under UPDATE_GOLDENS it would also rewrite each golden three times.
+_COMPARISON_CACHE: dict[str, tuple[dict[str, Any], dict[str, Any], list[str], list[str]]] = {}
+
 
 def _golden_comparison(fixture: str) -> tuple[dict[str, Any], dict[str, Any], list[str], list[str]]:
     """A live probe of ``fixture`` and its golden, reduced to what is comparable.
@@ -1396,6 +1402,9 @@ def _golden_comparison(fixture: str) -> tuple[dict[str, Any], dict[str, Any], li
     excluded -- and the caller names both in its failure message, so nothing
     is dropped quietly.
     """
+    if fixture in _COMPARISON_CACHE:
+        return _COMPARISON_CACHE[fixture]
+
     from config import load_config
     from tools_probe import probe
 
@@ -1418,7 +1427,26 @@ def _golden_comparison(fixture: str) -> tuple[dict[str, Any], dict[str, Any], li
         write_json(path, actual)
     expected = json.loads(path.read_text(encoding="utf-8"))
     covered = set(expected["covered_tools"])
-    return actual, expected, sorted(covered & present), sorted(present - covered)
+    result = (actual, expected, sorted(covered & present), sorted(present - covered))
+    _COMPARISON_CACHE[fixture] = result
+    return result
+
+
+def _evidence(fixture: str) -> tuple[list[str], int]:
+    """What comparing ``fixture`` against its golden actually proved.
+
+    Returns the compared tools that really *ran* here, and the number of
+    golden signals the comparison covered. Both are needed because neither
+    alone is a floor: ``compared`` on its own counts rows that prove nothing
+    (see the floor test), and a signal count on its own cannot speak for
+    mixed-decoys, whose golden pins an empty signal list on purpose -- there
+    the evidence is "lizard ran over this tree and found nothing", which is
+    evidence only if lizard actually ran.
+    """
+    actual, expected, compared, _ = _golden_comparison(fixture)
+    ran = sorted(name for name in compared if actual["tools"][name]["status"] == "ran")
+    covered_signals = sum(1 for sig in expected["signals"] if sig["tool"] in compared)
+    return ran, covered_signals
 
 
 class TestCorpusGoldens:
@@ -1429,9 +1457,11 @@ class TestCorpusGoldens:
         reason are compared too, so a tool that silently stops running fails
         here rather than quietly producing an empty list."""
         actual, expected, compared, uncovered = _golden_comparison(fixture)
-        assert compared, (
+        ran, covered_signals = _evidence(fixture)
+        assert ran, (
             f"{fixture}: the golden covers {expected['covered_tools']} and this machine "
-            f"can exercise none of them, so this test would prove nothing"
+            f"ran none of them (compared {compared}, all of them rows produced before "
+            f"find_tool is consulted), so this test would prove nothing"
         )
         assert {
             "schema_version": actual["schema_version"],
@@ -1442,31 +1472,55 @@ class TestCorpusGoldens:
             "tools": {name: expected["tools"][name] for name in compared},
             "signals": [s for s in expected["signals"] if s["tool"] in compared],
         }, (
-            f"{fixture}: compared {compared}; not pinned by this golden "
+            f"{fixture}: compared {compared} ({ran} ran, {covered_signals} signals); "
+            f"not pinned by this golden "
             f"(present here, absent when it was generated): {uncovered}"
         )
 
     @pytest.mark.parametrize("fixture", FIXTURES_WITH_GOLDENS)
     def test_the_golden_covers_every_machine_independent_row(self, fixture: str) -> None:
-        """The floor that stops the portability filter degenerating into a test
-        that compares nothing.
-
-        ``probe`` checks ``artefact_present`` before ``find_tool``, so a tool
+        """``probe`` checks ``artefact_present`` before ``find_tool``, so a tool
         skipped for a missing artefact is skipped on every machine, installed
         or not: those rows are a fact about the fixture. Every golden must
         therefore cover all of them, on any machine, and this asserts it
         without depending on which tools happen to be installed."""
-        from config import load_config
-        from tools_probe import probe
-
-        root = CORPUS / fixture / "files"
-        document = probe(root, load_config(root))
+        actual, expected, _, _ = _golden_comparison(fixture)
         machine_independent = {
-            name for name, entry in document["tools"].items()
+            name for name, entry in actual["tools"].items()
             if entry["status"] == "skipped" and entry["reason"] == "no matching artefact"
         }
-        expected = json.loads(
-            (GOLDEN / fixture / "tool-signals.json").read_text(encoding="utf-8")
-        )
         assert machine_independent, f"{fixture} skips no tool for a missing artefact"
         assert machine_independent <= set(expected["covered_tools"])
+
+    def test_the_goldens_together_compare_a_nonzero_number_of_signals(self) -> None:
+        """The floor that stops the portability filter degenerating into a
+        suite that compares nothing.
+
+        The guard this replaces asserted ``compared`` was non-empty -- but
+        ``compared`` counts every tool whose status is not ``absent``, and
+        ``skipped: no matching artefact`` is produced before ``find_tool`` is
+        ever consulted. Those rows are constants no tool has to be installed
+        to make, so the guard could not fail: simulating a machine with none
+        of the ten tools installed, all three goldens passed having compared
+        0 of the 15 signals they pin.
+
+        So the floor counts signals rather than rows. It is stated over the
+        three fixtures together because it cannot be stated per fixture:
+        mixed-decoys' golden pins an empty signal list on purpose -- lizard
+        runs over a Go tree and finds nothing above its thresholds -- so a
+        per-fixture signal count would have to be zero there and would prove
+        nothing again. The per-fixture half of the floor is the ``ran``
+        assertion in ``test_tool_signals_match_the_golden``; this is the half
+        that says the suite as a whole saw real tool output.
+
+        It stays portable in the direction that matters: a machine with *more*
+        tools installed compares at least what this one does, because
+        ``compared`` is an intersection with the golden's ``covered_tools``
+        and a tool that runs here cannot stop being covered there.
+        """
+        breakdown = {fixture: _evidence(fixture) for fixture in FIXTURES_WITH_GOLDENS}
+        total = sum(signals for _, signals in breakdown.values())
+        assert total > 0, (
+            f"every golden compared zero signals -- {breakdown} -- so the suite "
+            f"is green having verified no tool output at all"
+        )
