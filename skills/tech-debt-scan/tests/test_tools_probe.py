@@ -154,6 +154,9 @@ class TestFindTool:
                 assert "npx" not in node.id.lower()
             elif isinstance(node, ast.Attribute):
                 assert "npx" not in node.attr.lower()
+            elif isinstance(node, ast.ImportFrom):
+                if node.module is not None:
+                    assert "npx" not in node.module.lower()
             elif isinstance(node, ast.alias):
                 assert "npx" not in node.name.lower()
                 if node.asname:
