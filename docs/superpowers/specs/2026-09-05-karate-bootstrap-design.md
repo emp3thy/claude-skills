@@ -1,7 +1,7 @@
 # karate-bootstrap — design
 
 **Date:** 2026-09-05
-**Status:** Approved 2026-09-05 (Plan 1 landed as PR #7). Harness amendment (sections 3 H1 to H8, 4.2, 4.3, 5.5 to 5.8, 9, 10, 12) brainstormed 2026-09-05 evening, awaiting written review.
+**Status:** Approved 2026-09-05 (Plan 1 landed as PR #7; Plan 2 as PR #8). Harness amendment approved 2026-09-05. Skill-assembly amendment (5.2 to 5.4, 5.6, 5.7, 9, 11: `kb_prompt.py`, ledger bookkeeping commands, evals) 2026-09-06 for Plan 3.
 **Repo:** `claude-skills`, skill path `skills/karate-bootstrap/`
 
 ## 1. Purpose
@@ -163,7 +163,7 @@ Deterministic reads, in this order:
 1. **Deployment manifests.** `deploymentserverless.yml` takes precedence when both exist, otherwise `deployment.yml`. Presence of `deploymentserverless.yml` sets `app.serverless: true`, and the container spec is read from the Knative `spec.template.spec.containers` path. Extracts `readinessProbe` path and port, container port, `env`, `envFrom` configMap and secret refs. Fallback: any Kubernetes `Deployment`, Helm values, Kustomize overlays.
 2. **Dockerfile.** `EXPOSE`, `ENV` defaults, entrypoint.
 3. **App config.** `application*.yml|properties`, `appsettings*.json`, `settings.py`, `.env.example`. Also `hibernate.cfg.xml` and `META-INF/persistence.xml`. Extracts config keys and their placeholder values.
-4. **Routes.** Cheat-sheet regexes per stack produce entry-point candidates: HTTP method, path, handler file and line, and AMQ listener destinations. The model confirms the list in one pass and adds anything the regexes missed.
+4. **Routes.** Cheat-sheet regexes per stack produce entry-point candidates: HTTP method, path, handler file and line, and AMQ listener destinations. The model confirms the list in one pass and adds anything the regexes missed with `python scripts/flow_map.py add-entry --ledger karate-tests/flow-map.yaml --id <id> --kind http|amq-subscribe --handler <file:line> [--method M --path P | --destination D --type queue|topic]`, which seeds the same untraced entry shape `discover.py` writes.
 5. **Migrations presence.** Recorded for information only. Schema strategy is `migration-container` by default (see 5.5). If the app also self-migrates on boot (`spring.jpa.hibernate.ddl-auto`, `quarkus.hibernate-orm.database.generation`, `hibernate.hbm2ddl.auto`, EF `Migrate()`), that is recorded as `app.migrations.also_on_boot: true`.
 
 Config-key roles: `db`, `amq`, `downstream:<name>`, `auth`, `passthrough`. Role assignment is deterministic where the key name or placeholder scheme is unambiguous (`jdbc:postgresql://`, `amqp://`, `activemq:tcp://`, `Host=`), model-confirmed otherwise. Every key ends with a role.
@@ -185,10 +185,11 @@ Output: `env-map.json`, and `flow-map.yaml` seeded with `stack`, `app`, and one 
 Loop:
 
 ```
-python scripts/flow_map.py next --phase traced        -> prints next untraced entry id + handler + cheat sheet path
-(dispatch trace subagent with prompts/trace.md rendered for that entry)
-python scripts/flow_map.py merge <entry.json>         -> merges, prints unresolved count
-python scripts/flow_map.py validate --phase traced    -> pass, or list of gaps
+python scripts/flow_map.py next --phase traced --ledger karate-tests/flow-map.yaml        -> prints next untraced entry id + handler + cheat sheet path
+python scripts/kb_prompt.py render --prompt trace --ledger karate-tests/flow-map.yaml --env karate-tests/env-map.json --entry <id> --repo <repo> --out karate-tests/.prompts/trace-<slug>.md
+(dispatch a read-only trace subagent whose prompt is that file, by path; it returns JSON)
+python scripts/flow_map.py merge <entry.json> --ledger karate-tests/flow-map.yaml         -> merges, prints unresolved count
+python scripts/flow_map.py validate --phase traced --ledger karate-tests/flow-map.yaml --repo <repo> --env karate-tests/env-map.json    -> pass, or list of gaps
 ```
 
 Trace subagent contract (`prompts/trace.md`):
@@ -196,12 +197,14 @@ Trace subagent contract (`prompts/trace.md`):
 - Input: one entry point (id, handler file and line), the stack cheat sheet, the env-map role list.
 - Read-only. Follow every call from the handler until one of: DB write, AMQ publish, outbound HTTP, response return, or a third-party library boundary. Record each with file and line.
 - Record `reads` (DB reads, inbound HTTP responses consumed) because they become seeds and stubs.
-- Record `responses` with status and a short `when`, and whether the branch is validation (`rules: true`).
+- Record `responses` with status and a short `when`. `rules: true` marks only the status the request-validation framework returns for a rejected body; a business check that throws is a plain response.
 - Record `rules.sources` — files where validation lives.
-- Depth cap 12 hops. Anything not followable (reflection, dynamic dispatch, generated code, cap reached) is returned in `unresolved` with file and line and reason.
+- Depth cap 12 hops. A call whose target cannot be opened (reflection, dynamic dispatch, generated code, a missing file, cap reached) is returned in `unresolved` with file and line and reason. Doubt about a status or a value is not an unresolved hop; the subagent records its best reading.
 - Output: JSON only, matching the ledger entry schema.
 
-Unresolved hops are allowed in subagent output, not in the ledger. The main agent re-dispatches a narrower trace starting at that location. `validate --phase traced` fails while `unresolved` is non-empty.
+Unresolved hops are allowed in subagent output, not in the ledger. The main agent re-dispatches a narrower trace starting at that location: `kb_prompt.py render --prompt trace ... --focus <file:line>` renders the same prompt with a "start at" instruction, and the result is merged over the entry again. `validate --phase traced` fails while `unresolved` is non-empty. Subagents are told to reply with the bare JSON object; `merge` (through `kb_common.read_json`) also accepts an object wrapped in a markdown code fence, because models sometimes add one anyway.
+
+`kb_prompt.py` (`render --prompt trace|rules|generate`) is the only way prompts reach a subagent: it fills a `string.Template` file under `prompts/` with the entry's ledger JSON, the cheat sheet path, the env-map role table and the file locations the subagent must use, and writes one prompt file the main agent passes by path. Every prompt file embeds an example output that the skill's tests feed back through the consuming script (`merge`, `kb_rules add`, `mark`) so the examples cannot drift from the schemas.
 
 `flow_map.py verify-refs` runs inside the `traced` gate. For every `via: file:line` it opens the file and requires a write, publish, or HTTP marker token from the stack cheat sheet on that line or within three lines. Failing refs are listed and the entry is reset to untraced. This guards against invented exits.
 
@@ -211,16 +214,17 @@ Unresolved hops are allowed in subagent output, not in the ledger. The main agen
 
 ```
 python scripts/kb_rules.py extract <repo> --ledger karate-tests/flow-map.yaml --out-dir karate-tests
-(dispatch one rules subagent per unscanned rules source, prompts/rules.md)
-python scripts/kb_rules.py add <entry-id> <rows.csv>
-python scripts/kb_rules.py mark-scanned <entry-id> <source-file>
+python scripts/kb_prompt.py render --prompt rules --ledger karate-tests/flow-map.yaml --entry <id> --source <source-file> --repo <repo> --tests-dir karate-tests --out karate-tests/.prompts/rules-<slug>-<n>.md
+(dispatch one read-only rules subagent per unscanned rules source; save the csv field of its reply as karate-tests/rules/<slug>-<n>.rows.csv)
+python scripts/kb_rules.py add <entry-id> karate-tests/rules/<slug>-<n>.rows.csv --ledger karate-tests/flow-map.yaml --out-dir karate-tests
+python scripts/kb_rules.py mark-scanned <entry-id> <source-file> --ledger karate-tests/flow-map.yaml
 ```
 
 `--out-dir` is the `karate-tests` root; the script appends `rules/` itself.
 
 `extract` handles declarative validators: Bean Validation and Hibernate Validator annotations, FluentValidation `RuleFor` chains, .NET data annotations, Pydantic `Field` constraints and validators. It emits candidate rows with `source`.
 
-The subagent handles imperative branches (if/throw chains, service-layer checks, cross-field rules), confirms or drops candidates, and fills expected message text. It appends via `kb_rules.py add` and never writes CSV by hand.
+The subagent handles imperative branches (if/throw chains, service-layer checks, cross-field rules), confirms or drops candidates, and fills expected message text. It returns its confirmed rows (same header as the candidates file) in the `csv` field of its JSON reply, with `rows`, `dropped_candidates` and `notes`; the main agent saves that field as `rules/<slug>-<n>.rows.csv` (`<n>` numbering the source, as the rendered prompt does) and appends it with `kb_rules.py add`. Subagents never write files. Nothing edits `rules/<slug>.csv` by hand.
 
 CSV schema:
 
@@ -319,10 +323,11 @@ The rendered `pom.xml` registers `rules/`, `stubs/` and `seed/` at the module ro
 Loop, one subagent per entry point using `prompts/generate.md`:
 
 ```
-python scripts/flow_map.py next --phase generated
-(dispatch generate subagent: writes feature, stubs, seeds, example body for that entry)
-python scripts/flow_map.py mark --entry <id> --generated
-python scripts/flow_map.py validate --phase generated
+python scripts/flow_map.py next --phase generated --ledger karate-tests/flow-map.yaml
+python scripts/kb_prompt.py render --prompt generate --ledger karate-tests/flow-map.yaml --env karate-tests/env-map.json --entry <id> --repo <repo> --tests-dir karate-tests --out karate-tests/.prompts/generate-<slug>.md
+(dispatch a generate subagent that may write only under karate-tests/: feature, stubs, seeds, example body; it returns JSON listing the files it wrote)
+python scripts/flow_map.py mark --entry <id> --generated --feature features/<slug>.feature --stub stubs/<downstream>/<file>.json --seed seed/<slug>.sql --ledger karate-tests/flow-map.yaml
+python scripts/flow_map.py validate --phase generated --ledger karate-tests/flow-map.yaml --repo <repo> --tests-dir karate-tests
 ```
 
 **Isolation by data (decision H7).** Scenarios run in parallel against one app, one WireMock, one Postgres and one broker, so nothing a scenario does may depend on global resets:
@@ -390,14 +395,13 @@ Scenario Outline: validation rule <rule_id> on <field>
   And request payload
   When method post
   Then status <expected_status>
-  And match response.code == '<expected_code>'
-  And match response.message contains '<expected_message_contains>'
+  * match checkError(response, '<expected_code>', '<expected_message_contains>') == []
 
   Examples:
     | read('classpath:rules/post-api-deals.csv') |
 ```
 
-The `Authorization` header line is emitted only when `auth.mode: jwks`. `common/reset.feature` accepts `{ watch: [destinations], seed: 'seed/x.sql', stubs: [paths], truncate: [tables] }` and applies them in the order watch, truncate, seed, stubs, so a truncate never wipes the rows the same call seeded; `seed` is additive and `stubs` and `truncate` are only legal under `@parallel=false`. AMQ-subscribe entry points use `Jms.publish` for the input and `Db.awaitRow` and `Jms.await` for the exits. Tags: `@smoke`, `@error`, `@rules`, `@amq`, `@known-defect`, `@parallel=false`.
+`checkError` (template `common/check-error.js`, registered in `karate-config.js` beside `mutate`) returns the list of unmet expectations: the serialised body must contain `expected_code` and `expected_message_contains`, and an empty CSV cell skips its check, so rows whose error body is framework-generated still pass. Rows whose `mutation` is `cross_field` do not go through the outline: `mutate.js` cannot turn an expression such as `before:tradeDate` into a value, so the `Examples` cell filters them out (`karate.filter(read('classpath:rules/<slug>.csv'), function(r){ return r.mutation != 'cross_field' })`) and the generate subagent writes one `@rules` scenario per cross-field row by hand, choosing concrete values that violate the expression against the base request and asserting the row's status through `checkError`. The expression names the relationship to another field: `before:<field>`, `after:<field>`, `gt:<field>`, `lt:<field>`, `eq:<field>`, `ne:<field>`. The `Authorization` header line is emitted only when `auth.mode: jwks`. `common/reset.feature` accepts `{ watch: [destinations], seed: 'seed/x.sql', stubs: [paths], truncate: [tables] }` and applies them in the order watch, truncate, seed, stubs, so a truncate never wipes the rows the same call seeded; `seed` is additive and `stubs` and `truncate` are only legal under `@parallel=false`. AMQ-subscribe entry points use `Jms.publish` for the input and `Db.awaitRow` and `Jms.await` for the exits. Tags: `@smoke`, `@error`, `@rules`, `@amq`, `@known-defect`, `@parallel=false`.
 
 `validate --phase generated` fails when: an entry has no feature file; an `http-out` exit has no stub file under `stubs/<downstream>/`; a `db-write` exit's table is not referenced by a `Db.` call in the feature; an `amq-publish` exit is not referenced by `Jms.`; an `http-out` exit is not referenced by `Stubs.verify`; a rules CSV row count differs from the ledger count; a rules source is not marked `scanned`; a scenario calls `Stubs.reset`, `Stubs.load` or `Db.truncate` without `@parallel=false`. These are grep-level checks by design.
 
@@ -406,6 +410,7 @@ The `Authorization` header line is emitted only when `auth.mode: jwks`. `common/
 ```
 mvn -B test                                          (or ./mvnw -B test; -Dkb.threads=1 for the sequential fallback)
 python scripts/kb_report.py parse --reports karate-tests/target/karate-reports --out karate-tests/target/report.json
+python scripts/flow_map.py record-run --ledger karate-tests/flow-map.yaml --report karate-tests/target/report.json
 python scripts/kb_iterate.py next --report karate-tests/target/report.json --tests-dir karate-tests
 python scripts/kb_iterate.py log --log karate-tests/.iterations.log --signature <sig> --hypothesis "..." --change "..." --classification <class>
 mvn -B test -Dkarate.options="classpath:features/<one>.feature"
@@ -422,14 +427,14 @@ Classification, in this order:
 
 1. **Infra.** Container did not start, wait timeout, connection refused, db-manager non-zero exit. Fix harness or env-map.
 2. **Stub or seed missing.** 404 from WireMock (it appears in `stubs-unmatched.json` with a near miss), foreign key violation, empty read. Add the stub or seed.
-3. **Expectation wrong, observed not erroneous.** Adopt observed behaviour, record `observed_override` on the entry in the ledger with old and new expectation.
+3. **Expectation wrong, observed not erroneous.** Adopt observed behaviour and record it: `python scripts/flow_map.py override --ledger karate-tests/flow-map.yaml --entry <id> --scenario <name> --field <what> --old <expected> --new <observed> --reason "..."` appends to the entry's `observed_overrides`.
 4. **Suspected app defect.** 5xx, stack trace in the response or log, behaviour that contradicts the app's own validation, data corruption. Tag the scenario `@known-defect`, write a `defects.md` entry with root cause.
 
 Rules: one hypothesis and one change per iteration, logged before the change. Targeted rerun on the touched feature, then a full run before declaring green.
 
 Stop conditions: iteration cap (default 15 full runs, `--max-iterations`), the same failure signature three iterations in a row, an infra failure not fixable from `karate-tests/`. On stop: write the status report, exit 6.
 
-`flow_map.py validate --phase green` fails when any scenario failed in the last report, any `@known-defect` scenario lacks a `defects.md` anchor, or any entry has `passing: false` without a quarantine.
+`flow_map.py record-run` sets `status.tested` on every entry that owns a feature and `status.passing` when none of its features appears in the report's `failed` list; it runs after every full `mvn test`. `flow_map.py validate --phase green` fails when any scenario failed in the last report, any `@known-defect` scenario lacks a `defects.md` anchor, or any entry has `passing: false` without a quarantine.
 
 ### 5.8 Phase 7 — Report
 
@@ -539,7 +544,7 @@ Hibernate specifics in the JVM sheets: `hibernate.cfg.xml`, `persistence.xml`, `
 skills/karate-bootstrap/
   SKILL.md
   scripts/
-    detect.py discover.py flow_map.py kb_rules.py kb_scaffold.py kb_report.py kb_iterate.py kb_checkpoint.py kb_check_skill.py
+    detect.py discover.py flow_map.py kb_rules.py kb_scaffold.py kb_report.py kb_iterate.py kb_checkpoint.py kb_prompt.py kb_check_skill.py
     (every new script carries the kb_ prefix: both skills' test conftests share one sys.path and one mypy_path,
      and main already has rules.py, config.py, inventory.py, patterns.py, validation.py and others)
   templates/karate-tests/               a real Maven project; compiles and smoke-runs in this repo's CI
@@ -554,7 +559,9 @@ skills/karate-bootstrap/
     stack-spring.md stack-quarkus.md stack-aspnetcore.md stack-python.md
     testcontainers-notes.md karate-notes.md failure-triage.md podman.md
   prompts/
-    trace.md rules.md generate.md
+    trace.md rules.md generate.md          string.Template files rendered by kb_prompt.py
+  evals/
+    trigger-eval.md                        description trigger eval: prompts that must and must not fire the skill
   fixtures/
     dotnet-deals/ fastapi-orders/ spring-shipments/
       app source, Dockerfile, deployment.yml, db-manager/ (Flyway image), expected-flow-map.yaml, planted-defect.md
@@ -565,7 +572,7 @@ Written for Opus 4.8 and Sonnet 4.6:
 
 - `SKILL.md` under 500 lines. Numbered steps, one pinned command each, one pinned output file each, an exit-code table.
 - "No improvisation" rule as in `tech-debt-scan`: a missing expected output means abort with exit 5.
-- Subagent prompts are files rendered by script with the entry-point context filled in. The main agent never composes subagent prompts freehand.
+- Subagent prompts are files rendered by `kb_prompt.py render` with the entry-point context filled in. The main agent never composes subagent prompts freehand; it passes the rendered file's path to the Agent tool. Rendered prompts live under `karate-tests/.prompts/`, which the template's `.gitignore` excludes.
 - Cheat sheets are loaded only for the detected stack.
 - Only Python dependency is `pyyaml`. The Java harness is copied verbatim; repo-specific values go to `kb-runtime.json`, never into Java source. `README.md.tmpl` is the one `string.Template` file.
 
@@ -594,7 +601,8 @@ Exit codes: 0 green, 3 unsupported stack, 4 no schema source, 5 missing expected
 
 - **Script tests.** pytest per script: ledger merge and validate against fixtures, `verify-refs` against planted good and bad refs, rules extraction against sample validators in all four stacks, report parsing against captured Karate output, scaffold output against a golden `kb-runtime.json` per fixture, the template module compiled and smoke-run under `KB_MAVEN=1 pytest -m maven`, iterate stop-condition logic.
 - **Fixture runs.** The skill run end to end on each fixture app on the author's laptop. Pass criteria: exit 0, every entry in `expected-flow-map.yaml` present in the ledger, zero unresolved, `defects.md` contains the planted defect.
-- **Trigger eval.** skill-creator description evals: fires on "add karate tests", "bootstrap integration tests", "testcontainers suite for this service"; does not fire on unit-test requests.
+- **Trigger eval.** `evals/trigger-eval.md` lists prompts that must fire the skill ("add karate tests", "bootstrap integration tests", "testcontainers suite for this service") and prompts that must not (unit-test requests). A pytest checks the `SKILL.md` description carries each positive prompt's key terms and no unit-test claim; running the prompts against a live model is a documented manual step because this repo's tests never call an LLM.
+- **Dry run.** `tests/test_kb_dry_run.py` runs every pinned SKILL.md command in order on `spring-mini` and `dotnet-mini` with canned subagent outputs and no containers, asserting each phase gate passes and the README renders; `kb_check_skill.py` lints every SKILL.md command against its script's `--help` in CI.
 
 Fixtures: `dotnet-deals` (ASP.NET Core minimal API, EF Core, Npgsql, Apache.NMS.AMQP, one downstream call, FluentValidation, auth switch), `fastapi-orders` (FastAPI, SQLAlchemy, qpid-proton, one downstream call, Pydantic), `spring-shipments` (Spring Boot, JPA, spring-jms over Qpid JMS so the fixture speaks AMQP 1.0 like the real services, one downstream call, Bean Validation). Each has a `db-manager/` Flyway image and one planted 500.
 

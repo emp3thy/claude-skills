@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from flow_map import new_entry
 from kb_common import (
     EXIT_OK,
     LEDGER_VERSION,
@@ -581,30 +582,10 @@ def build_env_map(stack_info: dict[str, Any], manifest: dict[str, Any] | None,
     }
 
 
-def _blank_status() -> dict[str, bool]:
-    return {"traced": False, "stubbed": False, "tested": False, "passing": False}
-
-
 def seed_ledger(stack_info: dict[str, Any], env_map: dict[str, Any],
                 entries: list[dict[str, Any]], migrations: dict[str, Any],
                 repo_name: str, dockerfile_rel: str | None) -> dict[str, Any]:
-    entry_points: list[dict[str, Any]] = []
-    for entry in entries:
-        item: dict[str, Any] = dict(entry)
-        item.update({
-            "auth": "unknown",
-            "request": None,
-            "responses": [],
-            "reads": [],
-            "exits": [],
-            "rules": {"file": None, "count": 0, "sources": []},
-            "features": [],
-            "stubs": [],
-            "seeds": [],
-            "observed_overrides": [],
-            "status": _blank_status(),
-        })
-        entry_points.append(item)
+    entry_points = [new_entry(entry) for entry in entries]
     manifest = env_map.get("manifest") or {}
     return {
         "version": LEDGER_VERSION,

@@ -21,7 +21,9 @@ from discover import (
     parse_app_config,
     parse_dockerfile,
     parse_manifest,
+    seed_ledger,
 )
+from flow_map import new_entry
 from kb_common import read_yaml
 from kb_helpers import line_of
 
@@ -423,3 +425,15 @@ def test_class_decl_regex_is_linear_on_long_attribute_lines() -> None:
         assert _CLASS_DECL_RE.search("[" + "a" * length + "] somethingElse") is None
         assert _CLASS_DECL_RE.search("[" + "a" * length) is None
         assert _CLASS_DECL_RE.search('[Route("' + "x" * length + '")] public class C {') is not None
+
+
+def test_seed_ledger_entries_match_new_entry_shape() -> None:
+    root = FIXTURES / "spring-mini"
+    stack_info = detect(root)
+    config = parse_app_config(root)
+    env_map = build_env_map(stack_info, None, None, config)
+    entries = find_entry_points(root, "spring", config)
+    ledger = seed_ledger(stack_info, env_map, entries, detect_migrations(root, "spring", config),
+                        "spring-mini", "Dockerfile")
+    for seeded, base in zip(ledger["entry_points"], entries, strict=True):
+        assert seeded == new_entry(base)

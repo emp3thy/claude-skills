@@ -133,3 +133,9 @@ def test_run_cli_maps_kberror_to_exit_code(capsys: pytest.CaptureFixture[str]) -
 
     assert run_cli(failing, []) == EXIT_MISSING_OUTPUT
     assert "error: no stack" in capsys.readouterr().err
+
+
+def test_read_json_accepts_a_reply_wrapped_in_a_code_fence(tmp_path: Path) -> None:
+    fenced = tmp_path / "reply.json"
+    fenced.write_text('```json\n{"id": "POST /x", "exits": []}\n```\n', encoding="utf-8")
+    assert read_json(fenced) == {"id": "POST /x", "exits": []}

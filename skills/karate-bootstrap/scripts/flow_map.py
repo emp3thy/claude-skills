@@ -4,9 +4,20 @@ Subcommands:
     next        --phase traced|generated --ledger PATH
                 prints JSON {id, kind, handler, cheat_sheet} for the next pending entry,
                 or {"done": true}
-    merge       ENTRY_JSON --ledger PATH
-                merges one trace subagent result into its entry
-    mark        --entry ID (--generated|--tested|--passing|--failing) --ledger PATH
+    merge       ENTRY_JSON --ledger PATH [--union]
+                merges one trace subagent result into its entry; --union keeps the union of
+                the entry's exits, reads and responses with the reply's and prints one
+                ``disagreement:`` line per item only one of them saw (spec 5.3, --double-trace)
+    mark        --entry ID (--generated|--tested|--passing|--failing)
+                [--feature F]... [--stub S]... [--seed X]... --ledger PATH
+                flips status flags and records generated files on the entry
+    add-entry   --ledger PATH --id ID --kind http|amq-subscribe --handler file:line
+                [--method M --path P] [--destination D --type queue|topic]
+                seeds an entry the discover regexes missed (spec 5.2)
+    record-run  --ledger PATH --report PATH
+                sets tested and passing on every entry with features from report.json
+    override    --ledger PATH --entry ID --scenario S --field F --old O --new N --reason R
+                appends an observed-behaviour override (spec 5.7, classification 3)
     set-auth    --ledger PATH --mode disabled|jwks|none|blocked [--key K --value V]
                 [--issuer-keys A,B]
                 records the confirmed auth mode on app.auth (spec 5.2)
@@ -27,6 +38,7 @@ import argparse
 import json
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, cast
 
@@ -58,6 +70,7 @@ _REQUIRED_EXIT_FIELDS = {
 }
 
 AUTH_MODES = ("disabled", "jwks", "none", "blocked")
+ENTRY_KINDS = ("http", "amq-subscribe")
 
 
 def load_ledger(path: Path) -> dict[str, Any]:
@@ -78,6 +91,52 @@ def find_entry(ledger: dict[str, Any], entry_id: str) -> dict[str, Any]:
         if entry.get("id") == entry_id:
             return cast(dict[str, Any], entry)
     raise KbError(f"unknown entry {entry_id!r}")
+
+
+def new_entry(base: dict[str, Any]) -> dict[str, Any]:
+    """An untraced entry: ``base`` (id, kind, handler and the kind's own fields) plus the
+    bookkeeping fields every phase expects. discover.seed_ledger and add_entry both use it."""
+    item: dict[str, Any] = dict(base)
+    item.update({
+        "auth": "unknown",
+        "request": None,
+        "responses": [],
+        "reads": [],
+        "exits": [],
+        "rules": {"file": None, "count": 0, "sources": []},
+        "features": [],
+        "stubs": [],
+        "seeds": [],
+        "observed_overrides": [],
+        "status": dict.fromkeys(STATUS_FLAGS, False),
+    })
+    return item
+
+
+def add_entry(ledger: dict[str, Any], entry_id: str, kind: str, handler: str,
+              method: str | None = None, path: str | None = None,
+              destination: str | None = None, dest_type: str = "queue") -> dict[str, Any]:
+    """Seed an entry point the discover regexes missed (spec 5.2)."""
+    if kind not in ENTRY_KINDS:
+        raise KbError(f"{entry_id}: unknown entry kind {kind!r}; expected one of {ENTRY_KINDS}")
+    if any(e.get("id") == entry_id for e in ledger["entry_points"]):
+        raise KbError(f"{entry_id}: already in the ledger")
+    clean_handler = handler.replace("\\", "/")
+    if not VIA_RE.match(clean_handler):
+        raise KbError(f"{entry_id}: handler must be file:line, got {handler!r}")
+    base: dict[str, Any] = {"id": entry_id, "kind": kind}
+    if kind == "http":
+        if not method or not path:
+            raise KbError(f"{entry_id}: http entries need --method and --path")
+        base.update({"method": method.upper(), "path": path})
+    else:
+        if not destination:
+            raise KbError(f"{entry_id}: amq-subscribe entries need --destination")
+        base.update({"destination": destination, "type": dest_type})
+    base["handler"] = clean_handler
+    entry = new_entry(base)
+    ledger["entry_points"].append(entry)
+    return entry
 
 
 def _pending(entry: dict[str, Any], phase: str) -> bool:
@@ -127,20 +186,101 @@ def _validate_exits(entry_id: str, exits: list[dict[str, Any]]) -> None:
             item.setdefault("type", "queue")
 
 
-def merge_entry(ledger: dict[str, Any], traced: dict[str, Any]) -> int:
+def _prepared(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Copies with a posix ``via`` and the amq ``type`` default applied.
+
+    A Windows trace still points at a posix path, and two traces of the same publish must
+    compare equal under ``--union`` whether or not either spelled out ``type``.
+    """
+    out: list[dict[str, Any]] = []
+    for item in items:
+        copy = dict(item)
+        via = copy.get("via")
+        if isinstance(via, str):
+            copy["via"] = via.replace("\\", "/")
+        if copy.get("kind") == "amq-publish":
+            copy.setdefault("type", "queue")
+        out.append(copy)
+    return out
+
+
+def _union_key(item: dict[str, Any]) -> str:
+    """Identity of an exit or read under ``--union``: every field except ``via``.
+
+    Two traces that found the same exit through different lines are the same exit (spec 5.3).
+    """
+    return json.dumps({k: v for k, v in item.items() if k != "via"}, sort_keys=True)
+
+
+def _union(current: list[dict[str, Any]], incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """``current`` then whatever ``incoming`` adds; the first ``via`` for an item wins."""
+    merged = list(current)
+    seen = {_union_key(item) for item in current}
+    for item in incoming:
+        key = _union_key(item)
+        if key not in seen:
+            merged.append(item)
+            seen.add(key)
+    return merged
+
+
+def _union_responses(current: list[dict[str, Any]],
+                     incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Responses are unioned by ``status``: the first reply's wording for a status wins."""
+    merged = list(current)
+    seen = {str(item.get("status")) for item in current}
+    for item in incoming:
+        status = str(item.get("status"))
+        if status not in seen:
+            merged.append(item)
+            seen.add(status)
+    return merged
+
+
+def _describe(item: dict[str, Any]) -> str:
+    what = item.get("table") or item.get("destination") or " ".join(
+        str(part) for part in (item.get("method"), item.get("path")) if part
+    )
+    return (f"disagreement: {item.get('kind')} {what} "
+            f"via {item.get('via') or '-'}")
+
+
+def union_disagreements(ledger: dict[str, Any], traced: dict[str, Any]) -> list[str]:
+    """One line per exit or read that only the ledger entry or only ``traced`` lists.
+
+    Call before ``merge_entry(..., union=True)``: the main agent re-traces every location
+    named here with ``--focus`` before the traced gate (spec 5.3).
+    """
+    entry = find_entry(ledger, str(traced.get("id", "")))
+    lines: list[str] = []
+    for field in ("exits", "reads"):
+        current = _prepared(list(entry.get(field) or []))
+        incoming = _prepared(list(traced.get(field) or []))
+        current_keys = {_union_key(item) for item in current}
+        incoming_keys = {_union_key(item) for item in incoming}
+        lines.extend(_describe(i) for i in current if _union_key(i) not in incoming_keys)
+        lines.extend(_describe(i) for i in incoming if _union_key(i) not in current_keys)
+    return lines
+
+
+def merge_entry(ledger: dict[str, Any], traced: dict[str, Any], union: bool = False) -> int:
     entry_id = str(traced.get("id", ""))
     entry = find_entry(ledger, entry_id)
-    exits = list(traced.get("exits", []))
-    for item in exits:
-        via = item.get("via")
-        if isinstance(via, str):
-            item["via"] = via.replace("\\", "/")  # a Windows trace still points at a posix path
+    exits = _prepared(list(traced.get("exits", [])))
     _validate_exits(entry_id, exits)
     _validate_reads(entry_id, list(traced.get("reads", [])))
+    before_exits = _prepared(list(entry.get("exits") or []))
+    before_reads = _prepared(list(entry.get("reads") or []))
+    before_responses = list(entry.get("responses") or [])
     for field in MERGE_FIELDS:
         if field in traced:
             entry[field] = traced[field]
     entry["exits"] = exits
+    if union:
+        entry["exits"] = _union(before_exits, exits)
+        entry["reads"] = _union(before_reads, _prepared(list(traced.get("reads", []))))
+        entry["responses"] = _union_responses(before_responses,
+                                              list(traced.get("responses", [])))
     incoming_sources = traced.get("rules", {}).get("sources", [])
     rules = entry.setdefault("rules", {"file": None, "count": 0, "sources": []})
     known = {s["file"] for s in rules["sources"]}
@@ -155,7 +295,7 @@ def merge_entry(ledger: dict[str, Any], traced: dict[str, Any]) -> int:
     ]
     ledger["unresolved"] = [u for u in ledger["unresolved"] if u.get("entry") != entry_id]
     ledger["unresolved"].extend(unresolved)
-    complete = bool(exits) or bool(entry.get("exits_none_reason"))
+    complete = bool(entry.get("exits")) or bool(entry.get("exits_none_reason"))
     entry.setdefault("status", dict.fromkeys(STATUS_FLAGS, False))
     entry["status"]["traced"] = not unresolved and complete
     return len(unresolved)
@@ -169,6 +309,55 @@ def mark_entry(ledger: dict[str, Any], entry_id: str, flag: str, value: bool = T
     entry["status"][flag] = value
 
 
+RESOURCES_PREFIX = "src/test/resources/"
+
+
+def record_files(ledger: dict[str, Any], entry_id: str, features: Iterable[str] = (),
+                 stubs: Iterable[str] = (), seeds: Iterable[str] = ()) -> dict[str, Any]:
+    """Append generated file paths (posix, de-duplicated) to the entry's lists.
+
+    Features are stored relative to ``src/test/resources`` (the classpath root the gate and
+    the report parser use); a path given from the tests root is trimmed to that form. Stubs
+    and seeds stay relative to the tests root.
+    """
+    entry = find_entry(ledger, entry_id)
+    for key, items in (("features", features), ("stubs", stubs), ("seeds", seeds)):
+        existing: list[str] = entry.setdefault(key, [])
+        for item in items:
+            clean = str(item).replace("\\", "/")
+            if key == "features" and clean.startswith(RESOURCES_PREFIX):
+                clean = clean[len(RESOURCES_PREFIX):]
+            if clean not in existing:
+                existing.append(clean)
+    return entry
+
+
+def record_run(ledger: dict[str, Any], report: dict[str, Any]) -> dict[str, int]:
+    """After a full run: every entry with features is tested; passing unless one of its
+    features appears in the report's failed list (spec 5.7)."""
+    failed_features = {str(item.get("feature", "")) for item in report.get("failed", [])}
+    counts = {"tested": 0, "passing": 0, "failing": 0}
+    for entry in ledger["entry_points"]:
+        features = [str(f) for f in entry.get("features", [])]
+        if not features:
+            continue
+        status = entry.setdefault("status", dict.fromkeys(STATUS_FLAGS, False))
+        status["tested"] = True
+        status["passing"] = not (set(features) & failed_features)
+        counts["tested"] += 1
+        counts["passing" if status["passing"] else "failing"] += 1
+    return counts
+
+
+def add_override(ledger: dict[str, Any], entry_id: str, scenario: str, field: str,
+                 old: str, new: str, reason: str) -> dict[str, Any]:
+    """Record that a generated expectation was replaced by observed behaviour."""
+    entry = find_entry(ledger, entry_id)
+    item = {"scenario": scenario, "field": field, "old": old, "new": new, "reason": reason}
+    entry.setdefault("observed_overrides", []).append(item)
+    return item
+
+
 def _cmd_next(args: argparse.Namespace) -> int:
     ledger = load_ledger(args.ledger)
     pending = next_entry(ledger, args.phase)
@@ -176,13 +365,24 @@ def _cmd_next(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+INCOMPLETE_NOTE = "incomplete: no exits and no exits_none_reason"
+
+
 def _cmd_merge(args: argparse.Namespace) -> int:
     ledger = load_ledger(args.ledger)
     traced = read_json(require_file(args.entry_json, "trace result"))
-    count = merge_entry(ledger, traced)
-    save_ledger(args.ledger, ledger)
-    print(f"merged {traced['id']}; unresolved: {count}")
-    return EXIT_OK
+    disagreements = union_disagreements(ledger, traced) if args.union else []
+    count = merge_entry(ledger, traced, union=args.union)
+    save_ledger(args.ledger, ledger)  # save first: an incomplete merge still keeps what it found
+    entry = find_entry(ledger, str(traced["id"]))
+    incomplete = not entry.get("exits") and not entry.get("exits_none_reason")
+    line = f"merged {traced['id']}; unresolved: {count}"
+    if incomplete:
+        line += f"; {INCOMPLETE_NOTE}"
+    print(line)
+    for text in disagreements:
+        print(text)
+    return EXIT_VALIDATION if incomplete else EXIT_OK
 
 
 def _cmd_mark(args: argparse.Namespace) -> int:
@@ -195,6 +395,7 @@ def _cmd_mark(args: argparse.Namespace) -> int:
         mark_entry(ledger, args.entry, "passing")
     if args.failing:
         mark_entry(ledger, args.entry, "passing", False)
+    record_files(ledger, args.entry, args.feature or [], args.stub or [], args.seed or [])
     save_ledger(args.ledger, ledger)
     print(f"marked {args.entry}: {find_entry(ledger, args.entry)['status']}")
     return EXIT_OK
@@ -228,6 +429,34 @@ def _cmd_set_auth(args: argparse.Namespace) -> int:
     auth = set_auth(ledger, args.mode, args.key, args.value, keys)
     save_ledger(args.ledger, ledger)
     print(f"app.auth: {json.dumps(auth)}")
+    return EXIT_OK
+
+
+def _cmd_add_entry(args: argparse.Namespace) -> int:
+    ledger = load_ledger(args.ledger)
+    entry = add_entry(ledger, args.id, args.kind, args.handler, args.method, args.path,
+                      args.destination, args.type)
+    save_ledger(args.ledger, ledger)
+    print(f"added {entry['id']} ({entry['kind']}) at {entry['handler']}")
+    return EXIT_OK
+
+
+def _cmd_record_run(args: argparse.Namespace) -> int:
+    ledger = load_ledger(args.ledger)
+    report = read_json(require_file(args.report, "report.json"))
+    counts = record_run(ledger, report)
+    save_ledger(args.ledger, ledger)
+    print(f"recorded run: tested: {counts['tested']}  passing: {counts['passing']}  "
+          f"failing: {counts['failing']}")
+    return EXIT_OK
+
+
+def _cmd_override(args: argparse.Namespace) -> int:
+    ledger = load_ledger(args.ledger)
+    item = add_override(ledger, args.entry, args.scenario, args.field, args.old, args.new,
+                        args.reason)
+    save_ledger(args.ledger, ledger)
+    print(f"override on {args.entry}: {json.dumps(item)}")
     return EXIT_OK
 
 
@@ -462,6 +691,9 @@ def build_parser() -> argparse.ArgumentParser:
     merge = sub.add_parser("merge", help="Merge a trace subagent result into the ledger")
     merge.add_argument("entry_json", type=Path)
     merge.add_argument("--ledger", type=Path, required=True)
+    merge.add_argument("--union", action="store_true",
+                       help="keep the union of the entry's exits, reads and responses with "
+                            "the reply's and print the disagreements (--double-trace)")
     merge.set_defaults(func=_cmd_merge)
 
     mark = sub.add_parser("mark", help="Flip status flags on one entry")
@@ -471,6 +703,9 @@ def build_parser() -> argparse.ArgumentParser:
     mark.add_argument("--tested", action="store_true")
     mark.add_argument("--passing", action="store_true")
     mark.add_argument("--failing", action="store_true")
+    mark.add_argument("--feature", action="append", help="feature path to record (repeatable)")
+    mark.add_argument("--stub", action="append", help="stub path to record (repeatable)")
+    mark.add_argument("--seed", action="append", help="seed path to record (repeatable)")
     mark.set_defaults(func=_cmd_mark)
 
     auth = sub.add_parser("set-auth", help="Record the confirmed auth mode on app.auth")
@@ -481,6 +716,32 @@ def build_parser() -> argparse.ArgumentParser:
     auth.add_argument("--issuer-keys", default=None,
                       help="comma-separated issuer or JWKS env vars (mode jwks)")
     auth.set_defaults(func=_cmd_set_auth)
+
+    add = sub.add_parser("add-entry", help="Seed an entry point the discover regexes missed")
+    add.add_argument("--ledger", type=Path, required=True)
+    add.add_argument("--id", required=True, help='entry id, e.g. "PUT /api/deals/{id}"')
+    add.add_argument("--kind", choices=ENTRY_KINDS, required=True)
+    add.add_argument("--handler", required=True, help="file:line of the handler")
+    add.add_argument("--method", default=None, help="HTTP method (kind http)")
+    add.add_argument("--path", default=None, help="route path (kind http)")
+    add.add_argument("--destination", default=None, help="queue or topic name (kind amq-subscribe)")
+    add.add_argument("--type", choices=("queue", "topic"), default="queue")
+    add.set_defaults(func=_cmd_add_entry)
+
+    run = sub.add_parser("record-run", help="Set tested and passing per entry from report.json")
+    run.add_argument("--ledger", type=Path, required=True)
+    run.add_argument("--report", type=Path, required=True)
+    run.set_defaults(func=_cmd_record_run)
+
+    over = sub.add_parser("override", help="Append an observed-behaviour override to an entry")
+    over.add_argument("--ledger", type=Path, required=True)
+    over.add_argument("--entry", required=True)
+    over.add_argument("--scenario", required=True)
+    over.add_argument("--field", required=True)
+    over.add_argument("--old", required=True)
+    over.add_argument("--new", required=True)
+    over.add_argument("--reason", required=True)
+    over.set_defaults(func=_cmd_override)
 
     val = sub.add_parser("validate", help="Run a phase gate")
     val.add_argument("--phase", choices=("traced", "generated", "green"), required=True)

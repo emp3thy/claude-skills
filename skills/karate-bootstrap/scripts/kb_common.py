@@ -11,6 +11,7 @@ Every script is direct-path invocable and imports this module flatly
 from __future__ import annotations
 
 import json
+import re
 import sys
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
@@ -65,9 +66,17 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+# A subagent reply wrapped in a markdown code fence: keep only the object inside it.
+_FENCE_RE = re.compile(r"\A\s*```[A-Za-z]*[ \t]*\n(.*?)\n[ \t]*```\s*\Z", re.DOTALL)
+
+
 def read_json(path: Path) -> dict[str, Any]:
+    text = read_text(path)
+    fenced = _FENCE_RE.match(text)
+    if fenced:
+        text = fenced.group(1)
     try:
-        data = json.loads(read_text(path))
+        data = json.loads(text)
     except json.JSONDecodeError as err:
         raise KbError(f"{path}: invalid JSON: {err}") from err
     if not isinstance(data, dict):

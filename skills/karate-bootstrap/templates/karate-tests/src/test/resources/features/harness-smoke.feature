@@ -13,6 +13,14 @@ Scenario: mutate helper covers every mutation kind
   * match mutate(base, 'kind', 'invalid_enum', '').kind == 'NOT_A_VALUE'
   * match mutate(base, 'qty', 'cross_field', 'gt:limit').qty == 'gt:limit'
 
+Scenario: checkError helper skips empty expectations and reports the rest
+  * def body = { code: 'VALIDATION', message: 'reference is required' }
+  * match checkError(body, '', '') == []
+  * match checkError(body, 'VALIDATION', 'is required') == []
+  * match checkError(body, 'OTHER', '') == ['#regex expected error code .*']
+  * match checkError(body, '', 'missing text') == ['#regex expected message containing .*']
+  * match checkError('plain text body', '', 'text') == []
+
 Scenario: runtime configuration is on the classpath
   * def Runtime = Java.type('kb.harness.KbRuntime')
   * def rt = Runtime.load()
@@ -26,6 +34,15 @@ Scenario Outline: dynamic outline from csv works: <rule_id>
 
   Examples:
     | read('classpath:rules/harness-smoke.csv') |
+
+Scenario Outline: karate.filter drops cross_field rows from a csv outline: <rule_id>
+  * def m = '<mutation>'
+  * assert m != 'cross_field'
+  * def payload = mutate({ a: 'x', b: 2 }, '<field>', '<mutation>', '<value>')
+  * match payload.<field> == <expected>
+
+  Examples:
+    | karate.filter(read('classpath:rules/harness-smoke.csv'), function(r){ return r.mutation != 'cross_field' }) |
 
 Scenario: reset feature accepts empty arguments without containers
   * def bare = call read('classpath:common/reset.feature')
