@@ -7,9 +7,18 @@ SKILL.md (phase 3) dispatches exactly the plan's entries. In phase 2 ``chunked``
 is always false and the chunking thresholds are recorded only.
 
 Leads are one union of deterministic signals per family (the table in the phase 2
-plan); at most ``LEAD_CAP`` lines reach a prompt, hotspot-band files first.
-Path-class disables from ``families.per_path_class`` drop leads before the
-adaptive rule counts them, and the prompt names the disabled families.
+plan), each kind sorted hotspot-band files first. ``LEAD_CAP`` bounds the pattern
+leads alone (spec 4.6: "40 per family, hotspot-band first" is said of pattern
+leads and tool signals); the band, the coupled pairs, the SATD markers and the
+artefacts are separate items of that sentence and are emitted in full, the band
+already bounded by ``hotspot_band.max``. Path-class disables from
+``families.per_path_class`` drop leads before the adaptive rule counts them, and
+the prompt names the disabled families.
+
+An inventory lead only counts towards the adaptive rule when the family's primary
+metric clears a floor: ``max_indent >= 1`` and ``loc >= 1`` hold for every
+non-empty file, so without one complex-units and god-classes would be dispatched
+on every repository that has any code at all.
 
 Direct-path invocable: `python plan_scan.py --workdir .tech-debt [--families <set>]`.
 """
@@ -184,8 +193,19 @@ def _artefacts(docs: ScanDocs, classes: tuple[str, ...]) -> list[Lead]:
     return out
 
 
-def _top_by(docs: ScanDocs, keys: tuple[str, ...], limit: int) -> list[Lead]:
-    """The ``limit`` source files ranked by ``keys`` (nulls last), rendered as key=value."""
+def _top_by(
+    docs: ScanDocs,
+    keys: tuple[str, ...],
+    limit: int,
+    keep: Callable[[dict[str, Any]], bool],
+) -> list[Lead]:
+    """The ``limit`` source files ranked by ``keys`` (nulls last) that ``keep`` accepts.
+
+    ``keep`` is the family's floor on its primary metric, not a formality: a
+    "any key above zero" test is true of every non-empty file (``max_indent`` and
+    ``loc`` are both at least 1 there), which would carry the family past the
+    adaptive rule of spec 2.4 on any repository at all.
+    """
     def sort_key(entry: dict[str, Any]) -> tuple[float, ...]:
         return tuple(-(_number(entry.get(k)) or 0.0) for k in keys)
 
@@ -193,8 +213,20 @@ def _top_by(docs: ScanDocs, keys: tuple[str, ...], limit: int) -> list[Lead]:
     return [
         Lead("inventory", str(e["path"]), None, " ".join(f"{k}={e.get(k)}" for k in keys))
         for e in ranked
-        if any((_number(e.get(k)) or 0.0) > 0 for k in keys)
+        if keep(e)
     ]
+
+
+def _has_deep_nesting(entry: dict[str, Any]) -> bool:
+    """complex-units' floor: a run of nested lines or a line indented past the deep mark."""
+    return ((_number(entry.get("longest_indented_run")) or 0.0) > 0
+            or (_number(entry.get("deep_indent_lines")) or 0.0) > 0)
+
+
+def _is_large_or_depended_on(entry: dict[str, Any]) -> bool:
+    """god-classes' floor: a file big enough to hide one, or one three files already use."""
+    return ((_number(entry.get("loc")) or 0.0) >= 300
+            or (_number(entry.get("fan_in_approx")) or 0.0) >= 3)
 
 
 def _inventory_where(
@@ -284,9 +316,12 @@ def _migration_rule_leads(docs: ScanDocs) -> list[Lead]:
 def _raw_leads(family: str, docs: ScanDocs) -> list[Lead]:
     if family == "complex-units":
         return _band(docs) + _top_by(
-            docs, ("longest_indented_run", "deep_indent_lines", "max_indent"), 10)
+            docs, ("longest_indented_run", "deep_indent_lines", "max_indent"), 10,
+            _has_deep_nesting)
     if family == "god-classes":
-        return _band(docs) + _top_by(docs, ("loc", "fan_in_approx"), 10) + _pairs(docs)
+        return (_band(docs)
+                + _top_by(docs, ("loc", "fan_in_approx"), 10, _is_large_or_depended_on)
+                + _pairs(docs))
     if family == "duplication":
         return _band(docs) + _pairs(docs)
     if family == "dead-code":
@@ -322,7 +357,15 @@ def _raw_leads(family: str, docs: ScanDocs) -> list[Lead]:
 
 
 def leads_for(family: str, docs: ScanDocs, config: dict[str, Any]) -> list[Lead]:
-    """Filtered, ordered, capped leads for one family (hotspot-band first, then path)."""
+    """Filtered, ordered leads for one family (hotspot-band first, then path).
+
+    ``LEAD_CAP`` bounds the pattern leads alone, band files first within that
+    kind. Spec 4.6 says "40 per family, hotspot-band first" of the pattern leads
+    and tool signals; the band, the pairs, the SATD list and the artefacts are
+    separate items of the same sentence. Capping the whole block instead is
+    kind-major, so a repository with 40 or more band files (``hotspot_band.max``
+    is 50) would send a prompt of band lines and no pattern leads at all.
+    """
     classes = _path_classes(docs)
     band = set(docs.inventory.get("hotspot_band", []))
     kept = [
@@ -332,7 +375,15 @@ def leads_for(family: str, docs: ScanDocs, config: dict[str, Any]) -> list[Lead]
     kept.sort(key=lambda lead: (
         KIND_ORDER.index(lead.kind), lead.path not in band, -lead.score, lead.path, lead.line or 0,
     ))
-    return kept[:LEAD_CAP]
+    out: list[Lead] = []
+    capped = 0
+    for lead in kept:
+        if lead.kind == "pattern":
+            if capped >= LEAD_CAP:
+                continue
+            capped += 1
+        out.append(lead)
+    return out
 
 
 def render_leads(leads: list[Lead]) -> str:
@@ -364,6 +415,10 @@ def _resolve_set(config: dict[str, Any], families: str | list[str] | None) -> tu
         return "explicit", [f for f in FAMILIES if f in requested]
     if "," in requested:
         return _resolve_set(config, [f.strip() for f in requested.split(",") if f.strip()])
+    # A bare family name is a list of one: no set is named after a family, so
+    # ``--families security`` can only mean the explicit list ``[security]``.
+    if requested in FAMILIES:
+        return _resolve_set(config, [requested])
     if requested not in FAMILY_SETS:
         raise ConfigError(f"families must be default, quick, deep or a list, got {requested!r}")
     return requested, list(FAMILY_SETS[requested])
@@ -425,11 +480,16 @@ def build_plan(
 
 
 def write_plan(workdir: Path, plan: dict[str, Any], prompts: dict[str, str]) -> None:
-    """LF-only prompt files under ``prompts/`` and the plan document."""
+    """LF-only prompt files under ``prompts/`` and the plan document.
+
+    ``scouts/`` is created here even when it stays empty: each entry's ``output``
+    points into it, and phase 3 dispatches an agent that writes there.
+    """
     for rel, text in prompts.items():
         target = workdir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(text.encode("utf-8"))
+    (workdir / "scouts").mkdir(parents=True, exist_ok=True)
     write_json(workdir / "scan-plan.json", plan)
 
 
@@ -447,7 +507,10 @@ def _main(argv: list[str] | None = None) -> int:
         docs = load_docs(workdir)
         config = load_config(Path(str(docs.inventory.get("root", "."))))
         plan, prompts = build_plan(workdir, config, families=args.families, top=args.top)
-    except (FileNotFoundError, ConfigError) as exc:
+    # OSError covers a missing or unreadable signal file (FileNotFoundError is one);
+    # ValueError covers a signal file that is not JSON; KeyError covers a document
+    # missing a field a lead source reads.
+    except (ConfigError, OSError, ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     write_plan(workdir, plan, prompts)

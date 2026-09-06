@@ -116,18 +116,37 @@ def test_set_forms_and_explicit_list_bypass_adaptive_rule(
 
 
 def test_no_leads_family_is_skipped_with_reason(tmp_path: Path) -> None:
+    """A family runs only when its leads block is non-empty (spec 2.4).
+
+    ``src/b.py`` holds one indented line, so ``max_indent`` is 1 and ``loc`` is 2
+    on a file with no debt in it at all. Without a floor on each family's primary
+    metric the inventory lead is true of every non-empty file, and complex-units
+    and god-classes would be dispatched on every repository that has any code.
+    """
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "src" / "b.py").write_text("def f(value):\n    return value\n", encoding="utf-8")
     workdir = tmp_path / "wd"
     _signals(repo, workdir)
-    plan, _ = build_plan(workdir, DEFAULTS, families=None, top=None)
+    plan, _ = build_plan(workdir, DEFAULTS, families="deep", top=None)
     skipped = {s["family"]: s["reason"] for s in plan["families_skipped"]}
     assert skipped.get("security") == "no leads"
     assert skipped.get("dependency-debt") == "no leads"
+    assert skipped.get("complex-units") == "no leads"
+    assert skipped.get("god-classes") == "no leads"
 
 
-def test_lead_cap_and_hotspot_band_first(corpus_workdirs: dict[str, tuple[Path, Path]]) -> None:
+def test_lead_cap_applies_to_pattern_leads_and_spares_the_other_kinds(
+    corpus_workdirs: dict[str, tuple[Path, Path]]
+) -> None:
+    """Spec 4.6 caps pattern leads and tool signals at 40 per family, band files first.
+
+    The hotspot band, coupled pairs, SATD markers and artefacts are separate
+    items of the same sentence and carry no cap of their own (the band is already
+    bounded by ``hotspot_band.max``). Capping the whole block kind-major would let
+    a full band crowd every pattern lead out of a large repository's prompt.
+    """
     _, workdir = corpus_workdirs["service-py"]
     docs = load_docs(workdir)
     inflated = ScanDocs(
@@ -146,8 +165,16 @@ def test_lead_cap_and_hotspot_band_first(corpus_workdirs: dict[str, tuple[Path, 
     family_leads = inflated.patterns["leads"]["half-finished"]
     inflated.patterns["leads"]["half-finished"] = extra + family_leads
     leads = leads_for("half-finished", inflated, DEFAULTS)
-    assert len(leads) == LEAD_CAP
-    assert leads[0].path in docs.inventory["hotspot_band"]
+    patterns = [lead for lead in leads if lead.kind == "pattern"]
+    assert len(patterns) == LEAD_CAP
+    # Band files first within the capped kind, so the cap never drops one of them.
+    in_band = [lead.path in set(docs.inventory["hotspot_band"]) for lead in patterns]
+    assert in_band == sorted(in_band, reverse=True)
+    assert band in [lead.path for lead in patterns]
+    assert leads[0].kind == "hotspot" and leads[0].path in docs.inventory["hotspot_band"]
+    assert len([lead for lead in leads if lead.kind == "hotspot"]) == len(
+        docs.inventory["hotspot_band"])
+    assert len([lead for lead in leads if lead.kind == "satd"]) == len(docs.patterns["satd"])
 
 
 def test_path_class_disables_drop_leads_and_are_named_in_the_prompt(tmp_path: Path) -> None:
@@ -170,11 +197,41 @@ def test_path_class_disables_drop_leads_and_are_named_in_the_prompt(tmp_path: Pa
     assert entry["leads"] == 0
 
 
+def test_a_single_family_name_is_an_explicit_one_element_list(
+    corpus_workdirs: dict[str, tuple[Path, Path]]
+) -> None:
+    """``--families security`` is a list of one, not an unknown set name (exit 2)."""
+    _, workdir = corpus_workdirs["mixed-decoys"]
+    plan, prompts = build_plan(workdir, DEFAULTS, families="security", top=None)
+    assert plan["set"] == "explicit"
+    assert plan["families_run"] == ["security"]
+    assert set(prompts) == {"prompts/scout-security.md"}
+    assert {s["reason"] for s in plan["families_skipped"]} == {"not in set"}
+    assert _main(["--workdir", str(workdir), "--families", "security"]) == 0
+
+
+def test_cli_reports_a_corrupt_signal_file_instead_of_a_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A signal file that is not JSON exits 2 with an ``error:`` line, like the siblings."""
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    workdir = tmp_path / "wd"
+    _signals(repo, workdir)
+    (workdir / "patterns.json").write_bytes(b"{ not json")
+    assert _main(["--workdir", str(workdir)]) == 2
+    assert "error:" in capsys.readouterr().err
+
+
 def test_cli_writes_plan_and_prompts(corpus_workdirs: dict[str, tuple[Path, Path]]) -> None:
     _, workdir = corpus_workdirs["web-ts"]
     assert _main(["--workdir", str(workdir), "--families", "quick", "--top", "3"]) == 0
     plan = json.loads((workdir / "scan-plan.json").read_bytes())
     assert plan["top"] == 3
+    # Phase 3 dispatches the plan and writes each scout reply to scouts/<family>.json;
+    # the directory is created here so an agent's write never hits a missing parent.
+    assert (workdir / "scouts").is_dir()
     for entry in plan["entries"]:
         prompt = (workdir / entry["prompt"]).read_bytes()
         assert b"\r" not in prompt and prompt.endswith(b"\n")
