@@ -297,3 +297,62 @@ class TestRunTool:
 
         result = run_tool(TOOLS["ruff"], "no-such-exe", ["no-such-exe"], tmp_path, 5)
         assert result.status == "failed"
+
+    def test_report_file_valid_survives_nonzero_exit(self, tmp_path: Path) -> None:
+        """jscpd's findings_exit is empty; a valid, already-written report must
+        not be discarded just because the exit code is unexpected. The report
+        decides and the exit code is commentary for this channel."""
+        from tools_probe import TOOLS, run_tool
+
+        exe, argv = _fake_tool(tmp_path, """
+            import json, os, sys
+            out = sys.argv[1]
+            os.makedirs(out, exist_ok=True)
+            with open(os.path.join(out, "jscpd-report.json"), "w", encoding="utf-8") as fh:
+                json.dump({"duplicates": [{"lines": 8}]}, fh)
+            sys.exit(1)
+        """)
+        result = run_tool(TOOLS["jscpd"], exe, argv, tmp_path, 30)
+        assert result.status == "ran"
+        assert result.payload == {"duplicates": [{"lines": 8}]}
+
+    def test_report_file_present_but_unparseable_is_failed(self, tmp_path: Path) -> None:
+        """Mirror of the tested stdout-unparseable branch, for the channel
+        the spec itself says is the trickiest."""
+        from tools_probe import TOOLS, run_tool
+
+        exe, argv = _fake_tool(tmp_path, """
+            import os, sys
+            out = sys.argv[1]
+            os.makedirs(out, exist_ok=True)
+            with open(os.path.join(out, "jscpd-report.json"), "w", encoding="utf-8") as fh:
+                fh.write("not json at all")
+            sys.exit(0)
+        """)
+        result = run_tool(TOOLS["jscpd"], exe, argv, tmp_path, 30)
+        assert result.status == "failed"
+
+    def test_cleanup_error_does_not_lose_the_result(self, tmp_path: Path, monkeypatch) -> None:
+        """A transient Windows file-lock during cleanup() must not replace a
+        pending ToolResult return with an exception - Task 8's loop calls
+        run_tool for every tool and depends on it always returning one."""
+        import tempfile
+
+        from tools_probe import TOOLS, run_tool
+
+        def _raise_cleanup(self: object) -> None:
+            raise OSError("simulated transient file lock")
+
+        monkeypatch.setattr(tempfile.TemporaryDirectory, "cleanup", _raise_cleanup)
+
+        exe, argv = _fake_tool(tmp_path, """
+            import json, os, sys
+            out = sys.argv[1]
+            os.makedirs(out, exist_ok=True)
+            with open(os.path.join(out, "jscpd-report.json"), "w", encoding="utf-8") as fh:
+                json.dump({"duplicates": []}, fh)
+            sys.exit(0)
+        """)
+        result = run_tool(TOOLS["jscpd"], exe, argv, tmp_path, 30)
+        assert result.status == "ran"
+        assert result.payload == {"duplicates": []}

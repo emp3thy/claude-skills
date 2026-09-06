@@ -14,6 +14,7 @@ Nothing reads ``tool-signals.json`` until phase 4b.
 """
 from __future__ import annotations
 
+import contextlib
 import csv
 import json
 import shutil
@@ -106,6 +107,19 @@ def _parse(spec: ToolSpec, text: str) -> Any:
     raise ValueError(f"unknown parse mode {spec.parse!r}")
 
 
+def _rejected_exit_reason(returncode: int, stderr: str) -> str:
+    """A failure reason that unambiguously names a rejected exit code.
+
+    The ``exit N`` prefix is always added, rather than checking whether
+    ``stderr`` happens to already contain the number as a substring: stderr
+    text with a coincidentally matching digit (a line number, a byte count)
+    must never suppress the prefix.
+    """
+    if stderr:
+        return f"exit {returncode}: {stderr}"[:STDERR_CHARS]
+    return f"exit {returncode}"
+
+
 def run_tool(
     spec: ToolSpec, executable: str, argv: list[str], root: Path, timeout_s: int
 ) -> ToolResult:
@@ -118,13 +132,18 @@ def run_tool(
 
     A ``report_file`` tool writes its result into a directory this function
     creates and removes; its stdout is progress and promotional text and is
-    never parsed.
+    never parsed. For that channel the report decides and the exit code is
+    only commentary: a present, parseable report is ``ran`` whatever the exit
+    code, because the temporary directory is created fresh for each run, so a
+    present report can only have been written by this run. The exit code is
+    consulted only when the report is absent or unparseable, and then the
+    same rules as the stdout channel apply.
     """
     started = time.monotonic()
     report_dir: tempfile.TemporaryDirectory[str] | None = None
     full_argv = list(argv)
     if spec.channel == "report_file":
-        report_dir = tempfile.TemporaryDirectory(dir=root)
+        report_dir = tempfile.TemporaryDirectory(dir=root, ignore_cleanup_errors=True)
         full_argv.append(report_dir.name)
     try:
         try:
@@ -147,28 +166,38 @@ def run_tool(
 
         duration = time.monotonic() - started
         stderr = (completed.stderr or "").strip()[:STDERR_CHARS]
-        if completed.returncode != 0 and completed.returncode not in spec.findings_exit:
-            reason = stderr or f"exit {completed.returncode}"
-            if str(completed.returncode) not in reason:
-                reason = f"exit {completed.returncode}: {reason}"
-            return ToolResult("failed", reason=reason[:STDERR_CHARS], duration_s=duration)
 
         if spec.channel == "report_file":
             assert report_dir is not None
             report = Path(report_dir.name) / REPORT_FILENAME
+            if report.is_file():
+                try:
+                    payload = _parse(spec, report.read_text(encoding="utf-8", errors="replace"))
+                except (ValueError, csv.Error):
+                    pass
+                else:
+                    return ToolResult("ran", payload=payload, duration_s=duration)
+
+            if completed.returncode != 0 and completed.returncode not in spec.findings_exit:
+                reason = _rejected_exit_reason(completed.returncode, stderr)
+                return ToolResult("failed", reason=reason, duration_s=duration)
             if not report.is_file():
                 return ToolResult("failed", reason=f"no {REPORT_FILENAME} report written",
                                   duration_s=duration)
-            raw = report.read_text(encoding="utf-8", errors="replace")
-        else:
-            raw = completed.stdout or ""
+            return ToolResult("failed", reason=stderr or "unparseable output",
+                              duration_s=duration)
+
+        if completed.returncode != 0 and completed.returncode not in spec.findings_exit:
+            reason = _rejected_exit_reason(completed.returncode, stderr)
+            return ToolResult("failed", reason=reason, duration_s=duration)
 
         try:
-            payload = _parse(spec, raw)
+            payload = _parse(spec, completed.stdout or "")
         except (ValueError, csv.Error):
             return ToolResult("failed", reason=stderr or "unparseable output",
                               duration_s=duration)
         return ToolResult("ran", payload=payload, duration_s=duration)
     finally:
         if report_dir is not None:
-            report_dir.cleanup()
+            with contextlib.suppress(OSError):
+                report_dir.cleanup()
