@@ -223,7 +223,15 @@ Every one raises `ValidationError` (a `ValueError`) naming the offending value.
 2. For each finding with `status: approved`, `bundle_writer.write_bundle` writes
    a `chore-<slug>-<date>/` directory containing `PBI.md`, `PLAN.md`, and
    `HISTORY.md`. Severity maps to a word: 5 → `critical`, 4 → `high`, 3 →
-   `normal`, 2/1 → `low`.
+   `normal`, 2/1 → `low`. `PBI.md`'s frontmatter carries `PBI_OPTIONAL_KEYS`
+   (`fingerprint`, `tier`, `type_id`, `family`, `debt_type`, `effort`) after
+   `category` when a v2 finding's anchor has them; a v1 finding has none of
+   these, so its bundle's key order — and bytes — never move (spec 8).
+   `priority` is a scan-time rank artifact, never a PBI key. `PLAN.md`'s steps
+   are `bundle_writer.acceptance_criteria(body_md)` — the checklist under the
+   finding's own `### Acceptance criteria` section, numbered in order — or the
+   one-step stub pointing back at `PBI.md` when that section is absent or
+   holds the writer's placeholder text rather than a list.
 3. `design_writer.mark_promoted` flips each emitted finding's status from
    `approved` to `promoted` in place (atomic `os.replace` via a `.tmp` file,
    `.bak` of the prior content), so a re-run is a no-op.
@@ -233,7 +241,9 @@ already-promoted (counted, not re-emitted) unless `--force` is given.
 
 **Exit codes.** `0` success; `2` on a parse / mark-promoted error; `4` on a
 bundle-write failure *after* at least one bundle was written (roll-forward — the
-succeeded bundles persist and their findings are still marked promoted).
+succeeded bundles persist and their findings are still marked promoted); `6`
+(`promote.EXIT_WRITE_BACK`) is reserved for phase 5's baseline write-back — no
+code path returns it yet.
 
 ## CI and testing
 

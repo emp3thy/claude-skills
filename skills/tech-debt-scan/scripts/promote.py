@@ -26,7 +26,12 @@ is marked ``promoted`` for those N only; the rest stay ``approved`` for a later
 run. Exit code 4 signals the partial failure.
 
 Exit codes: 0 success, 2 parse / mark-promoted error, 4 bundle-write failure
-after at least one success.
+after at least one success, 6 reserved for phase 5's baseline write-back (no
+code path in this module returns it yet -- see EXIT_WRITE_BACK). A v2
+design.md finding's ``status`` is one of ``pending``, ``approved``,
+``rejected``, ``accepted`` (a deliberate deferral, spec 4.12) or ``promoted``;
+only ``approved`` findings are emitted here, and every other status is only
+tallied.
 
 Phase 1 is single-user: do not run two promotes against the same design.md
 concurrently (no file locking).
@@ -40,10 +45,16 @@ import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Final
 
 from bundle_writer import BundleWriteError, write_bundle
 from design_parser import DesignParseError, parse_design
 from design_writer import DesignWriteError, mark_promoted
+
+# Phase 5's baseline write-back (writing an executor's diff back into the
+# scanned repo) returns this on failure. Reserved now so a later exit-code
+# check can rely on the constant; nothing in this module returns it yet.
+EXIT_WRITE_BACK: Final[int] = 6
 
 
 @dataclass(slots=True)
