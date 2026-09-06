@@ -19,6 +19,7 @@ characters while a dropped one is nothing (spec 4.5).
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Final, TypedDict
 
@@ -107,3 +108,99 @@ def signal(
         fact=fact,
         extra=extra or {},
     )
+
+
+# ruff rule code -> (family, kind). Codes outside this map are not debt
+# signals for our purposes and are dropped rather than guessed at.
+RUFF_KINDS: Final[dict[str, tuple[str, str]]] = {
+    "E722": ("error-masking", "error-masking"),
+    "BLE001": ("error-masking", "error-masking"),
+    "S110": ("error-masking", "error-masking"),
+    "S112": ("error-masking", "error-masking"),
+    "C901": ("complex-units", "complexity"),
+    "PLR0911": ("complex-units", "complexity"),
+    "PLR0912": ("complex-units", "complexity"),
+    "PLR0913": ("complex-units", "complexity"),
+    "PLR0915": ("complex-units", "complexity"),
+    "F401": ("dead-code", "unused"),
+    "UP035": ("dependency-debt", "deprecated"),
+}
+
+_VULTURE_LINE: Final[re.Pattern[str]] = re.compile(
+    r"^(?P<file>.+?):(?P<line>\d+): unused (?P<kind>\w+) '(?P<symbol>[^']+)' "
+    r"\((?P<confidence>\d+)% confidence\)$"
+)
+
+
+def normalise_ruff(payload: Any, root: Path) -> list[Signal]:
+    """ruff's JSON diagnostics as signals.
+
+    ruff reports ``filename`` as an absolute path with backslashes even when
+    given a relative one, so every record goes through ``rel_path``. Rule
+    codes outside ``RUFF_KINDS`` are dropped: ruff reports far more than debt.
+    """
+    if not isinstance(payload, list):
+        return []
+    out: list[Signal] = []
+    for record in payload:
+        if not isinstance(record, dict):
+            continue
+        mapping = RUFF_KINDS.get(str(record.get("code")))
+        if mapping is None:
+            continue
+        family, kind = mapping
+        rel = rel_path(root, record.get("filename"))
+        location = record.get("location") or {}
+        end = record.get("end_location") or {}
+        start_row, end_row = location.get("row"), end.get("row")
+        if rel is None or not isinstance(start_row, int):
+            continue
+        out.append(
+            signal(
+                "ruff", family, kind,
+                file=rel,
+                line_start=start_row,
+                line_end=end_row if isinstance(end_row, int) else start_row,
+                message=str(record.get("message", "")),
+                fact=False,
+                extra={"code": str(record["code"])},
+            )
+        )
+    return out
+
+
+def normalise_vulture(payload: Any, root: Path) -> list[Signal]:
+    """vulture's plain-text lines as dead-code signals.
+
+    vulture has no JSON mode. Each finding is one line of the form
+    ``path:line: unused <kind> '<symbol>' (<n>% confidence)``; a line that
+    does not match is dropped rather than guessed at. The confidence is
+    carried through as a number so 4b can weight a 60% hint below a 100% one.
+    """
+    if not isinstance(payload, list):
+        return []
+    out: list[Signal] = []
+    for line in payload:
+        if not isinstance(line, str):
+            continue
+        match = _VULTURE_LINE.match(line.strip())
+        if match is None:
+            continue
+        rel = rel_path(root, match.group("file"))
+        if rel is None:
+            continue
+        row = int(match.group("line"))
+        out.append(
+            signal(
+                "vulture", "dead-code", "unused",
+                file=rel, line_start=row, line_end=row,
+                message=f"unused {match.group('kind')} '{match.group('symbol')}'",
+                fact=False,
+                extra={
+                    "confidence": int(match.group("confidence")),
+                    "symbol_kind": match.group("kind"),
+                    "symbol": match.group("symbol"),
+                },
+            )
+        )
+    return out
