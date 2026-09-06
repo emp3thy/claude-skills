@@ -170,3 +170,78 @@ def test_a_v1_confidence_value_is_parsed_and_kept_for_the_writer_to_discard(tmp_
         ]).encode("utf-8")
     )
     assert parse_design(path)["findings"][0]["confidence"] == "high"
+
+
+def test_an_evidence_fence_starting_with_a_comment_does_not_end_the_section(tmp_path: Path) -> None:
+    """A ``# `` comment line inside a fenced block must not be mistaken for an H1 boundary."""
+    path = tmp_path / "design.md"
+    path.write_bytes(
+        "\n".join([
+            "## Fence finding",
+            "",
+            "```yaml",
+            "status: pending",
+            "slug: fence-finding",
+            "severity: 3",
+            "category: error-masking",
+            "```",
+            "",
+            "### Evidence",
+            "",
+            "```",
+            "# TODO(#42): delete once finance moves to the v2 report",
+            "```",
+            "",
+            "### Signals",
+            "",
+            "a signal line",
+            "",
+            "# Not assessed",
+            "",
+            "- not part of the body",
+            "",
+        ]).encode("utf-8")
+    )
+    parsed = parse_design(path)
+    assert len(parsed["findings"]) == 1
+    body = parsed["findings"][0]["body_md"]
+    assert "# TODO(#42): delete once finance moves to the v2 report" in body
+    assert "### Signals" in body
+    assert "Not assessed" not in body
+
+
+def test_a_hand_edited_code_block_with_a_comment_survives(tmp_path: Path) -> None:
+    """The reviewer's case: a hand-edited ```python fence with a leading comment line."""
+    path = tmp_path / "design.md"
+    path.write_bytes(
+        "\n".join([
+            "## Broken function finding",
+            "",
+            "```yaml",
+            "status: pending",
+            "slug: broken-function-finding",
+            "severity: 3",
+            "category: error-masking",
+            "```",
+            "",
+            "### Evidence",
+            "",
+            "```python",
+            "# this is a comment explaining the bug",
+            "def broken():",
+            "    pass",
+            "```",
+            "",
+            "### Suggested fix",
+            "",
+            "do the thing",
+            "",
+        ]).encode("utf-8")
+    )
+    parsed = parse_design(path)
+    assert len(parsed["findings"]) == 1
+    body = parsed["findings"][0]["body_md"]
+    assert "# this is a comment explaining the bug" in body
+    assert "def broken():" in body
+    assert "    pass" in body
+    assert "### Suggested fix" in body

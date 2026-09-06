@@ -15,7 +15,10 @@ Document structure (see tests/golden/design-v1.md):
   - The remaining prose under the heading is the finding's ``body_md``. A
     finding's section ends at the next H2 *or* the next H1 (spec 4.11), so a
     negative-space section (e.g. "# Considered and rejected") following the
-    last finding is never absorbed into that finding's body.
+    last finding is never absorbed into that finding's body. This boundary
+    check ignores headings inside fenced code blocks, so a hand-edited quote
+    or diff containing a line starting ``# `` or ``## `` (e.g. a code comment)
+    does not truncate the body.
 
 Only ``yaml.safe_load`` is used (never ``yaml.load``). Every DesignParseError
 carries the 1-based source line of the offending heading or anchor so the user
@@ -221,8 +224,14 @@ def parse_design(path: Path) -> dict[str, Any]:
         title = lines[idx][3:].strip()
         section: list[tuple[int, str]] = []
         cursor = idx + 1
-        while cursor < n and not _ends_section(lines[cursor]):
-            section.append((cursor + 1, lines[cursor]))
+        in_fence = False
+        while cursor < n:
+            line = lines[cursor]
+            if line.strip().startswith("```"):
+                in_fence = not in_fence
+            elif not in_fence and _ends_section(line):
+                break
+            section.append((cursor + 1, line))
             cursor += 1
 
         anchor, anchor_lineno = _parse_anchor(section, heading_lineno)
