@@ -4,7 +4,6 @@ Feature: POST /api/shipments
 
 Background:
   * def uid = java.util.UUID.randomUUID() + ''
-  * Stubs.reset()
   * call read('classpath:common/reset.feature') { watch: ['shipment.created'], stubs: ['classpath:stubs/pricing/default.json'] }
   * def base = read('classpath:seed/examples/post-api-shipments.json')
   * set base.reference = 'REF-' + uid
