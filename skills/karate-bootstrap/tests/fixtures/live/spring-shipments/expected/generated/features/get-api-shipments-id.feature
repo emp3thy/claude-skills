@@ -1,4 +1,5 @@
 @smoke
+@parallel=false
 Feature: GET /api/shipments/{id}
 
 Background:

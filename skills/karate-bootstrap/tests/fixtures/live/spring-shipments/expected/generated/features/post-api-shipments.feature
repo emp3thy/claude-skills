@@ -1,4 +1,5 @@
 @smoke
+@parallel=false
 Feature: POST /api/shipments
 
 Background:
