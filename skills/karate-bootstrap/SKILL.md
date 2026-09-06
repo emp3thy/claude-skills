@@ -183,11 +183,11 @@ python scripts/kb_prompt.py render --prompt trace --ledger <tests>/flow-map.yaml
 - If `merge` reports `incomplete: no exits and no exits_none_reason` (exit 2), the trace found
   no exit and gave no reason. Re-render with `--focus` at the entry's handler line, dispatch
   once more with the `incomplete:` line under a final `## Gaps from the last gate` heading in
-  the rendered prompt, and merge again. If it comes
-  back incomplete a second time, leave the entry untraced and let the gate name it: do not
-  write it into `defects.md` (that file is for suspected application defects found by a run,
-  not for tracing gaps), and do not edit the ledger. `validate --phase traced` already fails on
-  `traced: false`, which is the correct end state for an entry nobody could trace.
+  the rendered prompt, and merge again. If it comes back incomplete a second time, leave the
+  entry untraced and let the gate name it: do not write it into `defects.md` (that file is for
+  suspected application defects found by a run, not for tracing gaps), and do not edit the
+  ledger. `validate --phase traced` already fails on `traced: false`, which is the correct end
+  state for an entry nobody could trace.
 - With `--double-trace`: dispatch two independent subagents from the same rendered prompt and
   save their replies as `<tests>/.prompts/trace-<slug>-a.json` and `-b.json`. Merge the first,
   then merge the second with `--union`, which keeps the union of exits, reads and responses
