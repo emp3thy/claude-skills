@@ -73,6 +73,9 @@ def _failed_entry(uri: str, element: dict[str, Any], step: dict[str, Any]) -> di
 STARTUP_LOG_NAMES = ("app.log", "db-manager.log")
 STARTUP_LOG_TAIL_LINES = 40
 NO_REPORTS_ERROR = "no karate reports were produced"
+# The first line of every synthetic startup failure. ``kb_iterate.error_class`` keys on the
+# first non-empty line, so a drifting log tail must not change the signature between runs.
+STARTUP_SIGNATURE = "startup: no karate reports"
 
 
 def startup_log_tail(target_dir: Path, lines: int = STARTUP_LOG_TAIL_LINES) -> str:
@@ -104,7 +107,7 @@ def startup_failure_report(target_dir: Path) -> dict[str, Any]:
             "outline": False,
             "tags": [],
             "step": "Containers.start",
-            "error": startup_log_tail(target_dir),
+            "error": f"{STARTUP_SIGNATURE}\n{startup_log_tail(target_dir)}",
         }],
     }
 

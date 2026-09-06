@@ -110,6 +110,17 @@ wrapper), and a container engine (docker or podman; see
 [`skills/karate-bootstrap/SKILL.md`](skills/karate-bootstrap/SKILL.md) for every pinned
 command, and `docs/superpowers/specs/2026-09-05-karate-bootstrap-design.md` for the design.
 
+Three runnable fixture services live under `skills/karate-bootstrap/tests/fixtures/live/`, one
+per stack the skill supports: a Spring Boot service, an ASP.NET Core service and a FastAPI
+service, each with a Flyway `db-manager/` image and one deliberately planted defect. The
+`karate-live` CI job runs the skill's whole chain against them with real Postgres, Artemis,
+WireMock and application containers, proving the generated suite goes green and the planted
+defect is quarantined rather than fixed. Reproduce a run locally with Docker or Podman:
+
+```bash
+KB_CONTAINERS=1 pytest -m containers -k spring-shipments -v
+```
+
 ## Output formats
 
 | Artefact | Written by | Shape |

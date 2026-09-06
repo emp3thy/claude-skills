@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from detect import detect
 from detect import main as detect_main
 from discover import (
@@ -162,23 +163,33 @@ def test_parse_app_config_python_settings_reads_environ() -> None:
     assert keys["AUTH_MODE"]["placeholder"] == "jwt"
 
 
-def test_assign_role_covers_each_role() -> None:
-    assert assign_role("SPRING_DATASOURCE_URL", "") == "db"
-    assert assign_role("ConnectionStrings__Deals", "Host=localhost;Database=deals") == "db"
-    assert assign_role("DATABASE_URL", "postgresql://x") == "db"
-    assert assign_role("SPRING_ARTEMIS_BROKER_URL", "tcp://artemis:61616") == "amq"
-    assert assign_role("Amq__Url", "amqp://localhost:5672") == "amq"
-    assert assign_role("AMQP_PORT", "5672") == "amq"
-    assert assign_role("mp.messaging.incoming.order-completed.address", "order.completed") == "amq"
-    assert assign_role("AUTH_ISSUER_URI", "https://login.example/realms/acme") == "auth"
-    assert assign_role("quarkus.oidc.auth-server-url", "") == "auth"
-    assert assign_role("JWKS_URL", "") == "auth"
-    assert assign_role("PRICING_BASE_URL", "http://pricing:8080") == "downstream:pricing"
-    assert assign_role("pricing.base-url", "") == "downstream:pricing"
-    assert assign_role("quarkus.rest-client.orders-api.url", "") == "downstream:orders"
-    assert assign_role("INVENTORY_URL", "") == "downstream:inventory"
-    assert assign_role("spring.jpa.hibernate.ddl-auto", "validate") == "passthrough"
-    assert assign_role("JAVA_OPTS", "-Xmx512m") == "passthrough"
+@pytest.mark.parametrize(("key", "placeholder", "expected"), [
+    ("SPRING_DATASOURCE_URL", "", "db"),
+    ("ConnectionStrings__Deals", "Host=localhost;Database=deals", "db"),
+    ("DATABASE_URL", "postgresql://x", "db"),
+    ("DB_HOST", "", "db"),
+    ("DB_PORT", "", "db"),
+    ("DB_NAME", "", "db"),
+    ("DB_USER", "", "db"),
+    ("DB_PASSWORD", "", "db"),
+    ("PGPORT", "", "db"),
+    ("INVENTORY_HOST", "", "downstream:inventory"),
+    ("SPRING_ARTEMIS_BROKER_URL", "tcp://artemis:61616", "amq"),
+    ("Amq__Url", "amqp://localhost:5672", "amq"),
+    ("AMQP_PORT", "5672", "amq"),
+    ("mp.messaging.incoming.order-completed.address", "order.completed", "amq"),
+    ("AUTH_ISSUER_URI", "https://login.example/realms/acme", "auth"),
+    ("quarkus.oidc.auth-server-url", "", "auth"),
+    ("JWKS_URL", "", "auth"),
+    ("PRICING_BASE_URL", "http://pricing:8080", "downstream:pricing"),
+    ("pricing.base-url", "", "downstream:pricing"),
+    ("quarkus.rest-client.orders-api.url", "", "downstream:orders"),
+    ("INVENTORY_URL", "", "downstream:inventory"),
+    ("spring.jpa.hibernate.ddl-auto", "validate", "passthrough"),
+    ("JAVA_OPTS", "-Xmx512m", "passthrough"),
+])
+def test_assign_role_covers_each_role(key: str, placeholder: str, expected: str) -> None:
+    assert assign_role(key, placeholder) == expected
 
 
 def test_downstream_name_strips_noise() -> None:

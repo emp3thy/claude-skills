@@ -1,0 +1,35 @@
+{
+  "id": "POST /api/orders",
+  "auth": "required",
+  "request": {
+    "content_type": "application/json",
+    "schema_ref": "app/schemas.py",
+    "example": "seed/examples/post-api-orders.json"
+  },
+  "responses": [
+    { "status": 201, "when": "order created" },
+    { "status": 422, "when": "request body fails a Field constraint", "rules": true,
+      "via": "{{line:app/schemas.py:Field(min_length=1, max_length=50)}}" },
+    { "status": 500, "when": "quantity over 500 raises RuntimeError",
+      "via": "{{line:app/service.py:quantity exceeds}}" },
+    { "status": 401, "when": "missing bearer token", "testable": false }
+  ],
+  "reads": [
+    { "kind": "http-in", "host_key": "INVENTORY_URL", "method": "GET", "path": "/stock/{sku}" }
+  ],
+  "exits": [
+    { "kind": "http-out", "host_key": "INVENTORY_URL", "method": "GET", "path": "/stock/{sku}",
+      "via": "{{line:app/service.py:httpx.get}}" },
+    { "kind": "db-write", "table": "orders", "op": "insert",
+      "via": "{{line:app/service.py:session.add}}" },
+    { "kind": "amq-publish", "destination": "order.created", "type": "queue",
+      "via": "{{line:app/service.py:messaging.publish}}" }
+  ],
+  "rules": {
+    "sources": [
+      { "file": "app/schemas.py", "scanned": false },
+      { "file": "app/service.py", "scanned": false }
+    ]
+  },
+  "unresolved": []
+}

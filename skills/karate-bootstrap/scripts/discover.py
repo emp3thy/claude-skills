@@ -295,6 +295,11 @@ def parse_app_config(root: Path) -> dict[str, dict[str, Any]]:
 
 _DB_KEY = ("datasource", "connectionstrings", "database_url", "jdbc", "db_url", "db-url",
            "hibernate.connection", "pghost", "pgdatabase")
+# Individual connection parts. ``assign_role`` must claim these before the URL-suffix rule,
+# or ``DB_HOST`` reads as a downstream service and the scaffold points the app at WireMock.
+_DB_PART_KEY = ("db_host", "db-host", "db_port", "db-port", "db_name", "db-name",
+                "db_user", "db-user", "db_password", "db-password",
+                "pgport", "pguser", "pgpassword")
 _DB_VAL = ("jdbc:", "postgres", "host=")
 _AMQ_KEY = ("artemis", "amqp", "activemq", "broker", "jms", "amq_", "amq__", "amq.",
             "mp.messaging", "stomp")
@@ -314,7 +319,7 @@ def assign_role(key: str, placeholder: str) -> str:
     v = placeholder.lower()
     if k in _PASSTHROUGH_KEYS:
         return "passthrough"
-    if any(s in v for s in _DB_VAL) or any(s in k for s in _DB_KEY):
+    if any(s in v for s in _DB_VAL) or any(s in k for s in _DB_KEY + _DB_PART_KEY):
         return "db"
     if any(s in v for s in _AMQ_VAL) or any(s in k for s in _AMQ_KEY):
         return "amq"

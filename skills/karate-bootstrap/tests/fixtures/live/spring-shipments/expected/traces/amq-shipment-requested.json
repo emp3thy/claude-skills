@@ -1,0 +1,17 @@
+{
+  "id": "amq shipment.requested",
+  "auth": "none",
+  "type": "queue",
+  "request": {
+    "content_type": "application/json",
+    "schema_ref": "src/main/java/com/acme/shipments/ShipmentEventsListener.java",
+    "example": "seed/examples/amq-shipment-requested.json"
+  },
+  "responses": [],
+  "reads": [],
+  "exits": [
+    { "kind": "db-write", "table": "shipments", "op": "insert",
+      "via": "{{line:src/main/java/com/acme/shipments/ShipmentEventsListener.java:repository.save}}" }
+  ],
+  "unresolved": []
+}

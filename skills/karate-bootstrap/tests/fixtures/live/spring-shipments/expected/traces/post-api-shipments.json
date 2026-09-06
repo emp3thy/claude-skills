@@ -1,0 +1,37 @@
+{
+  "id": "POST /api/shipments",
+  "auth": "required",
+  "request": {
+    "content_type": "application/json",
+    "schema_ref": "src/main/java/com/acme/shipments/ShipmentRequest.java",
+    "example": "seed/examples/post-api-shipments.json"
+  },
+  "responses": [
+    { "status": 201, "when": "shipment created" },
+    { "status": 400, "when": "request body fails bean validation", "rules": true,
+      "via": "{{line:src/main/java/com/acme/shipments/ShipmentRequest.java:@NotBlank}}" },
+    { "status": 500, "when": "weight over 1000kg throws IllegalArgumentException",
+      "via": "{{line:src/main/java/com/acme/shipments/ShipmentService.java:weight exceeds}}" },
+    { "status": 401, "when": "missing bearer token", "testable": false }
+  ],
+  "reads": [
+    { "kind": "http-in", "host_key": "PRICING_BASE_URL", "method": "GET",
+      "path": "/rates/{countryCode}" }
+  ],
+  "exits": [
+    { "kind": "http-out", "host_key": "PRICING_BASE_URL", "method": "GET",
+      "path": "/rates/{countryCode}",
+      "via": "{{line:src/main/java/com/acme/shipments/ShipmentService.java:getForObject}}" },
+    { "kind": "db-write", "table": "shipments", "op": "insert",
+      "via": "{{line:src/main/java/com/acme/shipments/ShipmentService.java:repository.save}}" },
+    { "kind": "amq-publish", "destination": "shipment.created", "type": "queue",
+      "via": "{{line:src/main/java/com/acme/shipments/ShipmentService.java:convertAndSend}}" }
+  ],
+  "rules": {
+    "sources": [
+      { "file": "src/main/java/com/acme/shipments/ShipmentRequest.java", "scanned": false },
+      { "file": "src/main/java/com/acme/shipments/ShipmentService.java", "scanned": false }
+    ]
+  },
+  "unresolved": []
+}

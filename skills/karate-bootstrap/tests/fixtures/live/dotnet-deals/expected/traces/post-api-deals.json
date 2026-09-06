@@ -1,0 +1,37 @@
+{
+  "id": "POST /api/deals",
+  "auth": "required",
+  "request": {
+    "content_type": "application/json",
+    "schema_ref": "Validators/DealRequest.cs",
+    "example": "seed/examples/post-api-deals.json"
+  },
+  "responses": [
+    { "status": 201, "when": "deal created" },
+    { "status": 400, "when": "request body fails FluentValidation", "rules": true,
+      "via": "{{line:Validators/DealRequestValidator.cs:.NotEmpty()}}" },
+    { "status": 500, "when": "quantity over 10000 throws InvalidOperationException",
+      "via": "{{line:Services/DealService.cs:quantity exceeds}}" },
+    { "status": 401, "when": "missing bearer token", "testable": false }
+  ],
+  "reads": [
+    { "kind": "http-in", "host_key": "Pricing__BaseUrl", "method": "GET",
+      "path": "/quotes/{currency}" }
+  ],
+  "exits": [
+    { "kind": "http-out", "host_key": "Pricing__BaseUrl", "method": "GET",
+      "path": "/quotes/{currency}",
+      "via": "{{line:Services/PricingClient.cs:GetFromJsonAsync}}" },
+    { "kind": "db-write", "table": "deals", "op": "insert",
+      "via": "{{line:Services/DealService.cs:SaveChangesAsync}}" },
+    { "kind": "amq-publish", "destination": "deal.created", "type": "queue",
+      "via": "{{line:Services/DealService.cs:_publisher.Send}}" }
+  ],
+  "rules": {
+    "sources": [
+      { "file": "Validators/DealRequestValidator.cs", "scanned": false },
+      { "file": "Services/DealService.cs", "scanned": false }
+    ]
+  },
+  "unresolved": []
+}

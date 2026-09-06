@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders
+spec:
+  template:
+    spec:
+      containers:
+        - name: orders
+          image: registry.example/orders:latest
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+          env:
+            - name: DB_HOST
+              value: db.internal
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: orders
+            - name: DB_USER
+              value: app
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: orders-db
+                  key: password
+            - name: AMQP_URL
+              value: amqp://artemis:5672
+            - name: AMQP_USER
+              value: artemis
+            - name: AMQP_PASSWORD
+              value: artemis
+            - name: INVENTORY_URL
+              value: http://inventory:8080
+            - name: AUTH_ENABLED
+              value: "true"

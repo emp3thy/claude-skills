@@ -59,10 +59,12 @@ Loaded for `stack.framework: python` (FastAPI, Flask or Django). Marker regexes 
   without one cannot be injected by the harness.
 - `db`: `assign_role` gives `db` only when the key contains one of `datasource`,
   `connectionstrings`, `database_url`, `jdbc`, `db_url`, `db-url`, `hibernate.connection`,
-  `pghost`, `pgdatabase`, or the placeholder value matches `jdbc:`, `postgres`, or `host=`. That
-  covers `DATABASE_URL`, `PGHOST`, and `PGDATABASE`; a bare `DB_HOST`/`DB_PORT` pair contains
-  none of those substrings — `DB_HOST` ends in the `host` suffix and is classified
-  `downstream:db` instead, and `DB_PORT` falls through to `passthrough`.
+  `pghost`, `pgdatabase`, `db_host`, `db_port`, `db_name`, `db_user`, `db_password`, `pgport`,
+  `pguser`, `pgpassword`, or the placeholder value matches `jdbc:`, `postgres`, or `host=`. That
+  covers `DATABASE_URL`, `PGHOST`, `PGDATABASE`, and a bare `DB_HOST`/`DB_PORT` pair along with
+  its `DB_NAME`/`DB_USER`/`DB_PASSWORD` siblings; the scaffold turns a part key into the single
+  token it names (`{{db.host}}`, `{{db.port}}`, `{{db.name}}`, `{{db.user}}`,
+  `{{db.password}}`) and a URL key into the full `postgresql://` template.
 - `amq`: `AMQ_*`, `BROKER_*`, `ARTEMIS_*`, `STOMP_*`, any `amqp://` or `stomp://` placeholder.
   `auth`: keys containing `JWT`, `OIDC`, `ISSUER`, `JWKS`, `AUTH`. `downstream:<name>`: other `*_URL` and
   `*_BASE_URL` keys, named after the prefix (`PRICING_BASE_URL` becomes `pricing`).
@@ -71,6 +73,11 @@ Loaded for `stack.framework: python` (FastAPI, Flask or Django). Marker regexes 
 
 - Manifest probe when present; otherwise a port wait (the default port is 8000 for uvicorn
   unless the Dockerfile exposes another).
+- `discover.py` does not exempt this path from entry-point detection: a readiness route is an
+  ordinary `@app.get`/`@router.get`/`@app.route` handler like any other, so it is picked up and
+  must be traced with no exits; FastAPI, Flask and Django have no framework health-check
+  middleware to fall back on, so this cannot be sidestepped the way it can in ASP.NET Core or
+  Spring.
 
 ## Auth switches
 

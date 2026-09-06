@@ -1,0 +1,5 @@
+rule_id,field,mutation,value,expected_status,expected_code,expected_message_contains,source
+,externalId,missing,,400,,externalId is required,{{line:Validators/DealRequestValidator.cs:.NotEmpty()}}
+,externalId,too_long,65,400,,externalId must be at most 64,{{line:Validators/DealRequestValidator.cs:.MaximumLength(64)}}
+,currency,invalid_format,!!,400,,currency must match,{{line:Validators/DealRequestValidator.cs:.Matches(}}
+,quantity,out_of_range,0,400,,quantity must be positive,{{line:Validators/DealRequestValidator.cs:.GreaterThan(0)}}

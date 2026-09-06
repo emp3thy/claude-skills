@@ -595,12 +595,13 @@ Exit codes: 0 green, 3 unsupported stack, 4 no schema source, 5 missing expected
 
 - **Local.** `cd karate-tests && mvn test` (JDK 17 or newer). `mvn test -Dkb.skipContainers=true` runs the harness smoke feature with no container runtime. `-Dkb.threads=1` is the sequential fallback. Podman users export `DOCKER_HOST` per `reference/podman.md` and the README section (`unix://${XDG_RUNTIME_DIR}/podman/podman.sock` for rootless Linux, the socket from `podman machine inspect` on Windows or macOS); the classpath `testcontainers.properties` sets `ryuk.container.privileged=true`, and `TESTCONTAINERS_RYUK_DISABLED=true` is the documented fallback.
 - **This repo's CI.** A `karate-templates` job installs Temurin 21 and runs `KB_MAVEN=1 pytest -m maven`, which copies `templates/karate-tests` to a temp dir, compiles it and runs the smoke feature. The default `pytest` excludes the `maven` marker.
+- **This repo's CI, live.** A `karate-live` job matrix on `ubuntu-latest` runs `KB_CONTAINERS=1 pytest -m containers`: one job measures the third-party images, and one job per fixture runs the whole chain against real containers, including a Maven run, a fix-loop round and the green gate. The default `pytest` excludes the `containers` marker, so a machine without Docker runs everything else.
 - **ADO.** `azure-pipelines.karate.yml` is a reusable job on a hosted agent with Docker: optional `Docker@2` build then `./mvnw -B test -Dapp.image=$(imageTag)`, `PublishTestResults@2` on `target/karate-reports/*.xml`, `PublishBuildArtifacts@1` on the HTML report. The template will be aligned to the user's existing Testcontainers pipeline at work.
 
 ## 11. Evals
 
 - **Script tests.** pytest per script: ledger merge and validate against fixtures, `verify-refs` against planted good and bad refs, rules extraction against sample validators in all four stacks, report parsing against captured Karate output, scaffold output against a golden `kb-runtime.json` per fixture, the template module compiled and smoke-run under `KB_MAVEN=1 pytest -m maven`, iterate stop-condition logic.
-- **Fixture runs.** The skill run end to end on each fixture app on the author's laptop. Pass criteria: exit 0, every entry in `expected-flow-map.yaml` present in the ledger, zero unresolved, `defects.md` contains the planted defect.
+- **Fixture runs.** Three runnable fixtures under `tests/fixtures/live/` — `spring-shipments`, `dotnet-deals` and `fastapi-orders` — each with a Flyway `db-manager/` image and one planted 500. `tests/test_kb_live_run.py` drives the pinned chain against them with canned subagent replies and real containers. Pass criteria: the second Maven run exits 0, every entry in `expected-flow-map.yaml` is in the ledger, zero unresolved, and `defects.md` carries the planted defect. Results are recorded in `evals/live-run-results.md`.
 - **Trigger eval.** `evals/trigger-eval.md` lists prompts that must fire the skill ("add karate tests", "bootstrap integration tests", "testcontainers suite for this service") and prompts that must not (unit-test requests). A pytest checks the `SKILL.md` description carries each positive prompt's key terms and no unit-test claim; running the prompts against a live model is a documented manual step because this repo's tests never call an LLM.
 - **Dry run.** `tests/test_kb_dry_run.py` runs every pinned SKILL.md command in order on `spring-mini` and `dotnet-mini` with canned subagent outputs and no containers, asserting each phase gate passes and the README renders; `kb_check_skill.py` lints every SKILL.md command against its script's `--help` in CI.
 
@@ -655,6 +656,7 @@ Fixtures: `dotnet-deals` (ASP.NET Core minimal API, EF Core, Npgsql, Apache.NMS.
 - Defect promotion to ralph is a later step.
 - The skill commits but never pushes. Pushing and opening the pull request belong to the caller, ralph or a developer.
 - Podman on Windows requires WSL2. That is a one-time developer setup, documented, not automated.
+- The author's machine has no container runtime, so the fixture runs are gated in GitHub Actions rather than locally. A developer with Docker or Podman reproduces them with `KB_CONTAINERS=1 pytest -m containers`.
 
 ## 13. Out of scope for v1
 

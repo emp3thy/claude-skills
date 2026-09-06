@@ -1,0 +1,15 @@
+{
+  "id": "GET /api/deals/{id}",
+  "auth": "required",
+  "responses": [
+    { "status": 200, "when": "deal found" },
+    { "status": 404, "when": "no deal with that id" }
+  ],
+  "reads": [
+    { "kind": "db-read", "table": "deals",
+      "via": "{{line:Services/DealService.cs:FirstOrDefault}}" }
+  ],
+  "exits": [],
+  "exits_none_reason": "read-only lookup",
+  "unresolved": []
+}

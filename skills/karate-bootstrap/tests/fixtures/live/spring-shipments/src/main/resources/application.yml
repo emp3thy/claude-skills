@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: shipments
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/shipments}
+    username: ${SPRING_DATASOURCE_USERNAME:app}
+    password: ${SPRING_DATASOURCE_PASSWORD:app}
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+amq:
+  url: ${AMQ_URL:amqp://localhost:5672}
+  user: ${AMQ_USER:artemis}
+  password: ${AMQ_PASSWORD:artemis}
+pricing:
+  base-url: ${PRICING_BASE_URL:http://localhost:9090}
+app:
+  security:
+    enabled: ${APP_SECURITY_ENABLED:true}
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health

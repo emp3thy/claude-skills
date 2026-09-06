@@ -11,6 +11,7 @@ from flow_map import find_entry, load_ledger
 from kb_common import EXIT_MISSING_OUTPUT, KbError, read_json, run_cli
 from kb_iterate import group_failures
 from kb_report import (
+    STARTUP_SIGNATURE,
     counts_table,
     defect_titles,
     main,
@@ -85,7 +86,8 @@ def test_parse_reports_with_no_feature_json_reports_a_startup_failure(tmp_path: 
     assert failure["scenario"] == "containers and application start"
     assert failure["outline"] is False and failure["tags"] == []
     assert failure["step"] == "Containers.start"
-    assert failure["error"].splitlines() == [f"line {n}" for n in range(21, 61)]  # last 40
+    assert failure["error"].splitlines() == [
+        STARTUP_SIGNATURE, *[f"line {n}" for n in range(21, 61)]]  # signature, then last 40
 
 
 def test_startup_failure_falls_back_to_db_manager_log_then_a_fixed_message(
@@ -94,7 +96,7 @@ def test_startup_failure_falls_back_to_db_manager_log_then_a_fixed_message(
     target = tmp_path / "target"
     (target / "karate-reports").mkdir(parents=True)
     assert parse_reports(target / "karate-reports", None)["failed"][0]["error"] == (
-        "no karate reports were produced")
+        f"{STARTUP_SIGNATURE}\nno karate reports were produced")
     (target / "db-manager.log").write_text("migration failed: relation exists\n", encoding="utf-8")
     assert "relation exists" in parse_reports(target / "karate-reports", None)["failed"][0]["error"]
     (target / "app.log").write_text("app refused to bind :8080\n", encoding="utf-8")
@@ -110,6 +112,20 @@ def test_startup_failure_groups_as_one_infra_iteration(tmp_path: Path) -> None:
     groups = group_failures(report)
     assert len(groups) == 1 and groups[0]["count"] == 1
     assert groups[0]["feature"] == "(startup)"
+
+
+def test_startup_failure_error_starts_with_a_stable_signature(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    (target / "karate-reports").mkdir(parents=True)
+    (target / "app.log").write_text("boot line one\nCaused by: connection refused\n",
+                                    encoding="utf-8")
+    report = parse_reports(target / "karate-reports", None)
+    error = report["failed"][0]["error"]
+    assert error.splitlines()[0] == STARTUP_SIGNATURE
+    assert "connection refused" in error
+    (target / "app.log").write_text("boot line one\na different tail\n", encoding="utf-8")
+    second = parse_reports(target / "karate-reports", None)
+    assert second["failed"][0]["error"].splitlines()[0] == STARTUP_SIGNATURE
 
 
 def _spring_ledger(tmp_path: Path) -> tuple[Path, dict[str, Any]]:

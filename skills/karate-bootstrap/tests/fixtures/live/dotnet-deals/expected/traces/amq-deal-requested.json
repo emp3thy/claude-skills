@@ -1,0 +1,17 @@
+{
+  "id": "amq deal.requested",
+  "auth": "none",
+  "type": "queue",
+  "request": {
+    "content_type": "application/json",
+    "schema_ref": "Messaging/DealRequestedConsumer.cs",
+    "example": "seed/examples/amq-deal-requested.json"
+  },
+  "responses": [],
+  "reads": [],
+  "exits": [
+    { "kind": "db-write", "table": "deals", "op": "insert",
+      "via": "{{line:Messaging/DealRequestedConsumer.cs:SaveChangesAsync}}" }
+  ],
+  "unresolved": []
+}

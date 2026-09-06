@@ -79,3 +79,9 @@ def test_note_has_every_heading(name: str) -> None:
     text = (REFERENCE / name).read_text(encoding="utf-8")
     for heading in NOTE_HEADINGS[name]:
         assert heading in text, f"{name}: missing {heading}"
+
+
+def test_python_sheet_documents_db_part_keys_as_db_role() -> None:
+    text = (REFERENCE / "stack-python.md").read_text(encoding="utf-8")
+    assert "`DB_HOST`/`DB_PORT` pair" in text
+    assert "downstream:db" not in text, "the sheet still documents the old misclassification"

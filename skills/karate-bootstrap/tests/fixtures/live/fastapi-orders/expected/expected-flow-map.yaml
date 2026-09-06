@@ -1,0 +1,24 @@
+entry_points:
+  - id: GET /healthz
+    kind: http
+    method: GET
+    path: /healthz
+    exits: []
+  - id: POST /api/orders
+    kind: http
+    method: POST
+    path: /api/orders
+    exits:
+      - { kind: http-out, host_key: INVENTORY_URL, method: GET, path: "/stock/{sku}" }
+      - { kind: db-write, table: orders, op: insert }
+      - { kind: amq-publish, destination: order.created, type: queue }
+  - id: GET /api/orders/{order_id}
+    kind: http
+    method: GET
+    path: /api/orders/{order_id}
+    exits: []
+  - id: amq order.requested
+    kind: amq-subscribe
+    destination: order.requested
+    exits:
+      - { kind: db-write, table: orders, op: insert }
