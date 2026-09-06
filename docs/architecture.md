@@ -1,11 +1,12 @@
 # tech-debt-scan — architecture
 
 This page is the design reference for the `tech-debt-scan` skill. The
-canonical spec lives in the private `ralph` repo at
-`docs/superpowers/specs/2026-05-31-tech-debt-scan-design.md`; because this
-skills repo cannot link cross-repo to a private file, the relevant design is
-inlined here. Where this page and the scripts disagree, **the scripts win** —
-they are the source of truth, and the test suite pins their behaviour.
+canonical v2 spec is
+[`docs/superpowers/specs/2026-09-04-tech-debt-scan-v2-design.md`](superpowers/specs/2026-09-04-tech-debt-scan-v2-design.md)
+in this repo; this page inlines and keeps current the parts of it a user
+needs without reading the spec. Where this page and the scripts disagree,
+**the scripts win** — they are the source of truth, and the test suite pins
+their behaviour.
 
 ## Design principles
 
@@ -30,29 +31,57 @@ they are the source of truth, and the test suite pins their behaviour.
 
 ## Two-command flow
 
-```
-/tech-debt-scan <repo>                         /tech-debt-promote
-─────────────────────────                      ──────────────────
-inventory.py        → inventory.json           (human edits design.md:
-scouts (Agent x8)   → [findings]                pending → approved/rejected)
-  (Claude writes)   → raw-findings.json
-build_synthesis_    → synthesis-prompt.txt     design_parser.py → (inspect)
-  prompt.py                                     promote.py       → chore-<slug>-<date>/
-synthesis (Agent)   → top5.json                   ├─ bundle_writer.py (per finding)
-design_writer.py    → design.md                   └─ design_writer.mark_promoted
-  render                                              (approved → promoted)
-        │                                                    │
-        └──────────────  design.md  (human review)  ─────────┘
-```
+`/tech-debt-scan <repo>` runs a twelve-step chain (the spec numbers the full
+fourteen; steps 4 and 11 — the tool probe and the baseline diff — are
+inserted by phases 4 and 5 without renumbering the rest):
+
+1. `inventory.py` writes `inventory.json` and `coupling.json`: churn,
+   complexity, hotspots and change coupling.
+2. `patterns.py` writes `patterns.json`: regex leads and SATD markers.
+3. `rules.py` writes `rule-findings.json`: deterministic tier-A findings.
+5. `plan_scan.py` writes `scan-plan.json` and `prompts/scout-<family>.md`,
+   applying the adaptive rule over the [family table](#scout-families)
+   below: a family is dispatched only when it has at least one lead.
+6. One read-only scout Agent per plan entry writes its reply to the path the
+   plan names.
+7. `merge_findings.py` writes `candidates.json`: one verified, deduplicated
+   candidate list.
+8. `verify_prompts.py` writes `verify-plan.json` and
+   `prompts/verify-<nn>.md`, selecting candidates for verification under a
+   provisional-priority budget rule (the `verify_prompts.py` row in the
+   table below has the exact selection order and caps).
+9. Read-only verifier Agents reply per batch; `apply_verdicts.py` writes
+   `verified.json`, earning every candidate a tier from the table in the
+   `apply_verdicts.py` row below: A (confirmed and corroborated, or a rule
+   or tool fact), B (confirmed without corroboration, or downgraded), C
+   (rejected, unverified, or capped by a family rule).
+10. `rank.py` writes `ranked.json`, scoring every verified finding with the
+    fixed formula `priority = severity x interest x tier_weight x
+    tractability` (the `rank.py` row below has every term) and taking the
+    top N.
+12. `design_writer.py notes-prompt` writes `prompts/notes.md`; one read-only
+    remediation-note Agent writes `notes.json`.
+13. `design_writer.py render` writes `design.md` and `findings.json`,
+    self-checking through `design_parser.py`.
+
+The user edits `design.md`, flipping each finding's `status:` to `approved`,
+`rejected` or `accepted`. `/tech-debt-promote` then:
+
+1. Locates the edited `design.md`.
+2. Optionally inspects it with `design_parser.py` (read-only).
+3. `promote.py` writes one `chore-<slug>-<date>/` bundle per `approved`
+   finding via `bundle_writer.py`, then flips each to `promoted` via
+   `design_writer.mark_promoted`.
+4. Reports the counts and the bundle location.
 
 All intermediate artefacts default to `.tech-debt/` under the scanned repo (the
 directory is gitignored and is itself in the inventory ignore list). Bundles
 default to `./tech-debt-pbis`.
 
-## Deterministic signals (v2 phases 1 and 2)
+## Deterministic signals and the detect-verify-rank chain
 
-Phases 1 and 2 of the v2 design (`docs/superpowers/specs/2026-09-04-tech-debt-scan-v2-design.md`)
-add the scripts below, which run by hand until phase 3 wires them into the workflow:
+The scripts below (landed across v2 phases 1 to 3) are wired into
+`/tech-debt-scan` and `/tech-debt-promote` as of phase 3:
 
 | Script | Reads | Writes | What it computes |
 | --- | --- | --- | --- |
@@ -126,73 +155,79 @@ workdir instead of calling out. Flags: `--workdir`, `--families`, `--top`,
 input, 3 when `claude` is not on PATH (and `--skip-agents` is absent), 4 when
 an agent call fails after its retry or `--skip-agents` finds no cached reply.
 
-## Scout categories
+## Scout families
 
-Eight language-agnostic debt categories, defined in `scripts/categories.py`
-(`CATEGORIES` + `get_prompt(name)`). One scout agent is dispatched per category;
-`CORE_CATEGORIES` (`god-modules`, `duplication`, `test-gaps`, `half-finished`)
-is the recommended quick-scan subset:
+`scripts/categories.py` defines fourteen language-agnostic debt families
+(`FAMILIES`, one `FamilyBlock` per name in `FAMILY_BLOCKS`). `plan_scan.py`
+dispatches one scout Agent per family that its adaptive rule finds at least
+one lead for:
 
-| Category | Looks for |
+| Family | Looks for |
 | --- | --- |
-| `god-modules` | Single files or units carrying far too much responsibility |
-| `duplication` | The same logic copy-pasted in multiple places |
-| `dead-code` | Code that is never reached or never used |
-| `test-gaps` | Important behaviour with no automated coverage |
-| `doc-drift` | Documentation that no longer matches the code |
-| `half-finished` | Incomplete or abandoned changes, self-admitted debt |
-| `dependency-debt` | Third-party and platform liabilities in manifests and lockfiles |
-| `architecture` | Structural problems above the single-file level |
+| `complex-units` | Single functions, methods or blocks whose branching and nesting make them hard to change safely |
+| `god-classes` | A type, module or file with too many reasons to change, inappropriate intimacy, or long message chains |
+| `duplication` | The same logic in two or more places that change together |
+| `dead-code` | Units with no callers, unreachable branches, leftover commented-out code, and flags stuck at one value |
+| `error-masking` | Failures caught and hidden — empty or catch-all catches, disabled assertions |
+| `test-gaps` | Behaviour that changes often with no automated test guarding it |
+| `half-finished` | Self-admitted debt markers, stubs, skip markers, calls with no timeout |
+| `migration` | Two ways of doing one thing coexisting; an old idiom still called after its replacement landed |
+| `dependency-debt` | Structural dependency problems: missing lockfiles, duplicate-purpose packages, floating ranges, stale vendoring |
+| `doc-drift` | Documentation that contradicts the code it describes |
+| `architecture` | Dependency cycles, misplaced code, directories whose stability contradicts what depends on them |
+| `security` | Pattern-level security debt: credential-shaped literals, string-built SQL, dynamic eval, disabled TLS, weak hashes, wildcard CORS |
+| `test-quality` | Tests that sleep, read the wall clock, use unseeded randomness, assert nothing, or hide flakiness |
+| `pipeline-infra` | Duplicated pipeline YAML, manual release steps, dev-only container paths in production use, stdout instead of logging |
 
-These eight are the v1 categories `/tech-debt-scan` still dispatches. The v2
-chain above uses a different, larger set: the fourteen family blocks in
-`categories.FAMILY_BLOCKS` (`FAMILIES`), which `plan_scan.py` renders into scout
-prompts and `verify_prompts.py` reads for each family's `verifier_questions` and
-traps. Phase 3 cuts SKILL.md over to the families and retires the eight.
+Each `FamilyBlock` carries its own definition, scout `questions`, known-non-debt
+`traps`, allowed `type_ids` and `debt_types`, and a shorter set of
+`verifier_questions` a verifier Agent sees for that family's candidates.
+`plan_scan.py` renders the scout prompt from a block; `verify_prompts.py`
+renders the verifier prompt from the same block plus any matching config
+`traps`. A scout's reply is one JSON object of `findings`, `open_questions`,
+`looks_bad_but_fine` and `not_assessed` (`SCOUT_OUTPUT_SCHEMA`); each finding
+carries `title`, `family`, `debt_type`, `type_id`, `severity`, `effort`,
+`signals_cited`, `evidence` (verbatim quotes) and `note` — never a
+`suggested_fix` or a `confidence` self-report.
 
-Each v1 scout returns a JSON array of `ScoutFinding` objects:
-
-```json
-{ "title": "...", "severity": 1, "category": "dead-code",
-  "debt_type": "code", "effort": "M", "confidence": "high",
-  "evidence": [{ "file": "...", "line": 1, "note": "..." }],
-  "suggested_fix": "..." }
-```
-
-`title` ≤ 80 chars, `suggested_fix` ≤ 500 chars, `severity` an integer 1–5,
-`debt_type` one of `validation.VALID_DEBT_TYPES`, `effort` `S`/`M`/`L` and
-`confidence` `low`/`medium`/`high`.
-
-## Synthesis
-
-`build_synthesis_prompt.py <raw-findings.json> [--out <path>] [--top N]
-[--inventory <inventory.json>]` reads `raw-findings.json`, sorts findings by a
-composite priority score (severity x effort weight x confidence weight x hotspot
-boost, hotspots read from `--inventory` when given) descending, caps at
-`MAX_FINDINGS` (30, logging how many were truncated to stderr), and renders a
-picker prompt that asks the synthesis Agent to rank on impact, interest and
-tractability and return exactly `--top` findings (default 5).
-
-The Agent's response (`top5.json`) is validated by
-`build_synthesis_prompt.validate_synthesis_output`, which raises `SynthesisError`
-if the response is not valid JSON, does not contain a `top5` array of exactly
-`expected_count` items (default 5), is missing a required field, or carries a bad
-`slug` / out-of-range `severity` / unknown `category`; `debt_type`, `effort` and
-`confidence` are validated only when present.
+**Retired from the workflow, kept for compatibility.** The eight v1
+categories (`god-modules`, `duplication`, `dead-code`, `test-gaps`,
+`doc-drift`, `half-finished`, `dependency-debt`, `architecture`, defined by
+`CATEGORY_PROMPTS`/`CATEGORIES`/`CORE_CATEGORIES`/`get_prompt` in the same
+module) are no longer dispatched by `/tech-debt-scan`. The symbols stay in
+`categories.py`, still exercised by `test_categories.py`'s v1 cases; nothing
+in the v2 chain reads them, but a v1 `design.md`'s `category` value (for
+example `god-modules`) is still read as `family` and promotes unchanged.
 
 ## design.md format
 
-`design_writer.py render` writes a single markdown document:
+`design_writer.py render` writes a single markdown document (spec 4.11): a
+hand-rendered YAML frontmatter block (`schema_version`, `scan_date`, `root`,
+`total_files`, `total_loc`, `languages`, `preset`, `families_run`,
+`families_skipped`, `tools_run`, `tools_absent`, `git_available`, `counts`,
+plus `new`/`resolved` once a baseline exists), a header naming the top
+hotspots and coupled pairs, then seven body sections in order: `# Top N`,
+`# Below the cut`, `# Below the cut: tier C and unverified`,
+`# Considered and rejected`, `# Looks bad but is fine`,
+`# Open questions for the maintainer`, `# Not assessed`.
 
-- **Frontmatter** (hand-rendered, not `yaml.dump`, to keep key order and avoid
-  quoting the date): `scan_date`, `root`, `total_files`, `total_loc`,
-  `languages`.
-- **One `## ` section per finding.** Each section opens with a fenced ` ```yaml `
-  anchor block carrying `status`, `slug`, `severity`, `category`, followed by
-  `Reasoning`, `Evidence`, and `Suggested fix` prose.
+A finding is an `## ` section whose fenced `yaml` anchor carries `status`,
+`slug`, `fingerprint`, `tier`, `priority`, `family`, `category` (always the
+`family` alias, so v1 tooling and a human skimming still see a `category`
+key), `debt_type`, `type_id`, `severity`, `effort` and `diff`. Every other
+section is an `# ` heading, which ends the preceding finding's body so a
+negative-space section (rejections, open questions, and the rest) is never
+copied into a PBI. A top-N finding's body also carries `### Remediation` and
+`### Acceptance criteria` from the remediation-note agent; a below-the-cut
+tier A/B finding outside the top N carries `### Proof` and `### Evidence`
+only, so it is still promotable without a note; `# Below the cut: tier C and
+unverified` is a compact table instead of full sections, one row per tier C
+or unverified finding.
 
 The renderer re-parses its own output via `design_parser.parse_design` as a
-self-check before exiting; a round-trip failure exits non-zero.
+self-check before exiting; a round-trip failure exits non-zero. The same call
+also writes `findings.json` beside `design.md`: the same findings as
+machine-readable JSON, preferred by `evaluate.py` over `verified.json`.
 
 `design.md` is written LF-only (`write_bytes`) so it byte-matches across
 platforms regardless of `core.autocrlf`.
@@ -209,11 +244,14 @@ Shared validators live in `scripts/validation.py`:
   `test`, `documentation`, `dependency`, `build`, `requirement`, `security`,
   `infrastructure`, `knowledge-process`, `defect`.
 - **Effort** (`validate_effort`): `S`, `M` or `L`.
-- **Confidence** (`validate_confidence`): `low`, `medium` or `high`.
 - **Type id** (`validate_type_id`): `TD-01` to `TD-35`; checked only when present.
 - **Tier** (`validate_tier`): `A`, `B` or `C`.
 
 Every one raises `ValidationError` (a `ValueError`) naming the offending value.
+A v1 anchor's `confidence` value is still an accepted optional key — the
+parser keeps it so a hand-edited v1 `design.md` does not fail to parse — but
+it is never validated or rendered; `validate_confidence` was removed with the
+v1 top-N picker it existed for (spec 8).
 
 ## Promotion
 
@@ -251,7 +289,7 @@ code path returns it yet.
   `python scripts/<name>.py` command, runs each script's `--help` (subcommand-
   aware), and asserts every `--flag` used in the documented command appears in
   the help. It runs in CI before pytest.
-- Tests never call a live Agent. Scout dispatch and synthesis are exercised by
+- Tests never call a live Agent. Scout and verifier dispatch are exercised by
   feeding canned JSON to the scripts; the end-to-end test
   (`tests/test_e2e.py`) drives scan→promote against fixture repos with golden
   inputs. The `live` pytest marker is off by default.
@@ -269,7 +307,9 @@ code path returns it yet.
 
 Human in the loop throughout: nothing is fixed automatically. The v2 delivery
 phases run from phase 1 (deterministic signals) to phase 5 (baseline and
-evaluation). Phases 1 and 2 have landed, so the chain above runs by hand or
-through `live_run.py`, while `/tech-debt-scan` still follows the v1 steps until
-phase 3 cuts SKILL.md over. Autonomously applying fixes without review is a
-separate follow-on, deferred and out of scope.
+evaluation). Phases 1 to 3 have landed: `/tech-debt-scan` and
+`/tech-debt-promote` run the full detect-verify-rank chain end to end, without
+external tool signals or a baseline diff. Phase 4 adds the tool probe and the
+deep set; phase 5 adds the baseline, its `diff` reporting, and promote
+write-back. Autonomously applying fixes without review is a separate
+follow-on, deferred and out of scope.

@@ -1,13 +1,18 @@
 # tech-debt-scan
 
 Language-independent tech-debt scan skill for Claude Code. It walks any repo,
-dispatches read-only LLM scout agents per debt category, synthesises the top-5
-findings into a single `design.md`, and — after a human reviews and approves
-findings — emits ralph-friendly PBI bundles you can drop into a queue.
+mines git history for hotspots, dispatches read-only LLM scout agents across
+fourteen debt families, verifies the candidates a deterministic budget
+selects, ranks the survivors with a fixed formula, and renders the top-N
+findings into a single `design.md` — after a human reviews and approves
+findings, `/tech-debt-promote` emits ralph-friendly PBI bundles you can drop
+into a queue.
 
-Human in the loop: nothing is fixed automatically. The LLM does only the
-judgement calls (dispatch scouts, pick the top 5, and in the v2 chain give the
-per-candidate verdicts); every other step is a deterministic pure-Python script
+Human in the loop: nothing is fixed automatically. The LLM does three things:
+run each dispatched family's scout, verify the candidates a deterministic
+budget selects, and write one remediation note per top-N finding; every other
+step — inventory, pattern and rule mining, merging, ranking, rendering,
+parsing, validation, bundle writing — is a deterministic pure-Python script
 with a pinned command and a pinned output file.
 
 ## Install
@@ -47,13 +52,18 @@ Two commands, with a human review step in between.
    /tech-debt-scan <repo-path>
    ```
 
-   This inventories the repo, runs eight scout agents (one per category in
-   `categories.CATEGORIES`), picks the top-5 debt items, and writes
-   `.tech-debt/design.md`.
+   This inventories the repo and mines patterns and rules, dispatches one
+   scout agent per debt family the adaptive rule finds leads for (up to
+   fourteen, `scripts/categories.py`'s `FAMILY_BLOCKS`), merges the
+   candidates, dispatches read-only verifier agents over the ones a
+   deterministic budget selects, ranks the verified survivors with a fixed
+   priority formula, dispatches one remediation-note agent over the top N,
+   and writes `.tech-debt/design.md`.
 
-2. **Review** — open `.tech-debt/design.md`. Each finding has a `status:` field
-   set to `pending`. Change it to `approved` to promote the finding, or
-   `rejected` to drop it. Leave it `pending` to skip for now.
+2. **Review** — open `.tech-debt/design.md`. Each finding has a `status:`
+   field set to `pending`. Change it to `approved` to promote the finding,
+   `rejected` to drop it, or `accepted` to record a deliberate deferral (with
+   `reason:` and an optional `until:`). Leave it `pending` to skip for now.
 
 3. **Promote** — convert approved findings into PBI bundles:
 
@@ -81,26 +91,25 @@ follows, including every pinned command and pre/post-condition.
 | `verify-plan.json` | `verify_prompts.py` | `{schema_version: 2, top, batch_size, selected[], unverified[], batches[{prompt, output, fingerprints[]}]}`; `selected` is every fingerprint sent for verification, in batch order, and `unverified` every `tier: null` candidate the budget rule left out; tier A candidates are in neither list; each batch names the prompt written at `prompts/verify-<nn>.md` (two digits from 01) and the `output` path `verdicts/verify-<nn>.json` the read-only verifier's reply must be stored at, a JSON array of `{fingerprint, verdict, proof, severity, effort, trap_matched, checked[], opened[]}` with `verdict` one of `confirm`, `downgrade`, `reject`, `refer` |
 | `verified.json` | `apply_verdicts.py` | `{schema_version: 2, findings[<candidate keys> + verdict, proof, checked, opened, trap_matched, verified], stats{selected, verdicts, unknown_fingerprint, missing_verdict, tier_a, tier_b, tier_c, rejected}}`; each finding is a candidate with `tier` overwritten by the earned tier (`A`/`B`/`C`/`null`, spec 4.8 plus the 2.3 family caps) and `verdict` one of `confirm`, `downgrade`, `reject`, `refer`, `rule` (tier-A candidates verified by construction) or `unverified` (not selected, or selected with no returned verdict; `verified: false`); a `reject` keeps `tier: null` with `verified: true` and its `proof` |
 | `ranked.json` | `rank.py` | `{schema_version: 2, formula_version: 1, preset, top, weights{wH, wC, wF}, tractability{S, M, L}, top_n[], findings[{fingerprint, rank, priority, terms{severity, H, C, F, interest, tier_weight, tractability, priority}, tier, in_top_n, spread_capped}]}`; `findings` is every finding ordered by priority descending then fingerprint ascending (the tie-break), `rank` numbering that order; `top_n` is the fingerprints, in that same order, of the findings that made the top `top` under the chosen `preset` (`balanced`, `hotspot-first`, `architecture` or `quick-wins`) — tier A and B only, minus (under `quick-wins`) uncorroborated duplication and every ownership finding, capped at `ceil(spread_cap x top)` per family with the excess marked `spread_capped: true`; byte-identical for identical inputs |
-| `evaluation.json` | `live_run.py` (the `evaluate.py` report) | `{schema_version: 2, top, churn_months, families{<family>: {planted, found, recall, reported, precise, precision, decoy_hits{A, B, C}}}, planted[{id, family, found, tiers[], tier_met}], decoys[{id, family, hit_tiers[], in_top_n}], decoys_in_tier_a, decoys_in_top_n, tier_a{reported, precise, precision}, counts{reported, on_planted, on_decoys, unplanted}}`; written only when the target carries a `planted.json`, and the same report is printed as a table and condensed into the `docs/evaluation-log.md` row. A finding counts as `reported` at tier A or B; `tier_a.precision` counts tier A alone, which is the release bar, while the per-family `precision` spans A and B. `churn_months` is the window the run was scored under (null when the fixture records none) |
-| `raw-findings.json` | Claude (from scouts) | `[{title, severity, category, debt_type, effort, confidence, evidence[{file, line, note}], suggested_fix}]`; `title` at most 80 characters, `suggested_fix` at most 500, `severity` an integer 1-5, and `debt_type`, `effort` and `confidence` validated by `validation.py` when present |
-| `top5.json` | synthesis Agent | `{top5: [{slug, title, severity, category, reasoning, evidence, suggested_fix}]}`, exactly as many items as `build_synthesis_prompt.py --top` asked for (default 5); the key stays `top5` whatever the count |
 | `prompts/notes.md` | `design_writer.py notes-prompt` | spec 4.11's Task 5 prompt for the single remediation-note agent: a role sentence naming the repository root, the read-only rule, then per top-N finding (`ranked.json`'s `top_n`, in priority order) `## <n>. <title>` with `fingerprint`, `family`, `severity`, `effort`, the redacted proof and each evidence item as `` `file:start-end` `` followed by its redacted quote in a fenced block, then the `NOTES_CONTRACT` verbatim (the `notes.json` reply shape below); `--top` narrows the top N below `ranked.json`'s own top and never widens it |
 | `notes.json` | the remediation-note agent | `[{fingerprint, remediation, acceptance_criteria[]}]`, one entry per top-N finding: `remediation` at most 120 words on how to pay the debt down (no code), `acceptance_criteria` two to five checkable statements; read back by `design_writer.py render` into each top-N finding's `### Remediation` and `### Acceptance criteria` sections via `notes_by_fingerprint`, which drops an entry whose fingerprint is not in `ranked.json`'s `top_n`, whose `remediation` is not a non-empty string, or whose `acceptance_criteria` is not a list of strings; a missing or malformed `notes.json` renders `NOTE_PLACEHOLDER` (`remediation note not available`) in both sections instead of failing |
 | `design.md` | `design_writer.py render` | v2 frontmatter (`schema_version: 2`, `scan_date`, `root`, `total_files`, `total_loc`, `languages`, `preset`, `families_run`, `families_skipped`, `tools_run`, `tools_absent`, `git_available`, `counts{candidates, quote_failed, verified, tier_a, tier_b, tier_c, unverified, rejected, suppressed}` plus `new` and `resolved` when `diff.json` is present), written as literal YAML lines with an empty list as `key: []`; then the scan header and the seven body sections in order — `# Top N`, `# Below the cut`, `# Below the cut: tier C and unverified`, `# Considered and rejected`, `# Looks bad but is fine`, `# Open questions for the maintainer`, `# Not assessed`. A finding is an H2 whose fenced `yaml` anchor carries `status`, `slug`, `fingerprint`, `tier`, `priority`, `family`, `category`, `debt_type`, `type_id`, `severity`, `effort` and `diff`; every other section is an H1, which ends the preceding finding's body so it is never copied into a PBI. `# Top N` carries a full H2 per top-N finding (`### Proof`, `### Evidence`, `### Signals`, `### Remediation`, `### Acceptance criteria`) and `# Below the cut` a compact H2 — the same anchor, then `### Proof` and `### Evidence` only — per tier A or B finding outside the top N, so it is promotable without the note agent's sections; `# Below the cut: tier C and unverified` is a `slug \| family \| file \| reason` table, one row per tier C or `unverified` finding with the verdict as the reason; `# Considered and rejected` is one bullet per `reject`, naming the bolded title, the primary evidence file and the verifier's proof — replaced by `trap_matched` when the verifier matched a trap; `# Looks bad but is fine` merges `candidates.json`'s `looks_bad_but_fine` entries with those trap rejections; `# Open questions for the maintainer` lists `candidates.json`'s `open_questions`, prefixed `quote not found: ` when that was the reason; `# Not assessed` names the skipped families and the three standing limits (tools, runtime-only, by design). An empty section renders `_None._`, and an evidence quote is fenced with one more backtick than its own longest backtick run |
 | `findings.json` | `design_writer.py render` | `{schema_version: 2, findings[{fingerprint, slug, title, family, debt_type, type_id, severity, effort, evidence, signals, confirmed_by, tier, verdict, proof, priority, terms, in_top_n, spread_capped, diff}]}`, written beside `design.md`: the machine-readable twin of the same findings, in the same order (`ranked.json` order, then any verified finding with no rank entry). `evidence` is `verified.json`'s items with the quotes redacted; `title` and `proof` are redacted too; `priority` and `terms` come from the rank entry (`null` and `{}` when there is none), `in_top_n` from membership of `ranked.json`'s `top_n`, and `diff` from `diff.json` (`NEW` when absent). `evaluate.py` prefers this file over `verified.json` |
 | `chore-<slug>-<date>/` | `promote.py` | a PBI bundle: `PBI.md`, `PLAN.md`, `HISTORY.md`. `PBI.md`'s frontmatter carries `fingerprint`, `tier`, `type_id`, `family`, `debt_type` and `effort` after `category` when the finding's anchor has them (v2; a v1 finding's bundle is unchanged, spec 8), never `priority`. `PLAN.md` lists the finding's own `### Acceptance criteria` checklist, numbered in order, or the one-step stub when there is none |
+| `evaluation.json` | `live_run.py` (the `evaluate.py` report), evaluation only, not part of `/tech-debt-scan` | `{schema_version: 2, top, churn_months, families{<family>: {planted, found, recall, reported, precise, precision, decoy_hits{A, B, C}}}, planted[{id, family, found, tiers[], tier_met}], decoys[{id, family, hit_tiers[], in_top_n}], decoys_in_tier_a, decoys_in_top_n, tier_a{reported, precise, precision}, counts{reported, on_planted, on_decoys, unplanted}}`; written only when the target carries a `planted.json`, and the same report is printed as a table and condensed into the `docs/evaluation-log.md` row. A finding counts as `reported` at tier A or B; `tier_a.precision` counts tier A alone, which is the release bar, while the per-family `precision` spans A and B. `churn_months` is the window the run was scored under (null when the fixture records none) |
 
-All intermediate artefacts live under `.tech-debt/` in the scanned repo (gitignore
-it). The v2 scripts run by hand for now, in this order: the signals
-(`inventory.py --workdir`, `patterns.py`, `rules.py`), then the chain
-(`plan_scan.py`, the scout agents, `merge_findings.py`, `verify_prompts.py`, the
-verifier agents, `apply_verdicts.py`, `rank.py`) and `evaluate.py`;
-`live_run.py` drives all of it end to end with real agents. `/tech-debt-scan`
-still follows the v1 steps until phase 3. Every threshold they use comes from an
+All intermediate artefacts live under `.tech-debt/` in the scanned repo
+(gitignore it). `/tech-debt-scan` runs the full v2 chain: the signals
+(`inventory.py --workdir`, `patterns.py`, `rules.py`), then `plan_scan.py`,
+the scout agents, `merge_findings.py`, `verify_prompts.py`, the verifier
+agents, `apply_verdicts.py`, `rank.py`, the remediation-note agent
+(`design_writer.py notes-prompt`) and `design_writer.py render`. `live_run.py`
+drives the same chain end to end with real agents, for evaluation against the
+fixture corpus (never in CI). Every threshold the chain uses comes from an
 optional `.tech-debt.yaml` at the repository root; `python scripts/config.py
 <repo>` prints the effective values. See
 [`docs/architecture.md`](docs/architecture.md) for the full design, the debt
-categories, and the validation rules.
+families, and the validation rules.
 
 ## Language support
 
@@ -145,28 +154,32 @@ code path with a fake `claude` executable passed through `--claude`.
 
 Human in the loop throughout — nothing is fixed automatically.
 
-The v2 design ships in five phases. Phase 1 landed the deterministic signals
-(`config.py`, inventory v2 with `coupling.json`, `patterns.py`, `rules.py`,
-`evaluate.py`, the fixture corpus). Phase 2 lands the detect, verify and rank
-chain — `categories.py` v2 with its fourteen family blocks, `plan_scan.py`,
-`merge_findings.py`, `verify_prompts.py`, `apply_verdicts.py` and `rank.py` —
-runnable by hand or behind the `live_run.py` harness, with the goldens and the
-evaluation log that scores it; `/tech-debt-scan` still runs v1. Phase 3 rewrites
-the report and cuts SKILL.md over to the v2 chain; phases 4 and 5 add external
-tools and the baseline.
+The v2 design ships in five phases. Phases 1 and 2 landed the deterministic
+signals (`config.py`, inventory v2 with `coupling.json`, `patterns.py`,
+`rules.py`) and the detect, verify and rank chain (`categories.py` v2's
+fourteen family blocks, `plan_scan.py`, `merge_findings.py`,
+`verify_prompts.py`, `apply_verdicts.py`, `rank.py`), with `evaluate.py`, the
+fixture corpus, the goldens and the evaluation log that scores it. **Phase 3
+is complete:** `design_writer.py`, `design_parser.py`, `bundle_writer.py` and
+`promote.py` render and promote the v2 report, and `/tech-debt-scan` and
+`/tech-debt-promote` now run this chain end to end — without external tool
+signals or a baseline diff. Phase 4 adds external tool signals
+(`tools_probe.py`, tier caps lifted by tool presence, the deep set, module
+chunking) and phase 5 adds the baseline (`baseline.py`, the `diff` anchor key,
+promote write-back, `accepted` expiry).
 
 "Mow the lawn" autonomy — applying fixes without review — is a separate
 follow-on, deferred and out of scope.
 
 ## References
 
-- [`docs/architecture.md`](docs/architecture.md) — full design, categories, and
-  validation rules (the spec content, inlined).
+- [`docs/architecture.md`](docs/architecture.md) — full design, debt
+  families, and validation rules (the spec content, inlined and kept current).
 - [`skills/tech-debt-scan/SKILL.md`](skills/tech-debt-scan/SKILL.md) — the
   step-by-step workflow Claude follows.
 - Canonical design spec:
-  `docs/superpowers/specs/2026-05-31-tech-debt-scan-design.md` in the private
-  `ralph` repo (not linkable from here; inlined into `docs/architecture.md`).
+  [`docs/superpowers/specs/2026-09-04-tech-debt-scan-v2-design.md`](docs/superpowers/specs/2026-09-04-tech-debt-scan-v2-design.md)
+  in this repo.
 
 ## License
 

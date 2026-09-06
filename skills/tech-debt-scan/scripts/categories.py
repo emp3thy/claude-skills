@@ -23,10 +23,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Final
 
-# Shared output contract appended to every category prompt. Keys here MUST match
-# the raw-findings shape consumed by build_synthesis_prompt.py: title, severity,
-# category, debt_type, effort, confidence, evidence (list of {file, line, note}),
-# suggested_fix.
+# Shared output contract appended to every v1 category prompt (retired from the
+# scan workflow in phase 3; kept for v1 design.md compatibility). Keys here MUST
+# match the ScoutFinding shape: title, severity, category, debt_type, effort,
+# confidence, evidence (list of {file, line, note}), suggested_fix.
 _OUTPUT_SCHEMA: Final[str] = """
 You have READ-ONLY access to the repository (Explore-agent semantics): you may
 read and search files but must not modify anything.

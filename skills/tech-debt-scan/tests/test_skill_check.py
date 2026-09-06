@@ -84,3 +84,18 @@ def test_subcommand_flags_checked(tmp_path: Path):
 def test_real_skill_md_passes():
     errors = check_skill(SKILL, SCRIPTS)
     assert errors == [], "\n".join(errors)
+
+
+def test_real_skill_md_names_every_v2_script_and_no_deleted_one() -> None:
+    """The cut-over guard: SKILL.md drives the v2 chain and nothing that no longer exists."""
+    skill = (Path(__file__).parent.parent / "SKILL.md").read_text(encoding="utf-8")
+    for name in ("inventory.py", "patterns.py", "rules.py", "plan_scan.py", "merge_findings.py",
+                 "verify_prompts.py", "apply_verdicts.py", "rank.py", "design_writer.py",
+                 "design_parser.py", "promote.py"):
+        assert f"scripts/{name}" in skill, name
+    for gone in ("build_synthesis_prompt.py", "tools_probe.py", "baseline.py"):
+        assert gone not in skill, f"{gone} is not part of phase 3"
+    assert "--top5" not in skill and "raw-findings.json" not in skill
+    assert "top5.json" not in skill and "synthesis" not in skill.lower()
+    steps = [line for line in skill.splitlines() if line.strip().startswith(("1. ", "2. ", "3. "))]
+    assert steps, "the numbered step lists survive the rewrite"
