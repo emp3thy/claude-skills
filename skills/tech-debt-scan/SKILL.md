@@ -167,11 +167,13 @@ python scripts/build_synthesis_prompt.py .tech-debt/raw-findings.json --inventor
 
 ### Step 5 — Render the design doc
 
-- Prerequisite: `.tech-debt/top5.json` and `.tech-debt/inventory.json`.
+- Prerequisite: the chain outputs in `.tech-debt/` (`inventory.json`,
+  `coupling.json`, `scan-plan.json`, `verified.json`, `ranked.json`,
+  `candidates.json`).
 - Command:
 
 ```bash
-python scripts/design_writer.py render --top5 .tech-debt/top5.json --inventory .tech-debt/inventory.json --scan-date <YYYY-MM-DD> --out .tech-debt/design.md
+python scripts/design_writer.py render --workdir .tech-debt --scan-date <YYYY-MM-DD> --out .tech-debt/design.md
 ```
 
 - Postcondition: `.tech-debt/design.md` exists. Each finding's yaml anchor

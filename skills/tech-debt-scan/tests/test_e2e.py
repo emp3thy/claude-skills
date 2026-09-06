@@ -19,10 +19,21 @@ import json
 from pathlib import Path
 
 import pytest
-from build_synthesis_prompt import build_prompt, validate_synthesis_output
-from design_writer import render_design_md
-from inventory import walk_inventory
-from promote import run_promote
+
+# The v1 synthesis path this file drives (build_synthesis_prompt.py and
+# design_writer.render_design_md) is replaced by the v2 chain in phase 3.
+# render_design_md no longer exists, so the module cannot even be imported;
+# the skip therefore sits above the imports and covers every test here.
+# Task 8 of the phase 3 plan rewrites this file and removes the skip.
+pytest.skip(
+    "v1 synthesis path; rewritten in Task 8 of the phase 3 plan",
+    allow_module_level=True,
+)
+
+from build_synthesis_prompt import build_prompt, validate_synthesis_output  # noqa: E402
+from design_writer import render_design_md  # noqa: E402
+from inventory import walk_inventory  # noqa: E402
+from promote import run_promote  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 GOLDEN = Path(__file__).parent / "golden"

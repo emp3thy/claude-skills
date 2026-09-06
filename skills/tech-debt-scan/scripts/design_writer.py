@@ -1,15 +1,31 @@
 """Render design.md and apply in-place ``mark_promoted`` status edits.
 
-Stage 5 of /tech-debt-scan (``render_design_md``) turns the synthesised top-5
-findings into the single ``design.md`` document the user reviews. Stage 3 of
-/tech-debt-promote (``mark_promoted``) flips approved findings to ``promoted``
-in place once their bundles have been emitted.
+``render`` is the report stage of /tech-debt-scan (spec 4.11). It reads the
+whole phase 2 chain out of ``--workdir`` (``inventory.json``, ``coupling.json``,
+``scan-plan.json``, ``verified.json``, ``ranked.json``, ``candidates.json``,
+plus the optional ``notes.json`` and ``diff.json``) and renders the single
+``design.md`` the user reviews. ``mark_promoted`` is stage 3 of
+/tech-debt-promote: it flips approved findings to ``promoted`` in place once
+their bundles have been emitted.
+
+Document shape (``SECTION_ORDER``): the frontmatter, the ``# Tech-debt scan``
+header, ``# Top N`` with one H2 per top-N finding, then the six negative-space
+H1 sections. A finding is an H2 with a fenced ```yaml anchor; every other
+section is an H1, which ``design_parser`` treats as the end of a finding's
+body, so no negative-space section is ever copied into a PBI.
 
 Format invariants (the round-trip partner is design_parser.parse_design):
   - Output is LF-only. The body is built as ``"\n".join(parts)`` and written via
     ``write_bytes`` so Windows text-mode CRLF translation never corrupts it.
-  - After writing, ``render_design_md`` re-parses its own output as a self-check
-    so format drift surfaces at write time, not just in tests.
+  - The frontmatter is emitted as literal YAML lines, never ``yaml.dump``, so
+    key order and byte layout are pinned by this module rather than by PyYAML.
+    An empty ``languages`` / ``families_run`` / ``families_skipped`` list is
+    written as ``key: []`` on one line: a bare ``key:`` with nothing beneath it
+    reads back as ``None``, which is a different document.
+  - After writing, ``write_design`` re-parses its own output as a self-check so
+    format drift surfaces at write time, not just in tests.
+  - Every repository-derived string (title, proof, quote, note text) passes
+    through ``redaction.redact`` at the point of writing.
   - ``mark_promoted`` writes ``<path>.tmp`` then ``os.replace`` onto ``<path>``
     (atomic on POSIX + Windows) and keeps the previous content at ``<path>.bak``.
     It only touches findings currently ``approved``; an already-``promoted``
@@ -27,112 +43,406 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Final, NamedTuple
 
 from design_parser import DesignParseError, parse_design
+from redaction import redact
+from slugs import unique_slugs
+
+# The seven body sections of spec 4.11, in document order. "Top" is rendered as
+# ``# Top <count>``; the other six are their own H1 headings verbatim.
+SECTION_ORDER: Final[tuple[str, ...]] = (
+    "Top",
+    "Below the cut",
+    "Below the cut: tier C and unverified",
+    "Considered and rejected",
+    "Looks bad but is fine",
+    "Open questions for the maintainer",
+    "Not assessed",
+)
+
+# Spec 4.11's own wording for a top-N finding the note agent did not answer for.
+NOTE_PLACEHOLDER: Final[str] = "remediation note not available"
+# A confirmed finding whose verdict carried no proof text still needs a body.
+NO_PROOF: Final[str] = "no verifier proof"
+# The six documents ``load_inputs`` requires; ``notes.json`` and ``diff.json``
+# are optional (the note agent is Task 5's step, and diff.json lands in phase 5).
+REQUIRED_DOCUMENTS: Final[tuple[str, ...]] = (
+    "inventory.json",
+    "coupling.json",
+    "scan-plan.json",
+    "verified.json",
+    "ranked.json",
+    "candidates.json",
+)
 
 
 class DesignWriteError(Exception):
     """Raised when rendering or an in-place status edit fails."""
 
 
-def _render_frontmatter(inventory: dict[str, Any], scan_date: str) -> list[str]:
-    languages = list(inventory["languages"])
+@dataclass(slots=True)
+class RenderInputs:
+    """Every document ``render_design`` reads, loaded once from the workdir."""
+
+    workdir: Path
+    inventory: dict[str, Any]
+    coupling: dict[str, Any]
+    plan: dict[str, Any]
+    verified: dict[str, Any]
+    ranked: dict[str, Any]
+    candidates: dict[str, Any]
+    notes: list[dict[str, Any]] = field(default_factory=list)
+    diff: dict[str, Any] | None = None
+
+
+class Row(NamedTuple):
+    """One finding paired with its rank entry and its document-unique slug."""
+
+    rank: dict[str, Any]
+    finding: dict[str, Any]
+    slug: str
+
+
+def load_inputs(workdir: Path) -> RenderInputs:
+    """Load every render input; the six required documents must exist and be objects."""
+
+    def required(name: str) -> dict[str, Any]:
+        path = workdir / name
+        if not path.is_file():
+            raise DesignWriteError(f"{path} not found; run the chain first")
+        loaded = json.loads(path.read_bytes())
+        if not isinstance(loaded, dict):
+            raise DesignWriteError(f"{path} is not a JSON object")
+        return loaded
+
+    notes_path = workdir / "notes.json"
+    notes_raw = json.loads(notes_path.read_bytes()) if notes_path.is_file() else []
+    notes = (
+        [n for n in notes_raw if isinstance(n, dict)] if isinstance(notes_raw, list) else []
+    )
+    diff_path = workdir / "diff.json"
+    diff_raw = json.loads(diff_path.read_bytes()) if diff_path.is_file() else None
+    return RenderInputs(
+        workdir=workdir,
+        inventory=required("inventory.json"),
+        coupling=required("coupling.json"),
+        plan=required("scan-plan.json"),
+        verified=required("verified.json"),
+        ranked=required("ranked.json"),
+        candidates=required("candidates.json"),
+        notes=notes,
+        diff=diff_raw if isinstance(diff_raw, dict) else None,
+    )
+
+
+# --- counting, ordering ---------------------------------------------------------
+
+
+def _findings(inputs: RenderInputs) -> list[dict[str, Any]]:
+    raw = inputs.verified.get("findings") or []
+    return [f for f in raw if isinstance(f, dict)]
+
+
+def _stat_sum(stats: Any, key: str) -> int:
+    """Sum ``key`` across ``candidates.json``'s per-family stats blocks."""
+    if not isinstance(stats, dict):
+        return 0
+    total = 0
+    for block in stats.values():
+        if isinstance(block, dict):
+            value = block.get(key, 0)
+            if isinstance(value, int):
+                total += value
+    return total
+
+
+def _counts(inputs: RenderInputs) -> dict[str, int]:
+    """The frontmatter ``counts`` block, in spec 4.11's pinned key order.
+
+    ``new`` and ``resolved`` are appended only when ``diff.json`` was present;
+    in phase 3 it never is, so the two keys are simply absent.
+    """
+    findings = _findings(inputs)
+    stats = inputs.candidates.get("stats")
+    counts: dict[str, int] = {
+        "candidates": len(inputs.candidates.get("candidates") or []),
+        "quote_failed": _stat_sum(stats, "quote_failed"),
+        "verified": sum(1 for f in findings if f.get("verified")),
+        "tier_a": sum(1 for f in findings if f.get("tier") == "A"),
+        "tier_b": sum(1 for f in findings if f.get("tier") == "B"),
+        "tier_c": sum(1 for f in findings if f.get("tier") == "C"),
+        "unverified": sum(1 for f in findings if f.get("verdict") == "unverified"),
+        "rejected": sum(1 for f in findings if f.get("verdict") == "reject"),
+        "suppressed": _stat_sum(stats, "suppressed"),
+    }
+    if inputs.diff is not None:
+        diff_counts = inputs.diff.get("counts")
+        diff_counts = diff_counts if isinstance(diff_counts, dict) else {}
+        counts["new"] = int(diff_counts.get("new", 0))
+        counts["resolved"] = int(diff_counts.get("resolved", 0))
+    return counts
+
+
+def _ordered(inputs: RenderInputs) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """``(rank_entry, finding)`` pairs in ``ranked.json`` order.
+
+    A ranked fingerprint with no verified finding is skipped. A verified
+    finding with no rank entry is appended after the ranked ones with a
+    synthesised entry whose ``priority`` is null; it can never be in the top N.
+    """
+    by_fingerprint = {str(f.get("fingerprint")): f for f in _findings(inputs)}
+    pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    placed: set[str] = set()
+    for entry in inputs.ranked.get("findings") or []:
+        if not isinstance(entry, dict):
+            continue
+        fingerprint = str(entry.get("fingerprint"))
+        finding = by_fingerprint.get(fingerprint)
+        if finding is None:
+            continue
+        placed.add(fingerprint)
+        pairs.append((entry, finding))
+    for finding in _findings(inputs):
+        fingerprint = str(finding.get("fingerprint"))
+        if fingerprint in placed:
+            continue
+        pairs.append(
+            (
+                {
+                    "fingerprint": fingerprint,
+                    "rank": None,
+                    "priority": None,
+                    "terms": {},
+                    "tier": finding.get("tier"),
+                    "in_top_n": False,
+                    "spread_capped": False,
+                },
+                finding,
+            )
+        )
+    return pairs
+
+
+def _rows(inputs: RenderInputs) -> list[Row]:
+    """``_ordered`` with one document-unique slug per finding, derived from its title.
+
+    The slugs are allocated over the whole ordered list, so a finding's slug
+    does not change when another finding is added below it.
+    """
+    pairs = _ordered(inputs)
+    slugs = unique_slugs([str(finding.get("title") or "") for _, finding in pairs])
+    return [Row(rank, finding, slug) for (rank, finding), slug in zip(pairs, slugs, strict=True)]
+
+
+def _diff_for(inputs: RenderInputs, fingerprint: str) -> str:
+    """``NEW`` when there is no baseline diff, else the fingerprint's diff status."""
+    if inputs.diff is None:
+        return "NEW"
+    status = inputs.diff.get("status")
+    entry = status.get(fingerprint) if isinstance(status, dict) else None
+    if isinstance(entry, dict) and entry.get("diff"):
+        return str(entry["diff"])
+    return "NEW"
+
+
+# --- rendering ------------------------------------------------------------------
+
+
+def _scalar(value: Any) -> str:
+    """A YAML scalar for an anchor value; ``None`` renders as ``null``."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _yaml_block(key: str, item_lines: list[str]) -> list[str]:
+    """``key:`` with its items beneath it, or ``key: []`` when there are none."""
+    if not item_lines:
+        return [f"{key}: []"]
+    return [f"{key}:", *item_lines]
+
+
+def _frontmatter(inputs: RenderInputs, scan_date: str) -> list[str]:
+    inv, plan = inputs.inventory, inputs.plan
     lines = [
         "---",
+        "schema_version: 2",
         f"scan_date: {scan_date}",
-        f"root: {inventory['root']}",
-        f"total_files: {inventory['total_files']}",
-        f"total_loc: {inventory['total_loc']}",
-        "languages:",
+        f"root: {inv['root']}",
+        f"total_files: {inv['total_files']}",
+        f"total_loc: {inv['total_loc']}",
     ]
-    lines.extend(f"- {lang}" for lang in languages)
-    lines.append("---")
+    lines += _yaml_block("languages", [f"- {lang}" for lang in inv.get("languages") or []])
+    lines.append(f"preset: {inputs.ranked.get('preset', 'balanced')}")
+    lines += _yaml_block(
+        "families_run", [f"- {name}" for name in plan.get("families_run") or []]
+    )
+    skipped: list[str] = []
+    for item in plan.get("families_skipped") or []:
+        skipped += [f"- family: {item['family']}", f"  reason: {item['reason']}"]
+    lines += _yaml_block("families_skipped", skipped)
+    lines += [
+        # The tool probe lands in phase 4; both lists stay empty until then.
+        "tools_run: []",
+        "tools_absent: []",
+        f"git_available: {str(bool(inv.get('git_available'))).lower()}",
+        "counts:",
+        *[f"  {key}: {value}" for key, value in _counts(inputs).items()],
+        "---",
+    ]
     return lines
 
 
-def _render_header(inventory: dict[str, Any], scan_date: str) -> list[str]:
-    languages = list(inventory["languages"])
-    langs = ", ".join(languages)
-    return [
+def _header(inputs: RenderInputs, scan_date: str) -> list[str]:
+    inv = inputs.inventory
+    langs = ", ".join(str(lang) for lang in inv.get("languages") or [])
+    scanned = (
+        f"Scanned `{inv['root']}` - {inv['total_files']} files, "
+        f"{inv['total_loc']} LOC across: {langs}."
+    )
+    lines = [
         "",
         f"# Tech-debt scan - {scan_date}",
         "",
-        f"Scanned `{inventory['root']}` - {inventory['total_files']} files, "
-        f"{inventory['total_loc']} LOC across: {langs}.",
+        scanned,
         "",
-        "Review each finding below. To act on one, change its `status:` from `pending`",
-        "to `approved` (or `rejected`), then run `/tech-debt-promote`.",
+        "Review each finding below. To act on one, change its `status:` from `pending` to",
+        "`approved`, `rejected`, or `accepted` (add a `reason:` and an optional `until:` ISO",
+        "date), then run `/tech-debt-promote`.",
     ]
+    if not inv.get("git_available"):
+        return [*lines, "", "No git history: churn is 0 and the interest signal is absent."]
 
-
-def _render_evidence(evidence: list[dict[str, Any]]) -> list[str]:
-    return [f"- `{item['file']}:{item['line']}` - {item['note']}" for item in evidence]
-
-
-def _render_finding(finding: dict[str, Any]) -> list[str]:
-    anchor = [
-        "status: pending",
-        f"slug: {finding['slug']}",
-        f"severity: {finding['severity']}",
-        f"category: {finding['category']}",
-    ]
-    # Classification axes are rendered only when present so documents from
-    # older top5 payloads stay byte-identical.
-    for key in ("debt_type", "effort", "confidence"):
-        value = finding.get(key)
-        if value is not None:
-            anchor.append(f"{key}: {value}")
-    lines = [
-        "",
-        f"## {finding['title']}",
-        "",
-        "```yaml",
-        *anchor,
-        "```",
-        "",
-        "### Reasoning",
-        "",
-        finding["reasoning"],
-        "",
-        "### Evidence",
-        "",
-    ]
-    lines.extend(_render_evidence(finding["evidence"]))
-    lines.extend(
-        [
-            "",
-            "### Suggested fix",
-            "",
-            finding["suggested_fix"],
-        ]
-    )
+    hotspots = [h for h in (inv.get("hotspots") or []) if isinstance(h, dict)][:5]
+    if hotspots:
+        summary = ", ".join(f"`{h['path']}` ({h['score']})" for h in hotspots)
+        lines += ["", f"Top hotspots: {summary}."]
+    pairs = [p for p in (inputs.coupling.get("pairs") or []) if isinstance(p, dict)][:5]
+    if pairs:
+        summary = ", ".join(
+            f"`{p['a']}` <-> `{p['b']}` (shared {p['shared_commits']}, ratio {p['ratio']})"
+            for p in pairs
+        )
+        lines += ["", f"Top coupled pairs: {summary}."]
     return lines
 
 
-def render_design_md(
-    top5: dict[str, Any],
-    inventory: dict[str, Any],
-    scan_date: str,
-    out_path: Path,
-) -> None:
-    """Render ``top5`` findings into ``out_path`` as an LF-only design.md.
+def _anchor(inputs: RenderInputs, row: Row) -> list[str]:
+    """The finding's yaml anchor, in spec 4.11's pinned key order.
 
-    Raises DesignWriteError on an empty findings list (per the empty-input
-    guard) or if the rendered document fails the round-trip self-check.
+    ``category`` is always the alias of ``family``: it is a required parser key
+    and ``bundle_writer.py`` reads it unconditionally.
     """
-    findings = top5.get("top5", [])
-    if not findings:
-        raise DesignWriteError("no findings to render")
+    finding = row.finding
+    family = finding.get("family")
+    fingerprint = str(finding.get("fingerprint"))
+    values: list[tuple[str, Any]] = [
+        ("status", "pending"),
+        ("slug", row.slug),
+        ("fingerprint", fingerprint),
+        ("tier", finding.get("tier")),
+        ("priority", row.rank.get("priority")),
+        ("family", family),
+        ("category", family),
+        ("debt_type", finding.get("debt_type")),
+        ("type_id", finding.get("type_id")),
+        ("severity", finding.get("severity")),
+        ("effort", finding.get("effort")),
+        ("diff", _diff_for(inputs, fingerprint)),
+    ]
+    return [f"{key}: {_scalar(value)}" for key, value in values]
 
+
+def _evidence_item(item: dict[str, Any]) -> list[str]:
+    """One ``- `file:start-end`` line then its quote in an unlabelled fenced block."""
+    start = item.get("line_start")
+    end = item.get("line_end")
+    end = start if end is None else end
+    quote = redact(str(item.get("quote") or ""))
+    return [
+        "",
+        f"- `{item.get('file', '')}:{start}-{end}`",
+        "",
+        "```",
+        *quote.split("\n"),
+        "```",
+    ]
+
+
+def _signal_lines(finding: dict[str, Any]) -> list[str]:
+    signals = finding.get("signals")
+    signals = signals if isinstance(signals, dict) else {}
+    fan_in = signals.get("fan_in_approx")
+    fan_in_text = "fan-in not computed" if fan_in is None else f"fan-in {fan_in}"
+    metrics = (
+        f"- hotspot score {signals.get('hotspot_score')}, churn {signals.get('churn')}, "
+        f"coupling pairs {signals.get('coupling_degree')}, {fan_in_text} (approximate)"
+    )
+    confirmed = [str(c) for c in finding.get("confirmed_by") or []]
+    return [metrics, f"- confirmed by: {', '.join(confirmed) if confirmed else 'none'}"]
+
+
+def _finding_section(inputs: RenderInputs, row: Row, *, compact: bool = False) -> list[str]:
+    """One H2 finding section. ``compact`` stops after Evidence (below the cut)."""
+    finding = row.finding
+    lines = [
+        "",
+        f"## {redact(str(finding.get('title') or ''))}",
+        "",
+        "```yaml",
+        *_anchor(inputs, row),
+        "```",
+        "",
+        "### Proof",
+        "",
+        redact(str(finding.get("proof") or "")) or NO_PROOF,
+        "",
+        "### Evidence",
+    ]
+    for item in finding.get("evidence") or []:
+        if isinstance(item, dict):
+            lines += _evidence_item(item)
+    if compact:
+        return lines
+    lines += ["", "### Signals", "", *_signal_lines(finding)]
+    lines += ["", "### Remediation", "", NOTE_PLACEHOLDER]
+    lines += ["", "### Acceptance criteria", "", NOTE_PLACEHOLDER]
+    return lines
+
+
+def _top_section(inputs: RenderInputs, rows: list[Row]) -> list[str]:
+    """``# Top <count>`` and one full finding section per top-N fingerprint."""
+    top_n = {str(fp) for fp in inputs.ranked.get("top_n") or []}
+    selected = [row for row in rows if str(row.finding.get("fingerprint")) in top_n]
+    lines = ["", f"# Top {len(selected)}"]
+    for row in selected:
+        lines += _finding_section(inputs, row)
+    return lines
+
+
+def render_design(inputs: RenderInputs, scan_date: str) -> str:
+    """Render the whole ``design.md`` as an LF-only string ending in one newline."""
+    rows = _rows(inputs)
     parts: list[str] = []
-    parts.extend(_render_frontmatter(inventory, scan_date))
-    parts.extend(_render_header(inventory, scan_date))
-    for finding in findings:
-        parts.extend(_render_finding(finding))
+    parts += _frontmatter(inputs, scan_date)
+    parts += _header(inputs, scan_date)
+    parts += _top_section(inputs, rows)
+    # Tasks 4 and 5 of the phase 3 plan fill these bodies; the headings are
+    # emitted from the first commit so the document shape and the parser's H1
+    # section boundary are exercised.
+    for name in SECTION_ORDER[1:]:
+        parts += ["", f"# {name}"]
+    return "\n".join(parts) + "\n"
 
-    text = "\n".join(parts) + "\n"
+
+def write_design(inputs: RenderInputs, scan_date: str, out_path: Path) -> None:
+    """Write ``design.md`` to ``out_path``, then re-parse it as a self-check."""
+    text = render_design(inputs, scan_date)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(text.encode("utf-8"))
 
@@ -212,11 +522,12 @@ def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Render or edit a design.md")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_render = sub.add_parser("render", help="render a design.md from JSON inputs")
-    p_render.add_argument("--top5", required=True, help="path to top5 synthesis JSON")
-    p_render.add_argument("--inventory", required=True, help="path to inventory.json")
+    p_render = sub.add_parser("render", help="render a design.md from the chain outputs")
+    p_render.add_argument(
+        "--workdir", default=".tech-debt", help="directory holding the chain outputs"
+    )
     p_render.add_argument("--scan-date", required=True, help="ISO scan date")
-    p_render.add_argument("--out", required=True, help="output design.md path")
+    p_render.add_argument("--out", help="output design.md path (default <workdir>/design.md)")
 
     p_mark = sub.add_parser("mark-promoted", help="flip approved findings to promoted")
     p_mark.add_argument("design", help="path to design.md")
@@ -226,19 +537,14 @@ def _main(argv: list[str] | None = None) -> int:
 
     try:
         if args.cmd == "render":
-            top5 = json.loads(Path(args.top5).read_text(encoding="utf-8"))
-            inventory = json.loads(Path(args.inventory).read_text(encoding="utf-8"))
-            render_design_md(
-                top5=top5,
-                inventory=inventory,
-                scan_date=args.scan_date,
-                out_path=Path(args.out),
-            )
-            print(f"wrote {args.out}")
+            workdir = Path(args.workdir)
+            out_path = Path(args.out) if args.out else workdir / "design.md"
+            write_design(load_inputs(workdir), args.scan_date, out_path)
+            print(f"wrote {out_path}")
         else:
             mark_promoted(Path(args.design), slugs=args.slug)
             print(f"promoted {len(args.slug)} finding(s) in {args.design}")
-    except (DesignWriteError, DesignParseError, OSError) as exc:
+    except (DesignWriteError, DesignParseError, OSError, ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 0
