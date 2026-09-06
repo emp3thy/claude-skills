@@ -1027,29 +1027,101 @@ GOLDEN = Path(__file__).resolve().parent / "golden"
 CORPUS = Path(__file__).resolve().parent / "fixtures" / "corpus"
 
 
+FIXTURES_WITH_GOLDENS: Final[tuple[str, ...]] = ("service-py", "web-ts", "mixed-decoys")
+
+
+def _golden_comparison(fixture: str) -> tuple[dict[str, Any], dict[str, Any], list[str], list[str]]:
+    """A live probe of ``fixture`` and its golden, reduced to what is comparable.
+
+    ``absent`` is the one status that is a fact about the machine rather than
+    about the fixture, so it is what makes a golden unportable: pinning it
+    records that osv-scanner, gitleaks, hadolint and actionlint happen not to
+    be installed on the developer's machine, and a reviewer who has any of
+    them -- or phase 4b's own gate, which spec 11 says runs "with the installed
+    tools present" -- gets a red suite for the wrong reason. Proven with a stub
+    hadolint on PATH: status flipped to ``ran``, one signal appeared, and the
+    mixed-decoys golden failed.
+
+    So the golden records ``covered_tools``: the tools whose status, reason and
+    signals it actually pins, which is every tool that was not ``absent`` when
+    it was generated. The comparison is then the intersection of that set with
+    the tools this machine can exercise, and the signal lists are filtered to
+    the same set on both sides. A tool the golden covers but this machine
+    lacks, and a tool this machine has but the golden never saw, are both
+    excluded -- and the caller names both in its failure message, so nothing
+    is dropped quietly.
+    """
+    from config import load_config
+    from tools_probe import probe
+
+    root = CORPUS / fixture / "files"
+    document = probe(root, load_config(root))
+    present = {name for name, entry in document["tools"].items() if entry["status"] != "absent"}
+    actual = {
+        "schema_version": document["schema_version"],
+        "covered_tools": sorted(present),
+        # version and duration_s stay out: they are machine-dependent and
+        # would fail for the wrong reason (spec 4.5).
+        "tools": {name: {"status": entry["status"], "reason": entry["reason"]}
+                  for name, entry in document["tools"].items() if name in present},
+        "signals": document["signals"],
+    }
+    path = GOLDEN / fixture / "tool-signals.json"
+    if os.environ.get("UPDATE_GOLDENS"):
+        from inventory import write_json
+
+        write_json(path, actual)
+    expected = json.loads(path.read_text(encoding="utf-8"))
+    covered = set(expected["covered_tools"])
+    return actual, expected, sorted(covered & present), sorted(present - covered)
+
+
 class TestCorpusGoldens:
-    @pytest.mark.parametrize("fixture", ["service-py", "web-ts", "mixed-decoys"])
+    @pytest.mark.parametrize("fixture", FIXTURES_WITH_GOLDENS)
     def test_tool_signals_match_the_golden(self, fixture: str) -> None:
-        """The signals array is compared in full; each tool's status and reason
-        are compared too, so a tool that silently stops running fails here
-        rather than quietly producing an empty list. version and duration_s are
-        excluded: they are machine-dependent and would fail for the wrong
-        reason (spec 4.5)."""
+        """The signals array is compared in full for every tool the golden
+        covers and this machine can exercise; each such tool's status and
+        reason are compared too, so a tool that silently stops running fails
+        here rather than quietly producing an empty list."""
+        actual, expected, compared, uncovered = _golden_comparison(fixture)
+        assert compared, (
+            f"{fixture}: the golden covers {expected['covered_tools']} and this machine "
+            f"can exercise none of them, so this test would prove nothing"
+        )
+        assert {
+            "schema_version": actual["schema_version"],
+            "tools": {name: actual["tools"][name] for name in compared},
+            "signals": [s for s in actual["signals"] if s["tool"] in compared],
+        } == {
+            "schema_version": expected["schema_version"],
+            "tools": {name: expected["tools"][name] for name in compared},
+            "signals": [s for s in expected["signals"] if s["tool"] in compared],
+        }, (
+            f"{fixture}: compared {compared}; not pinned by this golden "
+            f"(present here, absent when it was generated): {uncovered}"
+        )
+
+    @pytest.mark.parametrize("fixture", FIXTURES_WITH_GOLDENS)
+    def test_the_golden_covers_every_machine_independent_row(self, fixture: str) -> None:
+        """The floor that stops the portability filter degenerating into a test
+        that compares nothing.
+
+        ``probe`` checks ``artefact_present`` before ``find_tool``, so a tool
+        skipped for a missing artefact is skipped on every machine, installed
+        or not: those rows are a fact about the fixture. Every golden must
+        therefore cover all of them, on any machine, and this asserts it
+        without depending on which tools happen to be installed."""
         from config import load_config
         from tools_probe import probe
 
         root = CORPUS / fixture / "files"
         document = probe(root, load_config(root))
-        actual = {
-            "schema_version": document["schema_version"],
-            "tools": {name: {"status": entry["status"], "reason": entry["reason"]}
-                      for name, entry in document["tools"].items()},
-            "signals": document["signals"],
+        machine_independent = {
+            name for name, entry in document["tools"].items()
+            if entry["status"] == "skipped" and entry["reason"] == "no matching artefact"
         }
-        path = GOLDEN / fixture / "tool-signals.json"
-        if os.environ.get("UPDATE_GOLDENS"):
-            from inventory import write_json
-
-            write_json(path, actual)
-        expected = json.loads(path.read_text(encoding="utf-8"))
-        assert actual == expected
+        expected = json.loads(
+            (GOLDEN / fixture / "tool-signals.json").read_text(encoding="utf-8")
+        )
+        assert machine_independent, f"{fixture} skips no tool for a missing artefact"
+        assert machine_independent <= set(expected["covered_tools"])

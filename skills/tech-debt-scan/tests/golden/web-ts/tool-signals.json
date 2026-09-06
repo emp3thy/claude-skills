@@ -1,21 +1,18 @@
 {
   "schema_version": 2,
+  "covered_tools": [
+    "hadolint",
+    "jscpd",
+    "knip",
+    "lizard",
+    "madge",
+    "ruff",
+    "vulture"
+  ],
   "tools": {
-    "osv-scanner": {
-      "status": "absent",
-      "reason": ""
-    },
-    "gitleaks": {
-      "status": "absent",
-      "reason": ""
-    },
     "hadolint": {
       "status": "skipped",
       "reason": "no matching artefact"
-    },
-    "actionlint": {
-      "status": "absent",
-      "reason": ""
     },
     "ruff": {
       "status": "skipped",
