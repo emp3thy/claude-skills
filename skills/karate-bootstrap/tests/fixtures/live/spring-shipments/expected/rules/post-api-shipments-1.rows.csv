@@ -1,0 +1,6 @@
+rule_id,field,mutation,value,expected_status,expected_code,expected_message_contains,source
+,reference,missing,,400,,reference is required,{{line:src/main/java/com/acme/shipments/ShipmentRequest.java:@NotBlank(message = "reference}}
+,reference,too_long,51,400,,reference must be at most 50,{{line:src/main/java/com/acme/shipments/ShipmentRequest.java:@Size(max = 50}}
+,weightKg,out_of_range,0,400,,weight must be positive,{{line:src/main/java/com/acme/shipments/ShipmentRequest.java:@Positive}}
+,countryCode,invalid_format,!!,400,,countryCode must match,{{line:src/main/java/com/acme/shipments/ShipmentRequest.java:@Pattern}}
+,destination,too_short,2,400,,destination must be 3 to 120,{{line:src/main/java/com/acme/shipments/ShipmentRequest.java:@Size(min = 3}}

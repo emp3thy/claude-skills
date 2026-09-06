@@ -1,0 +1,54 @@
+"""One recipe per live fixture: what the chain runs and what the run must produce.
+
+The live-run harness (``test_kb_live_run.py``) is fixture-agnostic; everything specific to a
+service lives here and under ``tests/fixtures/live/<fixture>/expected/``.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import NamedTuple
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "live"
+
+
+class Recipe(NamedTuple):
+    """A live fixture and the facts the harness needs to drive it."""
+
+    name: str
+    fixture: Path
+    stack: str
+    app_port: int
+    auth_key: str
+    auth_off_value: str
+    entries: tuple[str, ...]
+    rules_sources: tuple[tuple[str, str], ...]
+    marks: dict[str, tuple[tuple[str, str], ...]]
+    planted_scenario: str
+    planted_feature: str
+    prebuild_app_image: bool
+
+
+SPRING = Recipe(
+    name="spring-shipments",
+    fixture=FIXTURES / "spring-shipments",
+    stack="spring",
+    app_port=8080,
+    auth_key="APP_SECURITY_ENABLED",
+    auth_off_value="false",
+    entries=("POST /api/shipments", "GET /api/shipments/{id}", "amq shipment.requested"),
+    rules_sources=(
+        ("POST /api/shipments", "src/main/java/com/acme/shipments/ShipmentRequest.java"),
+        ("POST /api/shipments", "src/main/java/com/acme/shipments/ShipmentService.java"),
+    ),
+    marks={
+        "POST /api/shipments": (("--stub", "stubs/pricing/default.json"),
+                                ("--seed", "seed/examples/post-api-shipments.json")),
+        "GET /api/shipments/{id}": (),
+        "amq shipment.requested": (("--seed", "seed/examples/amq-shipment-requested.json"),),
+    },
+    planted_scenario="rejects a shipment over the weight limit",
+    planted_feature="features/post-api-shipments.feature",
+    prebuild_app_image=True,
+)
+
+RECIPES: dict[str, Recipe] = {SPRING.name: SPRING}

@@ -1,0 +1,2 @@
+rule_id,field,mutation,value,expected_status,expected_code,expected_message_contains,source
+,weightKg,out_of_range,1001,500,,,{{line:src/main/java/com/acme/shipments/ShipmentService.java:weight exceeds}}

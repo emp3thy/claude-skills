@@ -40,9 +40,13 @@ jobs:
       - run: KB_MAVEN=1 pytest -m maven -v
 
   karate-live:
-    name: Live containers
+    name: Live containers (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [images, spring-shipments]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -55,4 +59,18 @@ jobs:
           cache: maven
       - run: pip install -e ".[dev]"
       - run: docker version
-      - run: KB_CONTAINERS=1 pytest -m containers -v
+      - name: Image spike
+        if: matrix.target == 'images'
+        run: KB_CONTAINERS=1 pytest -m containers skills/karate-bootstrap/tests/test_kb_images.py -v
+      - name: Live chain
+        if: matrix.target != 'images'
+        run: KB_CONTAINERS=1 pytest -m containers -k "${{ matrix.target }}" skills/karate-bootstrap/tests/test_kb_live_run.py -v
+      - name: Upload run artefacts
+        if: failure() && matrix.target != 'images'
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-${{ matrix.target }}
+          path: |
+            /tmp/pytest-*/**/karate-tests/target/*.log
+            /tmp/pytest-*/**/karate-tests/target/karate-reports/*.json
+          if-no-files-found: ignore
