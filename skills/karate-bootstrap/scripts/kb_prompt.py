@@ -7,13 +7,15 @@ passes the file path to the Agent tool.
 
 Usage:
     python scripts/kb_prompt.py render --prompt trace|rules|generate \
-        --ledger karate-tests/flow-map.yaml --entry <id> --repo <root> \
+        --ledger karate-tests/flow-map.yaml --entry <id> --repo <repo> [--service-dir SUB] \
         --out karate-tests/.prompts/<name>.md [--env karate-tests/env-map.json] \
         [--tests-dir karate-tests] [--source <file>] [--focus <file:line>] [--prompts-dir DIR]
 
 ``--env`` is required for trace and generate (host keys and downstream names); ``--source``
 is required for rules (the validation file the subagent reads). ``--focus`` re-renders a
-trace prompt that starts at an unresolved hop.
+trace prompt that starts at an unresolved hop. ``--service-dir`` names the sub-directory the
+service lives in, exactly as every other script takes it: ledger paths (``handler``, ``via``,
+``rules.sources``) are relative to ``<repo>/<sub>``, so the rendered prompt resolves them there.
 
 Exit codes: 0 ok, 2 bad arguments or an unknown entry, 5 when a prompt file or input is missing.
 """
@@ -172,8 +174,9 @@ def render(prompt: str, context: dict[str, str], prompts_dir: Path) -> str:
 def _cmd_render(args: argparse.Namespace) -> int:
     ledger = load_ledger(args.ledger)
     env_map = read_json(args.env) if args.env else None
-    tests_dir: Path = args.tests_dir if args.tests_dir else args.repo / "karate-tests"
-    context = build_context(args.prompt, ledger, args.entry, env_map, args.repo, tests_dir,
+    root: Path = args.repo / args.service_dir if args.service_dir else args.repo
+    tests_dir: Path = args.tests_dir if args.tests_dir else root / "karate-tests"
+    context = build_context(args.prompt, ledger, args.entry, env_map, root, tests_dir,
                             args.source, args.focus)
     text = render(args.prompt, context, args.prompts_dir)
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -189,11 +192,12 @@ def build_parser() -> argparse.ArgumentParser:
     rend.add_argument("--prompt", choices=PROMPTS, required=True)
     rend.add_argument("--ledger", type=Path, required=True, help="flow-map.yaml")
     rend.add_argument("--entry", required=True, help="entry id from the ledger")
-    rend.add_argument("--repo", type=Path, required=True, help="service root")
+    rend.add_argument("--repo", type=Path, required=True, help="repository root")
+    rend.add_argument("--service-dir", default=None, help="Sub-directory holding the service")
     rend.add_argument("--out", type=Path, required=True, help="prompt file to write")
     rend.add_argument("--env", type=Path, default=None, help="env-map.json (trace, generate)")
     rend.add_argument("--tests-dir", type=Path, default=None,
-                      help="karate-tests directory (default <repo>/karate-tests)")
+                      help="karate-tests directory (default <repo>/<service-dir>/karate-tests)")
     rend.add_argument("--source", default=None, help="validation source file (rules)")
     rend.add_argument("--focus", default=None, help="file:line to start a narrower trace at")
     rend.add_argument("--prompts-dir", type=Path, default=PROMPTS_DIR,

@@ -35,7 +35,7 @@ Dockerfile or its pipeline. Never push.
 
 | Flag | Effect |
 |------|--------|
-| `--service-dir <sub>` | The service lives in a sub-directory of the repo (monorepo). Pass it to every script that accepts it; `<root>` below means `<repo-path>/<sub>`. |
+| `--service-dir <sub>` | The service lives in a sub-directory of the repo (monorepo). Every script takes the repository root as its positional (or `--repo`) argument and resolves the service under `<sub>` itself, so pass `--service-dir <sub>` alongside `<root>`, never a joined path. |
 | `--migrations-image <ref>` | The db-manager image that owns the schema. Without it the scaffold looks the database up in `~/.karate-bootstrap/config.yaml` and aborts with exit 4 when nothing matches. |
 | `--app-image <tag>` | Test a prebuilt image instead of building the Dockerfile: adds `-Dapp.image=<tag>` to every Maven run. |
 | `--max-iterations <n>` | Fix-loop cap (default 15). |
@@ -47,8 +47,16 @@ Dockerfile or its pipeline. Never push.
 - Run every `python scripts/...` command from this skill's directory (`skills/karate-bootstrap/`)
   so the relative script paths resolve; scripts are direct-path invocable, no package install.
   Pass `<root>` as an absolute path.
-- `<tests>` is `<root>/karate-tests`. Every artefact the run produces lives there. Rendered
-  prompts go to `<tests>/.prompts/` (ignored by the template's `.gitignore`).
+- `<root>` is `<repo-path>`: the repository root, and the positional (or `--repo`) argument of
+  every script. `<sub>` is the `--service-dir` value. A script that accepts `--service-dir`
+  joins the two itself, so never write `<root>/<sub>`. **Omit `--service-dir` from every
+  command below when the run has no sub-directory.**
+- `<tests>` is `<repo-path>/<sub>/karate-tests`, or `<repo-path>/karate-tests` when there is no
+  sub-directory. Every artefact the run produces lives there. Rendered prompts go to
+  `<tests>/.prompts/` (ignored by the template's `.gitignore`).
+- `kb_checkpoint.py commit` stages a path relative to `<repo-path>`, not to `<tests>`: pass
+  `--tests-dir <sub>/karate-tests`, or drop the flag entirely (its default is `karate-tests`)
+  when there is no sub-directory.
 - `<skill>` is this skill's absolute directory; `templates/karate-tests/README.md.tmpl` is
   referenced relative to it.
 - Maven runs from `<tests>`: `mvn -B test` (JDK 17 or newer and a container engine on the
@@ -109,9 +117,10 @@ python scripts/detect.py <root> --service-dir <sub> --out <tests>/stack.json
 - Command:
 
 ```bash
-python scripts/discover.py <root> --stack <tests>/stack.json --out-env <tests>/env-map.json --out-ledger <tests>/flow-map.yaml
+python scripts/discover.py <root> --service-dir <sub> --stack <tests>/stack.json --out-env <tests>/env-map.json --out-ledger <tests>/flow-map.yaml
 ```
 
+- Omit `--service-dir` when there is no sub-directory.
 - Postcondition: `<tests>/env-map.json` (config keys with roles, port, readiness, auth mode)
   and `<tests>/flow-map.yaml` seeded with one untraced entry per entry point.
 
@@ -149,20 +158,20 @@ python scripts/flow_map.py set-auth --ledger <tests>/flow-map.yaml --mode jwks -
 
 ```bash
 python scripts/flow_map.py next --phase traced --ledger <tests>/flow-map.yaml
-python scripts/kb_prompt.py render --prompt trace --ledger <tests>/flow-map.yaml --env <tests>/env-map.json --entry "<id>" --repo <root> --out <tests>/.prompts/trace-<slug>.md
+python scripts/kb_prompt.py render --prompt trace --ledger <tests>/flow-map.yaml --env <tests>/env-map.json --entry "<id>" --repo <root> --service-dir <sub> --out <tests>/.prompts/trace-<slug>.md
 python scripts/flow_map.py merge <tests>/.prompts/trace-<slug>.json --ledger <tests>/flow-map.yaml
 ```
 
   Between `render` and `merge`, dispatch the trace subagent with the rendered prompt and save
   its reply as `<tests>/.prompts/trace-<slug>.json` (`merge` accepts the bare object or one
-  wrapped in a code fence). `next` prints the entry id, its
-  handler and the cheat sheet path; `<slug>` is the id lower-cased with non-alphanumerics
-  collapsed to `-` (`POST /api/deals` becomes `post-api-deals`).
+  wrapped in a code fence). Omit `--service-dir` when there is no sub-directory. `next` prints
+  the entry id, its handler and the cheat sheet path; `<slug>` is the id lower-cased with
+  non-alphanumerics collapsed to `-` (`POST /api/deals` becomes `post-api-deals`).
 - If `merge` reports `unresolved: N` above zero, re-render with the first unresolved location
   and dispatch again, then merge again; repeat until the entry merges with zero unresolved:
 
 ```bash
-python scripts/kb_prompt.py render --prompt trace --ledger <tests>/flow-map.yaml --env <tests>/env-map.json --entry "<id>" --repo <root> --focus <file:line> --out <tests>/.prompts/trace-<slug>-2.md
+python scripts/kb_prompt.py render --prompt trace --ledger <tests>/flow-map.yaml --env <tests>/env-map.json --entry "<id>" --repo <root> --service-dir <sub> --focus <file:line> --out <tests>/.prompts/trace-<slug>-2.md
 ```
 
 - With `--double-trace`: dispatch two independent subagents from the same rendered prompt,
@@ -171,12 +180,13 @@ python scripts/kb_prompt.py render --prompt trace --ledger <tests>/flow-map.yaml
 - Gate:
 
 ```bash
-python scripts/flow_map.py validate --phase traced --ledger <tests>/flow-map.yaml --repo <root> --env <tests>/env-map.json
+python scripts/flow_map.py validate --phase traced --ledger <tests>/flow-map.yaml --repo <root> --service-dir <sub> --env <tests>/env-map.json
 ```
 
-  The gate also runs `verify-refs`: every exit's `via` must sit within three lines of a marker
-  token from the cheat sheet, or the entry is reset to untraced. On any gap, go back to the loop
-  for the entries it names. Do not edit the ledger to silence a gap.
+  Omit `--service-dir` when there is no sub-directory. The gate also runs `verify-refs`: every
+  exit's `via` must sit within three lines before or after a marker token from the cheat sheet,
+  or the entry is reset to untraced. On any gap, go back to the loop for the entries it names.
+  Do not edit the ledger to silence a gap.
 - Postcondition: `validate --phase traced` prints `phase traced: pass`.
 
 ### Step 4: Validation rules
@@ -185,9 +195,10 @@ python scripts/flow_map.py validate --phase traced --ledger <tests>/flow-map.yam
 - Command:
 
 ```bash
-python scripts/kb_rules.py extract <root> --ledger <tests>/flow-map.yaml --out-dir <tests>
+python scripts/kb_rules.py extract <root> --service-dir <sub> --ledger <tests>/flow-map.yaml --out-dir <tests>
 ```
 
+- Omit `--service-dir` when there is no sub-directory.
 - For every entry whose `rules.sources` has a file with `scanned: false`, render the rules
   prompt for that source, dispatch a read-only rules subagent, save the `csv` field of its
   JSON reply as `<tests>/rules/<slug>-<n>.rows.csv` (the header line is included; `<n>` is the
@@ -195,13 +206,14 @@ python scripts/kb_rules.py extract <root> --ledger <tests>/flow-map.yaml --out-d
   rows files), then append the rows and mark the source scanned:
 
 ```bash
-python scripts/kb_prompt.py render --prompt rules --ledger <tests>/flow-map.yaml --entry "<id>" --source <source-file> --repo <root> --tests-dir <tests> --out <tests>/.prompts/rules-<slug>-<n>.md
+python scripts/kb_prompt.py render --prompt rules --ledger <tests>/flow-map.yaml --entry "<id>" --source <source-file> --repo <root> --service-dir <sub> --tests-dir <tests> --out <tests>/.prompts/rules-<slug>-<n>.md
 python scripts/kb_rules.py add "<id>" <tests>/rules/<slug>-<n>.rows.csv --ledger <tests>/flow-map.yaml --out-dir <tests>
 python scripts/kb_rules.py mark-scanned "<id>" <source-file> --ledger <tests>/flow-map.yaml
 ```
 
-  `add` de-duplicates on field, mutation and value and assigns `rule_id`s; run it once per
-  rows file even when the file is empty of new rows.
+  Omit `--service-dir` when there is no sub-directory. `add` de-duplicates on field, mutation
+  and value and assigns `rule_id`s; run it once per rows file even when the file is empty of
+  new rows.
 - Postcondition: every entry with validation responses has `rules.file` and a `rules.count`
   matching its CSV, and every source is `scanned: true`. The generated gate in Step 6 checks
   this.
@@ -212,9 +224,10 @@ python scripts/kb_rules.py mark-scanned "<id>" <source-file> --ledger <tests>/fl
 - Command:
 
 ```bash
-python scripts/kb_scaffold.py <root> --ledger <tests>/flow-map.yaml --env <tests>/env-map.json --out <tests> --migrations-image <ref>
+python scripts/kb_scaffold.py <root> --service-dir <sub> --ledger <tests>/flow-map.yaml --env <tests>/env-map.json --out <tests> --migrations-image <ref>
 ```
 
+  Omit `--service-dir` when there is no sub-directory.
   Omit `--migrations-image` to resolve the image from `~/.karate-bootstrap/config.yaml`
   (`--config <path>` points elsewhere). Exit 4 means no schema source: stop and report it.
   Add `--force` only when re-scaffolding a module whose harness files you intend to refresh;
@@ -223,8 +236,10 @@ python scripts/kb_scaffold.py <root> --ledger <tests>/flow-map.yaml --env <tests
   classes and `<tests>/defects.md`. Then:
 
 ```bash
-python scripts/kb_checkpoint.py commit --repo <repo-path> --phase 5 --message "scaffold the Karate module"
+python scripts/kb_checkpoint.py commit --repo <repo-path> --tests-dir <sub>/karate-tests --phase 5 --message "scaffold the Karate module"
 ```
+
+  Drop `--tests-dir` when there is no sub-directory; its default is `karate-tests`.
 
 ### Step 6: Generate features
 
@@ -233,10 +248,11 @@ python scripts/kb_checkpoint.py commit --repo <repo-path> --phase 5 --message "s
 
 ```bash
 python scripts/flow_map.py next --phase generated --ledger <tests>/flow-map.yaml
-python scripts/kb_prompt.py render --prompt generate --ledger <tests>/flow-map.yaml --env <tests>/env-map.json --entry "<id>" --repo <root> --tests-dir <tests> --out <tests>/.prompts/generate-<slug>.md
+python scripts/kb_prompt.py render --prompt generate --ledger <tests>/flow-map.yaml --env <tests>/env-map.json --entry "<id>" --repo <root> --service-dir <sub> --tests-dir <tests> --out <tests>/.prompts/generate-<slug>.md
 python scripts/flow_map.py mark --entry "<id>" --generated --feature features/<slug>.feature --stub stubs/<downstream>/default.json --seed seed/<slug>.sql --ledger <tests>/flow-map.yaml
 ```
 
+  Omit `--service-dir` when there is no sub-directory.
   Between `render` and `mark`, dispatch the generate subagent (general-purpose, may write only
   under `<tests>`) and save its JSON reply as `<tests>/.prompts/generate-<slug>.json`. Pass
   every path from the reply's `features`, `stubs` and `seeds` lists to `mark` (repeat
@@ -245,9 +261,10 @@ python scripts/flow_map.py mark --entry "<id>" --generated --feature features/<s
 - Gate:
 
 ```bash
-python scripts/flow_map.py validate --phase generated --ledger <tests>/flow-map.yaml --repo <root> --tests-dir <tests>
+python scripts/flow_map.py validate --phase generated --ledger <tests>/flow-map.yaml --repo <root> --service-dir <sub> --tests-dir <tests>
 ```
 
+  Omit `--service-dir` when there is no sub-directory.
   Gaps name the entry and what is missing (a feature, a `Db.` assertion for a written table, a
   `Jms.` assertion for a published destination, a `Stubs.verify` for an outbound call, a rules
   count mismatch, an exclusive-state call without `@parallel=false`). Re-dispatch the generate
@@ -256,8 +273,10 @@ python scripts/flow_map.py validate --phase generated --ledger <tests>/flow-map.
 - Postcondition: `validate --phase generated` prints `phase generated: pass`. Then:
 
 ```bash
-python scripts/kb_checkpoint.py commit --repo <repo-path> --phase 6 --message "generate features, stubs and seeds"
+python scripts/kb_checkpoint.py commit --repo <repo-path> --tests-dir <sub>/karate-tests --phase 6 --message "generate features, stubs and seeds"
 ```
+
+  Drop `--tests-dir` when there is no sub-directory.
 
 ### Step 7: First run
 
@@ -272,9 +291,10 @@ python scripts/kb_checkpoint.py commit --repo <repo-path> --phase 6 --message "g
 ```bash
 python scripts/kb_report.py parse --reports <tests>/target/karate-reports --out <tests>/target/report.json
 python scripts/flow_map.py record-run --ledger <tests>/flow-map.yaml --report <tests>/target/report.json
-python scripts/flow_map.py validate --phase green --ledger <tests>/flow-map.yaml --repo <root> --report <tests>/target/report.json --defects <tests>/defects.md
+python scripts/flow_map.py validate --phase green --ledger <tests>/flow-map.yaml --repo <root> --service-dir <sub> --report <tests>/target/report.json --defects <tests>/defects.md
 ```
 
+- Omit `--service-dir` when there is no sub-directory.
 - If Maven produced no `target/karate-reports/*.json` at all, the app never started: treat it
   as an infra failure in Step 8 using `target/app.log` and `target/db-manager.log`.
 - Postcondition: `<tests>/target/report.json`. When the green gate passes, go to Step 9.
@@ -314,9 +334,10 @@ python scripts/flow_map.py override --ledger <tests>/flow-map.yaml --entry "<id>
 python scripts/kb_report.py parse --reports <tests>/target/karate-reports --out <tests>/target/report.json
 python scripts/flow_map.py record-run --ledger <tests>/flow-map.yaml --report <tests>/target/report.json
 python scripts/kb_iterate.py check-stop --log <tests>/.iterations.log --report <tests>/target/report.json --max-iterations 15
-python scripts/flow_map.py validate --phase green --ledger <tests>/flow-map.yaml --repo <root> --report <tests>/target/report.json --defects <tests>/defects.md
+python scripts/flow_map.py validate --phase green --ledger <tests>/flow-map.yaml --repo <root> --service-dir <sub> --report <tests>/target/report.json --defects <tests>/defects.md
 ```
 
+  Omit `--service-dir` when there is no sub-directory.
   `check-stop` prints `continue`, `done`, or `stop:<reason>` with exit 6. Pass the user's
   `--max-iterations` value. On `stop:` go to Step 9 and finish with exit 6. On `done` and a
   passing green gate, go to Step 9. Otherwise loop.
@@ -330,8 +351,10 @@ python scripts/flow_map.py validate --phase green --ledger <tests>/flow-map.yaml
 
 ```bash
 python scripts/kb_report.py summary --ledger <tests>/flow-map.yaml --defects <tests>/defects.md --report <tests>/target/report.json --template templates/karate-tests/README.md.tmpl --out <tests>/README.md
-python scripts/kb_checkpoint.py commit --repo <repo-path> --phase 9 --message "first ground-truth Karate suite"
+python scripts/kb_checkpoint.py commit --repo <repo-path> --tests-dir <sub>/karate-tests --phase 9 --message "first ground-truth Karate suite"
 ```
+
+- Drop `--tests-dir` when there is no sub-directory.
 
 - Postcondition: `<tests>/README.md`. Tell the user: the branch and commit, the counts table
   `summary` printed, how many scenarios are quarantined and where `defects.md` is, the auth

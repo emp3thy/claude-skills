@@ -1,9 +1,14 @@
-"""Every pinned SKILL.md command, in order, on both fixture repos, with canned subagent replies.
+"""Every pinned SKILL.md command, in order, on each fixture repo, with canned subagent replies.
 
 No mocking and no containers: the trace, rules and generate subagents are replaced by the
 JSON, CSV and feature text a real run would have produced; everything else is the real
 script wired exactly as SKILL.md prescribes, run through subprocess so the CLI surface is
 exercised too. Git steps run against a throwaway repository.
+
+The third case is the monorepo path: the same spring fixture copied under
+``services/shipments`` and driven with ``--service-dir services/shipments`` and
+``--tests-dir services/shipments/karate-tests``, the flags SKILL.md pins for a run with a
+service sub-directory.
 """
 from __future__ import annotations
 
@@ -13,7 +18,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 import yaml
@@ -125,36 +130,61 @@ def feature_text(table: str, destination: str, downstream_path: str) -> str:
     )
 
 
-CASES: dict[str, tuple[Callable[[Path], dict[str, dict[str, Any]]], str, str, str, str, str]] = {
-    "spring-mini": (spring_traces, "POST /api/shipments", "shipments", "shipment.created",
-                    "/pricing/rates/GB", "APP_SECURITY_ENABLED"),
-    "dotnet-mini": (dotnet_traces, "POST /api/deals", "deals", "deal.created",
-                    "/pricing/prices/BRENT", "Auth__Enabled"),
+class Case(NamedTuple):
+    """One dry-run case: which fixture, its canned traces, and the SKILL.md flag values."""
+
+    fixture: str
+    traces_for: Callable[[Path], dict[str, dict[str, Any]]]
+    post_id: str
+    table: str
+    destination: str
+    downstream_path: str
+    auth_key: str
+    service_dir: str | None
+
+
+CASES: dict[str, Case] = {
+    "spring-mini": Case("spring-mini", spring_traces, "POST /api/shipments", "shipments",
+                        "shipment.created", "/pricing/rates/GB", "APP_SECURITY_ENABLED", None),
+    "dotnet-mini": Case("dotnet-mini", dotnet_traces, "POST /api/deals", "deals", "deal.created",
+                        "/pricing/prices/BRENT", "Auth__Enabled", None),
+    "spring-mini-monorepo": Case("spring-mini", spring_traces, "POST /api/shipments", "shipments",
+                                 "shipment.created", "/pricing/rates/GB", "APP_SECURITY_ENABLED",
+                                 "services/shipments"),
 }
 
 
-@pytest.mark.parametrize("fixture", sorted(CASES))
-def test_pinned_command_chain_runs_green(tmp_path: Path, fixture: str) -> None:
-    traces_for, post_id, table, destination, downstream_path, auth_key = CASES[fixture]
+@pytest.mark.parametrize("case_name", sorted(CASES))
+def test_pinned_command_chain_runs_green(tmp_path: Path, case_name: str) -> None:
+    case = CASES[case_name]
+    post_id, table = case.post_id, case.table
+    destination, downstream_path, auth_key = case.destination, case.downstream_path, case.auth_key
     repo = tmp_path / "repo"
-    shutil.copytree(FIXTURES / fixture, repo)
+    # <root> is always <repo-path>; the service sub-directory travels as --service-dir.
+    root = repo / case.service_dir if case.service_dir else repo
+    sub = ["--service-dir", case.service_dir] if case.service_dir else []
+    # kb_checkpoint.py commit stages relative to <repo-path>, so --tests-dir carries <sub>.
+    tests_dir_flag = (["--tests-dir", f"{case.service_dir}/karate-tests"]
+                      if case.service_dir else [])
+    root.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(FIXTURES / case.fixture, root)
     git(repo, "init", "-q", "-b", "main")
     git(repo, "config", "user.email", "kb@example.com")
     git(repo, "config", "user.name", "kb")
     git(repo, "add", "--", ".")
     git(repo, "commit", "-q", "-m", "fixture")
-    tests = repo / "karate-tests"
+    tests = root / "karate-tests"
     tests.mkdir()
     ledger, env, stack = tests / "flow-map.yaml", tests / "env-map.json", tests / "stack.json"
     prompts = tests / ".prompts"
-    traces = traces_for(repo)
+    traces = case.traces_for(root)
     post_slug = slug_for(post_id)
 
     # Step 0 and 1
     assert "karate-bootstrap" in run("scripts/kb_checkpoint.py", "begin", "--repo", str(repo))
     assert git(repo, "branch", "--show-current") == "karate-bootstrap"
-    run("scripts/detect.py", str(repo), "--out", str(stack), "--skip-toolchain")
-    run("scripts/discover.py", str(repo), "--stack", str(stack), "--out-env", str(env),
+    run("scripts/detect.py", str(repo), *sub, "--out", str(stack), "--skip-toolchain")
+    run("scripts/discover.py", str(repo), *sub, "--stack", str(stack), "--out-env", str(env),
         "--out-ledger", str(ledger))
     seeded = yaml.safe_load(ledger.read_text(encoding="utf-8"))
     assert {e["id"] for e in seeded["entry_points"]} == set(traces)
@@ -181,23 +211,27 @@ def test_pinned_command_chain_runs_green(tmp_path: Path, fixture: str) -> None:
             break
         prompt = prompts / "trace.md"
         run("scripts/kb_prompt.py", "render", "--prompt", "trace", "--ledger", str(ledger),
-            "--env", str(env), "--entry", pending["id"], "--repo", str(repo), "--out", str(prompt))
-        assert pending["id"] in prompt.read_text(encoding="utf-8")
+            "--env", str(env), "--entry", pending["id"], "--repo", str(repo), *sub,
+            "--out", str(prompt))
+        rendered = prompt.read_text(encoding="utf-8")
+        assert pending["id"] in rendered
+        # the handler path in the prompt resolves under the service root, not the repo root
+        assert (root / str(pending["handler"]).rsplit(":", 1)[0]).resolve().as_posix() in rendered
         reply = prompts / "trace.json"
         reply.write_text(json.dumps(traces[pending["id"]]), encoding="utf-8")
         assert "unresolved: 0" in run("scripts/flow_map.py", "merge", str(reply),
                                       "--ledger", str(ledger))
     assert "phase traced: pass" in run("scripts/flow_map.py", "validate", "--phase", "traced",
-                                       "--ledger", str(ledger), "--repo", str(repo),
+                                       "--ledger", str(ledger), "--repo", str(repo), *sub,
                                        "--env", str(env))
 
     # Step 4: rules, candidates confirmed verbatim
-    run("scripts/kb_rules.py", "extract", str(repo), "--ledger", str(ledger),
+    run("scripts/kb_rules.py", "extract", str(repo), *sub, "--ledger", str(ledger),
         "--out-dir", str(tests))
     source = traces[post_id]["rules"]["sources"][0]["file"]
     run("scripts/kb_prompt.py", "render", "--prompt", "rules", "--ledger", str(ledger),
-        "--entry", post_id, "--source", source, "--repo", str(repo), "--tests-dir", str(tests),
-        "--out", str(prompts / "rules.md"))
+        "--entry", post_id, "--source", source, "--repo", str(repo), *sub,
+        "--tests-dir", str(tests), "--out", str(prompts / "rules.md"))
     candidates = tests / "rules" / f"{post_slug}.candidates.csv"
     rows = tests / "rules" / f"{post_slug}.rows.csv"
     rows.write_text(candidates.read_text(encoding="utf-8"), encoding="utf-8")
@@ -206,12 +240,12 @@ def test_pinned_command_chain_runs_green(tmp_path: Path, fixture: str) -> None:
     run("scripts/kb_rules.py", "mark-scanned", post_id, source, "--ledger", str(ledger))
 
     # Step 5: scaffold and checkpoint
-    run("scripts/kb_scaffold.py", str(repo), "--ledger", str(ledger), "--env", str(env),
+    run("scripts/kb_scaffold.py", str(repo), *sub, "--ledger", str(ledger), "--env", str(env),
         "--out", str(tests), "--migrations-image", IMAGE)
     runtime = read_json(tests / "src/test/resources/kb-runtime.json")
     assert runtime["migrations"]["image"] == IMAGE and runtime["amq"]["queues"]
     assert '"committed": true' in run("scripts/kb_checkpoint.py", "commit", "--repo", str(repo),
-                                      "--phase", "5", "--message", "scaffold")
+                                      *tests_dir_flag, "--phase", "5", "--message", "scaffold")
 
     # Step 6: generate loop with a canned feature, stub and seed per entry
     features = tests / "src/test/resources/features"
@@ -226,7 +260,7 @@ def test_pinned_command_chain_runs_green(tmp_path: Path, fixture: str) -> None:
         if pending.get("done"):
             break
         run("scripts/kb_prompt.py", "render", "--prompt", "generate", "--ledger", str(ledger),
-            "--env", str(env), "--entry", pending["id"], "--repo", str(repo),
+            "--env", str(env), "--entry", pending["id"], "--repo", str(repo), *sub,
             "--tests-dir", str(tests), "--out", str(prompts / "generate.md"))
         (features / f"{post_slug}.feature").write_text(
             feature_text(table, destination, downstream_path), encoding="utf-8")
@@ -235,9 +269,9 @@ def test_pinned_command_chain_runs_green(tmp_path: Path, fixture: str) -> None:
             "--seed", f"seed/{post_slug}.sql", "--ledger", str(ledger))
     assert "phase generated: pass" in run("scripts/flow_map.py", "validate", "--phase",
                                           "generated", "--ledger", str(ledger),
-                                          "--repo", str(repo), "--tests-dir", str(tests))
-    run("scripts/kb_checkpoint.py", "commit", "--repo", str(repo), "--phase", "6",
-        "--message", "generate")
+                                          "--repo", str(repo), *sub, "--tests-dir", str(tests))
+    run("scripts/kb_checkpoint.py", "commit", "--repo", str(repo), *tests_dir_flag,
+        "--phase", "6", "--message", "generate")
 
     # Step 7: a captured green run stands in for mvn test
     reports = tests / "target/karate-reports"
@@ -248,7 +282,7 @@ def test_pinned_command_chain_runs_green(tmp_path: Path, fixture: str) -> None:
     assert "failing: 0" in run("scripts/flow_map.py", "record-run", "--ledger", str(ledger),
                                "--report", str(report))
     assert "phase green: pass" in run("scripts/flow_map.py", "validate", "--phase", "green",
-                                      "--ledger", str(ledger), "--repo", str(repo),
+                                      "--ledger", str(ledger), "--repo", str(repo), *sub,
                                       "--report", str(report),
                                       "--defects", str(tests / "defects.md"))
     assert run("scripts/kb_iterate.py", "check-stop", "--log", str(tests / ".iterations.log"),
@@ -272,8 +306,12 @@ def test_pinned_command_chain_runs_green(tmp_path: Path, fixture: str) -> None:
         str(tests / "defects.md"), "--report", str(report), "--template",
         str(SKILL / "templates/karate-tests/README.md.tmpl"), "--out", str(tests / "README.md"))
     readme = (tests / "README.md").read_text(encoding="utf-8")
+    assert f"# Karate tests for {root.name}" in readme
     assert "| Entry points | 3 |" in readme and "$" not in readme.replace("${XDG_RUNTIME_DIR}", "")
-    run("scripts/kb_checkpoint.py", "commit", "--repo", str(repo), "--phase", "9",
-        "--message", "report")
+    run("scripts/kb_checkpoint.py", "commit", "--repo", str(repo), *tests_dir_flag,
+        "--phase", "9", "--message", "report")
     assert git(repo, "status", "--short") == ""
     assert not any(".prompts" in line for line in git(repo, "ls-files").splitlines())
+    staged = git(repo, "ls-files").splitlines()
+    prefix = f"{case.service_dir}/karate-tests/" if case.service_dir else "karate-tests/"
+    assert any(line.startswith(prefix) for line in staged)
