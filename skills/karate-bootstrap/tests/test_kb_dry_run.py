@@ -221,6 +221,17 @@ def test_pinned_command_chain_runs_green(tmp_path: Path, case_name: str) -> None
         reply.write_text(json.dumps(traces[pending["id"]]), encoding="utf-8")
         assert "unresolved: 0" in run("scripts/flow_map.py", "merge", str(reply),
                                       "--ledger", str(ledger))
+    # Step 3, the --focus variant SKILL.md pins for an unresolved hop
+    focus_prompt = prompts / f"trace-{post_slug}-2.md"
+    focus_at = str(traces[post_id]["exits"][0]["via"])
+    run("scripts/kb_prompt.py", "render", "--prompt", "trace", "--ledger", str(ledger),
+        "--env", str(env), "--entry", post_id, "--repo", str(repo), *sub,
+        "--focus", focus_at, "--out", str(focus_prompt))
+    focus_text = focus_prompt.read_text(encoding="utf-8")
+    assert f"Start at `{focus_at}`" in focus_text
+    assert "Return the complete entry" in focus_text
+    assert "so the merge keeps them" in focus_text
+
     assert "phase traced: pass" in run("scripts/flow_map.py", "validate", "--phase", "traced",
                                        "--ledger", str(ledger), "--repo", str(repo), *sub,
                                        "--env", str(env))
@@ -287,6 +298,24 @@ def test_pinned_command_chain_runs_green(tmp_path: Path, case_name: str) -> None
                                       "--defects", str(tests / "defects.md"))
     assert run("scripts/kb_iterate.py", "check-stop", "--log", str(tests / ".iterations.log"),
                "--report", str(report), "--max-iterations", "15").strip() == "done"
+
+    # Step 8: the pinned loop commands on a green report; `next` has nothing left to hand out
+    assert json.loads(run("scripts/kb_iterate.py", "next", "--report", str(report),
+                          "--tests-dir", str(tests))) == {"done": True}
+    iterations = tests / ".iterations.log"
+    signature = f"features/{post_slug}.feature|happy|* match status == N|"
+    assert "iteration 1 logged" in run(
+        "scripts/kb_iterate.py", "log", "--log", str(iterations), "--signature", signature,
+        "--hypothesis", "the stub returns 404 because the path is wrong",
+        "--change", "point the pricing stub at the traced path", "--classification",
+        "stub-or-seed")
+    logged = [json.loads(line) for line in iterations.read_text(encoding="utf-8").splitlines()
+              if line.strip()]
+    assert len(logged) == 1
+    assert logged[0]["iteration"] == 1
+    assert logged[0]["signature"] == signature
+    assert logged[0]["classification"] == "stub-or-seed"
+    assert logged[0]["unfixable"] is False
 
     # Step 8: record an observed-behaviour override (no failure to iterate on here, but the
     # command is pinned and runs with no containers)
