@@ -220,7 +220,8 @@ def test_live_chain_goes_green(recipe: Recipe, tmp_path: Path) -> None:
         run("scripts/kb_iterate.py", "next", "--report", str(report), "--tests-dir", str(tests))
         run("scripts/kb_iterate.py", "log", "--log", str(tests / "iterations.jsonl"),
             "--signature", f"{recipe.planted_feature}:{recipe.planted_scenario}",
-            "--hypothesis", "the application answers 500 where the scenario expects 400",
+            "--hypothesis",
+            f"the application answers 500 where the scenario expects {recipe.planted_status}",
             "--change", "quarantined the scenario and recorded DEF-001",
             "--classification", "app-defect", "--unfixable")
         quarantine(tests / "src" / "test" / "resources" / recipe.planted_feature,

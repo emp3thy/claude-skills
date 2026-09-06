@@ -25,6 +25,7 @@ class Recipe(NamedTuple):
     marks: dict[str, tuple[tuple[str, str], ...]]
     planted_scenario: str
     planted_feature: str
+    planted_status: int
     prebuild_app_image: bool
 
 
@@ -48,6 +49,7 @@ SPRING = Recipe(
     },
     planted_scenario="rejects a shipment over the weight limit",
     planted_feature="features/post-api-shipments.feature",
+    planted_status=400,
     prebuild_app_image=True,
 )
 
@@ -71,6 +73,7 @@ DOTNET = Recipe(
     },
     planted_scenario="rejects a deal over the quantity limit",
     planted_feature="features/post-api-deals.feature",
+    planted_status=400,
     prebuild_app_image=True,
 )
 
@@ -96,6 +99,7 @@ FASTAPI = Recipe(
     },
     planted_scenario="rejects an order over the quantity limit",
     planted_feature="features/post-api-orders.feature",
+    planted_status=422,
     prebuild_app_image=False,
 )
 
