@@ -45,3 +45,23 @@ def test_stack_sheet_lists_every_marker_token(stack: str) -> None:
     for kind in KINDS:
         for token in tokens_for(stack, kind):
             assert f"`{token}`" in tokens_section, f"{stack}/{kind}: token {token!r} not listed"
+
+
+NOTE_HEADINGS = {
+    "testcontainers-notes.md": ("## Topology", "## kb-runtime.json", "## Tokens",
+                                "## Waits and timeouts", "## Logs and evidence files",
+                                "## Running"),
+    "karate-notes.md": ("## Runner flags", "## Tags", "## Data-driven outlines",
+                        "## Calling reset.feature", "## Java helpers", "## Reports"),
+    "failure-triage.md": ("## Classification order", "## 1. Infra", "## 2. Stub or seed missing",
+                          "## 3. Expectation wrong", "## 4. Suspected app defect",
+                          "## Quarantine procedure", "## Stop conditions"),
+    "podman.md": ("## Linux", "## Windows and macOS", "## Ryuk", "## Verify"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(NOTE_HEADINGS))
+def test_note_has_every_heading(name: str) -> None:
+    text = (REFERENCE / name).read_text(encoding="utf-8")
+    for heading in NOTE_HEADINGS[name]:
+        assert heading in text, f"{name}: missing {heading}"
