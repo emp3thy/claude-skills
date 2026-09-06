@@ -612,6 +612,120 @@ class TestProbe:
         assert secret not in json.dumps(document)
         assert "invalid syntax" in document["tools"]["vulture"]["reason"]
 
+    def test_a_tuple_or_set_in_extra_is_redacted_like_a_list(self) -> None:
+        """The container gap the dict-key fix left behind. ``_redact_value``
+        walked ``dict`` and ``list`` only, so a tuple -- which ``json.dumps``
+        serialises as an array, exactly like a list -- fell through untouched
+        and reached the file verbatim while every sibling string was cut. No
+        normaliser emits one today, which is precisely what was true of dict
+        keys until the Task 8 review found one could."""
+        from tools_probe import _redact_value
+
+        secret = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"
+        out = _redact_value({
+            "tuple": (f'api_key = "{secret}"',),
+            "set": {f"seen at {secret}"},
+            "nested": ({"members": [(secret,)]},),
+        })
+        serialised = json.dumps(out)
+        assert secret not in serialised
+        assert serialised.count("sk_l***") == 3
+        # Both come back as lists: that is what they serialise to anyway, and
+        # a set is sorted so two runs over the same data agree.
+        assert isinstance(out["tuple"], list)
+        assert isinstance(out["set"], list)
+
+    def test_a_set_is_redacted_into_a_sorted_list(self) -> None:
+        """A set has no order of its own, so writing one out in iteration
+        order would put a difference between two runs over the same tree that
+        no source change explains -- the class of non-determinism
+        ``_signal_sort_key`` exists to remove."""
+        from tools_probe import _redact_value
+
+        assert _redact_value({"c", "a", "b"}) == ["a", "b", "c"]
+
+
+class TestRedactionRunsBeforeTheCap:
+    """N1: ``run_tool`` capped stderr to STDERR_CHARS and left redaction to
+    ``redact_document`` at the point of writing, which is the inversion
+    ``docs/architecture.md`` already forbids and which phase 3's whole-branch
+    review found once already in ``merge_findings``. Truncating first does not
+    shorten a leak, it creates one: every branch of ``SECRET_TOKEN_RE`` is
+    length-gated and ``CREDENTIAL_RE`` needs its closing quote, so a cut
+    landing inside a credential destroys the shape every later ``redact``
+    matches on."""
+
+    # 8 characters of "exit 2: " + 165 of filler + 11 of 'api_key = "' is 184,
+    # so a 200-character cut applied before redaction keeps exactly sixteen
+    # characters of the value and drops the closing quote.
+    STRADDLING_STDERR: Final[str] = "E" * 165 + 'api_key = "SuperSecretValue_abcdefghij"'
+
+    def test_a_credential_straddling_the_cap_is_cut_not_halved(self, tmp_path: Path) -> None:
+        from tools_probe import TOOLS, run_tool
+
+        exe, argv = _fake_tool(tmp_path, f"""
+            import sys
+            sys.stderr.write({self.STRADDLING_STDERR!r})
+            sys.exit(2)
+        """)
+        result = run_tool(TOOLS["ruff"], argv, tmp_path, 30)
+        assert result.status == "failed"
+        assert "SuperSecretValue" not in result.reason
+        assert 'api_key = "Supe***"' in result.reason
+
+    def test_the_document_written_carries_no_prefix_of_the_credential(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The end-to-end statement of the same thing: redact_document is the
+        by-construction net, not the primary cut, so it must not be what this
+        depends on -- by the time it runs the credential is already halved."""
+        import tools_probe
+        from config import load_config
+
+        exe, argv = _fake_tool(tmp_path, f"""
+            import sys
+            sys.stderr.write({self.STRADDLING_STDERR!r})
+            sys.exit(2)
+        """)
+        (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+        monkeypatch.setattr(tools_probe, "find_tool", lambda name, root: exe)
+        monkeypatch.setattr(tools_probe, "argv_for",
+                            lambda spec, executable, root, *, network: argv)
+        config = load_config(tmp_path)
+        config["tools"]["deny"] = [name for name in tools_probe.TOOLS if name != "ruff"]
+        document = tools_probe.probe(tmp_path, config)
+        assert document["tools"]["ruff"]["status"] == "failed"
+        assert "SuperSecretValue" not in json.dumps(document)
+
+    def test_an_oserror_message_is_redacted_before_it_is_capped(self) -> None:
+        """The OSError branch caps too, and its message is the OS's text about
+        a path this process was given -- which can be the tool's own argv."""
+        from tools_probe import STDERR_CHARS, _capped
+
+        text = "E" * 190 + 'password = "hunter2hunter2"'
+        assert "hunter2hunter2" not in _capped(text)
+        assert len(_capped(text)) <= STDERR_CHARS
+
+    def test_every_capping_site_goes_through_the_one_helper(self) -> None:
+        """The ordering cannot be right in three places and wrong in a fourth:
+        no source line in the module may slice by STDERR_CHARS except the
+        helper's own return."""
+        import ast
+
+        source = (SCRIPTS / "tools_probe.py").read_text(encoding="utf-8")
+        slices = [
+            node for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice)
+            and isinstance(node.slice.upper, ast.Name)
+            and node.slice.upper.id == "STDERR_CHARS"
+        ]
+        assert len(slices) == 1, "STDERR_CHARS is sliced outside _capped"
+        helper = next(
+            node for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.FunctionDef) and node.name == "_capped"
+        )
+        assert slices[0].lineno in range(helper.lineno, helper.end_lineno + 1)
+
 
 class TestNormaliserFailureIsContained:
     """The normaliser call was unguarded and _main caught only (OSError,

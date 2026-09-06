@@ -104,6 +104,29 @@ STDERR_CHARS: Final[int] = 200
 REPORT_FILENAME: Final[str] = "jscpd-report.json"
 
 
+def _capped(text: str) -> str:
+    """``text`` redacted first, then cut to ``STDERR_CHARS``.
+
+    The order is the whole point, and it is the rule ``docs/architecture.md``
+    already states for every length-capped string in this skill: **redact,
+    then truncate**. Every branch of ``SECRET_TOKEN_RE`` is length-gated and
+    ``CREDENTIAL_RE`` needs its closing quote, so a cut that lands inside a
+    credential destroys the shape the pattern matches on -- and every later
+    ``redact``, including ``redact_document`` at the point of writing, then
+    misses it too. Truncating first therefore does not shorten a leak, it
+    *creates* one: a stub tool printing 165 characters of context followed by
+    ``api_key = "SuperSecretValue…"`` put sixteen characters of that value
+    into ``reason`` verbatim, where redact-then-cap gives ``Supe***``.
+
+    Every site in this module that caps a string calls this, so the ordering
+    cannot be got wrong in one place and right in another. Calling it on a
+    string built from an already-capped part (``_rejected_exit_reason``
+    prefixes ``exit N: `` onto capped stderr and caps again) is safe: the
+    second cut can only shorten text whose credentials are already stubs.
+    """
+    return redact(text)[:STDERR_CHARS]
+
+
 @dataclass(frozen=True)
 class ToolResult:
     """What one attempted tool run produced."""
@@ -134,7 +157,7 @@ def _rejected_exit_reason(returncode: int, stderr: str) -> str:
     must never suppress the prefix.
     """
     if stderr:
-        return f"exit {returncode}: {stderr}"[:STDERR_CHARS]
+        return _capped(f"exit {returncode}: {stderr}")
     return f"exit {returncode}"
 
 
@@ -146,8 +169,9 @@ def run_tool(spec: ToolSpec, argv: list[str], root: Path, timeout_s: int) -> Too
 
     ``ran`` means the process exited with a code the spec's table allows and
     its output parsed. Anything else is ``failed``, carrying the first
-    ``STDERR_CHARS`` characters of stderr, because unparseable output is the
-    failure signal for every tool in the first cut.
+    ``STDERR_CHARS`` characters of stderr *after* redaction (``_capped``),
+    because unparseable output is the failure signal for every tool in the
+    first cut.
 
     A ``report_file`` tool writes its result into a directory this function
     creates and removes; its stdout is progress and promotional text and is
@@ -180,11 +204,11 @@ def run_tool(spec: ToolSpec, argv: list[str], root: Path, timeout_s: int) -> Too
             return ToolResult("failed", reason=f"timed out after {timeout_s}s",
                               duration_s=time.monotonic() - started)
         except OSError as exc:
-            return ToolResult("failed", reason=str(exc)[:STDERR_CHARS],
+            return ToolResult("failed", reason=_capped(str(exc)),
                               duration_s=time.monotonic() - started)
 
         duration = time.monotonic() - started
-        stderr = (completed.stderr or "").strip()[:STDERR_CHARS]
+        stderr = _capped((completed.stderr or "").strip())
 
         if spec.channel == "report_file":
             assert report_dir is not None
@@ -429,7 +453,7 @@ def argv_for(spec: ToolSpec, executable: str, root: Path, *, network: bool) -> l
 
 
 def _redact_value(value: Any) -> Any:
-    """``value`` with every string it holds redacted, recursing into dicts and lists.
+    """``value`` with every string it holds redacted, recursing into every container.
 
     Tool-supplied text is not confined to ``message``: ``extra`` carries rule
     ids, symbol names and cycle-member paths straight from the tool, and a
@@ -440,6 +464,15 @@ def _redact_value(value: Any) -> Any:
     a normaliser that keyed a map by symbol name or rule id would otherwise
     reintroduce the leak one level down, silently. Non-string, non-container
     values (``None``, ``int``, ``bool``) pass through untouched.
+
+    Tuples and sets are covered for the same reason the dict-key gap was
+    closed rather than merely recorded: ``json.dumps`` serialises a tuple as
+    an array, so a tuple-valued ``extra`` entry reached the file verbatim
+    while every sibling string was cut. No normaliser emits one today -- which
+    is exactly what was true of dict keys until one was not. Both come back as
+    lists, because that is what they serialise to anyway; a set is sorted on
+    the way out, since it has no order of its own and an arbitrary one would
+    put a needless difference between two runs over the same tree.
     """
     if isinstance(value, str):
         return redact(value)
@@ -448,7 +481,9 @@ def _redact_value(value: Any) -> Any:
             (redact(key) if isinstance(key, str) else key): _redact_value(inner)
             for key, inner in value.items()
         }
-    if isinstance(value, list):
+    if isinstance(value, (set, frozenset)):
+        return sorted((_redact_value(inner) for inner in value), key=repr)
+    if isinstance(value, (list, tuple)):
         return [_redact_value(inner) for inner in value]
     return value
 
@@ -537,8 +572,8 @@ def probe(root: Path, config: dict[str, Any], *, skip_all: bool = False) -> dict
                 # so an unexpected shape is likelier than a clean run there.
                 tools[name] = _entry(
                     "failed",
-                    reason=f"normaliser for {name} raised "
-                           f"{type(exc).__name__}: {exc}"[:STDERR_CHARS],
+                    reason=_capped(f"normaliser for {name} raised "
+                                   f"{type(exc).__name__}: {exc}"),
                     duration_s=result.duration_s,
                 )
                 continue
