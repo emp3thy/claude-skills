@@ -7,6 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import verify_prompts
 from categories import FAMILIES, FAMILY_BLOCKS, SEVERITY_RUBRIC
 from config import DEFAULTS
 from evidence import fingerprint, priority_terms, repo_maxima
@@ -175,7 +176,8 @@ def test_the_reference_graph_never_reads_guarded_or_out_of_graph_files(
     ``build_reference_graph`` uses source files as targets and source or tests
     files as referrers, so every other class is read for nothing; a file the
     inventory marked ``skipped_large`` was never read by the inventory and must
-    not be read here either (the graph is rebuilt once per batch).
+    not be read here either. This call passes no ``edges``, so it builds the
+    graph itself, which is the path a single-prompt caller takes.
     """
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
@@ -255,7 +257,45 @@ def test_verify_plan_and_cli(tmp_path: Path) -> None:
     raw = (workdir / "prompts" / "verify-01.md").read_bytes()
     assert b"\r" not in raw
     assert json.loads((workdir / "verify-plan.json").read_bytes())["top"] == 5
+    # Phase 3 writes each batch's reply to the plan's `output` path under verdicts/;
+    # the directory is created here so an agent's write never hits a missing parent.
+    assert (workdir / "verdicts").is_dir()
     assert _main(["--workdir", str(tmp_path / "none")]) == 2
+
+
+def test_the_reference_graph_is_built_once_per_plan(tmp_path: Path, monkeypatch: Any) -> None:
+    """One stem graph per plan, not one per batch.
+
+    ``_reference_edges`` reads every source and tests file in the inventory, so
+    building it inside ``render_verify_prompt`` re-read the whole repository once
+    for each batch (12 times at ``max_candidates``).
+    """
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "payments.py").write_text(
+        "\n".join(f"line {i}" for i in range(1, 20)) + "\n", encoding="utf-8")
+    (repo / "src" / "caller.py").write_text("from payments import x\n", encoding="utf-8")
+    inventory, coupling = build_all(repo, config=DEFAULTS)
+    workdir = tmp_path / "wd"
+    write_outputs(inventory, coupling, workdir)
+    cands = [_cand("dead-code", "src/payments.py", i, 2) for i in range(1, 9)]
+    write_json(workdir / "candidates.json",
+               {"schema_version": 2, "candidates": cands, "open_questions": [],
+                "looks_bad_but_fine": [], "stats": {}})
+
+    builds: list[int] = []
+    original = verify_prompts.build_reference_graph
+
+    def _record(files: Any, config: Any) -> Any:
+        builds.append(len(files))
+        return original(files, config)
+
+    monkeypatch.setattr(verify_prompts, "build_reference_graph", _record)
+    plan, prompts = build_verify_plan(workdir, repo, DEFAULTS, top=5)
+
+    assert len(plan["batches"]) == 2
+    assert len(builds) == 1, f"the graph was built {len(builds)} times"
+    assert all("approximate referrers: src/caller.py" in text for text in prompts.values())
 
 
 def test_cli_reports_a_malformed_candidates_document_instead_of_a_traceback(

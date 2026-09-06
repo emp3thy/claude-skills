@@ -198,12 +198,12 @@ def _reference_edges(
 ) -> list[tuple[str, str]] | None:
     """The stem graph's (referrer, referenced) edges, or None when it could not be built.
 
-    Built once per prompt: the graph reads every inventory file, so computing it
-    per candidate would re-read the repository once for each one. Only the
-    classes the graph uses are read — ``build_reference_graph`` takes source
-    files as targets and source or tests files as referrers — and a file the
-    inventory's size guard marked ``skipped_large`` is never read here either,
-    because the graph is rebuilt once per batch.
+    Built once per plan by ``build_verify_plan`` and passed down to every prompt:
+    the graph reads every inventory file, so building it per batch re-read the
+    whole repository once for each one. Only the classes the graph uses are read
+    — ``build_reference_graph`` takes source files as targets and source or tests
+    files as referrers — and a file the inventory's size guard marked
+    ``skipped_large`` is never read here either.
     """
     try:
         graph_files = []
@@ -250,10 +250,18 @@ def render_verify_prompt(
     inventory: dict[str, Any],
     coupling: dict[str, Any],
     config: dict[str, Any],
+    edges: list[tuple[str, str]] | None = None,
 ) -> str:
-    """One read-only verification prompt covering every candidate in ``batch``."""
+    """One read-only verification prompt covering every candidate in ``batch``.
+
+    ``edges`` is the reference graph ``build_verify_plan`` built once for the whole
+    plan; left at None the graph is built here, which is what a single-prompt
+    caller wants and what a failed build (``_reference_edges`` returns None) falls
+    back to.
+    """
     context = int(config["verifier"]["context_lines"])
-    edges = _reference_edges(root, inventory, config)
+    if edges is None:
+        edges = _reference_edges(root, inventory, config)
     parts = [
         "You are a read-only verifier. Read and search files; change nothing.",
         "For each candidate below decide whether the described debt is real, using the cited "
@@ -319,12 +327,14 @@ def build_verify_plan(
     coupling = json.loads(coupling_path.read_bytes()) if coupling_path.is_file() else {}
     selected, unverified = select_candidates(list(candidates_doc["candidates"]), config, top)
     batches = build_batches(selected, int(config["verifier"]["batch_size"]))
+    # One graph for the plan: it reads every source and tests file in the inventory.
+    edges = _reference_edges(root, inventory, config)
     prompts: dict[str, str] = {}
     entries = []
     for number, batch in enumerate(batches, start=1):
         prompt_rel = f"prompts/verify-{number:02d}.md"
         prompts[prompt_rel] = render_verify_prompt(
-            batch, root=root, inventory=inventory, coupling=coupling, config=config)
+            batch, root=root, inventory=inventory, coupling=coupling, config=config, edges=edges)
         entries.append({"prompt": prompt_rel, "output": f"verdicts/verify-{number:02d}.json",
                         "fingerprints": [c["fingerprint"] for c in batch]})
     plan = {
@@ -369,6 +379,9 @@ def _main(argv: list[str] | None = None) -> int:
         target = workdir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(text.encode("utf-8"))
+    # Every batch's ``output`` points into verdicts/; phase 3 dispatches an agent
+    # that writes there, so the directory exists before the plan is handed over.
+    (workdir / "verdicts").mkdir(parents=True, exist_ok=True)
     write_json(workdir / "verify-plan.json", plan)
     print(f"{len(plan['selected'])} candidate(s) in {len(plan['batches'])} batch(es); "
           f"{len(plan['unverified'])} unverified")
