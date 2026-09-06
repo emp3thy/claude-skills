@@ -238,7 +238,11 @@ def test_live_chain_goes_green(recipe: Recipe, tmp_path: Path) -> None:
             "--defects", str(tests / "defects.md"), "--report", str(report),
             "--template", str(TEMPLATE_README), "--out", str(tests / "README.md"))
         readme = (tests / "README.md").read_text(encoding="utf-8")
-        assert "DEF-001" in readme and "${" not in readme.replace("$${", "")
+        # README.md.tmpl escapes one literal shell variable reference as $${XDG_RUNTIME_DIR} so
+        # string.Template renders it verbatim (as ${XDG_RUNTIME_DIR}) rather than substituting
+        # it; excluding that known-intentional literal, no unrendered $placeholder may remain.
+        assert "DEF-001" in readme
+        assert "${" not in readme.replace("${XDG_RUNTIME_DIR}", "")
 
         assert_ledger_matches_expected(yaml.safe_load(ledger_path.read_text(encoding="utf-8")),
                                        expected / "expected-flow-map.yaml")
