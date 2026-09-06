@@ -12,9 +12,13 @@ their behaviour.
 
 - **Language-independent.** The only language-aware code is the inventory's
   extension→language map, which also supplies each language's comment syntax
-  to `patterns.py`. Every rule in `inventory.py`, `patterns.py` and `rules.py`
-  is a union of idioms across languages; a test greps the scripts for any
-  branch on a language name. Scout, verifier and remediation-note prompts are
+  to `patterns.py`, and `tools_probe.py`'s tool registry, whose rows are
+  inherently tool-specific (ruff and vulture are Python-only; madge, jscpd and
+  knip are JS/TS-only; hadolint reads Dockerfiles; actionlint reads GitHub
+  Actions workflows). Every rule in `inventory.py`, `patterns.py` and
+  `rules.py` is a union of idioms across languages; a test greps every other
+  script for a branch on a language name (`tools_probe.py` is the one
+  exception the spec allows). Scout, verifier and remediation-note prompts are
   all language-neutral.
 - **LLM does the judgement, scripts do the determinism.** The model runs each
   dispatched family's scout, verifies a batch of candidates against that
@@ -174,6 +178,62 @@ workdir instead of calling out. Flags: `--workdir`, `--families`, `--top`,
 `--timeout`, `--log`, `--skip-agents`; exit 2 on a bad target or malformed
 input, 3 when `claude` is not on PATH (and `--skip-agents` is absent), 4 when
 an agent call fails after its retry or `--skip-agents` finds no cached reply.
+
+## External tool probe
+
+`tools_probe.py` and `tool_normalisers.py` split the phase 4a work in two:
+`tools_probe.py` owns every side effect — the CLI, presence detection, the
+ten-row tool registry, the subprocess runner, timeouts and redaction — while
+`tool_normalisers.py` holds the ten `normalise_<tool>(payload, root) ->
+list[Signal]` functions as pure code with no I/O. The split exists so a
+normaliser is testable from a captured payload with nothing mocked, and the
+runner is testable with no tool installed at all.
+
+`python scripts/tools_probe.py <repo> [--workdir DIR] [--skip-all]` never
+installs anything, never invokes `npx`, and never executes project code.
+Presence detection is `shutil.which(name)` first, then
+`<repo>/node_modules/.bin/<name>[.cmd|.exe|.ps1]` for `jscpd`, `knip` and
+`madge` only — the three tools distributed as npm packages, whose project-
+local install a repository already depends on; every other tool is
+`shutil.which` alone. Each present tool the artefact predicate says is worth
+running gets one subprocess call under a per-tool timeout, and lands in one
+of four statuses: `ran` (the process exited with a code the registry allows
+and its output parsed), `absent` (no executable found), `failed` (a rejected
+exit code, a timeout, an OSError, or output that failed to parse), or
+`skipped` (no matching artefact, the tool is on the config deny list,
+`--skip-all` was given, or — for osv-scanner offline — no local vulnerability
+database). `tools_probe.py` writes `tool-signals.json` to the workdir;
+**nothing reads it until phase 4b** — `plan_scan.py`, `merge_findings.py` and
+SKILL.md all gain that wiring then, together with module chunking and the
+halved deep thresholds.
+
+Six of the ten normalisers — ruff, vulture, lizard, madge, jscpd, knip — were
+written against real captured output from the tool installed on this
+machine. The other four — osv-scanner, gitleaks, hadolint, actionlint — are
+Go binaries this machine cannot install, so their normalisers were written
+from documented output schemas alone and have never seen their tool run.
+`skills/tech-debt-scan/tests/fixtures/tool-output/PROVENANCE.md` records
+which fixture is which, and which command produced it. This distinction is
+not a formality: four of the five tools that could be installed contradicted
+their own documentation once actually run — madge silently returns an empty
+graph and exits 0 on a real TypeScript import cycle unless given
+`--extensions` explicitly, vulture exits 3 rather than the 1 most of this
+registry's other tools use for "findings present" and has no JSON output
+mode, lizard has no JSON output mode either (`--csv`, `--xml` and `--html`
+are its only structured formats), and jscpd's JSON reporter never writes to
+stdout — only to a report file in a directory the caller supplies. A
+normaliser written only from documentation carries the same risk: nothing
+has confirmed its assumed shape matches what the tool actually emits.
+
+No field that can carry source text or a credential is ever copied into a
+signal. `normalise_gitleaks` drops `Secret` and `Match` — the credential
+gitleaks matched — outright rather than redacting them, because a redacted
+secret is still its own first four characters while a dropped one is
+nothing. `normalise_jscpd` drops `fragment`, the duplicated source itself,
+for the same reason. `normalise_actionlint` drops `snippet`, a line of the
+workflow file that may carry a token or an inline secret reference. In every
+case the file and line range that remain are enough to find the finding by
+hand.
 
 ## Scout families
 
