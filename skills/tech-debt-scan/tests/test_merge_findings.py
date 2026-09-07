@@ -560,6 +560,65 @@ def test_tool_signal_on_disk_corroborates_a_merged_candidate(tmp_path: Path) -> 
     )
 
 
+def _clone_repo(tmp_path: Path) -> tuple[Path, Path]:
+    """A repo with one source file and one identical fixture file under ``tests/``,
+    a plan holding only ``duplication``, and a jscpd signal on the fixture."""
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "tests").mkdir(parents=True)
+    body = "def one():\n    return 1\n"
+    (repo / "src" / "a.py").write_text(body, encoding="utf-8")
+    (repo / "tests" / "b.py").write_text(body, encoding="utf-8")
+    workdir = tmp_path / "wd"
+    inventory, coupling = build_all(repo, config=DEFAULTS)
+    write_outputs(inventory, coupling, workdir)
+    write_json(workdir / "scan-plan.json", {
+        "schema_version": 2, "set": "explicit", "top": 5, "chunked": False,
+        "thresholds": DEFAULTS["chunking"],
+        "entries": [{"family": "duplication", "module": None,
+                     "prompt": "prompts/scout-duplication.md",
+                     "output": "scouts/duplication.json", "leads": 1}],
+        "families_run": ["duplication"], "families_skipped": [],
+    })
+    _scout(workdir, "duplication", [_finding(
+        "duplication", "the same helper twice", "src/a.py", 1, 1, "def one():",
+        evidence=[
+            {"file": "src/a.py", "line_start": 1, "line_end": 1, "quote": "def one():"},
+            {"file": "tests/b.py", "line_start": 1, "line_end": 1, "quote": "def one():"},
+        ],
+    )])
+    write_json(workdir / "tool-signals.json", {
+        "schema_version": 2, "tools": {},
+        "signals": [{"tool": "jscpd", "family": "duplication", "kind": "clone",
+                     "file": "tests/b.py", "line_start": 1, "line_end": 2,
+                     "message": "2 duplicated lines", "fact": False, "extra": {}}],
+    })
+    return repo, workdir
+
+
+def test_merge_drops_a_tool_signal_the_users_path_class_disables(tmp_path: Path) -> None:
+    """The disk path, with the real inventory's classes: DEFAULTS disables duplication
+    on ``tests``, so the jscpd signal on the fixture half of the clone pair must not
+    lift the source-file candidate's cap. ``plan_scan`` already drops it as a lead."""
+    repo, workdir = _clone_repo(tmp_path)
+    cand = next(c for c in merge(workdir, repo, DEFAULTS)["candidates"]
+                if c["source"] == "scout")
+    assert cand["confirmed_by"] == ["scout:duplication"]
+
+
+def test_merge_keeps_that_signal_when_the_user_has_not_disabled_the_family(
+    tmp_path: Path,
+) -> None:
+    """The control on the same disk inputs: it is the config, read against the real
+    path classes, that decides -- so both arguments are wired, not just present."""
+    repo, workdir = _clone_repo(tmp_path)
+    config = deepcopy(DEFAULTS)
+    config["families"]["per_path_class"]["tests"]["disable"] = []
+    cand = next(c for c in merge(workdir, repo, config)["candidates"]
+                if c["source"] == "scout")
+    assert "tool:jscpd" in cand["confirmed_by"]
+
+
 class TestToolCorroboration:
     def _signal(self, **over) -> dict:
         base = {
@@ -585,21 +644,23 @@ class TestToolCorroboration:
         from merge_findings import corroborate_with_tools
 
         cand = self._candidate()
-        corroborate_with_tools([cand], [self._signal()])
+        corroborate_with_tools([cand], [self._signal()], {}, DEFAULTS)
         assert "tool:jscpd" in cand["confirmed_by"]
 
     def test_a_different_family_does_not_corroborate(self) -> None:
         from merge_findings import corroborate_with_tools
 
         cand = self._candidate()
-        corroborate_with_tools([cand], [self._signal(family="dead-code", tool="vulture")])
+        corroborate_with_tools(
+            [cand], [self._signal(family="dead-code", tool="vulture")], {}, DEFAULTS
+        )
         assert cand["confirmed_by"] == ["scout:duplication"]
 
     def test_a_different_file_does_not_corroborate(self) -> None:
         from merge_findings import corroborate_with_tools
 
         cand = self._candidate()
-        corroborate_with_tools([cand], [self._signal(file="src/other.ts")])
+        corroborate_with_tools([cand], [self._signal(file="src/other.ts")], {}, DEFAULTS)
         assert cand["confirmed_by"] == ["scout:duplication"]
 
     def test_a_signal_matching_a_later_evidence_file_still_corroborates(self) -> None:
@@ -618,7 +679,7 @@ class TestToolCorroboration:
                  "quote": "y", "quote_verified": True},
             ]
         )
-        corroborate_with_tools([cand], [self._signal()])
+        corroborate_with_tools([cand], [self._signal()], {}, DEFAULTS)
         assert "tool:jscpd" in cand["confirmed_by"]
 
     def test_a_candidate_with_no_evidence_corroborates_nothing(self) -> None:
@@ -631,7 +692,7 @@ class TestToolCorroboration:
         from merge_findings import corroborate_with_tools
 
         cand = self._candidate(evidence=[])
-        corroborate_with_tools([cand], [self._signal()])
+        corroborate_with_tools([cand], [self._signal()], {}, DEFAULTS)
         assert cand["confirmed_by"] == ["scout:duplication"]
 
     def test_a_fact_class_signal_does_not_corroborate_here(self) -> None:
@@ -640,21 +701,75 @@ class TestToolCorroboration:
         from merge_findings import corroborate_with_tools
 
         cand = self._candidate()
-        corroborate_with_tools([cand], [self._signal(fact=True)])
+        corroborate_with_tools([cand], [self._signal(fact=True)], {}, DEFAULTS)
         assert cand["confirmed_by"] == ["scout:duplication"]
+
+    def test_a_signal_whose_path_class_disables_its_family_does_not_corroborate(self) -> None:
+        """``per_path_class: {tests: {disable: [duplication]}}`` is DEFAULTS, and it is the
+        documented way to say "clones inside fixtures are not debt". ``plan_scan`` drops
+        that signal as a lead; corroboration must drop it too, or the same signal lifts a
+        source-file candidate's cap to tier A instead. Not hypothetical: this repository's
+        only real jscpd signal is on a fixture path."""
+        from merge_findings import corroborate_with_tools
+
+        cand = self._candidate(
+            evidence=[
+                {"file": "src/a.ts", "line_start": 1, "line_end": 4,
+                 "quote": "x", "quote_verified": True},
+                {"file": "tests/fixtures/b.ts", "line_start": 1, "line_end": 4,
+                 "quote": "y", "quote_verified": True},
+            ]
+        )
+        signal = self._signal(file="tests/fixtures/b.ts")
+        corroborate_with_tools(
+            [cand], [signal], {"tests/fixtures/b.ts": "tests"}, DEFAULTS
+        )
+        assert cand["confirmed_by"] == ["scout:duplication"]
+
+    def test_the_same_signal_on_a_source_path_still_corroborates(self) -> None:
+        """The control: it is the path class that disables it, not the file's name."""
+        from merge_findings import corroborate_with_tools
+
+        cand = self._candidate(
+            evidence=[{"file": "tests/fixtures/b.ts", "line_start": 1, "line_end": 4,
+                       "quote": "y", "quote_verified": True}]
+        )
+        corroborate_with_tools(
+            [cand], [self._signal(file="tests/fixtures/b.ts")],
+            {"tests/fixtures/b.ts": "source"}, DEFAULTS,
+        )
+        assert "tool:jscpd" in cand["confirmed_by"]
+
+    def test_a_family_the_class_does_not_disable_still_corroborates(self) -> None:
+        """DEFAULTS disables duplication, complex-units and god-classes on tests -- not
+        dead-code, so a vulture signal on a test file is still a second opinion."""
+        from merge_findings import corroborate_with_tools
+
+        cand = self._candidate(
+            family="dead-code", confirmed_by=["scout:dead-code"],
+            evidence=[{"file": "tests/helpers.ts", "line_start": 1, "line_end": 4,
+                       "quote": "y", "quote_verified": True}],
+        )
+        corroborate_with_tools(
+            [cand], [self._signal(family="dead-code", tool="vulture", file="tests/helpers.ts")],
+            {"tests/helpers.ts": "tests"}, DEFAULTS,
+        )
+        assert "tool:vulture" in cand["confirmed_by"]
 
     def test_the_token_is_added_once_for_two_signals_from_one_tool(self) -> None:
         from merge_findings import corroborate_with_tools
 
         cand = self._candidate()
-        corroborate_with_tools([cand], [self._signal(), self._signal(line_start=20)])
+        corroborate_with_tools(
+            [cand], [self._signal(), self._signal(line_start=20)], {}, DEFAULTS
+        )
         assert cand["confirmed_by"].count("tool:jscpd") == 1
 
     def test_confirmed_by_stays_sorted(self) -> None:
         from merge_findings import corroborate_with_tools
 
         cand = self._candidate(confirmed_by=["scout:duplication", "rule:ci.pinning"])
-        corroborate_with_tools([cand], [self._signal()])
+        corroborate_with_tools([cand], [self._signal()], {}, DEFAULTS)
         assert cand["confirmed_by"] == sorted(cand["confirmed_by"])
 
     # No test asserts that a signal with ``file: None`` corroborates nothing: it can't

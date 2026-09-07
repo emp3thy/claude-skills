@@ -22,8 +22,10 @@ markers, rule findings, coupling and the hotspot band; corroborate again from
 tool signals of the candidate's own family and file (``tool:<name>`` in
 ``confirmed_by``, added once per candidate list is settled and before any
 tool-derived candidates exist, so a signal can never corroborate the finding
-it raised); attach inventory signals; apply suppressions and path-class
-disables; redact every quote, title and note. ``missing_file``,
+it raised, and skipping a signal whose own path class disables its family --
+the same ``families.per_path_class`` disable ``plan_scan`` applies to the lead
+built from that signal); attach inventory signals; apply suppressions and
+path-class disables; redact every quote, title and note. ``missing_file``,
 ``read_failed`` and ``dropped_reasons`` are all out-of-band stat keys,
 appended only when they apply.
 
@@ -75,7 +77,7 @@ from categories import FAMILIES
 from config import ConfigError, load_config
 from evidence import find_quote, fingerprint, signals_for
 from inventory import write_json
-from plan_scan import disabled_families
+from plan_scan import disabled_families, path_classes
 from redaction import redact, strip_url_userinfo
 from validation import ValidationError, validate_debt_type, validate_effort, validate_type_id
 
@@ -343,7 +345,10 @@ def _corroborate(
 
 
 def corroborate_with_tools(
-    candidates: list[dict[str, Any]], signals: list[dict[str, Any]]
+    candidates: list[dict[str, Any]],
+    signals: list[dict[str, Any]],
+    classes: dict[str, str],
+    config: dict[str, Any],
 ) -> None:
     """Add a ``tool:<name>`` token where an inference signal backs a candidate.
 
@@ -363,6 +368,16 @@ def corroborate_with_tools(
     Fact-class signals are excluded: those become candidates in their own
     right, and letting one both raise a finding and vouch for it would make a
     single source look like two.
+
+    A signal on a path whose class disables its family is dropped, through the
+    same ``plan_scan.disabled_families`` check ``_filtered_sorted_leads``
+    applies to the lead built from that same signal (``classes`` is
+    ``plan_scan.path_classes``, the map that function reads too). Without it the
+    two ends of one signal disagree: the documented way to say "clones inside
+    fixtures are not debt" (``per_path_class: {tests: {disable: [duplication]}}``)
+    drops the jscpd lead and then lets the identical signal lift a source-file
+    candidate's cap to tier A. Matching every evidence file makes this reachable
+    on real input -- this repository's only jscpd signal is on a fixture.
     """
     by_family: dict[tuple[str, str], set[str]] = {}
     for item in signals:
@@ -370,6 +385,8 @@ def corroborate_with_tools(
             continue
         path, family, tool = item.get("file"), item.get("family"), item.get("tool")
         if not isinstance(path, str) or not path or not family or not tool:
+            continue
+        if str(family) in disabled_families(config, classes.get(path, "source")):
             continue
         by_family.setdefault((str(family), path), set()).add(str(tool))
     if not by_family:
@@ -634,11 +651,16 @@ def tool_candidates(
       future tier change to either route cannot silently widen or narrow this guard.
       Spec 4.5's null osv range (a manifest path, not a line) is untouched;
     * a fingerprint already raised in this pass. Two signals that agree on family, path,
-      line range and message are the same fact reported twice, and duplicating them
-      gives two candidates one verdict can no longer tell apart (see
+      line range and message are almost always the same fact reported twice, and
+      duplicating them gives two candidates one verdict can no longer tell apart (see
       ``_fingerprint_span``). This is the collapse ``_cluster`` gives scout candidates,
       narrowed to exact identity because a tool's records are already deduplicated
-      within a file by everything except repetition.
+      within a file by everything except repetition. It is not a guarantee that only
+      repetition collapses: ``normalise_gitleaks`` drops ``StartColumn`` with the
+      matched value, so two *different* secrets on one line under one rule agree on
+      every field this compares and collapse into one candidate -- ruling 15's failure
+      one axis over (one verdict deciding two hits). Unreachable from a real probe on
+      this machine, where gitleaks cannot be installed; the fix belongs with the tool.
 
     ``counts`` collects ``(family, stat key, reason)`` for the caller to fold into
     ``stats`` and ``dropped_reasons``; the family is the tool's own registry family, so
@@ -872,7 +894,7 @@ def merge(
     # token exists to unlock) is never reached for it. Fact-class tool signals get their
     # own, narrower route into a rule finding's ``confirmed_by`` (``tool_candidates``,
     # above); this is not that mechanism.
-    corroborate_with_tools(kept, tool_signals)
+    corroborate_with_tools(kept, tool_signals, path_classes(inventory), config)
     # A tool candidate goes through both filters spec 4.7 step 7 names, unlike a rule
     # finding: rules.py drops disabled-class artefacts before emitting them, and the
     # spec exempts rule findings here for exactly that reason, but ``tools_probe``
