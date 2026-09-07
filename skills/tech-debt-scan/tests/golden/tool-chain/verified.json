@@ -8,7 +8,7 @@
       "debt_type": "code",
       "type_id": "TD-05",
       "title": "Entry sign-flip construction duplicated in refund.py and ledger.py",
-      "severity": 1,
+      "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
@@ -33,7 +33,8 @@
         "coupling",
         "hotspot",
         "satd",
-        "scout:duplication"
+        "scout:duplication",
+        "tool:jscpd"
       ],
       "signals_cited": [
         "coupling",
@@ -48,17 +49,14 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": null,
-      "tier_reason": "the verifier rejected it",
-      "verdict": "reject",
-      "proof": "The 'duplication' is a single-expression pattern \u2014 negating amount_cents inside an Entry(...) construction \u2014 appearing once in refund.py:30 (building a fresh refund entry) and once in ledger.py:29-30 (reverse(), building a reversal entry from an existing one). These serve different domains (initial posting vs. explicit reversal) and are too trivial (one field negation) to warrant a shared abstraction; extracting it would add indirection for no real maintenance benefit. The file coupling (shared=5, ratio=0.714) reflects refund.py calling ledger.post/reverse generally, not copy-pasted logic.",
-      "checked": [
-        "semantic comparison of the two sites",
-        "whether coupling reflects shared logic vs. caller/callee relationship"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
       "opened": [],
-      "trap_matched": "coincidental single-line negation flagged as meaningful duplication due to file-level change coupling, not actual copied logic",
-      "verified": true
+      "trap_matched": null,
+      "verified": false
     },
     {
       "fingerprint": "08dd9ba688d79fda",
@@ -110,20 +108,13 @@
         "in_hotspot_band": true
       },
       "tier": "C",
-      "tier_reason": "dead-code is capped at C without tool corroboration",
-      "verdict": "confirm",
-      "proof": "Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.",
-      "checked": [
-        "Which dynamic-reference patterns were checked? - grepped whole repo for the function/module name; no reflection, string dispatch, route registration, DI container, or serialization references found",
-        "Entry point, script run by name, or runner-discovered test? - not referenced in Dockerfile CMD, ci.yml, or any test file",
-        "Public or plugin surface? - no __init__.py re-export or package public API exposure found",
-        "Flag is permission or kill-switch? - n/a, not a flag"
-      ],
-      "opened": [
-        "src/pay/legacy_export.py"
-      ],
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "c716d4382547d1ce",
@@ -165,20 +156,13 @@
         "in_hotspot_band": true
       },
       "tier": "C",
-      "tier_reason": "dead-code is capped at C without tool corroboration",
-      "verdict": "confirm",
-      "proof": "Repo-wide grep for `issue_partial` (case-sensitive, all of src/ and tests/) returns only the definition at refund.py:45 -- no callers, no test coverage, no dynamic dispatch/reflection/string-based lookup found. tests/test_refund.py exercises validate, audit_trail, and has a skipped issue test, but nothing calls issue_partial. It is a plain function, not a plugin hook or serialized entry point.",
-      "checked": [
-        "reflection/string-dispatch",
-        "test runner discovery (not a test-named function)",
-        "public/plugin surface (none, internal module)"
-      ],
-      "opened": [
-        "tests/test_refund.py",
-        "tests/conftest.py"
-      ],
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "441a5776ddef0261",
@@ -216,17 +200,13 @@
         "in_hotspot_band": false
       },
       "tier": "C",
-      "tier_reason": "dead-code is capped at C without tool corroboration",
-      "verdict": "confirm",
-      "proof": "Repo-wide grep for `fingerprint` returns only the definition at utils.py:11 -- zero callers anywhere in src/ or tests/. Not referenced by name in serialization, routing, or DI. It also uses md5, a weak hash, compounding the dead-code concern, but the core claim (unused) is verified as stated.",
-      "checked": [
-        "reflection/string-dispatch",
-        "public/plugin surface",
-        "test discovery"
-      ],
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
       "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "2e969b3499636196",
@@ -268,21 +248,14 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "A",
-      "tier_reason": "confirmed and corroborated by coupling, hotspot, pattern:swallowed-catch, satd",
-      "verdict": "confirm",
-      "proof": "refund.py:31-34 catches bare Exception from ledger.post and passes silently \u2014 no log, no re-raise, no cause preserved. Execution then proceeds unconditionally to gateway.refund at line 37, which moves money via the live v2 API (gateway.py) regardless of ledger write success. This means a ledger write failure produces no audit record and no operator visibility while the refund is still issued, a genuine financial-integrity error-masking bug.",
-      "checked": [
-        "control flow from ledger.post through gateway.refund",
-        "whether failure is logged or surfaced elsewhere",
-        "gateway.py to confirm it performs a real state-changing call"
-      ],
-      "opened": [
-        "src/pay/gateway.py",
-        "src/pay/models.py"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "fac69799ae0e21ac",
@@ -328,18 +301,14 @@
         "path_class": "source",
         "in_hotspot_band": false
       },
-      "tier": "B",
-      "tier_reason": "test-gaps is capped at B without the signal:no-mapped-tests signal",
-      "verdict": "confirm",
-      "proof": "ci.yml:12 runs bare `pytest -q` with no `--cov` flag or coverage invocation, so the `[tool.coverage.report] fail_under = 80` block (pyproject.toml:7-8) is dead configuration - coverage.report only enforces a threshold when preceded by `coverage run`/`--cov`. Neither pytest-cov nor coverage appear in requirements.txt. gateway.py (0 real tests, see candidate 4) and legacy_export.py (0 callers/tests) can merge untested with the gate never tripping.",
-      "checked": [
-        "Which test paths were searched? - tests/test_refund.py, tests/test_ledger.py, tests/conftest.py, tests/fixtures/seed.py",
-        "Is there an unconventionally named test? - no other test files found via glob **/*.py",
-        "Does the mapped test assert behaviour? - n/a, no coverage invocation exists to check"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
       "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "6be2f463cba67c1e",
@@ -380,20 +349,14 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "A",
-      "tier_reason": "confirmed and corroborated by hotspot, signal:no-mapped-tests",
-      "verdict": "confirm",
-      "proof": "tests/test_refund.py:19-21 has `test_issue_calls_gateway` marked `@pytest.mark.skip(reason=\"gateway stub not written yet\")` with body `raise NotImplementedError`. No other test file (tests/test_ledger.py, conftest.py, fixtures/seed.py) references Gateway or refund(). conftest.py:9-11 only provides a Refund fixture, no gateway stub. Gateway.refund is therefore fully unexercised, confirming zero coverage on a real refund-issuing HTTP call.",
-      "checked": [
-        "Which test paths were searched? - tests/test_refund.py, tests/test_ledger.py, tests/conftest.py, tests/fixtures/seed.py",
-        "Is there an unconventionally named test? - none found",
-        "Does the mapped test assert behaviour? - the only related test is skipped and raises NotImplementedError, asserts nothing"
-      ],
-      "opened": [
-        "tests/conftest.py"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "f3c6e048c6d5f4f6",
@@ -402,7 +365,7 @@
       "debt_type": "test",
       "type_id": "TD-04",
       "title": "legacy_export.export_v1() has no automated test",
-      "severity": 1,
+      "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
@@ -434,16 +397,13 @@
         "in_hotspot_band": true
       },
       "tier": "C",
-      "tier_reason": "the verifier downgraded it",
-      "verdict": "downgrade",
-      "proof": "Confirmed no test file or test references 'legacy_export' anywhere in tests/ (searched conftest.py, test_refund.py, test_ledger.py, fixtures/seed.py). However export_v1 is simultaneously flagged (candidate 1) as dead code slated for deletion under TODO(#42) with zero callers. Writing a test for code destined for removal is not a productive fix; the correct remediation is deletion, not coverage. Real gap, but low-value to act on.",
-      "checked": [
-        "grep for 'legacy_export' in tests/",
-        "cross-reference with candidate 1 deletion ticket"
-      ],
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
       "opened": [],
-      "trap_matched": "test-gap flagged on code that is itself already marked for deletion (see candidate 1) \u2014 remediation is removal, not test authorship",
-      "verified": true
+      "trap_matched": null,
+      "verified": false
     },
     {
       "fingerprint": "4b10ada7bef4b500",
@@ -484,17 +444,14 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "B",
-      "tier_reason": "test-gaps is capped at B without the signal:no-mapped-tests signal",
-      "verdict": "confirm",
-      "proof": "Grep confirms no test calls issue_partial anywhere in tests/. Unlike test_issue_calls_gateway (explicitly marked @pytest.mark.skip), issue_partial has no test stub at all \u2014 not even a skipped placeholder. The fraction-to-cents conversion (refund.py:46) and full delegation to issue() are unguarded, so a rounding or scale regression would ship undetected.",
-      "checked": [
-        "grep for 'issue_partial' in tests/",
-        "presence of skip markers as a signal of intentional deferral"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
       "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "e36a78256ef7b76e",
@@ -533,20 +490,14 @@
         "path_class": "tests",
         "in_hotspot_band": false
       },
-      "tier": "A",
-      "tier_reason": "confirmed and corroborated by signal:no-mapped-tests",
-      "verdict": "confirm",
-      "proof": "ledger.py:29-30 shows reverse() returns a new Entry with amount_cents negated and reason='reversal'. tests/test_ledger.py:18-19 calls ledger.reverse(...) and discards the return value with no assert whatsoever. Grep for 'reverse' across the repo shows no other test references it, so this is genuinely the only coverage and it is assert-free. A regression that dropped the sign flip or hardcoded a different reason string would not be caught.",
-      "checked": [
-        "reflection",
-        "numeric-assert",
-        "grep for other reverse() callers/tests"
-      ],
-      "opened": [
-        "src/pay/ledger.py"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "f9f1100485b2696b",
@@ -594,21 +545,14 @@
         "path_class": "tests",
         "in_hotspot_band": false
       },
-      "tier": "A",
-      "tier_reason": "confirmed and corroborated by satd, signal:no-mapped-tests",
-      "verdict": "confirm",
-      "proof": "issue() at refund.py:24-42 is untested (only test skipped at test_refund.py:19-21). Lines 31-34 wrap ledger.post in bare 'except Exception: pass', so a ledger write failure is swallowed and execution still proceeds to call the gateway at line 37 \u2014 money can move with no corresponding ledger entry. Line 35's FIXME confirms a known duplicate-post risk in the same unguarded path. No test asserts call order, exception handling, or the duplicate-refund guard (_seen set, line 27-29). This is a real financial-correctness gap, not just a style nit.",
-      "checked": [
-        "swallowed-catch verification",
-        "FIXME context",
-        "call-order/failure-handling test coverage",
-        "_seen dedup logic"
-      ],
-      "opened": [
-        "src/pay/refund.py"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "a17a78d98f9e7beb",
@@ -648,20 +592,14 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "A",
-      "tier_reason": "confirmed and corroborated by hotspot, pattern:no-timeout",
-      "verdict": "confirm",
-      "proof": "gateway.py:20-25 `requests.post(...)` has no `timeout` kwarg. refund.py:37 calls `gateway.refund(...)` synchronously inside `issue()`, which is the real money-movement path (invoked as the Dockerfile CMD `python -m pay.refund`). An unresponsive gateway would block the caller indefinitely, matching the described risk exactly.",
-      "checked": [
-        "Stub is an abstract contract? - no, this is a concrete implementation actually invoked in refund.issue()",
-        "Ticket tracks it? - no TODO/FIXME reference for timeout specifically (the nearby FIXME on line 35 is about duplicate refunds, unrelated)",
-        "Named risk still present in the code? - yes, verified in current gateway.py"
-      ],
-      "opened": [
-        "src/pay/refund.py"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "b459099b48e0a272",
@@ -702,22 +640,14 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "A",
-      "tier_reason": "confirmed and corroborated by coupling, hotspot, satd",
-      "verdict": "confirm",
-      "proof": "FIXME at refund.py:35 names duplicate-refund risk from gateway-side retries. The only dedup guard is `_seen` (refund.py:14,27-29), an in-memory, per-process set keyed on order_id at the start of issue() -- it does not gate the actual gateway.refund() call from being retried by the gateway itself, and resets on process restart. No ticket reference found in code or tests. The named risk is genuinely still present: nothing in gateway.py (idempotency key, dedup header) mitigates it either. Severity 5 (money duplication) and effort M (needs idempotency key design, not a one-liner) both look right.",
-      "checked": [
-        "whether _seen or another mechanism addresses gateway-side retries",
-        "gateway.py for idempotency key support",
-        "ticket reference in code/comments"
-      ],
-      "opened": [
-        "src/pay/gateway.py",
-        "src/pay/ledger.py",
-        "tests/test_refund.py"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "b1f9606f10dd3ee8",
@@ -754,17 +684,14 @@
         "path_class": "tests",
         "in_hotspot_band": false
       },
-      "tier": "B",
-      "tier_reason": "confirmed, with no independent corroboration",
-      "verdict": "confirm",
-      "proof": "test_ledger.py:14 has `time.sleep(0.05)  # flaky on CI without this; retried in the workflow` -- a self-admitted race being masked by a fixed sleep plus workflow-level retries, matching commit 5334fe2 'test: retry flaky ledger test' in recent history. post() (ledger.py:12-15) and balance() (ledger.py:18-26) are synchronous file I/O with no async/threading, so the sleep is compensating for an unidentified race rather than a real inherent delay. No ticket reference in the code.",
-      "checked": [
-        "whether post/balance are actually async needing a wait (they are not)",
-        "ticket reference"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
       "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "67e0dcc512d6ba39",
@@ -804,21 +731,14 @@
         "path_class": "tests",
         "in_hotspot_band": false
       },
-      "tier": "A",
-      "tier_reason": "confirmed and corroborated by pattern:skip-marker, pattern:stub",
-      "verdict": "confirm",
-      "proof": "test_refund.py:19-21 skips test_issue_calls_gateway with reason='gateway stub not written yet' \u2014 no ticket, no owner, no date. refund.py:35 has an adjacent unresolved 'FIXME: the gateway retries on our behalf, so a duplicate refund can post twice' directly inside issue(), the function the skipped test targets. gateway.py:19-27 shows refund() is a real (non-stub) implementation already, so the stated skip reason is stale/inaccurate as well as vague.",
-      "checked": [
-        "skip reason validity",
-        "FIXME still present",
-        "gateway.refund implementation status"
-      ],
-      "opened": [
-        "src/pay/refund.py",
-        "src/pay/gateway.py"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "e4e3d0cfb7d0981c",
@@ -871,22 +791,14 @@
         "path_class": "source",
         "in_hotspot_band": false
       },
-      "tier": "B",
-      "tier_reason": "migration is capped at B without coupling corroboration",
-      "verdict": "confirm",
-      "proof": "setup.py:1 states 'pyproject.toml is the source of truth' for packaging, yet ci.yml:11 runs 'pip install -r requirements.txt' rather than installing the package's own dependencies. requirements.txt:1 pins requests==2.32.3 while pyproject.toml:5 declares requests>=2.31 \u2014 two manifests can drift silently since CI only ever installs from the former. No consolidation plan is stated anywhere in the repo. Real split-manifest debt.",
-      "checked": [
-        "ci.yml install source",
-        "requirements.txt vs pyproject.toml dependency versions",
-        "setup.py source-of-truth claim"
-      ],
-      "opened": [
-        "setup.py",
-        ".github/workflows/ci.yml",
-        "requirements.txt"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "336fccbd19191237",
@@ -934,21 +846,14 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "B",
-      "tier_reason": "migration is capped at B without coupling corroboration",
-      "verdict": "confirm",
-      "proof": "export_v1 (legacy_export.py:8-14) has zero call sites confirmed by repo-wide grep for 'export_v1'/'legacy_export' outside its own definition. TODO(#42) at line 7 references a v2 report that doesn't exist anywhere in the repo (no export_v2, no mention in README/CHANGELOG/docs). Commented-out export_v0 stub at lines 17-19 confirms a prior migration was also never cleaned up. This is real orphaned migration debt.",
-      "checked": [
-        "call-site grep across src/ and tests/",
-        "ticket/v2-report references in docs and changelog",
-        "commented-out stub presence"
-      ],
-      "opened": [
-        "CHANGELOG.md",
-        "docs/adr/0001-ledger.md"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "ecf0205d7d75e559",
@@ -994,20 +899,54 @@
         "path_class": "source",
         "in_hotspot_band": false
       },
-      "tier": "B",
-      "tier_reason": "dependency-debt is capped at B without tool corroboration",
-      "verdict": "confirm",
-      "proof": "pyproject.toml:5 declares floating `requests>=2.31` while requirements.txt:1 pins `requests==2.32.3`. Dockerfile (lines 4-5) and ci.yml (line 11) both install only from requirements.txt, never from pyproject.toml, and no lockfile exists. setup.py is a bare setuptools shim pointing back at pyproject.toml, so the pyproject dependency spec is real but unused/unenforced metadata that has silently diverged from what's actually built and tested. Confusing but low-impact since it's never installed.",
-      "checked": [
-        "Lockfile missing or elsewhere (monorepo)? - none found anywhere",
-        "Duplicate-purpose pair is a migration? - no migration markers, setup.py explicitly defers to pyproject.toml",
-        "Floating range inside a library? - no, this is the deployed app itself per Dockerfile CMD"
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": false
+    },
+    {
+      "fingerprint": "325daee2924ee125",
+      "quote_hash": "744a124ac8c6dc26279662809b774738096b9359",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "title": "requests 2.32.3 (PyPI) is affected by GHSA-9hjb-9r6f-mvzc: header injection via ",
+      "severity": 4,
+      "effort": "S",
+      "source": "tool",
+      "rule_id": null,
+      "note": "requests 2.32.3 (PyPI) is affected by GHSA-9hjb-9r6f-mvzc: header injection via crafted redirect",
+      "evidence": [
+        {
+          "file": "requirements.txt",
+          "line_start": null,
+          "line_end": null,
+          "quote": "requests 2.32.3 (PyPI) is affected by GHSA-9hjb-9r6f-mvzc: header injection via crafted redirect",
+          "quote_verified": true
+        }
       ],
-      "opened": [
-        "Dockerfile",
-        "setup.py",
-        "requirements.txt"
+      "confirmed_by": [
+        "tool:osv-scanner"
       ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "A",
+      "tier_reason": "a published advisory, true by construction",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
       "verified": true
     },
@@ -1054,17 +993,14 @@
         "path_class": "docs",
         "in_hotspot_band": false
       },
-      "tier": "B",
-      "tier_reason": "doc-drift is capped at B for every scout-detected finding",
-      "verdict": "confirm",
-      "proof": "pyproject.toml:3 declares version 0.2.0 but CHANGELOG.md:1-5 stops at '0.1.0 - 2024-10-05' with no 0.2.0 section. Git log shows gateway v2 migration and refund audit trail commits landed after that tag, none reflected in the changelog. Real, low-impact doc drift.",
-      "checked": [
-        "version string comparison",
-        "changelog completeness"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
       "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "37d90c120cb0525a",
@@ -1132,19 +1068,14 @@
         "path_class": "docs",
         "in_hotspot_band": false
       },
-      "tier": "B",
-      "tier_reason": "doc-drift is capped at B for every scout-detected finding",
-      "verdict": "confirm",
-      "proof": "README.md:10 names a path ('src/pay/exporter.py') that never appears in the repo (glob of src/pay/*.py shows legacy_export.py instead) and claims the job was removed in 0.1.0, but legacy_export.py:8 export_v1 still performs the same CSV-style export, still called nowhere else, still containing an f-string SQL query (line 11) and shell=True subprocess call (line 13). The README's removal claim is false; the job is live under a different name.",
-      "checked": [
-        "path existence",
-        "functional equivalence of legacy_export vs described exporter"
-      ],
-      "opened": [
-        "src/pay/legacy_export.py"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "121bbdafc23ecebd",
@@ -1181,19 +1112,14 @@
         "path_class": "docs",
         "in_hotspot_band": false
       },
-      "tier": null,
-      "tier_reason": "the verifier rejected it",
-      "verdict": "reject",
-      "proof": "README.md:10 says exporter.py 'was removed in 0.1.0', but src/pay/legacy_export.py exists and exports refund rows to CSV-equivalent output (export_v1), an equivalent job under a new name. No file imports it (grep found only the definition file), so it's dead-but-present code the docs claim doesn't exist. Real drift between documented and actual package contents; not an architectural cycle or layering issue, just a stale removal claim.",
-      "checked": [
-        "referrers of legacy_export.py",
-        "README claim vs file listing"
-      ],
-      "opened": [
-        "src/pay/legacy_export.py"
-      ],
-      "trap_matched": "golden trap: intentional fixture",
-      "verified": true
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": false
     },
     {
       "fingerprint": "532b106d4a224260",
@@ -1305,20 +1231,54 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "B",
-      "tier_reason": "security is capped at B without tool corroboration",
-      "verdict": "confirm",
-      "proof": "gateway.py:11 hardcodes `api_key = \"sk_l***\"`, matching Stripe's live-secret-key shape (sk_live_ prefix + random suffix). It's module-level in production source (not tests/fixtures), used directly as the Authorization bearer at line 23 for real POST refunds (line 20-25), with `verify=False` (TLS disabled) and a wildcard CORS header alongside it. No suppression comment or test/fixture context nearby. This is a genuine hardcoded live-looking credential in the money-movement path.",
-      "checked": [
-        "Path class example, fixture or test, and secret entropy? - src/pay/gateway.py is production source; key has plausible live-key entropy/shape",
-        "User input reachable at the SQL or shell site? - n/a, this candidate is about the key not injection",
-        "Suppression justified nearby? - no nosec/noqa or comment suppressing this"
-      ],
-      "opened": [
-        "src/pay/refund.py"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
+    },
+    {
+      "fingerprint": "beea22efa5fce8dc",
+      "quote_hash": "8c22d33785bf416f94bf28628014eb9a46df4c91",
+      "family": "security",
+      "debt_type": "security",
+      "type_id": "TD-03",
+      "title": "generic-api-key: Detected a Generic API Key",
+      "severity": 5,
+      "effort": "M",
+      "source": "tool",
+      "rule_id": null,
+      "note": "generic-api-key: Detected a Generic API Key",
+      "evidence": [
+        {
+          "file": "src/pay/ledger.py",
+          "line_start": 9,
+          "line_end": 9,
+          "quote": "generic-api-key: Detected a Generic API Key",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 52.9,
+        "churn": 7,
+        "coupling_degree": 1,
+        "fan_in_approx": 2,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": false
     },
     {
       "fingerprint": "d0af6b85d7b41fd1",
@@ -1369,17 +1329,14 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "B",
-      "tier_reason": "security is capped at B without tool corroboration",
-      "verdict": "confirm",
-      "proof": "Line 11 interpolates refund_id directly into SQL via f-string with a bare '# nosec' (no justification text). Line 13 runs a shell command with shell=True and a bare '# noqa: S602'. Both are genuine injection-prone patterns; refund_id is a caller-supplied parameter with no validation. No in-repo caller exists (confirmed by grep), but the module docstring states it's kept for an active external v1 reporting job, so reachability cannot be ruled out. The suppressions are unexplained regardless of current reachability.",
-      "checked": [
-        "reachability/call-site grep",
-        "suppression comment justification"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
       "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "92c2c6c4c06ada32",
@@ -1429,17 +1386,14 @@
         "path_class": "tests",
         "in_hotspot_band": false
       },
-      "tier": "B",
-      "tier_reason": "test-quality is capped at B without tool corroboration",
-      "verdict": "confirm",
-      "proof": "test_ledger.py:18-19 calls `ledger.reverse(Entry(...))` and discards the return value with no assert. ledger.reverse (ledger.py:29-30) negates amount_cents and sets reason='reversal' -- real business logic, not a startup/import smoke check. A regression that flipped the sign or dropped the reason field would not fail this test. Not table-driven/parametrised, not a permission/kill-switch check.",
-      "checked": [
-        "whether it guards only import/startup (it doesn't)",
-        "table-driven idiom (none)"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
       "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "42a9a9c5413651ea",
@@ -1448,7 +1402,7 @@
       "debt_type": "test",
       "type_id": "TD-12",
       "title": "Audit-trail assertion hard-codes a string built from fixture values",
-      "severity": 1,
+      "severity": 2,
       "effort": "S",
       "source": "scout",
       "rule_id": null,
@@ -1487,20 +1441,53 @@
         "in_hotspot_band": false
       },
       "tier": "C",
-      "tier_reason": "the verifier downgraded it",
-      "verdict": "downgrade",
-      "proof": "conftest.py:9-11 defines refund fixture (order_id='o-1', amount_cents=500); models.py sets reason_code default 'other'. test_refund.py:16 hardcodes 'o-1:500:other'. The note's premise that fixture drift 'silently breaks' the assertion is inaccurate: an equality assert fails loudly with a clear diff, it is not silent breakage, just a normal tightly-coupled test. Real minor duplication, not a hidden-failure risk.",
-      "checked": [
-        "fixture value cross-check",
-        "models.py default reason_code",
-        "silent-vs-loud failure claim"
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": false
+    },
+    {
+      "fingerprint": "15f8d6f9f914c08f",
+      "quote_hash": "f38533c3ae1addc5d144ebe416f302fd7805559c",
+      "family": "pipeline-infra",
+      "debt_type": "infrastructure",
+      "type_id": "TD-19",
+      "title": "DL3006: Always tag the version of an image explicitly",
+      "severity": 3,
+      "effort": "S",
+      "source": "tool",
+      "rule_id": null,
+      "note": "DL3006: Always tag the version of an image explicitly",
+      "evidence": [
+        {
+          "file": "README.md",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "DL3006: Always tag the version of an image explicitly",
+          "quote_verified": true
+        }
       ],
-      "opened": [
-        "tests/conftest.py",
-        "src/pay/models.py"
-      ],
-      "trap_matched": "pattern:numeric-assert (literal-duplicates-fixture is common and not inherently a debt signal)",
-      "verified": true
+      "confirmed_by": [],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 0.4,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
+      },
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": false
     },
     {
       "fingerprint": "1f9c7d8ac03999e4",
@@ -1553,19 +1540,14 @@
         "path_class": "source",
         "in_hotspot_band": false
       },
-      "tier": "B",
-      "tier_reason": "pipeline-infra is capped at B for every scout-detected finding",
-      "verdict": "confirm",
-      "proof": "release.yml:2-4 only triggers on pushed 'v*' tags and has no step diffing the tag against pyproject.toml's version (lines 10-12 just build and upload). pyproject.toml:3 is already at 0.2.0 while CHANGELOG.md tops out at 0.1.0, meaning the 0.2.0 bump happened without a corresponding tag/release run or changelog update \u2014 a manual, unverified version bump. Real pipeline gap.",
-      "checked": [
-        "release.yml trigger and steps",
-        "version consistency across manifest/changelog/tag"
-      ],
-      "opened": [
-        ".github/workflows/release.yml"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "74967b275a61fb33",
@@ -1606,22 +1588,14 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "B",
-      "tier_reason": "pipeline-infra is capped at B for every scout-detected finding",
-      "verdict": "confirm",
-      "proof": "refund.py:39-40 uses `log.exception` for the OSError path, but line 41 uses bare `print()` for the normal-outcome message in the same function, on the same code path a few lines later. There is no __main__ guard or CLI parsing in this module (it's a library import per refund.py:1), so the print goes to stdout uncontrolled by log level/handlers, breaking aggregation for a production refund outcome. Real, low-effort fix (swap to log.info).",
-      "checked": [
-        "module has no __main__ guard",
-        "log is used elsewhere in same function",
-        "no CLI parsing present"
-      ],
-      "opened": [
-        "src/pay/gateway.py",
-        "src/pay/ledger.py",
-        "tests/test_refund.py"
-      ],
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
       "trap_matched": null,
-      "verified": true
+      "verified": false
     },
     {
       "fingerprint": "495747bed5818465",
@@ -2058,13 +2032,13 @@
     }
   ],
   "stats": {
-    "selected": 28,
-    "verdicts": 27,
-    "unknown_fingerprint": 1,
-    "missing_verdict": 1,
-    "tier_a": 16,
-    "tier_b": 13,
-    "tier_c": 6,
-    "rejected": 2
+    "selected": 30,
+    "verdicts": 0,
+    "unknown_fingerprint": 0,
+    "missing_verdict": 30,
+    "tier_a": 10,
+    "tier_b": 0,
+    "tier_c": 30,
+    "rejected": 0
   }
 }

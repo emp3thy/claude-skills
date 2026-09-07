@@ -87,14 +87,19 @@ def test_real_skill_md_passes():
 
 
 def test_real_skill_md_names_every_v2_script_and_no_deleted_one() -> None:
-    """The cut-over guard: SKILL.md drives the v2 chain and nothing that no longer exists."""
+    """The cut-over guard: SKILL.md drives the v2 chain and nothing that no longer exists.
+
+    ``tools_probe.py`` moved from the "not yet wired" list to the "must be present"
+    list in phase 4b (this module's step 4 runs it after the network notice);
+    ``baseline.py`` stays in the "not yet wired" list until phase 5 inserts step 11.
+    """
     skill = (Path(__file__).parent.parent / "SKILL.md").read_text(encoding="utf-8")
-    for name in ("inventory.py", "patterns.py", "rules.py", "plan_scan.py", "merge_findings.py",
-                 "verify_prompts.py", "apply_verdicts.py", "rank.py", "design_writer.py",
-                 "design_parser.py", "promote.py"):
+    for name in ("inventory.py", "patterns.py", "rules.py", "tools_probe.py", "plan_scan.py",
+                 "merge_findings.py", "verify_prompts.py", "apply_verdicts.py", "rank.py",
+                 "design_writer.py", "design_parser.py", "promote.py"):
         assert f"scripts/{name}" in skill, name
-    for gone in ("build_synthesis_prompt.py", "tools_probe.py", "baseline.py"):
-        assert gone not in skill, f"{gone} is not part of phase 3"
+    for gone in ("build_synthesis_prompt.py", "baseline.py"):
+        assert gone not in skill, f"{gone} is not part of phase 4b"
     assert "--top5" not in skill and "raw-findings.json" not in skill
     assert "top5.json" not in skill and "synthesis" not in skill.lower()
     steps = [line for line in skill.splitlines() if line.strip().startswith(("1. ", "2. ", "3. "))]

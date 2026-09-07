@@ -1455,14 +1455,71 @@ class TestCorpusGoldens:
         """The signals array is compared in full for every tool the golden
         covers and this machine can exercise; each such tool's status and
         reason are compared too, so a tool that silently stops running fails
-        here rather than quietly producing an empty list."""
+        here rather than quietly producing an empty list.
+
+        A machine that cannot run *any* covered tool for this fixture (every
+        compared row is a ``skipped: no matching artefact`` row, produced
+        before ``find_tool`` is ever consulted -- e.g. CI installs only ruff
+        and this fixture has no Python) proves nothing about tool output, so
+        it skips rather than fails: failing here would make the golden
+        unportable to a machine with a different installed-tool set, which
+        is exactly what this golden format exists to avoid. The skip is not
+        a silent pass -- pytest reports it distinctly -- and it only fires
+        when *nothing* was attempted; a tool that *was* available (found by
+        ``find_tool``) but still didn't reach ``ran`` (e.g. ``failed``) falls
+        through to the ordinary hard failure below, so a real regression on
+        an available tool is never masked as "nothing to check here"."""
         actual, expected, compared, uncovered = _golden_comparison(fixture)
         ran, covered_signals = _evidence(fixture)
-        assert ran, (
-            f"{fixture}: the golden covers {expected['covered_tools']} and this machine "
-            f"ran none of them (compared {compared}, all of them rows produced before "
-            f"find_tool is consulted), so this test would prove nothing"
-        )
+
+        if not ran:
+            # Rows produced before find_tool is ever consulted are a fact
+            # about the fixture's file set, not about this machine's
+            # installed tools -- so they are comparable regardless, and are
+            # checked before any skip so a toolless run still proves
+            # *something*.
+            machine_independent = sorted(
+                name for name in compared
+                if actual["tools"][name]["status"] == "skipped"
+                and actual["tools"][name]["reason"] == "no matching artefact"
+            )
+            assert {
+                "schema_version": actual["schema_version"],
+                "tools": {name: actual["tools"][name] for name in machine_independent},
+                "signals": [s for s in actual["signals"] if s["tool"] in machine_independent],
+            } == {
+                "schema_version": expected["schema_version"],
+                "tools": {name: expected["tools"][name] for name in machine_independent},
+                "signals": [s for s in expected["signals"] if s["tool"] in machine_independent],
+            }, (
+                f"{fixture}: machine-independent row(s) {machine_independent} (skipped "
+                f"for a missing artefact, before find_tool is consulted) drifted from "
+                f"the golden even though no covered tool ran"
+            )
+
+            # A tool find_tool actually found -- status "ran" or "failed" --
+            # was available to run. If one is sitting in compared with
+            # anything other than "ran", that is a real regression, not a
+            # missing-tool machine: fail hard instead of skipping past it.
+            attempted = sorted(
+                name for name in compared if actual["tools"][name]["status"] != "skipped"
+            )
+            assert not attempted, (
+                f"{fixture}: the golden covers {expected['covered_tools']} and this "
+                f"machine attempted {attempted} (found by find_tool) but none reached "
+                f"status \"ran\" (compared {compared}), so this is a real failure, not "
+                f"a toolless machine -- not skipping"
+            )
+
+            pytest.skip(
+                f"{fixture}: the golden covers {expected['covered_tools']} but this "
+                f"machine could run none of them -- every compared tool ({compared}) "
+                f"was skipped for a missing artefact before find_tool was ever "
+                f"consulted. The machine-independent row(s) {machine_independent} were "
+                f"still verified above, so this run proves less than a full comparison: "
+                f"no covered tool's actual output or signals were checked."
+            )
+
         assert {
             "schema_version": actual["schema_version"],
             "tools": {name: actual["tools"][name] for name in compared},

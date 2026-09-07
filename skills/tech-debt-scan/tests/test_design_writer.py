@@ -319,6 +319,26 @@ def test_tier_c_table_and_empty_sections(tmp_path: Path) -> None:
     assert text.count("_None._") == 1, "only 'Considered and rejected' is empty here"
 
 
+def test_the_tier_c_table_prints_the_tier_reason_not_the_verdict(tmp_path: Path) -> None:
+    """Four rows reading `confirm` told a maintainer nothing about why a
+    finding is below the cut.
+
+    ``_verified()``'s tier C finding predates ``tier_reason`` (no such key on
+    the fixture), so it still renders the bare verdict word -- the fallback
+    path this same table must keep. Here the finding carries a real,
+    distinctive ``tier_reason``, and the table must print that sentence in
+    its place, not the verdict word next to or instead of it.
+    """
+    verified = _verified()
+    verified["findings"][2]["tier_reason"] = "dead-code is capped at C without tool corroboration"
+    text = render_design(_inputs(tmp_path, **{"verified.json": verified}), SCAN_DATE)
+    assert (
+        "| unused-helper-in-the-ledger-module | dead-code | src/pay/ledger.py "
+        "| dead-code is capped at C without tool corroboration |"
+    ) in text
+    assert "| unverified |" not in text, "the verdict word must not stand alone in the column"
+
+
 def test_rejected_and_trap_findings_land_in_their_sections(tmp_path: Path) -> None:
     verified = _verified()
     verified["findings"].append(
@@ -529,6 +549,146 @@ def test_a_scan_with_no_negative_space_renders_none_for_every_empty_section(
     assert "# Below the cut\n\n_None._\n" in text
     assert "- Families not run: none" in text
     assert text.endswith("class-level metrics that need a parser\n")
+
+
+# --- the tool frontmatter (spec 4.5: "design.md frontmatter names every absent tool") ---
+
+
+def _signals(**statuses: str) -> dict[str, Any]:
+    """A ``tool-signals.json`` document carrying only the ``tools`` map's statuses."""
+    return {
+        "schema_version": 2,
+        "tools": {
+            name: {"status": status, "version": "", "duration_s": 0.0, "reason": ""}
+            for name, status in statuses.items()
+        },
+        "signals": [],
+    }
+
+
+def test_the_frontmatter_names_every_tool_that_ran_and_every_one_that_did_not(
+    tmp_path: Path,
+) -> None:
+    """The four statuses land in two lists: ``ran`` runs, the other three are absent.
+
+    Spec 4.5 requires the frontmatter to name every absent tool, and this is the
+    only place the document says whether the duplication, dead-code and cycle
+    caps in the same file were in force for want of a tool.
+    """
+    text = render_design(
+        _inputs(
+            tmp_path,
+            **{"tool-signals.json": _signals(
+                ruff="ran", vulture="ran", gitleaks="absent", jscpd="failed",
+                hadolint="skipped",
+            )},
+        ),
+        SCAN_DATE,
+    )
+    assert "tools_run:\n- ruff\n- vulture\n" in text
+    assert (
+        "tools_absent:\n- gitleaks (absent)\n- hadolint (skipped)\n- jscpd (failed)\n"
+    ) in text
+    metadata = _metadata(tmp_path, text)
+    assert metadata["tools_run"] == ["ruff", "vulture"]
+    assert metadata["tools_absent"] == [
+        "gitleaks (absent)", "hadolint (skipped)", "jscpd (failed)"
+    ]
+
+
+def _metadata(tmp_path: Path, text: str) -> dict[str, Any]:
+    out = tmp_path / "read-back.md"
+    out.write_bytes(text.encode("utf-8"))
+    return parse_design(out)["metadata"]
+
+
+def test_a_no_tools_run_is_not_byte_identical_to_a_full_probe(tmp_path: Path) -> None:
+    """``--no-tools`` writes every tool ``skipped``; the document has to say so."""
+    text = render_design(
+        _inputs(tmp_path, **{"tool-signals.json": _signals(ruff="skipped", knip="skipped")}),
+        SCAN_DATE,
+    )
+    assert "tools_run: []\n" in text
+    assert "tools_absent:\n- knip (skipped)\n- ruff (skipped)\n" in text
+
+
+def test_an_unrecognised_status_is_absent_not_run(tmp_path: Path) -> None:
+    """``tool-signals.json`` is hand-editable; only ``ran`` may claim evidence."""
+    text = render_design(
+        _inputs(tmp_path, **{"tool-signals.json": {
+            "schema_version": 2,
+            "tools": {"ruff": {"status": "partially"}, "knip": "not a dict", "madge": {}},
+            "signals": [],
+        }}),
+        SCAN_DATE,
+    )
+    assert "tools_run: []\n" in text
+    assert "tools_absent:\n- knip (unknown)\n- madge (unknown)\n- ruff (unknown)\n" in text
+
+
+def test_no_signals_file_renders_both_lists_empty(tmp_path: Path) -> None:
+    """A workdir assembled without the probe renders, it does not raise."""
+    text = render_design(_inputs(tmp_path), SCAN_DATE)
+    assert "tools_run: []\ntools_absent: []\n" in text
+
+
+def test_a_failed_tools_stderr_never_reaches_the_frontmatter(tmp_path: Path) -> None:
+    """A ``failed`` reason carries up to 200 characters of stderr, newlines and all."""
+    text = render_design(
+        _inputs(tmp_path, **{"tool-signals.json": {
+            "schema_version": 2,
+            "tools": {"knip": {"status": "failed",
+                               "reason": "boom:\nsecond line: ---\nthird"}},
+            "signals": [],
+        }}),
+        SCAN_DATE,
+    )
+    assert "tools_absent:\n- knip (failed)\n" in text
+    assert "second line" not in text
+    assert _metadata(tmp_path, text)["tools_absent"] == ["knip (failed)"]
+
+
+def test_an_unregistered_tool_name_never_reaches_the_frontmatter(tmp_path: Path) -> None:
+    """``tool-signals.json`` is hand-editable; a *key* is not a registry tool name
+    until checked, same as an unrecognised status is not ``ran`` until checked.
+
+    A key carrying a newline plus a second ``key: value`` line is still valid
+    YAML once joined into the frontmatter block, so it silently overwrites an
+    earlier field (here ``preset``) instead of breaking the self-check.
+    """
+    text = render_design(
+        _inputs(tmp_path, **{"tool-signals.json": {
+            "schema_version": 2,
+            "tools": {"lizard\npreset: hand-edited": {"status": "ran"}},
+            "signals": [],
+        }}),
+        SCAN_DATE,
+    )
+    assert "preset: hand-edited" not in text
+    metadata = _metadata(tmp_path, text)
+    assert metadata["preset"] == "balanced"
+    assert metadata["tools_run"] == []
+    assert metadata["tools_absent"] == ["(unregistered tool)"]
+
+
+def test_not_assessed_names_the_modules_the_chunking_bound_dropped(tmp_path: Path) -> None:
+    """A chunked plan that hit ``chunking.max_modules`` scanned part of the repository
+    and not the rest; unnamed, that reads as an absence of debt rather than an absence
+    of looking."""
+    plan = _plan()
+    plan["chunked"] = True
+    plan["modules"] = ["src"]
+    plan["modules_dropped"] = [{"module": "legacy", "leads": 37},
+                               {"module": "vendor", "leads": 4}]
+    text = render_design(_inputs(tmp_path, **{"scan-plan.json": plan}), SCAN_DATE)
+    assert (
+        "- Modules not scanned (chunking.max_modules): legacy (37 leads), vendor (4 leads)"
+    ) in text
+
+
+def test_an_unchunked_scan_has_no_modules_line(tmp_path: Path) -> None:
+    text = render_design(_inputs(tmp_path), SCAN_DATE)
+    assert "Modules not scanned" not in text
 
 
 # --- fix round 1: free-text guard, self-check headings, findings.json location ---

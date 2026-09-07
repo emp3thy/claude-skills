@@ -1,0 +1,63 @@
+{
+  "schema_version": 2,
+  "_comment": [
+    "Task 6's canned tool-signals.json (spec 4.7): driven through the real merge,",
+    "verify_prompts and apply chain over the service-py corpus fixture, rather than",
+    "dispatched directly against tool_candidates/corroborate_with_tools as",
+    "TestTierProducerInvariant does -- so this file proves the fact-class producer",
+    "route reaches a tier through the disk-read path merge() actually uses in",
+    "production, and that every other candidate the same run raises (28 scout",
+    "candidates, 9 rule findings) still does not.",
+    "",
+    "Every file named below is real in the service-py fixture tree. osv-scanner",
+    "targets requirements.txt, the fixture's one lockfile. gitleaks targets",
+    "src/pay/ledger.py, a file with no existing security finding of its own, so its",
+    "untiered candidate is easy to isolate. hadolint targets README.md: the",
+    "fixture's one real Dockerfile already carries a pipeline-infra rule finding",
+    "(container.unversioned-install), which would absorb a hadolint fact into that",
+    "finding's confirmed_by instead of raising a new one -- README.md has no",
+    "pipeline-infra rule finding, so the fact raises its own untiered candidate and",
+    "exercises the branch the corpus goldens never reach. jscpd targets",
+    "src/pay/ledger.py too, but as an inference signal (fact: false) on the",
+    "*second* evidence item of the fixture's one duplication candidate (whose",
+    "primary evidence is src/pay/refund.py): a corroboration match that only",
+    "checked a candidate's primary evidence file would silently miss it. lizard",
+    "names complex-units, a family with zero candidates anywhere in this fixture",
+    "(both complex-units.json and god-classes.json scouts are empty), so its",
+    "signal is guaranteed to corroborate nothing -- the no-match path."
+  ],
+  "signals": [
+    {
+      "tool": "osv-scanner", "family": "dependency-debt", "kind": "vuln",
+      "file": "requirements.txt", "line_start": null, "line_end": null,
+      "message": "requests 2.32.3 (PyPI) is affected by GHSA-9hjb-9r6f-mvzc: header injection via crafted redirect",
+      "fact": true,
+      "extra": {"package": "requests", "version": "2.32.3", "ecosystem": "PyPI",
+                "id": "GHSA-9hjb-9r6f-mvzc", "aliases": []}
+    },
+    {
+      "tool": "gitleaks", "family": "security", "kind": "secret",
+      "file": "src/pay/ledger.py", "line_start": 9, "line_end": 9,
+      "message": "generic-api-key: Detected a Generic API Key",
+      "fact": true, "extra": {"rule": "generic-api-key", "entropy": 4.31}
+    },
+    {
+      "tool": "hadolint", "family": "pipeline-infra", "kind": "dockerfile",
+      "file": "README.md", "line_start": 1, "line_end": 1,
+      "message": "DL3006: Always tag the version of an image explicitly",
+      "fact": true, "extra": {"code": "DL3006", "level": "warning"}
+    },
+    {
+      "tool": "jscpd", "family": "duplication", "kind": "clone",
+      "file": "src/pay/ledger.py", "line_start": 29, "line_end": 30,
+      "message": "9 duplicated lines shared with src/pay/refund.py",
+      "fact": false, "extra": {}
+    },
+    {
+      "tool": "lizard", "family": "complex-units", "kind": "complexity",
+      "file": "src/pay/refund.py", "line_start": 1, "line_end": 53,
+      "message": "cyclomatic complexity 18 exceeds threshold 15",
+      "fact": false, "extra": {"ccn": 18}
+    }
+  ]
+}

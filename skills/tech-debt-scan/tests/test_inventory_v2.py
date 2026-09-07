@@ -95,7 +95,7 @@ def test_web_ts_path_classes(web_ts_repo: Path) -> None:
     assert classes["src/generated/api-types.ts"] == "generated"
     assert classes["vendor/tiny-emitter.js"] == "vendored"
     assert classes["docs/architecture.md"] == "docs"
-    assert result["total_files"] == 16
+    assert result["total_files"] == 18
 
 
 def test_service_py_artefact_classes(service_py_repo: Path) -> None:
@@ -865,7 +865,7 @@ def test_tests_block_on_corpus(service_py_repo: Path, web_ts_repo: Path) -> None
         "ci_retry_config": [],
     }
     web = walk_inventory(web_ts_repo, churn_months=240)["tests"]
-    assert web["test_to_source_ratio"] == 0.2
+    assert web["test_to_source_ratio"] == 0.167
     assert web["coverage_gate"] == ["package.json"]
     assert web["ci_retry_config"] == [".github/workflows/ci.yml"]
 

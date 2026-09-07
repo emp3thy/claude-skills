@@ -28,6 +28,15 @@ body of a plausible length and is left alone.
 
 Both cut to the same ``value[:4] + "***"`` shape, so a reader cannot tell which
 pattern caught a given secret.
+
+``strip_url_userinfo`` is a third, separate helper, deliberately *not* part of
+``redact``. A URL's ``user:password@`` userinfo matches neither pattern above --
+there is no key name and no operator for ``CREDENTIAL_RE``, and a password chosen
+by a human carries no issuer prefix for ``SECRET_TOKEN_RE`` -- and it is not
+credential-shaped text found in a file but a whole field that should never have
+carried a credential in the first place (an osv-scanner git source, a submodule
+remote, a CI checkout URL). It is therefore removed rather than cut to four
+characters, at the point such a field is read, by the callers that read one.
 """
 from __future__ import annotations
 
@@ -67,6 +76,24 @@ SECRET_TOKEN_RE: Final[re.Pattern[str]] = re.compile(
     """,
     re.VERBOSE,
 )
+
+
+# ``scheme://`` followed by anything up to an ``@`` that is still in the authority
+# component. The userinfo class excludes ``/?#`` (which end the authority) and ``@``
+# itself, so ``https://host/mail@example`` -- an ``@`` in a path -- is left alone.
+URL_USERINFO_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?P<scheme>\b[A-Za-z][A-Za-z0-9+.\-]*://)[^/?#\s@]*@"
+)
+
+
+def strip_url_userinfo(text: str) -> str:
+    """Every URL in ``text`` with its ``user:password@`` userinfo removed.
+
+    ``https://user:hunter2@git.example.com/o/r.git`` becomes
+    ``https://git.example.com/o/r.git``. The host and path are what identifies the
+    resource; the userinfo only ever identifies whoever ran the tool.
+    """
+    return URL_USERINFO_RE.sub(lambda m: m.group("scheme"), text)
 
 
 def _cut(value: str) -> str:

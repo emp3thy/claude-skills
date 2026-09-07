@@ -48,6 +48,7 @@
         "in_hotspot_band": true
       },
       "tier": "C",
+      "tier_reason": "the verifier downgraded it",
       "verdict": "downgrade",
       "proof": "client.ts:6-11 and client-admin.ts:6-12 do share identical fetch+auth-header shape, and coupling data (shared=4, ratio=0.889) supports the duplication claim. However both functions are dead code with zero callers (see candidates 1/2, independently verified), so the correct fix is deletion, not building a shared abstraction \u2014 extracting a common helper for code nobody calls adds no real value. Severity should reflect that this is duplicate dead code, not duplicate live logic.",
       "checked": [
@@ -118,6 +119,7 @@
         "in_hotspot_band": true
       },
       "tier": "C",
+      "tier_reason": "dead-code is capped at C without tool corroboration",
       "verdict": "confirm",
       "proof": "grep across src for 'getAdminJson', 'adminEnabled', 'client-admin' finds only the definitions in client-admin.ts:6,20 \u2014 zero callers anywhere, including index.ts (the only entry point) and the sole test file. flags.ts:1-5 lists only newCheckout and betaBanner; 'adminPanel' is absent, so adminEnabled() at line 21 always falls through isEnabled's '?? false' at flags.ts:8. No dynamic dispatch, route table, or DI container exists in this repo to invoke it indirectly.",
       "checked": [
@@ -190,6 +192,7 @@
         "in_hotspot_band": true
       },
       "tier": "C",
+      "tier_reason": "dead-code is capped at C without tool corroboration",
       "verdict": "confirm",
       "proof": "grep for 'getJson' repo-wide returns only the definition at client.ts:6; index.ts (sole entry, checked) never imports it, and the only test file (cart.test.ts) tests cart.ts, not client.ts. betaBanner is hardcoded true at flags.ts:4 with no setter anywhere, so line 12's isEnabled check is dead-in-a-dead-function. No dynamic reference patterns exist in this small repo.",
       "checked": [
@@ -253,6 +256,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
+      "tier_reason": "dead-code is capped at C without tool corroboration",
       "verdict": "confirm",
       "proof": "FLAGS (flags.ts:1-5) is a static in-memory object with no env/config loader anywhere in src (grepped whole tree); the only way to flip newCheckout is a source edit. checkout.ts:7-8 branch is therefore unreachable under any runtime configuration, and the comment confirms it was abandoned rather than paused for a rollout. No dynamic dispatch, DI, or serialization references the string 'newCheckout' elsewhere.",
       "checked": [
@@ -312,6 +316,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
+      "tier_reason": "dead-code is capped at C without tool corroboration",
       "verdict": "confirm",
       "proof": "format-legacy.ts:3-6 marks legacyFormat @deprecated in favor of formatMoney; grep confirms legacyFormat's only caller is checkout.ts:11, which executes whenever the (permanently-off) newCheckout flag is false, i.e. on the sole live code path. formatMoney (format.ts:1-3) has no other callers. The deprecated function is genuinely still in active use, not dead.",
       "checked": [
@@ -360,6 +365,7 @@
         "in_hotspot_band": true
       },
       "tier": null,
+      "tier_reason": "the verifier rejected it",
       "verdict": "reject",
       "proof": "Catch block (lines 14-16) logs via console.error but returns null on any failure, same as a successful response whose JSON body is legitimately null; getAdminJson has no caller yet (confirmed via repo-wide grep) so no current code path depends on this masking, but the sibling client.ts (lines 8-11) swallows errors even more silently with an empty catch, suggesting this error-return-null pattern is an established, uncaught defect shape across both admin and non-admin clients.",
       "checked": [
@@ -413,6 +419,7 @@
         "in_hotspot_band": true
       },
       "tier": "C",
+      "tier_reason": "the verifier downgraded it",
       "verdict": "downgrade",
       "proof": "The catch at client.ts:11 is genuinely empty \u2014 real error-masking as a code pattern. But getJson has zero in-repo callers (confirmed via repo-wide grep and index.ts review), so today no caller receives a masked failure and no one is misled by it in production; the question 'who learns of it' has answer 'no one, because nothing calls this.' The defect is latent, not live, so full severity-5 (production risk) is overstated until the function is wired up.",
       "checked": [
@@ -464,6 +471,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "test-gaps is capped at B without the signal:no-mapped-tests signal",
       "verdict": "confirm",
       "proof": "package.json:5,8 \u2014 \"test\": \"jest\" with no --coverage flag, while jest.coverageThreshold.global.lines is set to 80. No jest.config.* file exists to add coverage-on-by-default. Coverage (and thus the threshold) only evaluates with `--coverage`, so plain `npm test`/`yarn test` never triggers it. Confirmed only one test file exists repo-wide (src/__tests__/cart.test.ts); client.ts, client-admin.ts, and checkout.ts have no corresponding test files, so the unmet threshold would go undetected.",
       "checked": [
@@ -512,6 +520,7 @@
         "in_hotspot_band": false
       },
       "tier": "A",
+      "tier_reason": "confirmed and corroborated by signal:no-mapped-tests",
       "verdict": "confirm",
       "proof": "pricing.ts:5-8 has flat PRICES lookup with no discount/quantity logic. The only test naming 'bulk pricing' (pricing.spec.ts:7-9) is it.skip'd, and no other test file (cart.test.ts, pricing.spec.ts) exercises tiered/bulk pricing. No ticket or date annotation near the skip. Confirms priceOf's non-trivial pricing behavior is unguarded by the suite.",
       "checked": [
@@ -564,6 +573,7 @@
         "in_hotspot_band": true
       },
       "tier": "A",
+      "tier_reason": "confirmed and corroborated by coupling, hotspot, signal:no-mapped-tests",
       "verdict": "confirm",
       "proof": "Grep across the repo for getAdminJson/client-admin finds only the definition file itself \u2014 no test file (src/__tests__ has only cart.test.ts and pricing.spec.ts) and no caller yet either, but the module is exported and actively churned (churn=4, highest hotspot_score=80.0). Auth header (line 7), timeout (line 11), and catch-to-null (lines 14-16) are all unguarded by any assertion. Real gap, though current blast radius is limited since nothing calls it yet.",
       "checked": [
@@ -615,6 +625,7 @@
         "in_hotspot_band": true
       },
       "tier": "A",
+      "tier_reason": "confirmed and corroborated by hotspot, signal:no-mapped-tests",
       "verdict": "confirm",
       "proof": "The only test file in the repo is src/__tests__/cart.test.ts, which tests cart.ts's addItem/total and never imports checkout.ts, priceOf, or legacyFormat. Repo-wide search for 'checkout' finds no *.test.ts, *.spec.ts, or e2e references \u2014 only checkout.ts itself, index.ts (which calls checkout(cart) at index.ts:7 but discards the return value), and docs/CI mentions. Both the legacy branch (checkout.ts:10-12) and the newCheckout branch (line 7-8) are unasserted.",
       "checked": [
@@ -666,6 +677,7 @@
         "in_hotspot_band": false
       },
       "tier": "A",
+      "tier_reason": "confirmed and corroborated by signal:no-mapped-tests",
       "verdict": "confirm",
       "proof": "Grep across src for .test.ts/.spec.ts finds only cart.test.ts and pricing.spec.ts, neither referencing flags.ts, client.ts, client-admin.ts, or checkout.ts. isEnabled (flags.ts:7-9) is called from checkout.ts:7, client.ts:12, client-admin.ts:21, and its ?? false fallback is what makes the undefined 'adminPanel' key resolve to false in client-admin.ts:21 \u2014 untested branch logic with real effect.",
       "checked": [
@@ -724,6 +736,7 @@
         "in_hotspot_band": false
       },
       "tier": "A",
+      "tier_reason": "confirmed and corroborated by pattern:skip-marker",
       "verdict": "confirm",
       "proof": "pricing.ts:5-8 confirms priceOf is a flat PRICES.get with no bulk/tiered logic \u2014 no partial scaffolding, branch, or comment toward the feature exists anywhere in cart.ts, pricing.ts, or checkout.ts. The skip has no ticket/date/reason string attached. This matches half-finished: a requirement named in a test but never implemented, not a flaky-test skip.",
       "checked": [
@@ -774,6 +787,7 @@
         "in_hotspot_band": true
       },
       "tier": "C",
+      "tier_reason": "the verifier downgraded it",
       "verdict": "downgrade",
       "proof": "client.ts:9 indeed has no AbortSignal/timeout unlike client-admin.ts:9-12, and the catch at line 11 is empty \u2014 both true as static facts. But getJson (candidates 2/3) has no in-repo callers, so there is currently no live request that can hang; the 'hang the await indefinitely' risk only materializes if/when the function is called. No ticket or stub-contract markers found referencing this as tracked risk.",
       "checked": [
@@ -833,6 +847,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
+      "tier_reason": "the verifier downgraded it",
       "verdict": "downgrade",
       "proof": "Core claim verified: legacyFormat (format-legacy.ts:3-6) is @deprecated yet still exercised on checkout.ts's live path (lines 6-11) since newCheckout is always false, and no ticket marker exists in src. The '704 days old' figure cannot be verified with available read-only tools (no git-log access), so I can't confirm that specific number; severity 2 as given is consistent with the effort-S, single-caller scope confirmed independently.",
       "checked": [
@@ -887,6 +902,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
+      "tier_reason": "the verifier downgraded it",
       "verdict": "downgrade",
       "proof": "Confirmed: checkout() (checkout.ts:6-13) has a single caller path exercised, the newCheckout branch (lines 7-9) is unreachable per the static FLAGS map, and no TODO/FIXME/ticket markers exist anywhere in src. However this is the same fact as candidate 29eba6f4f9adcbc9 (dead branch, one function, one call site, effort S) with no additional evidence (no churn breakdown available, no multi-backend indication) to justify severity 3 over 2.",
       "checked": [
@@ -943,6 +959,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "migration is capped at B without coupling corroboration",
       "verdict": "confirm",
       "proof": "Grep confirms legacyFormat's only call site is checkout.ts:11 (import at line 4), and formatMoney (format.ts:1-3) has no callers besides format-legacy.ts:1's import \u2014 i.e. 100% of live call sites use the deprecated wrapper, 0% call formatMoney directly. No evidence of deliberate multi-backend design; it's a single incomplete migration.",
       "checked": [
@@ -1007,6 +1024,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "migration is capped at B without coupling corroboration",
       "verdict": "confirm",
       "proof": "tslint.json:1 (`tslint:recommended`) has no corresponding tooling: package.json:7 lists eslint but not tslint, and grep confirms tslint appears nowhere else in the repo (no script, no CI step). ci.yml only runs `npm test` (no lint step at all), so neither tslint.json nor .eslintrc.json is actually invoked \u2014 but tslint.json specifically is a dead leftover from a superseded tool with zero remaining references, matching the migration-debris pattern exactly.",
       "checked": [
@@ -1066,6 +1084,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "dependency-debt is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "package-lock.json:1 is `{ \"packages\": {} }` \u2014 an empty lockfile that does not record tiny-emitter despite it being a declared dependency. yarn.lock:1-4 does record tiny-emitter@2.1.0. ci.yml:14,19 configures `cache: npm` and runs `npm test` exclusively; there is no yarn step anywhere in CI. So yarn.lock is dead weight and the npm lockfile that CI actually relies on is non-functional (would need regeneration on every npm ci).",
       "checked": [
@@ -1117,6 +1136,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "doc-drift is capped at B for every scout-detected finding",
       "verdict": "confirm",
       "proof": "README.md:1-5 is the entire file: title, one-line description, `npm test`. Globbed for CONTRIBUTING*, CHANGELOG*, and any adr/ directory repo-wide \u2014 none exist. docs/ only contains architecture.md. So the absence is real and total, not just missing a link to existing docs.",
       "checked": [
@@ -1179,6 +1199,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "doc-drift is capped at B for every scout-detected finding",
       "verdict": "confirm",
       "proof": "architecture.md:3-4 claims pricing and stock 'import each other' through stock.ts. Actual code: stock.ts:1 imports only `type Cart` from cart.ts, nothing from pricing.ts; pricing.ts:1 imports `reserve` from stock.ts. This is a one-way dependency (pricing -> stock), not a cycle, and stock's only import is a type from cart, not pricing. The doc's cycle claim is factually wrong.",
       "checked": [
@@ -1234,6 +1255,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
+      "tier_reason": "architecture is capped at C without tool or coupling corroboration",
       "verdict": "confirm",
       "proof": "checkout.ts:1-2 imports `total` from cart.ts and `priceOf` from cart/pricing.ts directly. The active legacy branch (checkout.ts:10-11, since flags.ts shows newCheckout permanently false with comment 'never finished') calls priceOf(first.sku) itself rather than total(cart), bypassing cart's aggregation function. cart.ts:16-18 shows total() is the intended single point for price aggregation. Any future change there (e.g. quantity-based pricing added only to total()) would silently not apply to the legacy path.",
       "checked": [
@@ -1284,6 +1306,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "test-quality is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "ci.yml:15-19 wraps the entire `npm test` invocation in nick-fields/retry with max_attempts: 3, timeout_minutes: 10. This retries the whole suite, not a single flaky assertion, so any intermittently-failing test can pass on attempt 2 or 3 and CI reports green. No test-level retry/quarantine mechanism exists to isolate which test was flaky.",
       "checked": [
@@ -1331,6 +1354,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "test-quality is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "pricing.ts:3 sets PRICES.A1=1000; cart.ts:17 total() sums priceOf(sku)*qty. Test adds A1 qty=2 (1000*2=2000) and asserts toBe(2000) with no reference to the 1000 unit price, so the reader must open pricing.ts to confirm correctness. Not table-driven, no fake timers, and this is the only assertion in the test (not assertion-free).",
       "checked": [
@@ -1382,6 +1406,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "test-quality is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "priceOf (pricing.ts:5-8) is PRICES[sku] ?? 0 with PRICES.A1=1000 and no discount logic; reserve(sku,0) in stock.ts has no side effect on price. So priceOf('A1') always returns 1000, never 900 as asserted at line 8. The skipped test is not merely disabled coverage but literally unpassable as written, confirming it never worked and documents nothing accurate about current behavior.",
       "checked": [
@@ -1429,6 +1454,7 @@
         "in_hotspot_band": false
       },
       "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
       "verdict": "rule",
       "proof": "verified by construction",
       "checked": [],
@@ -1470,6 +1496,7 @@
         "in_hotspot_band": false
       },
       "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
       "verdict": "rule",
       "proof": "verified by construction",
       "checked": [],
@@ -1519,6 +1546,7 @@
         "in_hotspot_band": false
       },
       "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
       "verdict": "rule",
       "proof": "verified by construction",
       "checked": [],
@@ -1560,6 +1588,7 @@
         "in_hotspot_band": true
       },
       "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
       "verdict": "rule",
       "proof": "verified by construction",
       "checked": [],
@@ -1601,6 +1630,7 @@
         "in_hotspot_band": true
       },
       "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
       "verdict": "rule",
       "proof": "verified by construction",
       "checked": [],
@@ -1642,6 +1672,91 @@
         "in_hotspot_band": true
       },
       "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "b82f6e5b7feabfe3",
+      "quote_hash": "0c23cc75500f938abe5ffa4d6eed3444960365ba",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "title": "Ownership gaps in src/util/receipt-legacy.ts",
+      "severity": 2,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "ownership.former-contributor",
+      "note": "hotspot whose top author is inactive",
+      "evidence": [
+        {
+          "file": "src/util/receipt-legacy.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/util/receipt-legacy.ts: top author has no commits in 288 days",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ownership.former-contributor"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "6b888fd3b5a2ecc6",
+      "quote_hash": "eba27234f929dfe049f0cc200ca8cc75f62ec93f",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "title": "Ownership gaps in src/util/receipt.ts",
+      "severity": 2,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "ownership.former-contributor",
+      "note": "hotspot whose top author is inactive",
+      "evidence": [
+        {
+          "file": "src/util/receipt.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/util/receipt.ts: top author has no commits in 288 days",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ownership.former-contributor"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
       "verdict": "rule",
       "proof": "verified by construction",
       "checked": [],
@@ -1655,7 +1770,7 @@
     "verdicts": 25,
     "unknown_fingerprint": 0,
     "missing_verdict": 0,
-    "tier_a": 11,
+    "tier_a": 13,
     "tier_b": 9,
     "tier_c": 10,
     "rejected": 1

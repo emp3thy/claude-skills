@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from redaction import CREDENTIAL_RE, SECRET_TOKEN_RE, redact
+from redaction import CREDENTIAL_RE, SECRET_TOKEN_RE, redact, strip_url_userinfo
 
 
 def test_credential_value_is_cut_to_four_characters() -> None:
@@ -120,3 +120,30 @@ def test_the_two_patterns_agree_on_shape_and_compose() -> None:
     # Two secrets on one line, one in each shape, both cut.
     both = 'api_key = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW" leaked as AKIAIOSFODNN7EXAMPLE'
     assert redact(both) == 'api_key = "sk_l***" leaked as AKIA***'
+
+
+def test_url_userinfo_is_removed_not_cut() -> None:
+    """A URL's ``user:password@`` matches neither ``redact`` pattern: there is no key
+    name and operator for ``CREDENTIAL_RE``, and a human-chosen password carries no
+    issuer prefix for ``SECRET_TOKEN_RE``. It is a whole field that should never have
+    held a credential, not credential-shaped text inside one, so it is removed rather
+    than cut to four characters."""
+    leaky = "https://user:hunter2password@git.example.com/o/r.git"
+    assert redact(leaky) == leaky, "redact alone does not catch it -- that is the point"
+    assert strip_url_userinfo(leaky) == "https://git.example.com/o/r.git"
+    assert strip_url_userinfo("ssh://git@host:2222/o/r.git") == "ssh://host:2222/o/r.git"
+    assert strip_url_userinfo("https://x:ghp_AbCdEfGhIjKlMnOpQrStUvWxYz012345@github.com/o/r") == (
+        "https://github.com/o/r"
+    )
+
+
+def test_url_userinfo_stripping_leaves_ordinary_text_alone() -> None:
+    for text in (
+        "https://git.example.com/o/r.git",
+        "https://docs.example.com/guide#contact@example",
+        "https://example.com/search?to=a@b.com",
+        "git@github.com:org/repo.git",
+        "see the README for the mailto: address",
+        "",
+    ):
+        assert strip_url_userinfo(text) == text, text

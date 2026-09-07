@@ -512,6 +512,206 @@ class TestNormaliseOsvScanner:
         }
         assert normalise_osv_scanner(payload, ROOT)[0]["extra"]["aliases"] == []
 
+    def test_a_docker_source_is_not_dropped_for_the_colon_in_its_path(self) -> None:
+        """``rel_path`` rejects any colon-bearing segment, and an image reference like
+        ``alpine:3.18`` has one -- so before the 4b fix, every advisory against a
+        docker-sourced scan was silently dropped here. A docker or git source is not a
+        path at all, so it is never sent through ``rel_path``: the signal carries a
+        null ``file`` (4b's merge gives that the path-less repository-fact shape) and
+        the raw source moves into ``extra``, rather than being lost."""
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = {
+            "results": [{
+                "source": {"path": "alpine:3.18", "type": "docker"},
+                "packages": [{
+                    "package": {"name": "libssl", "version": "1.1.1", "ecosystem": "Alpine"},
+                    "vulnerabilities": [{"id": "GHSA-docker-1"}],
+                }],
+            }]
+        }
+        signals = normalise_osv_scanner(payload, ROOT)
+        assert len(signals) == 1
+        assert signals[0]["file"] is None
+        assert signals[0]["extra"]["source_type"] == "docker"
+        assert signals[0]["extra"]["source_path"] == "alpine:3.18"
+
+    def test_a_git_source_is_carried_the_same_way(self) -> None:
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = {
+            "results": [{
+                "source": {"path": "https://github.com/example/vendored", "type": "git"},
+                "packages": [{
+                    "package": {"name": "left-pad", "version": "1.1.3", "ecosystem": "npm"},
+                    "vulnerabilities": [{"id": "GHSA-git-1"}],
+                }],
+            }]
+        }
+        signals = normalise_osv_scanner(payload, ROOT)
+        assert len(signals) == 1
+        assert signals[0]["file"] is None
+        assert signals[0]["extra"]["source_type"] == "git"
+        assert signals[0]["extra"]["source_path"] == "https://github.com/example/vendored"
+
+    def test_an_unrecognised_type_with_an_unresolvable_path_still_drops(self) -> None:
+        """Only ``docker`` and ``git`` are known non-file sources. A colon-bearing path
+        under any other (or missing) type is not known to be a legitimate non-file
+        source, so it keeps the pre-fix behaviour: dropped, not invented a fact for."""
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = {
+            "results": [{
+                "source": {"path": "docs/plans/phase-4a.md:markdown", "type": "sbom"},
+                "packages": [{
+                    "package": {"name": "left-pad", "version": "1.1.3", "ecosystem": "npm"},
+                    "vulnerabilities": [{"id": "GHSA-sbom-1"}],
+                }],
+            }]
+        }
+        assert normalise_osv_scanner(payload, ROOT) == []
+
+    def test_a_docker_source_still_needs_a_non_empty_path(self) -> None:
+        """The package and vulnerability below are real: with ``packages: []`` the inner
+        loop yielded nothing whatever the empty-path guard did, so the assertion held
+        with the guard deleted and pinned nothing."""
+        from tool_normalisers import normalise_osv_scanner
+
+        packages = [{
+            "package": {"name": "left-pad", "version": "1.1.3", "ecosystem": "npm"},
+            "vulnerabilities": [{"id": "GHSA-empty-1"}],
+        }]
+        assert normalise_osv_scanner(
+            {"results": [{"source": {"path": "alpine:3.18", "type": "docker"},
+                          "packages": packages}]}, ROOT
+        ), "the payload must otherwise produce a signal, or the guard is untested"
+        assert normalise_osv_scanner(
+            {"results": [{"source": {"path": "", "type": "docker"},
+                          "packages": packages}]}, ROOT
+        ) == []
+        assert normalise_osv_scanner(
+            {"results": [{"source": {"path": "   ", "type": "docker"},
+                          "packages": packages}]}, ROOT
+        ) == []
+
+    def test_a_git_source_url_loses_its_userinfo_before_it_becomes_a_signal(self) -> None:
+        """A checkout or submodule remote can carry ``user:password@``, which neither
+        ``redaction`` pattern recognises -- no key name and operator for
+        ``CREDENTIAL_RE``, no issuer prefix for ``SECRET_TOKEN_RE`` -- so it would reach
+        tool-signals.json on disk, and 4b's candidate prose, verbatim."""
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = {
+            "results": [{
+                "source": {"path": "https://ci:hunter2password@git.example.com/o/r.git",
+                           "type": "git"},
+                "packages": [{
+                    "package": {"name": "left-pad", "version": "1.1.3", "ecosystem": "npm"},
+                    "vulnerabilities": [{"id": "GHSA-git-2"}],
+                }],
+            }]
+        }
+        signals = normalise_osv_scanner(payload, ROOT)
+        assert signals[0]["extra"]["source_path"] == "https://git.example.com/o/r.git"
+        assert "hunter2password" not in json.dumps(signals)
+
+
+class TestOsvSeverity:
+    """Spec 4.5 + 4.9: an osv candidate is tier A, so no verifier ever revises its
+    severity and ``rank.priority`` multiplies by it directly. A flat constant ranked a
+    critical remote-code-execution advisory and a low-severity ReDoS alike."""
+
+    def _one(self, vulnerability: dict, **package: object) -> dict:
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = {
+            "results": [{
+                "source": {"path": "package-lock.json", "type": "lockfile"},
+                "packages": [{
+                    "package": {"name": "left-pad", "version": "1.1.3", "ecosystem": "npm"},
+                    "vulnerabilities": [vulnerability],
+                    **package,
+                }],
+            }]
+        }
+        signal: dict = normalise_osv_scanner(payload, ROOT)[0]
+        return signal
+
+    def test_a_database_specific_label_maps_onto_the_skills_scale(self) -> None:
+        for label, expected in (("CRITICAL", 5), ("HIGH", 4), ("MODERATE", 3),
+                                ("MEDIUM", 3), ("LOW", 2), ("critical", 5)):
+            signal = self._one({"id": "GHSA-1", "database_specific": {"severity": label}})
+            assert signal["extra"]["severity"] == expected, label
+
+    def test_a_numeric_cvss_score_falls_into_its_own_qualitative_band(self) -> None:
+        for score, expected in (("9.8", 5), (7.5, 4), ("5.3", 3), (2.1, 2), (0.0, 1)):
+            signal = self._one({"id": "GHSA-1",
+                                "severity": [{"type": "CVSS_V3", "score": score}]})
+            assert signal["extra"]["severity"] == expected, score
+
+    def test_a_cvss_vector_string_is_not_guessed_at(self) -> None:
+        """Deriving a base score from a vector means implementing the CVSS formula. A
+        record carrying a vector nearly always carries the label too, which is read
+        first; with neither, the caller's own constant stands."""
+        signal = self._one({"id": "GHSA-1", "severity": [
+            {"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"},
+        ]})
+        assert "severity" not in signal["extra"]
+
+    def test_the_label_wins_over_a_score_and_a_group_maximum(self) -> None:
+        signal = self._one(
+            {"id": "GHSA-1", "database_specific": {"severity": "LOW"},
+             "severity": [{"type": "CVSS_V3", "score": "9.8"}]},
+            groups=[{"ids": ["GHSA-1"], "max_severity": "9.8"}],
+        )
+        assert signal["extra"]["severity"] == 2
+
+    def test_a_groups_max_severity_is_the_last_resort(self) -> None:
+        signal = self._one({"id": "GHSA-1"},
+                           groups=[{"ids": ["GHSA-1"], "max_severity": "7.5"}])
+        assert signal["extra"]["severity"] == 4
+
+    def test_a_group_maximum_is_matched_to_its_own_advisory(self) -> None:
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = {
+            "results": [{
+                "source": {"path": "package-lock.json", "type": "lockfile"},
+                "packages": [{
+                    "package": {"name": "left-pad", "version": "1.1.3", "ecosystem": "npm"},
+                    "vulnerabilities": [{"id": "GHSA-1"}, {"id": "GHSA-2"}],
+                    "groups": [{"ids": ["GHSA-1"], "max_severity": "9.9"},
+                               {"ids": ["GHSA-2"], "max_severity": "3.1"}],
+                }],
+            }]
+        }
+        by_id = {s["extra"]["id"]: s["extra"].get("severity")
+                 for s in normalise_osv_scanner(payload, ROOT)}
+        assert by_id == {"GHSA-1": 5, "GHSA-2": 2}
+
+    def test_an_advisory_with_no_published_severity_carries_no_severity_key(self) -> None:
+        """Absent rather than null: ``merge_findings`` then keeps its own constant, the
+        flat value every advisory carried before, and the key's absence says the record
+        published none more plainly than a null would."""
+        assert "severity" not in self._one({"id": "GHSA-1"})["extra"]
+
+    def test_junk_severity_data_does_not_raise_or_score(self) -> None:
+        for vulnerability in (
+            {"id": "GHSA-1", "database_specific": "HIGH"},
+            {"id": "GHSA-1", "database_specific": {"severity": "URGENT"}},
+            {"id": "GHSA-1", "severity": "9.8"},
+            {"id": "GHSA-1", "severity": ["9.8"]},
+            {"id": "GHSA-1", "severity": [{"type": "CVSS_V3", "score": 11.0}]},
+            {"id": "GHSA-1", "severity": [{"type": "CVSS_V3", "score": -1}]},
+        ):
+            assert "severity" not in self._one(vulnerability)["extra"], vulnerability
+
+    def test_the_captured_fixture_carries_its_published_severity(self) -> None:
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = json.loads((FIXTURES / "osv-scanner.json").read_text(encoding="utf-8"))
+        assert normalise_osv_scanner(payload, ROOT)[0]["extra"]["severity"] == 4
+
 
 class TestNormaliseGitleaks:
     def _signals(self) -> list:

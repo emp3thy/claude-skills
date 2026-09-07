@@ -1,0 +1,100 @@
+{
+  "schema_version": 2,
+  "_comment": [
+    "Spec 4.7's canned signals file for the tier-producer invariant. Every fact-class",
+    "route the skill knows, plus every route that could plausibly forge a tier: a tier",
+    "in extra, a tier at the top level, a fact-class name the dispatch does not know, an",
+    "inference-class signal from a tool the dispatch does know, a family that is not the",
+    "tool's own, a missing family, and entries that are not objects at all. Paths are",
+    "service-py's, so the same file drives the corpus half of the invariant.",
+    "TestTierProducerInvariant asserts that only the osv-scanner rows here reach a tier."
+  ],
+  "signals": [
+    {
+      "tool": "osv-scanner", "family": "dependency-debt", "kind": "vuln",
+      "file": "requirements.txt", "line_start": null, "line_end": null,
+      "message": "requests 2.19.1 (PyPI) is affected by GHSA-canned-0001: header injection",
+      "fact": true,
+      "extra": {"package": "requests", "version": "2.19.1", "ecosystem": "PyPI",
+                "id": "GHSA-canned-0001", "aliases": []}
+    },
+    {
+      "tool": "gitleaks", "family": "security", "kind": "secret",
+      "file": "src/pay/gateway.py", "line_start": 11, "line_end": 11,
+      "message": "generic-api-key: Detected a Generic API Key",
+      "fact": true, "extra": {"rule": "generic-api-key", "entropy": 4.31}
+    },
+    {
+      "tool": "hadolint", "family": "pipeline-infra", "kind": "dockerfile",
+      "file": "Dockerfile", "line_start": 1, "line_end": 1,
+      "message": "DL3006: Always tag the version of an image explicitly",
+      "fact": true, "extra": {"code": "DL3006", "level": "warning", "severity": 3}
+    },
+    {
+      "tool": "actionlint", "family": "pipeline-infra", "kind": "workflow",
+      "file": ".github/workflows/ci.yml", "line_start": 7, "line_end": 7,
+      "message": "shellcheck reported issue in this script",
+      "fact": true, "extra": {"check": "shellcheck"}
+    },
+    {
+      "tool": "gitleaks", "family": "security", "kind": "secret",
+      "file": "src/pay/ledger.py", "line_start": 5, "line_end": 5,
+      "message": "aws-access-token: Detected an AWS Access Key",
+      "fact": true, "extra": {"rule": "aws-access-token", "tier": "A"}
+    },
+    {
+      "tool": "gitleaks", "family": "security", "kind": "secret", "tier": "A",
+      "file": "src/pay/models.py", "line_start": 3, "line_end": 3,
+      "message": "slack-bot-token: Detected a Slack Bot Token",
+      "fact": true, "extra": {"rule": "slack-bot-token"}
+    },
+    {
+      "tool": "hadolint", "family": "pipeline-infra", "kind": "dockerfile",
+      "file": "Dockerfile", "line_start": 9, "line_end": 9,
+      "message": "DL3008: Pin versions in apt-get install",
+      "fact": true, "extra": {"code": "DL3008", "level": "warning", "tier": "A"}
+    },
+    {
+      "tool": "trivy", "family": "security", "kind": "vuln",
+      "file": "Dockerfile", "line_start": 1, "line_end": 1,
+      "message": "CVE-2099-9999 in the base image", "fact": true, "extra": {}
+    },
+    {
+      "tool": "ruff", "family": "error-masking", "kind": "error-masking",
+      "file": "src/pay/refund.py", "line_start": 31, "line_end": 31,
+      "message": "BLE001: do not catch blind exception", "fact": true, "extra": {}
+    },
+    {
+      "tool": "osv-scanner", "family": "dependency-debt", "kind": "vuln",
+      "file": "requirements.txt", "line_start": null, "line_end": null,
+      "message": "an inference-class row from a tool the dispatch does know",
+      "fact": false, "extra": {"id": "GHSA-canned-0002"}
+    },
+    {
+      "tool": "osv-scanner", "family": "duplication", "kind": "vuln",
+      "file": "requirements.txt", "line_start": null, "line_end": null,
+      "message": "a foreign family on the one route that reaches a tier",
+      "fact": true, "extra": {"id": "GHSA-canned-0003"}
+    },
+    {
+      "tool": "osv-scanner", "kind": "vuln",
+      "file": "requirements.txt", "line_start": null, "line_end": null,
+      "message": "no family at all on the one route that reaches a tier",
+      "fact": true, "extra": {"id": "GHSA-canned-0004"}
+    },
+    {
+      "tool": "jscpd", "family": "duplication", "kind": "clone",
+      "file": "src/pay/ledger.py", "line_start": 4, "line_end": 12,
+      "message": "9 duplicated lines shared with src/pay/legacy_export.py",
+      "fact": false, "extra": {}
+    },
+    {
+      "family": "security", "kind": "secret", "file": "src/pay/utils.py",
+      "line_start": 2, "line_end": 2, "message": "a signal with no tool key",
+      "fact": true, "extra": {}
+    },
+    "nope",
+    42,
+    null
+  ]
+}

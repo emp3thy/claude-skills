@@ -3,8 +3,8 @@
 ``render`` is the report stage of /tech-debt-scan (spec 4.11). It reads the
 whole phase 2 chain out of ``--workdir`` (``inventory.json``, ``coupling.json``,
 ``scan-plan.json``, ``verified.json``, ``ranked.json``, ``candidates.json``,
-plus the optional ``notes.json`` and ``diff.json``) and renders the single
-``design.md`` the user reviews, plus ``findings.json`` into ``--workdir``
+plus the optional ``notes.json``, ``diff.json`` and ``tool-signals.json``) and
+renders the single ``design.md`` the user reviews, plus ``findings.json`` into ``--workdir``
 (regardless of where ``--out`` points ``design.md``): the machine-readable
 twin of the same finding list, which ``evaluate.py`` prefers over
 ``verified.json`` because it carries the rank terms and the top-N flag.
@@ -83,6 +83,7 @@ from design_parser import DesignParseError, parse_design
 from inventory import write_json
 from redaction import redact
 from slugs import unique_slugs
+from tools_probe import TOOLS
 
 SCHEMA_VERSION: Final[int] = 2
 
@@ -124,10 +125,15 @@ the debt matters. Two to five acceptance criteria, each checkable by reading a d
 running a test. Do not restate the finding, do not propose a schedule, do not include a
 fix in code."""
 
-# The three fixed "Not assessed" bullets; only the families line is computed.
+# The three fixed "Not assessed" bullets; the families line and, on a chunked
+# scan that hit its module bound, the dropped-modules line are computed.
 NOT_ASSESSED_FIXED: Final[tuple[str, ...]] = (
-    "- Tools: the tool probe lands in phase 4, so currency, end-of-life and "
-    "vulnerability claims are not assessed",
+    # Was "the tool probe lands in phase 4", which this phase made false. The
+    # wording holds either way now: a claim needing a tool that did not run is
+    # not assessed, and the frontmatter's ``tools_absent`` names those tools.
+    "- Tools: a claim that needs a tool which did not run -- currency, "
+    "end-of-life, vulnerability -- is not assessed; the frontmatter's "
+    "tools_absent names every such tool",
     "- Runtime-only: coverage numbers, flake confirmation, model staleness, "
     "rollout state, deploy frequency",
     "- By design: magic literals, convention violations, and class-level metrics "
@@ -162,6 +168,10 @@ class RenderInputs:
     candidates: dict[str, Any]
     notes: list[dict[str, Any]] = field(default_factory=list)
     diff: dict[str, Any] | None = None
+    # ``tool-signals.json``'s ``tools`` map, ``{<name>: {status, reason, ...}}``.
+    # Empty when the probe never ran (no file), which renders both frontmatter
+    # lists as ``[]`` -- the same document a pre-phase-4 chain produced.
+    tools: dict[str, Any] = field(default_factory=dict)
 
 
 class Row(NamedTuple):
@@ -191,6 +201,12 @@ def load_inputs(workdir: Path) -> RenderInputs:
     )
     diff_path = workdir / "diff.json"
     diff_raw = json.loads(diff_path.read_bytes()) if diff_path.is_file() else None
+    # Optional like ``notes.json`` and ``diff.json``: a chain run with --no-tools
+    # still writes the file (every tool ``skipped``), but a workdir assembled
+    # without the probe at all has none, and that must render, not raise.
+    signals_path = workdir / "tool-signals.json"
+    signals_raw = json.loads(signals_path.read_bytes()) if signals_path.is_file() else None
+    tools = (signals_raw or {}).get("tools") if isinstance(signals_raw, dict) else None
     return RenderInputs(
         workdir=workdir,
         inventory=required("inventory.json"),
@@ -201,6 +217,7 @@ def load_inputs(workdir: Path) -> RenderInputs:
         candidates=required("candidates.json"),
         notes=notes,
         diff=diff_raw if isinstance(diff_raw, dict) else None,
+        tools=tools if isinstance(tools, dict) else {},
     )
 
 
@@ -411,6 +428,57 @@ def _yaml_block(key: str, item_lines: list[str]) -> list[str]:
     return [f"{key}:", *item_lines]
 
 
+def tool_lists(tools: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """``tools_run`` and ``tools_absent`` from ``tool-signals.json``'s ``tools`` map.
+
+    Spec 4.5 records four statuses and the frontmatter names two lists, so the
+    split is by what the reader is actually asking: whose evidence is in this
+    document. Only ``ran`` put signals in it, so only ``ran`` is in
+    ``tools_run``. ``absent`` (no binary), ``failed`` (ran, produced nothing
+    usable) and ``skipped`` (deny list, no matching artefact, ``--skip-all``, no
+    offline database) all leave the same hole: the 2.3 tier caps applied for
+    want of that tool and its claims went to "not assessed", exactly as they do
+    for a missing binary. They share ``tools_absent``, each entry naming its own
+    status in parentheses so the four are still distinguishable -- which is what
+    tells a ``--no-tools`` run (ten ``skipped``) from a full probe.
+
+    Any status the four do not cover is bucketed absent and rendered
+    ``(unknown)``: ``tool-signals.json`` is hand-editable, and reading an
+    unrecognised status as "this tool's evidence is present" is the one failure
+    that would put a false claim in the document. The status word is mapped
+    through the closed set rather than interpolated, so nothing from the file
+    reaches the frontmatter but a registry tool name -- a ``failed`` entry's
+    ``reason`` carries up to 200 characters of tool stderr, which could carry a
+    newline or a colon and break the YAML block this list sits in.
+
+    The *name* -- a ``tools`` map key -- goes through the same closed set:
+    ``tools_probe.TOOLS`` is the only source of tool identities this document
+    ever names, so a key outside it is not a tool, whatever status it claims.
+    Without this check a key carrying a newline plus a second ``key: value``
+    line renders as two YAML lines once the block is joined, and the second
+    line silently overwrites an earlier frontmatter field (``preset``,
+    ``total_files``, ...) -- still valid YAML, so the write-time self-check
+    (which only re-parses findings and headings, never frontmatter values)
+    never sees it. A key outside the registry is folded into ``tools_absent``
+    under the fixed, non-interpolated label ``(unregistered tool)`` -- it can
+    never claim ``ran``, and nothing of the key itself reaches the document.
+    """
+    ran: list[str] = []
+    absent: list[str] = []
+    for name in sorted(str(key) for key in tools):
+        if name not in TOOLS:
+            absent.append("(unregistered tool)")
+            continue
+        entry = tools.get(name)
+        status = str(entry.get("status")) if isinstance(entry, dict) else ""
+        if status == "ran":
+            ran.append(name)
+        else:
+            label = status if status in ("absent", "failed", "skipped") else "unknown"
+            absent.append(f"{name} ({label})")
+    return ran, absent
+
+
 def _frontmatter(inputs: RenderInputs, scan_date: str) -> list[str]:
     inv, plan = inputs.inventory, inputs.plan
     lines = [
@@ -430,10 +498,10 @@ def _frontmatter(inputs: RenderInputs, scan_date: str) -> list[str]:
     for item in plan.get("families_skipped") or []:
         skipped += [f"- family: {item['family']}", f"  reason: {item['reason']}"]
     lines += _yaml_block("families_skipped", skipped)
+    ran, absent = tool_lists(inputs.tools)
+    lines += _yaml_block("tools_run", [f"- {name}" for name in ran])
+    lines += _yaml_block("tools_absent", [f"- {name}" for name in absent])
     lines += [
-        # The tool probe lands in phase 4; both lists stay empty until then.
-        "tools_run: []",
-        "tools_absent: []",
         f"git_available: {str(bool(inv.get('git_available'))).lower()}",
         "counts:",
         *[f"  {key}: {value}" for key, value in _counts(inputs).items()],
@@ -742,7 +810,16 @@ def _below_the_cut(
 
 
 def _tier_c_table(rows: list[Row]) -> list[str]:
-    """One table row per tier C or unverified finding; a reject belongs elsewhere."""
+    """One table row per tier C or unverified finding; a reject belongs elsewhere.
+
+    The reason column prints ``tier_reason`` -- why the finding landed below the
+    cut, not just the verdict word that used to sit there and tell a maintainer
+    nothing. A finding written before this field existed (an older
+    ``verified.json``, or a v1 document) carries no ``tier_reason``, so the
+    column falls back to the verdict; if even that is absent the cell is empty
+    rather than the literal word ``None`` -- the same guard ``_primary_file``
+    already gives the file column, extended to its neighbour.
+    """
     selected = [
         row
         for row in rows
@@ -754,9 +831,10 @@ def _tier_c_table(rows: list[Row]) -> list[str]:
     lines = ["| slug | family | file | reason |", "| --- | --- | --- | --- |"]
     for row in selected:
         finding = row.finding
+        reason = free_text(str(finding.get("tier_reason") or finding.get("verdict") or ""))
         lines.append(
             f"| {row.slug} | {finding.get('family')} | {_primary_file(finding)} "
-            f"| {finding.get('verdict')} |"
+            f"| {reason} |"
         )
     return lines
 
@@ -826,7 +904,21 @@ def _not_assessed(inputs: RenderInputs) -> list[str]:
         for item in inputs.plan.get("families_skipped") or []
     ]
     families = ", ".join(skipped) if skipped else "none"
-    return [f"- Families not run: {families}", *NOT_ASSESSED_FIXED]
+    lines = [f"- Families not run: {families}"]
+    # A chunked plan that hit ``chunking.max_modules`` scanned part of the
+    # repository and not the rest. That belongs in the one document a human
+    # reads, not only in ``scan-plan.json``: unnamed, it reads as an absence of
+    # debt in those directories rather than an absence of looking.
+    dropped = [
+        f"{item['module']} ({item['leads']} leads)"
+        for item in inputs.plan.get("modules_dropped") or []
+        if isinstance(item, dict)
+    ]
+    if dropped:
+        lines.append(
+            "- Modules not scanned (chunking.max_modules): " + ", ".join(dropped)
+        )
+    return [*lines, *NOT_ASSESSED_FIXED]
 
 
 # --- the two documents ----------------------------------------------------------

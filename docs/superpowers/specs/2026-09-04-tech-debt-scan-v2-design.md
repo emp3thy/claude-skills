@@ -204,7 +204,7 @@ fan_in:
     stoplist: [utils, config, index, main, types, common, base, core, helpers, models]
 scout_cap: 12
 top: 5
-chunking: { max_files: 1500, max_loc: 200000 }
+chunking: { max_files: 1500, max_loc: 200000, max_modules: 8 }
 verifier: { batch_size: 6, context_lines: 30, min_candidates: 30, top_multiple: 3, max_candidates: 72, always_families: [security], always_min_severity: 5 }
 ranking:
   preset: balanced
@@ -399,7 +399,7 @@ tool-signals.json
 
 **Golden determinism.** `version` and `duration_s` are machine-dependent. Rather than a pinning environment variable, the golden tests compare the `signals` array in full and each `tools` entry's `status` and `reason` only. A golden that pins a tool version fails when the tool updates, which is a failure for the wrong reason.
 
-**Known corpus limitation for 4b.** jscpd reports no clones on either fixture even at a 20-token threshold: web-ts's planted `p2` duplication pairs `client.ts` with `client-admin.ts`, which are structurally similar but genuinely divergent, 16 lines against 22. Duplication therefore cannot be tool-corroborated on the corpus as it stands, while madge does find the real `cart -> pricing -> stock -> cart` cycle and vulture does find real dead code. 4b decides between amending the fixture, lowering the threshold and dropping the duplication half of its claim; it does not silently report a gate it did not measure.
+**The duplication corpus limitation, and what 4b does about it.** jscpd reports no clones on either fixture even at a 20-token threshold: web-ts's planted `p2` duplication pairs `client.ts` with `client-admin.ts`, which are structurally similar but genuinely divergent, 16 lines against 22. madge does find the real `cart -> pricing -> stock -> cart` cycle and vulture does find real dead code, so two of phase 4's three claims were demonstrable and duplication was not. **Decided for 4b:** `web-ts` gains a genuine clone pair — two new TypeScript files sharing a run real jscpd detects at its default 50-token threshold — with the planted decoys untouched. The threshold is not lowered, because a threshold tuned to make one fixture pass would flood real repositories; and the claim is not dropped, because shipping phase 4's headline promise unmeasured for a whole phase is worse than regenerating goldens. Adding files moves `inventory.json`'s totals and therefore the ranking goldens, which is why 4b's live gate runs both arms rather than comparing against phase 2's numbers.
 
 **Absent tools:** the tier caps of 2.3 apply (duplication B, dead-code C, cycles B), currency claims are listed under "not assessed", and `design.md` frontmatter names every absent tool.
 
@@ -412,12 +412,14 @@ Reads the workdir and config, decides scope and chunking, renders every prompt t
 ```json
 scan-plan.json
 { "schema_version": 2, "set": "default|quick|deep|explicit", "top": 5, "chunked": false,
-  "thresholds": { "max_files": 1500, "max_loc": 200000 },
+  "thresholds": { "max_files": 1500, "max_loc": 200000, "max_modules": 8 },
+  "modules": [], "modules_dropped": [ {"module": "", "leads": 0} ],
   "entries": [ {"family": "", "module": null, "prompt": "prompts/scout-<family>.md", "output": "scouts/<family>.json", "leads": 0} ],
-  "families_run": [], "families_skipped": [ {"family": "", "reason": "no leads|disabled|not in set"} ] }
+  "families_run": [],
+  "families_skipped": [ {"family": "", "reason": "no leads|disabled|not in set|no leads in the scanned modules"} ] }
 ```
 
-**Scope per scout:** the hotspot band, every file that family's leads point at, then the remainder if budget allows. **Chunking:** when source files exceed `chunking.max_files` (1,500) or source LOC exceeds `chunking.max_loc` (200,000), both untuned defaults, the repository is split by top-level directory and a module scout runs only for families with leads or hotspot-band files in that module. The halved thresholds (750 files, 100,000 LOC) follow from the selected set being `deep`, whichever spelling selected it. No corpus fixture is large enough to trigger chunking, so its tests lower `chunking.max_files` and `max_loc` through config and pin a chunked plan golden at both the full and the halved thresholds, which is also the only evidence that halving takes effect. The adaptive rule of 2.4 decides which families are dispatched.
+**Scope per scout:** the hotspot band, every file that family's leads point at, then the remainder if budget allows. **Chunking:** when source files exceed `chunking.max_files` (1,500) or source LOC exceeds `chunking.max_loc` (200,000), both untuned defaults, the repository is split by top-level directory and a module scout runs only for families with leads or hotspot-band files in that module. The lead cap of "40 per family" then applies per module rather than once repository-wide, so an early-sorting module cannot spend the family's whole budget; `chunking.max_modules` (8, and unlike the two size thresholds it does not halve under `deep`) bounds the module count, because entries are `families x modules` and one agent is dispatched per entry — a 40-directory monorepo would otherwise plan 560 scouts against section 7's budget. Over the limit, modules are ranked by how many hotspot-band files they hold, then by lead count, then by plan order; the scanned modules and the dropped ones with their lead counts are both named in `scan-plan.json`, and a family whose leads all sat in dropped modules is recorded in `families_skipped`, never in `families_run`. The halved thresholds (750 files, 100,000 LOC) follow from the selected set being `deep`, whichever spelling selected it. No corpus fixture is large enough to trigger chunking, so its tests lower `chunking.max_files` and `max_loc` through config and pin a chunked plan golden at both the full and the halved thresholds, which is also the only evidence that halving takes effect. The adaptive rule of 2.4 decides which families are dispatched.
 
 **Shared prefix** (from `categories.py`, rewritten): repository summary; read-only and do-not-invent rules; the evidence contract (file, `line_start`, `line_end`, verbatim quote of at most 6 lines); the per-scout cap (`scout_cap` 12) as a ceiling with "an empty list is a correct answer"; three channels `findings`, `open_questions`, `looks_bad_but_fine`; no fix proposals and no confidence field; never-assert rules (coverage, CVEs, EOL, library deprecation, flakiness, exploitability); the path-class note naming disabled families; the severity rubric, still headed "Severity rubric", with the hotspot amplifier clause removed. The word "hotspot" survives in the leads block, so every rendered prompt contains both "hotspot" and "Severity rubric".
 
@@ -452,6 +454,12 @@ Turns scout output, rule findings and fact-class tool signals into one verified,
 6. Attach the primary file's inventory signals (`hotspot_score`, `churn`, `coupling_degree`, `fan_in_approx`, `path_class`, `in_hotspot_band`).
 7. Apply suppressions (fingerprint match, unexpired `until`) and path-class disables; count both in `stats`.
 8. Redact security-family quotes (credential-shaped tokens masked to their first four characters) before writing.
+
+**Tool signals enter here (phase 4b).** Fact-class signals become candidates by three routings. osv-scanner findings enter with `source: "tool"` and `tier: "A"` already set, a null line range, the manifest path as evidence and `quote_verified` true — the shape 4.5 gives a repository-level fact — so they skip verification through the path rule findings already use. gitleaks findings enter with `source: "tool"` and no tier, so they reach the verifier, because placeholders and test fixtures are what a verifier is for. hadolint and actionlint findings merge into a same-file rule finding by adding `tool:<name>` to its `confirmed_by` rather than creating a second candidate for the same fact, and become candidates in their own right only where no rule finding covers that file.
+
+Inference-class signals never become candidates. They add a `tool:<name>` token to `confirmed_by` wherever one corroborates a candidate on the same file and family, which is the whole mechanism by which 2.3's caps lift, since `family_cap` already reads that token.
+
+**The invariant.** `rules.py` and osv fact-class signals are the only producers of a non-null `tier` at merge time. `select_candidates` pools only candidates whose tier is null, so any other class acquiring one would skip verification with nothing to notice; a test asserts the producer set over the corpus and over a canned signals file.
 
 ```json
 candidates.json
@@ -676,7 +684,7 @@ Estimates, replaced by the live log after the first run.
 
 | Scan | v1 | v2 quick | v2 default | v2 deep |
 |---|---|---|---|---|
-| Scout agents | 8 (4 quick) | 6 | 12 | 14, more with chunking |
+| Scout agents | 8 (4 quick) | 6 | 12 | 14, and on a chunked plan at most `families x chunking.max_modules` (14 x 8) |
 | Verifier batches | 0 | 3 to 5 | 5 to 7 | 8 to 12 |
 | Note agent | 1 synthesis | 1 | 1 | 1 |
 | Output tokens | 80 to 110k | 35 to 50k | 60 to 85k | 90 to 130k |
@@ -684,7 +692,7 @@ Estimates, replaced by the live log after the first run.
 | Script time | seconds | under 2 min | under 2 min | under 3 min |
 | Tool time | none | 0 to 10 min | 0 to 10 min | 0 to 10 min |
 
-Output stays near v1 because scouts are lead-driven and capped and the synthesis prompt is gone. Input grows because scouts and verifiers read cited spans with context; the 40-lead cap, the adaptive rule and the verifier budget bound it. Per-tool timeouts bound tool time.
+Output stays near v1 because scouts are lead-driven and capped and the synthesis prompt is gone. Input grows because scouts and verifiers read cited spans with context; the 40-lead cap, the adaptive rule and the verifier budget bound it. A chunked plan multiplies the scout count by its module count, which is why `chunking.max_modules` bounds that too (4.6): the cap is per module once a plan is chunked, so nothing else would. Per-tool timeouts bound tool time.
 
 ## 8. Compatibility and migration
 
@@ -757,7 +765,19 @@ Each phase is a feature branch `feat/tech-debt-scan-v2-phase-<n>` with its own P
 
 **Phase 4a: the probe** (`feat/tech-debt-scan-v2-phase-4a`). Scope: `tools_probe.py` and `tool_normalisers.py` with the ten first-cut normalisers, presence detection, the runner, and `tool-signals.json`. Nothing reads the file yet, as phase 2 shipped `ranked.json` before phase 3 rendered it. Gate: per-tool normaliser tests from canned payloads; presence detection including `node_modules/.bin` and never `npx`; the absent, failed and skipped paths; `--skip-all`; ruff filename normalisation; the offline mapping and the no-database skip; fact and inference classification. Afterwards the probe runs standalone and writes signals nothing consumes.
 
-**Phase 4b: the integration** (`feat/tech-debt-scan-v2-phase-4b`). Scope: `plan_scan.py` reading `tool-signals.json` and turning inference-class signals into leads under a `tool` kind cap; `merge_findings.py` applying the three fact-class routings of 4.5 and adding the `tool:<name>` corroboration token that lifts the caps `apply_verdicts.family_cap` already codes; the fact-class tier bypass of 4.8; module chunking and the halved deep thresholds; the network notice and step 4 in SKILL.md. Gate: the chunked plan goldens at both thresholds; the corroboration token lifting a cap; the bypass reaching tier A with no verdict and no other path doing so; `test_real_skill_md_passes`; a live run over all three fixtures with the installed tools present, comparing tier assignment against phase 2's tool-free baseline, with a row in `docs/evaluation-log.md`. Afterwards a repository with tools installed earns tier A on duplication, dead code and cycles.
+**Phase 4b: the integration** (`feat/tech-debt-scan-v2-phase-4b`). Scope, in the order it lands: `plan_scan.py` reading `tool-signals.json` and turning inference-class signals into leads under a `tool` kind cap; `merge_findings.py` applying the three fact-class routings of 4.5 and adding the `tool:<name>` corroboration token that lifts the caps `apply_verdicts.family_cap` already codes; the second producer of the fact-class tier assignment of 4.8; a genuine clone pair added to the `web-ts` fixture so duplication is measurable at all; then module chunking with the halved deep thresholds; then the network notice and step 4 in SKILL.md; then the live run. Chunking is ordered last because it touches only `plan_scan.py` and is independent of everything else, so it is the piece that can be cut if the branch runs long.
+
+**The tier assignment is not new machinery.** `verify_prompts.select_candidates` pools only candidates whose `tier` is `None`, and `apply_verdicts` gives any candidate arriving with `tier: "A"` a verdict of `rule` and `verified: true`. Rule findings already travel that path and `rules.py` is today the only producer of a non-null tier at merge time. 4b adds osv facts as the second producer, so the load-bearing half of the gate is the negative one: **`rules.py` and osv fact-class signals are the only two producers of a non-null tier**, asserted over the whole corpus and over a canned signals file. Any other class acquiring a tier would skip verification silently, and nothing would notice.
+
+**Proving the bypass without the tool.** osv-scanner cannot be installed on the development machine, so a hand-written `tool-signals.json` carrying an osv fact is driven through `merge_findings`, `apply_verdicts` and `rank` exactly as a real run would, pinned by a golden. That proves the wiring and the negative half deterministically; it cannot prove the real tool emits the shape the fixture claims, which `PROVENANCE.md` already records.
+
+**The duplication fixture.** jscpd reports no clones on either fixture even at a 20-token threshold, so phase 4's headline claim cannot be measured as the corpus stands. `web-ts` gains a genuine clone pair — two new TypeScript files sharing a run detected by real jscpd at its default 50-token threshold, verified against the real tool before anything downstream is written. The planted decoys are untouched. Adding files changes `inventory.json`'s totals and therefore hotspot scores and ranking, so the existing goldens move; the captured scout responses stay valid because they cite files that still exist.
+
+Gate: the chunked plan goldens at both thresholds; the corroboration token lifting a cap; the tier assignment reaching A with no verdict, and no other candidate class doing so; `test_real_skill_md_passes`; and a live run of **both arms** — all three fixtures with tools present and with `--no-tools` — comparing tier assignment between them, with a row per arm in `docs/evaluation-log.md`. Both arms are required because the fixture change makes phase 2's tool-free numbers non-comparable. The claim under test is that duplication, dead code and cycles reach tier A in the tools arm and are capped in the no-tools arm; a tier that does not move is recorded as the result, not explained away.
+
+4b also absorbs three items parked by earlier phases, because it is already editing those files: the tier C table's reason column, which needs `rank.py` to persist a demotion cause and which 4b makes interesting by introducing cap lifts; osv-scanner's `source.path` handling for docker and git sources, whose colons `rel_path` currently drops and which 4b is the first phase to consume; and `_redact_value` not redacting dict keys. The duplicated fence rule, `design_writer.heading_text`'s redact-before-collapse ordering, vulture's `--sort-by-size` line shape and the combined golden floor's deny-all edge stay parked for phase 5.
+
+Afterwards a repository with tools installed is eligible for tier A on duplication, dead code and cycles: tool corroboration lifts each family's cap, but the verifier's independent confirm is still required and can still decline. The phase 4b live gate confirmed this only for dead code; duplication and cycles each produced one tool-corroborated candidate the verifier declined to confirm, so both remain open pending a corpus where the verifier confirms one. `/tech-debt-scan` runs the probe as step 4.
 
 **Phase 5: baseline and evaluation** (`feat/tech-debt-scan-v2-phase-5`). Scope: `baseline.py` diff and record, the `diff` anchor key rendered from `diff.json`, promote write-back and the gitignore triple, `accepted` expiry, step 11 and the `--baseline` promote flag in SKILL.md, the note agent added to the live harness and a new row in `docs/evaluation-log.md`. Gate: baseline transition tests, promote write-back tests including exit 6, `test_real_skill_md_passes`, the live run reporting tier A precision against the provisional 0.80 bar with zero decoys at tier A or in the top N. Afterwards re-scans show NEW and RESOLVED, rejected findings stop recurring, and accepted findings return when their expiry passes.
 

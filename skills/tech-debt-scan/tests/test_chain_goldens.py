@@ -292,3 +292,191 @@ def test_every_golden_quote_except_the_pin_verifies(
     expected = LIVE_QUOTE_MISSES[name]
     assert diverted == {PIN_TITLE, *expected["diverted"]}, sorted(diverted)
     assert partial == set(expected["partial"]), sorted(partial)
+
+
+# --- the fact-class producer golden (task 6, spec 4.7) --------------------------------
+
+TOOL_SIGNALS = Path(__file__).parent / "fixtures" / "tool-signals" / "osv-and-friends.json"
+TOOL_CHAIN_GOLDEN = GOLDEN / "tool-chain"
+
+
+@pytest.fixture(scope="session")
+def _tool_chain_result(
+    service_py_repo: Path, tmp_path_factory: pytest.TempPathFactory
+) -> dict[str, Any]:
+    """``merge``, ``verify_prompts.build_verify_plan`` and ``apply``, run once over
+    service-py with ``osv-and-friends.json`` written into the workdir as
+    ``tool-signals.json`` -- task 6's proof that the fact-class producer route (spec
+    4.5, 4.7) reaches a tier through the real disk-read chain ``merge()`` uses in
+    production, not merely through ``tool_candidates`` called directly the way
+    ``test_merge_findings.TestTierProducerInvariant`` does, and that nothing else
+    reaching this same run acquires one. osv-scanner cannot be installed on this
+    machine, so this hand-written signals file is the only way to prove that path end
+    to end.
+
+    This is its own golden set (``golden/tool-chain/``), not a fourth entry in
+    ``FIXTURES``: the three corpus fixtures' chains stay exactly as
+    ``test_chain_matches_goldens_and_meets_the_corpus_bar`` already pins them, with no
+    ``tool-signals.json`` in their workdirs, so service-py's own
+    inventory/patterns/rules/scouts are replayed a second time here rather than
+    reusing or perturbing that fixture's run.
+
+    Session-scoped: every ``TestToolChainGolden`` assertion reads this one run rather
+    than each re-driving the chain itself. ``apply`` is driven with no verdicts at
+    all (an empty dict): this golden's scope stops at the producer set and the
+    selection it does or doesn't reach (``candidates.json``, ``verify-plan.json``),
+    not the verifier-confirm pipeline that would let a tool token move a capped
+    family's tier -- that effect is already pinned directly against
+    ``apply_verdicts.family_cap`` by ``TestToolTokenLiftsTheCap`` in
+    test_merge_findings.py, and against real verifier replies by the three corpus
+    goldens above.
+    """
+    repo = service_py_repo
+    workdir = tmp_path_factory.mktemp("tool-chain") / "wd"
+    planted = json.loads((CORPUS / "service-py" / "planted.json").read_bytes())
+    inventory, coupling = build_all(
+        repo, churn_months=int(planted["churn_months"]), config=DEFAULTS
+    )
+    write_outputs(inventory, coupling, workdir)
+    patterns, inline = run_patterns(repo, inventory, DEFAULTS, blame=False)
+    for entry in inventory["files"]:
+        entry["inline_disables"] = inline.get(entry["path"], 0)
+    write_json(workdir / "inventory.json", inventory)
+    write_json(workdir / "patterns.json", patterns)
+    findings, leads = run_rules(repo, inventory, DEFAULTS, now=RULES_NOW)
+    write_json(
+        workdir / "rule-findings.json",
+        {"schema_version": 2, "findings": findings, "leads": leads},
+    )
+    plan, prompts = build_plan(workdir, DEFAULTS, families="deep", top=5)
+    write_plan(workdir, plan, prompts)
+    # service-py's own golden scouts, replayed as a real run's scouts would produce
+    # them: the jscpd signal below corroborates the one duplication finding they
+    # raise, and the pool the two new fact-class candidates join is sized against
+    # them (28 scout candidates; see the docstring above).
+    golden_scouts = GOLDEN / "service-py"
+    for entry in plan["entries"]:
+        src = golden_scouts / entry["output"]
+        dest = workdir / entry["output"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(src, dest)
+    write_json(workdir / "tool-signals.json", json.loads(TOOL_SIGNALS.read_bytes()))
+    root = str(repo.resolve())
+    candidates = merge(workdir, repo, DEFAULTS)
+    write_json(workdir / "candidates.json", candidates)
+    _check("tool-chain candidates", candidates, TOOL_CHAIN_GOLDEN / "candidates.json", root)
+    vplan, _ = build_verify_plan(workdir, repo, DEFAULTS, 5)
+    _check("tool-chain verify-plan", vplan, TOOL_CHAIN_GOLDEN / "verify-plan.json", root)
+    verified = apply(candidates["candidates"], vplan, {})
+    write_json(workdir / "verified.json", verified)
+    _check("tool-chain verified", verified, TOOL_CHAIN_GOLDEN / "verified.json", root)
+    ranked = rank(verified, inventory, DEFAULTS, preset="balanced", top=5)
+    write_json(workdir / "ranked.json", ranked)
+    _check("tool-chain ranked", ranked, TOOL_CHAIN_GOLDEN / "ranked.json", root)
+    return {"candidates": candidates, "vplan": vplan, "verified": verified, "ranked": ranked}
+
+
+class TestToolChainGolden:
+    """Spec 4.7's negative half, proved through the real chain rather than a canned
+    dispatch (task 6): an osv-scanner advisory reaches tier A with no verifier ever
+    reading it, a gitleaks secret reaches the verifier's selection instead of
+    skipping it, and -- the half that matters -- every other candidate this run
+    raises (28 scout candidates, 9 rule findings, and this run's own gitleaks and
+    hadolint candidates) still does not acquire a tier outside that one route.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _bind(self, _tool_chain_result: dict[str, Any]) -> None:
+        self.candidates = _tool_chain_result["candidates"]["candidates"]
+        self.vplan = _tool_chain_result["vplan"]
+        self.verified = _tool_chain_result["verified"]
+
+    def _candidates_with_tool_signals(self) -> list[dict[str, Any]]:
+        return self.candidates
+
+    def _chain_with_tool_signals(self) -> dict[str, Any]:
+        return self.verified
+
+    def _verified_fingerprints(self) -> set[str]:
+        """The fingerprints ``verify_prompts`` selected for a verifier's attention."""
+        return set(self.vplan["selected"])
+
+    def test_the_osv_fact_is_tier_A_with_no_verdict(self) -> None:
+        verified = self._chain_with_tool_signals()
+        osv = next(f for f in verified["findings"] if f["source"] == "tool"
+                   and "tool:osv-scanner" in f["confirmed_by"])
+        assert osv["tier"] == "A"
+        assert osv["verdict"] == "rule"
+        assert osv["fingerprint"] not in self._verified_fingerprints()
+
+    def test_no_other_candidate_class_skips_verification(self) -> None:
+        candidates = self._candidates_with_tool_signals()
+        for cand in candidates:
+            if cand.get("tier") is not None:
+                assert cand["source"] in {"rule", "tool"}
+                if cand["source"] == "tool":
+                    assert "tool:osv-scanner" in cand["confirmed_by"]
+
+    def test_the_gitleaks_fact_is_sent_to_the_verifier(self) -> None:
+        """Not found by ``"tool:gitleaks" in confirmed_by``: the untiered fact routes
+        deliberately raise with an *empty* ``confirmed_by`` (spec 4.5 --
+        ``merge_findings.tool_candidates``'s docstring: a self-reported
+        ``tool:<name>`` token here would read as independent corroboration of the
+        very thing that raised it), so no candidate in this run ever carries the
+        literal token ``"tool:gitleaks"``. The gitleaks candidate is instead the
+        run's one ``source: "tool"``, ``family: "security"`` candidate -- unique,
+        since gitleaks is the only fact-class tool security names."""
+        candidates = self._candidates_with_tool_signals()
+        leak = next(c for c in candidates if c["source"] == "tool" and c["family"] == "security")
+        assert leak["tier"] is None
+        assert leak["confirmed_by"] == []
+
+    def test_the_gitleaks_candidate_is_selected_not_skipped(self) -> None:
+        """The bypass this golden exists to check has two halves: an osv fact must
+        skip the verifier (above), and an ordinary untiered candidate must not. The
+        brief's original three assertions drive only ``merge``/``apply``/``rank`` and
+        cannot see this half -- it is decided in ``verify-plan.json``, by
+        ``select_candidates`` pooling only ``tier is None`` candidates."""
+        candidates = self._candidates_with_tool_signals()
+        leak = next(c for c in candidates if c["source"] == "tool" and c["family"] == "security")
+        assert leak["fingerprint"] in self._verified_fingerprints()
+        assert leak["fingerprint"] not in self.vplan["unverified"]
+
+    def test_the_hadolint_fact_on_an_uncovered_file_becomes_its_own_untiered_candidate(
+        self,
+    ) -> None:
+        """Every hadolint/actionlint fact ``test_merge_findings``'s producer-invariant
+        fixture feeds through the real service-py corpus lands on a file a rule
+        finding already covers (the fixture's one Dockerfile), so it only ever
+        exercises the merge-into-rule branch there. README.md has no pipeline-infra
+        rule finding, so this is the first real-chain proof of the other branch: an
+        uncovered fact raises its own candidate, source ``"tool"``, tier ``None``,
+        with the same empty ``confirmed_by`` the gitleaks route uses."""
+        candidates = self._candidates_with_tool_signals()
+        hadolint = next(
+            c for c in candidates if c["source"] == "tool" and c["family"] == "pipeline-infra"
+        )
+        assert hadolint["tier"] is None
+        assert hadolint["confirmed_by"] == []
+        assert hadolint["evidence"][0]["file"] == "README.md"
+
+    def test_the_jscpd_signal_corroborates_the_duplication_candidate(self) -> None:
+        """The signal targets ``src/pay/ledger.py``, the *second* evidence item on
+        the fixture's one duplication candidate (whose primary evidence is
+        ``src/pay/refund.py``): a corroboration match that only checked a candidate's
+        primary evidence file would silently miss it here."""
+        candidates = self._candidates_with_tool_signals()
+        dup = next(
+            c for c in candidates if c["family"] == "duplication" and c["source"] == "scout"
+        )
+        assert "tool:jscpd" in dup["confirmed_by"]
+
+    def test_an_inference_signal_for_a_family_with_no_candidate_corroborates_nothing(
+        self,
+    ) -> None:
+        """The lizard signal names ``complex-units`` (zero candidates anywhere in
+        this fixture) on ``src/pay/refund.py`` -- a file several *other* families'
+        scout candidates do cite. If corroboration ever matched on file alone,
+        dropping the family check, ``tool:lizard`` would leak onto one of them."""
+        candidates = self._candidates_with_tool_signals()
+        assert not any("tool:lizard" in c["confirmed_by"] for c in candidates)

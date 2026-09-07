@@ -23,6 +23,8 @@ import re
 from pathlib import Path
 from typing import Any, Final, TypedDict
 
+from redaction import strip_url_userinfo
+
 
 class Signal(TypedDict):
     """One normalised observation from one tool."""
@@ -436,6 +438,89 @@ def normalise_knip(payload: Any, root: Path) -> list[Signal]:
     return out
 
 
+# osv-scanner ``source.type`` values that name something other than a file under
+# the scanned root: a container image reference or a git remote URL. Both are
+# real 4b input (a base-image or a submodule dependency can carry a real
+# advisory) but neither is a path ``rel_path`` should ever be asked to resolve.
+_OSV_NON_FILE_SOURCE_TYPES: Final[frozenset[str]] = frozenset({"docker", "git"})
+
+# An advisory's own published severity on the skill's 1-5 scale. GHSA (the database
+# behind most OSV records for application ecosystems) publishes the label; ``MEDIUM``
+# is the same band as GHSA's ``MODERATE`` under other databases' naming.
+OSV_SEVERITY: Final[dict[str, int]] = {
+    "CRITICAL": 5, "HIGH": 4, "MODERATE": 3, "MEDIUM": 3, "LOW": 2, "NEGLIGIBLE": 1,
+}
+
+
+def _cvss_band(score: float) -> int:
+    """A CVSS base score as a 1-5 severity, on CVSS's own qualitative bands."""
+    if score >= 9.0:
+        return 5
+    if score >= 7.0:
+        return 4
+    if score >= 4.0:
+        return 3
+    if score > 0.0:
+        return 2
+    return 1
+
+
+def _cvss_score(value: Any) -> float | None:
+    """``value`` as a CVSS base score, or None when it is not a number in 0..10.
+
+    A CVSS *vector* string (``CVSS:3.1/AV:N/AC:L/...``) is not a score and is not
+    converted into one here: deriving a base score from a vector means implementing
+    the CVSS formula, and a record that carries a vector almost always carries
+    ``database_specific.severity`` too, which is read first.
+    """
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    return score if 0.0 <= score <= 10.0 else None
+
+
+def osv_severity(vulnerability: dict[str, Any], group_max: Any = None) -> int | None:
+    """One advisory's severity as 1-5, or None when the record publishes none.
+
+    Read in order of how directly each source states a severity for *this* advisory:
+    the record's own ``database_specific.severity`` label, then a numeric CVSS score
+    in its ``severity`` array, then the ``max_severity`` osv-scanner reports for the
+    group this advisory belongs to. None means the caller keeps its own default --
+    ``merge_findings._TOOL_SEVERITY``, the flat value every advisory carried before.
+
+    This matters because an osv candidate is tier A: no verifier ever revises its
+    severity, and ``rank.priority`` multiplies by it directly, so a flat constant
+    ranks a critical remote-code-execution advisory and a low-severity ReDoS alike.
+    """
+    specific = vulnerability.get("database_specific")
+    label = specific.get("severity") if isinstance(specific, dict) else None
+    if isinstance(label, str) and label.strip().upper() in OSV_SEVERITY:
+        return OSV_SEVERITY[label.strip().upper()]
+    scores = vulnerability.get("severity")
+    if isinstance(scores, list):
+        found = [
+            score for score in (
+                _cvss_score(entry.get("score")) for entry in scores if isinstance(entry, dict)
+            ) if score is not None
+        ]
+        if found:
+            return _cvss_band(max(found))
+    grouped = _cvss_score(group_max)
+    return _cvss_band(grouped) if grouped is not None else None
+
+
+def _osv_group_maxima(entry: dict[str, Any]) -> dict[str, Any]:
+    """``max_severity`` keyed by advisory id, from one package entry's ``groups``."""
+    out: dict[str, Any] = {}
+    for group in entry.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
+        for identifier in group.get("ids") or []:
+            out.setdefault(str(identifier), group.get("max_severity"))
+    return out
+
+
 def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
     """osv-scanner's results as fact-class dependency signals.
 
@@ -443,6 +528,22 @@ def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
     lockfile path with a null line range (spec 4.5). One signal per
     vulnerability per package, not one per package, so two advisories against
     one dependency stay separately actionable.
+
+    ``source.path`` is a real repository path when ``source.type`` says it is
+    one ("lockfile", "sbom", "directory") -- resolved with ``rel_path`` as
+    before, dropped when that fails, exactly as it always was. A "docker"
+    (``alpine:3.18``) or "git" (a URL) source is not a path at all -- both
+    carry a colon ``rel_path`` correctly rejects (its own docstring records
+    this as a known 4b consequence) -- so it is never sent through ``rel_path``
+    to begin with; instead it is carried as a fact about the image or
+    repository: the signal's ``file`` stays null (the shape 4b's merge already
+    gives a path-less rule fact) and the raw source string moves into
+    ``extra["source_path"]`` (with ``extra["source_type"]``) so the candidate
+    that reads it can still say what was scanned. Any other or missing
+    ``source.type`` falls back to the original file-path handling, so a real
+    payload nobody here has seen (osv-scanner's ``source.type`` set is not
+    contractually closed) degrades to the pre-existing behaviour rather than a
+    new one.
     """
     if not isinstance(payload, dict):
         return []
@@ -456,9 +557,27 @@ def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
         # of the four normalisers whose real payload has never been observed,
         # so the unexpected shape is likelier here than anywhere else.
         source = result.get("source")
-        rel = rel_path(root, source.get("path")) if isinstance(source, dict) else None
-        if rel is None:
+        if not isinstance(source, dict):
             continue
+        raw_path = source.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        source_type = str(source.get("type", ""))
+        non_file_extra: dict[str, Any] = {}
+        if source_type in _OSV_NON_FILE_SOURCE_TYPES:
+            rel = None
+            # A git source is a remote URL, and a checkout or submodule remote can carry
+            # ``user:password@`` userinfo that ``redaction.redact`` does not recognise
+            # (no key name for CREDENTIAL_RE, no issuer prefix for SECRET_TOKEN_RE), so
+            # it would otherwise reach tool-signals.json, and 4b's candidate prose,
+            # verbatim. The host and path are all the advisory needs.
+            non_file_extra = {
+                "source_type": source_type, "source_path": strip_url_userinfo(raw_path),
+            }
+        else:
+            rel = rel_path(root, raw_path)
+            if rel is None:
+                continue
         for entry in result.get("packages") or []:
             if not isinstance(entry, dict):
                 continue
@@ -467,10 +586,12 @@ def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
             name = str(package.get("name", ""))
             version = str(package.get("version", ""))
             ecosystem = str(package.get("ecosystem", ""))
+            group_maxima = _osv_group_maxima(entry)
             for vulnerability in entry.get("vulnerabilities") or []:
                 if not isinstance(vulnerability, dict):
                     continue
                 identifier = str(vulnerability.get("id", ""))
+                severity = osv_severity(vulnerability, group_maxima.get(identifier))
                 # A truthy non-list ``aliases`` -- a single id as a bare string
                 # -- would otherwise be iterated one character at a time into
                 # extra["aliases"].
@@ -491,6 +612,12 @@ def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
                             "package": name, "version": version,
                             "ecosystem": ecosystem, "id": identifier,
                             "aliases": aliases,
+                            # Absent rather than null when the advisory publishes no
+                            # severity: merge_findings reads this key only when it is a
+                            # usable 1-5 value, and an absent key says "this record had
+                            # none" more plainly than a null does.
+                            **({"severity": severity} if severity is not None else {}),
+                            **non_file_extra,
                         },
                     )
                 )
