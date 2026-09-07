@@ -323,12 +323,73 @@ class TestToolLeads:
 
         assert _tool_leads(self._docs([self._signal(file=None)]), "dead-code") == []
 
+    def test_a_signal_with_an_empty_file_is_dropped(self) -> None:
+        from plan_scan import _tool_leads
+
+        assert _tool_leads(self._docs([self._signal(file="")]), "dead-code") == []
+
+    def test_a_non_dict_signal_item_is_dropped(self) -> None:
+        """A malformed entry in ``signals`` (not an object) is skipped, not fatal."""
+        from plan_scan import _tool_leads
+
+        signals = ["not-a-dict", 42, self._signal()]
+        leads = _tool_leads(self._docs(signals), "dead-code")
+        assert [(lead.kind, lead.path, lead.line) for lead in leads] == [
+            ("tool", "src/pay/legacy.py", 8)
+        ]
+
+    def test_a_non_integer_line_start_becomes_a_lineless_lead(self) -> None:
+        """``line_start`` that is not an int (a string, here) is correct on inspection but
+        was unpinned by any test; the lead is still built, just without a line number."""
+        from plan_scan import _tool_leads
+
+        leads = _tool_leads(self._docs([self._signal(line_start="8")]), "dead-code")
+        assert [(lead.kind, lead.path, lead.line) for lead in leads] == [
+            ("tool", "src/pay/legacy.py", None)
+        ]
+
+    def test_a_signal_for_an_unrecognized_family_is_never_a_lead(self) -> None:
+        """A ``family`` value the skill does not know never equals any family name
+        each ``_raw_leads`` branch passes in, so it is dropped safely, not by luck."""
+        from plan_scan import _tool_leads
+
+        signals = [self._signal(family="not-a-real-family")]
+        assert _tool_leads(self._docs(signals), "dead-code") == []
+
     def test_absent_tool_signals_yield_no_leads_and_do_not_raise(self) -> None:
         from plan_scan import ScanDocs, _tool_leads
 
         assert _tool_leads(ScanDocs(inventory={"files": []}), "dead-code") == []
 
-    def test_the_tool_kind_is_capped_like_pattern_and_satd(self) -> None:
-        from plan_scan import KIND_CAPS, LEAD_CAP
+    def test_the_tool_kind_is_capped_like_pattern_and_satd(
+        self, corpus_workdirs: dict[str, tuple[Path, Path]]
+    ) -> None:
+        """Spec 4.6 caps tool leads at 40 per family, band files first, like pattern
+        and SATD (test_lead_cap_applies_to_pattern_leads_and_spares_the_other_kinds).
 
-        assert KIND_CAPS["tool"] == LEAD_CAP
+        This drives ``leads_for`` end to end rather than asserting the cap table
+        alone: a broken ``KIND_ORDER`` (finding 1) raises ``ValueError`` here, so
+        this test fails loudly against that regression instead of passing beside it.
+        """
+        from plan_scan import KIND_CAPS, LEAD_CAP, ScanDocs, leads_for, load_docs
+
+        _, workdir = corpus_workdirs["service-py"]
+        docs = load_docs(workdir)
+        band = docs.inventory["hotspot_band"][0]
+        signals = [
+            self._signal(file=f"src/z{i}.py", line_start=1) for i in range(60)
+        ] + [self._signal(file=band, line_start=1)]
+        inflated = ScanDocs(
+            inventory=docs.inventory,
+            coupling=docs.coupling,
+            patterns=docs.patterns,
+            rules=docs.rules,
+            tool_signals={"schema_version": 2, "tools": {}, "signals": signals},
+        )
+        leads = leads_for("dead-code", inflated, DEFAULTS)
+        tools = [lead for lead in leads if lead.kind == "tool"]
+        assert len(tools) == KIND_CAPS["tool"] == LEAD_CAP
+        # Band files first within the capped kind, so the cap never drops one of them.
+        in_band = [lead.path in set(docs.inventory["hotspot_band"]) for lead in tools]
+        assert in_band == sorted(in_band, reverse=True)
+        assert band in [lead.path for lead in tools]

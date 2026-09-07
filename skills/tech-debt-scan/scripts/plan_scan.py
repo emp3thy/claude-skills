@@ -50,7 +50,8 @@ KIND_CAPS: Final[dict[str, int]] = {
     "pattern": LEAD_CAP, "satd": LEAD_CAP, "inventory": LEAD_CAP, "tool": LEAD_CAP,
 }
 KIND_ORDER: Final[tuple[str, ...]] = (
-    "hotspot", "coupling", "pattern", "satd", "artefact", "cycle", "inventory", "docs", "tests",
+    "hotspot", "coupling", "pattern", "satd", "artefact", "cycle", "inventory", "tool", "docs",
+    "tests",
 )
 KIND_TITLE: Final[dict[str, str]] = {
     "hotspot": "Hotspot-band files (score)",
