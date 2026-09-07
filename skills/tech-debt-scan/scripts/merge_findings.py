@@ -1,10 +1,11 @@
 """Turn scout output and rule findings into one verified candidate list (spec 4.7).
 
 Reads ``scan-plan.json`` (which scout files to expect), ``scouts/<family>.json``,
-``rule-findings.json``, ``inventory.json`` and ``patterns.json`` from
-``--workdir``, and ``.tech-debt.yaml`` from the repository root. Writes
-``candidates.json``. Coupling is not read here: ``coupling_degree`` reaches a
-candidate through the inventory signals ``evidence.signals_for`` attaches.
+``rule-findings.json``, ``inventory.json``, ``patterns.json`` and
+``tool-signals.json`` (absent means no tool signals) from ``--workdir``, and
+``.tech-debt.yaml`` from the repository root. Writes ``candidates.json``.
+Coupling is not read here: ``coupling_degree`` reaches a candidate through the
+inventory signals ``evidence.signals_for`` attaches.
 
 Steps, in order: read each family's scout file (one missing is counted under
 ``stats[family].missing_file``, one present but unreadable or malformed JSON
@@ -17,10 +18,14 @@ normalise paths; verify every quote on disk through
 ``open_questions`` with reason ``quote not found``); fingerprint on the primary
 evidence; cluster same-family, same-file findings within ``CLUSTER_WINDOW``
 lines; corroborate from pattern leads of the candidate's own family, SATD
-markers, rule findings, coupling and the hotspot band; attach inventory
-signals; apply suppressions and path-class disables; redact every quote, title
-and note. ``missing_file``, ``read_failed`` and ``dropped_reasons`` are all
-out-of-band stat keys, appended only when they apply.
+markers, rule findings, coupling and the hotspot band; corroborate again from
+tool signals of the candidate's own family and file (``tool:<name>`` in
+``confirmed_by``, added once per candidate list is settled and before any
+tool-derived candidates exist, so a signal can never corroborate the finding
+it raised); attach inventory signals; apply suppressions and path-class
+disables; redact every quote, title and note. ``missing_file``,
+``read_failed`` and ``dropped_reasons`` are all out-of-band stat keys,
+appended only when they apply.
 
 Rule findings enter as tier A candidates with ``source: "rule"`` and are never
 merged into a scout candidate: they corroborate it (``rule:<id>`` in
@@ -311,6 +316,43 @@ def _corroborate(
     cand["confirmed_by"] = sorted(sources)
 
 
+def corroborate_with_tools(
+    candidates: list[dict[str, Any]], signals: list[dict[str, Any]]
+) -> None:
+    """Add a ``tool:<name>`` token where an inference signal backs a candidate.
+
+    This token is the whole mechanism by which the 2.3 caps lift:
+    ``apply_verdicts.family_cap`` returns no cap for duplication, dead-code,
+    architecture, test-quality, dependency-debt and security once it is
+    present. Matching is same family, same file — a tool that flags the same
+    file for the same reason is a second opinion, and line proximity is not
+    required because a tool's range and a scout's rarely coincide.
+
+    Fact-class signals are excluded: those become candidates in their own
+    right, and letting one both raise a finding and vouch for it would make a
+    single source look like two.
+    """
+    by_family: dict[tuple[str, str], set[str]] = {}
+    for item in signals:
+        if not isinstance(item, dict) or item.get("fact"):
+            continue
+        path, family, tool = item.get("file"), item.get("family"), item.get("tool")
+        if not isinstance(path, str) or not path or not family or not tool:
+            continue
+        by_family.setdefault((str(family), path), set()).add(str(tool))
+    if not by_family:
+        return
+    for cand in candidates:
+        evidence = cand.get("evidence") or []
+        if not evidence:
+            continue
+        key = (str(cand.get("family")), str(evidence[0].get("file")))
+        tools = by_family.get(key)
+        if not tools:
+            continue
+        cand["confirmed_by"] = sorted(set(cand["confirmed_by"]) | {f"tool:{t}" for t in tools})
+
+
 # --- suppressions and disables --------------------------------------------------------
 
 
@@ -460,6 +502,12 @@ def merge(
             continue
         _redact_candidate(cand)
         kept.append(cand)
+    # Tool corroboration runs over ``kept`` exactly as the scout/pattern/rule pass above
+    # left it -- before any fact-class tool signal becomes a candidate of its own (a
+    # later phase, appended to the candidate list after this point) and could be read as
+    # vouching for the very finding it raised.
+    tool_signals = (_read_json(workdir / "tool-signals.json") or {}).get("signals") or []
+    corroborate_with_tools(kept, tool_signals)
     rule_kept: list[dict[str, Any]] = []
     for cand in rule_findings:
         family = str(cand["family"])

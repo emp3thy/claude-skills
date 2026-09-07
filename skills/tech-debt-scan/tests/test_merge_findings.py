@@ -465,3 +465,129 @@ def test_pattern_lead_corroborates_only_a_candidate_of_its_own_family(tmp_path: 
     assert "pattern:error-masking:swallowed-catch" in cand["confirmed_by"]
     assert "pattern:dead-code:flag-sdk" not in cand["confirmed_by"]
     assert not any(c.startswith("pattern:dead-code") for c in cand["confirmed_by"])
+
+
+def test_tool_signal_on_disk_corroborates_a_merged_candidate(tmp_path: Path) -> None:
+    """Drives ``merge`` itself with a ``tool-signals.json`` fixture on disk, rather than
+    hand-constructing candidates: this is the only test that exercises the disk-read
+    path (reading the file, pulling out ``signals``, and wiring the call site into
+    ``merge``), so a broken read or an unwired call site cannot hide behind tests that
+    call ``corroborate_with_tools`` directly."""
+    repo, workdir = _repo(tmp_path)
+    _scout(
+        workdir,
+        "error-masking",
+        [_finding("error-masking", "swallowed", "src/pay.py", 7, 8, SWALLOW)],
+    )
+    _scout(workdir, "security", [])
+    write_json(
+        workdir / "tool-signals.json",
+        {
+            "schema_version": 1,
+            "tools": [],
+            "signals": [
+                {
+                    "tool": "flake8", "family": "error-masking", "kind": "lint",
+                    "file": "src/pay.py", "line_start": 7, "line_end": 8,
+                    "message": "bare except", "fact": False, "extra": {},
+                },
+                {
+                    "tool": "vulture", "family": "dead-code", "kind": "unused",
+                    "file": "src/pay.py", "line_start": 7, "line_end": 8,
+                    "message": "unreachable", "fact": False, "extra": {},
+                },
+            ],
+        },
+    )
+    doc = merge(workdir, repo, DEFAULTS)
+    cand = next(c for c in doc["candidates"] if c["source"] == "scout")
+    assert "tool:flake8" in cand["confirmed_by"]
+    assert not any(c.startswith("tool:vulture") for c in cand["confirmed_by"]), (
+        "a different family's signal must not corroborate"
+    )
+
+
+class TestToolCorroboration:
+    def _signal(self, **over) -> dict:
+        base = {
+            "tool": "jscpd", "family": "duplication", "kind": "clone",
+            "file": "src/util/format.ts", "line_start": 1, "line_end": 8,
+            "message": "8 duplicated lines", "fact": False, "extra": {},
+        }
+        base.update(over)
+        return base
+
+    def _candidate(self, **over) -> dict:
+        base = {
+            "fingerprint": "f" * 16, "family": "duplication",
+            "evidence": [{"file": "src/util/format.ts", "line_start": 2, "line_end": 6,
+                          "quote": "x", "quote_verified": True}],
+            "confirmed_by": ["scout:duplication"],
+            "signals": {}, "source": "scout",
+        }
+        base.update(over)
+        return base
+
+    def test_a_same_family_same_file_signal_adds_its_token(self) -> None:
+        from merge_findings import corroborate_with_tools
+
+        cand = self._candidate()
+        corroborate_with_tools([cand], [self._signal()])
+        assert "tool:jscpd" in cand["confirmed_by"]
+
+    def test_a_different_family_does_not_corroborate(self) -> None:
+        from merge_findings import corroborate_with_tools
+
+        cand = self._candidate()
+        corroborate_with_tools([cand], [self._signal(family="dead-code", tool="vulture")])
+        assert cand["confirmed_by"] == ["scout:duplication"]
+
+    def test_a_different_file_does_not_corroborate(self) -> None:
+        from merge_findings import corroborate_with_tools
+
+        cand = self._candidate()
+        corroborate_with_tools([cand], [self._signal(file="src/other.ts")])
+        assert cand["confirmed_by"] == ["scout:duplication"]
+
+    def test_a_fact_class_signal_does_not_corroborate_here(self) -> None:
+        """Fact-class signals become candidates; corroborating as well would let
+        one signal both raise a finding and vouch for it."""
+        from merge_findings import corroborate_with_tools
+
+        cand = self._candidate()
+        corroborate_with_tools([cand], [self._signal(fact=True)])
+        assert cand["confirmed_by"] == ["scout:duplication"]
+
+    def test_the_token_is_added_once_for_two_signals_from_one_tool(self) -> None:
+        from merge_findings import corroborate_with_tools
+
+        cand = self._candidate()
+        corroborate_with_tools([cand], [self._signal(), self._signal(line_start=20)])
+        assert cand["confirmed_by"].count("tool:jscpd") == 1
+
+    def test_confirmed_by_stays_sorted(self) -> None:
+        from merge_findings import corroborate_with_tools
+
+        cand = self._candidate(confirmed_by=["scout:duplication", "rule:ci.pinning"])
+        corroborate_with_tools([cand], [self._signal()])
+        assert cand["confirmed_by"] == sorted(cand["confirmed_by"])
+
+    def test_a_signal_with_no_file_corroborates_nothing(self) -> None:
+        from merge_findings import corroborate_with_tools
+
+        cand = self._candidate()
+        corroborate_with_tools([cand], [self._signal(file=None)])
+        assert cand["confirmed_by"] == ["scout:duplication"]
+
+
+class TestToolTokenLiftsTheCap:
+    def test_a_duplication_finding_reaches_A_only_with_a_tool_token(self) -> None:
+        """family_cap already returns None for duplication when a tool: token is
+        present; this pins that the token merge adds is the one it reads."""
+        from apply_verdicts import family_cap
+
+        without = {"family": "duplication", "confirmed_by": ["scout:duplication"], "signals": {}}
+        with_tool = {"family": "duplication",
+                     "confirmed_by": ["scout:duplication", "tool:jscpd"], "signals": {}}
+        assert family_cap(without) == "B"
+        assert family_cap(with_tool) is None
