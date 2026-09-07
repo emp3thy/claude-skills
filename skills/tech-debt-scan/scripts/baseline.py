@@ -353,25 +353,50 @@ def record(
     return doc
 
 
+_GITIGNORE_METACHAR: Final[re.Pattern[str]] = re.compile(r"[#!\[\]*?]")
+
+
+def _escape_gitignore(segment: str) -> str:
+    """Backslash-escape gitignore metacharacters in one path segment.
+
+    ``#`` and ``!`` are only special as a line's first character, but the
+    derived lines place a directory or file name right after the leading
+    ``!`` (or, for the middle line, at the very start), so an unescaped
+    ``#hash`` or ``!important`` name would turn that line into a comment or
+    a negation instead of matching the literal name. ``[``, ``]``, ``*`` and
+    ``?`` are glob wildcards wherever they appear. Escaping any of the six
+    where they are not actually special is harmless: gitignore's own escape
+    rule always yields the literal character.
+    """
+    return _GITIGNORE_METACHAR.sub(lambda m: "\\" + m.group(), segment)
+
+
 def _triple(rel: str) -> tuple[str, ...]:
     """The three gitignore lines for a baseline at ``rel`` (posix, root-relative).
 
     At the default location (``.tech-debt/baseline.json``) this reproduces
     ``TRIPLE`` byte for byte; at any other location under some directory it
     is the same three-line pattern derived from that directory and file
-    name, so a baseline configured elsewhere is tracked correctly too.
+    name (each path segment escaped, see ``_escape_gitignore``), so a
+    baseline configured elsewhere is tracked correctly too.
     """
     dir_part, sep, name = rel.rpartition("/")
     if not sep:
         raise BaselineError(f"{rel}: baseline must live inside a directory to be tracked")
-    return (f"!{dir_part}/", f"{dir_part}/*", f"!{dir_part}/{name}")
+    dir_escaped = "/".join(_escape_gitignore(seg) for seg in dir_part.split("/"))
+    name_escaped = _escape_gitignore(name)
+    return (f"!{dir_escaped}/", f"{dir_escaped}/*", f"!{dir_escaped}/{name_escaped}")
 
 
 def ensure_gitignore_triple(root: Path, baseline_path: Path) -> str:
     """Append the triple once when git ignores the baseline (spec 4.10).
 
-    Returns ``"appended"``, ``"present"`` (already tracked, or the triple is
-    already there) or ``"no-git"``.
+    Returns ``"appended"``, ``"still-ignored"`` (the triple was appended --
+    it is the correct pattern for this baseline's location -- but the
+    baseline remains ignored, typically because an ancestor directory is
+    itself wholly ignored and no per-child ``!`` rule can undo that),
+    ``"present"`` (already tracked, or the triple is already there) or
+    ``"no-git"``.
     """
     if shutil.which("git") is None:
         return "no-git"
@@ -389,7 +414,9 @@ def ensure_gitignore_triple(root: Path, baseline_path: Path) -> str:
     block = "\n".join((TRIPLE_COMMENT, *triple)) + "\n"
     prefix = existing if existing.endswith("\n") or not existing else existing + "\n"
     gitignore.write_text(prefix + block, encoding="utf-8")
-    return "appended"
+    recheck = subprocess.run(["git", "-C", str(root), "check-ignore", "-q", rel],
+                             capture_output=True, check=False)
+    return "still-ignored" if recheck.returncode == 0 else "appended"
 
 
 def _run_record(args: argparse.Namespace) -> int:
@@ -423,6 +450,9 @@ def _run_record(args: argparse.Namespace) -> int:
     print(f"wrote {baseline_path}; {len(doc['findings'])} findings recorded")
     if outcome == "appended":
         print("appended the gitignore triple")
+    elif outcome == "still-ignored":
+        print("appended the gitignore triple, but the baseline is still ignored; "
+              "an ancestor directory is ignored and you must un-ignore it by hand")
     return 0
 
 

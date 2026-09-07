@@ -18,6 +18,12 @@ GOLDEN_VERIFIED = Path(__file__).parent / "golden" / "service-py" / "verified.js
 
 TODAY = "2026-09-07"
 
+# Distinct from TODAY on purpose: TestRunRecordCLI drives --today through argparse
+# and asserts it lands in the baseline, so its pin must differ from the real
+# wall-clock date, or a mutant that ignores args.today and reads the clock could
+# pass by coincidence on the day the test happens to run.
+CLI_TODAY = "2026-01-15"
+
 
 def _finding(**over) -> dict:
     base = {
@@ -610,6 +616,29 @@ class TestRecord:
         assert doc["findings"]["aaaaaaaaaaaaaaaa"]["bundle"] == "chore-empty-catch-2026-09-07"
 
 
+class TestTriple:
+    """Direct, git-free checks on the derived lines themselves."""
+
+    def test_default_path_matches_TRIPLE_byte_for_byte(self) -> None:
+        from baseline import TRIPLE, _triple
+
+        assert _triple(".tech-debt/baseline.json") == TRIPLE
+
+    def test_escapes_a_character_class_metacharacter(self) -> None:
+        from baseline import _triple
+
+        assert _triple("[weird]/baseline.json") == (
+            "!\\[weird\\]/", "\\[weird\\]/*", "!\\[weird\\]/baseline.json",
+        )
+
+    def test_escapes_a_leading_hash(self) -> None:
+        from baseline import _triple
+
+        assert _triple("#hash/baseline.json") == (
+            "!\\#hash/", "\\#hash/*", "!\\#hash/baseline.json",
+        )
+
+
 class TestGitignoreTriple:
     @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
     def test_appends_the_triple_once_and_the_baseline_becomes_tracked(self, tmp_path: Path) -> None:
@@ -669,6 +698,97 @@ class TestGitignoreTriple:
 
         assert ensure_gitignore_triple(tmp_path, baseline) == "present"
         assert (tmp_path / ".gitignore").read_text(encoding="utf-8") == text
+
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+    def test_an_ancestor_wholly_ignored_directory_reports_still_ignored(
+        self, tmp_path: Path
+    ) -> None:
+        """`build/` is wholly ignored, so `!build/scan/` cannot re-include a path
+        under it -- git prunes the ignored ancestor before it ever looks at the
+        child rule. The triple is still the right pattern for `build/scan/` and
+        is still appended, but the baseline stays ignored, and
+        `ensure_gitignore_triple` must say so rather than claim "appended"."""
+        from baseline import ensure_gitignore_triple
+
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        (tmp_path / ".gitignore").write_text("build/\n", encoding="utf-8")
+        baseline = tmp_path / "build" / "scan" / "baseline.json"
+        baseline.parent.mkdir(parents=True)
+        baseline.write_text("{}", encoding="utf-8")
+        ignored = subprocess.run(
+            ["git", "-C", str(tmp_path), "check-ignore", "-q", "build/scan/baseline.json"]
+        )
+        assert ignored.returncode == 0, "precondition: the baseline starts ignored"
+
+        assert ensure_gitignore_triple(tmp_path, baseline) == "still-ignored"
+        text = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+        assert text.endswith("!build/scan/\nbuild/scan/*\n!build/scan/baseline.json\n"), (
+            "the lines are correct and harmless, so they stay appended"
+        )
+        still = subprocess.run(
+            ["git", "-C", str(tmp_path), "check-ignore", "-q", "build/scan/baseline.json"]
+        )
+        assert still.returncode == 0, "the baseline is still ignored -- the ancestor wins"
+
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+    def test_a_character_class_metacharacter_directory_name_is_escaped(
+        self, tmp_path: Path
+    ) -> None:
+        """An unescaped `[weird]` is a gitignore character class, not the literal
+        directory name -- the derived lines must escape it to actually match."""
+        from baseline import ensure_gitignore_triple
+
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        (tmp_path / ".gitignore").write_text("\\[weird]/\n", encoding="utf-8")
+        baseline = tmp_path / "[weird]" / "baseline.json"
+        baseline.parent.mkdir()
+        baseline.write_text("{}", encoding="utf-8")
+        ignored = subprocess.run(
+            ["git", "-C", str(tmp_path), "check-ignore", "-q", "[weird]/baseline.json"]
+        )
+        assert ignored.returncode == 0, "precondition: the baseline starts ignored"
+
+        assert ensure_gitignore_triple(tmp_path, baseline) == "appended"
+        text = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+        assert text.endswith("!\\[weird\\]/\n\\[weird\\]/*\n!\\[weird\\]/baseline.json\n")
+        tracked = subprocess.run(
+            ["git", "-C", str(tmp_path), "check-ignore", "-q", "[weird]/baseline.json"]
+        )
+        assert tracked.returncode == 1, "the baseline is no longer ignored"
+
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+    def test_a_leading_hash_directory_name_is_escaped_and_the_sibling_stays_ignored(
+        self, tmp_path: Path
+    ) -> None:
+        """An unescaped `#hash/*` line is a gitignore comment, so it silently
+        fails to re-ignore the rest of the directory -- a sibling file leaks out
+        untracked. Escaping the leading `#` fixes both the baseline and the
+        sibling."""
+        from baseline import ensure_gitignore_triple
+
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        (tmp_path / ".gitignore").write_text("\\#hash/\n", encoding="utf-8")
+        baseline_dir = tmp_path / "#hash"
+        baseline_dir.mkdir()
+        baseline = baseline_dir / "baseline.json"
+        baseline.write_text("{}", encoding="utf-8")
+        (baseline_dir / "other.json").write_text("{}", encoding="utf-8")
+        ignored = subprocess.run(
+            ["git", "-C", str(tmp_path), "check-ignore", "-q", "#hash/baseline.json"]
+        )
+        assert ignored.returncode == 0, "precondition: the baseline starts ignored"
+
+        assert ensure_gitignore_triple(tmp_path, baseline) == "appended"
+        text = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+        assert text.endswith("!\\#hash/\n\\#hash/*\n!\\#hash/baseline.json\n")
+        tracked = subprocess.run(
+            ["git", "-C", str(tmp_path), "check-ignore", "-q", "#hash/baseline.json"]
+        )
+        assert tracked.returncode == 1, "the baseline is no longer ignored"
+        other = subprocess.run(
+            ["git", "-C", str(tmp_path), "check-ignore", "-q", "#hash/other.json"]
+        )
+        assert other.returncode == 0, "the sibling file stays ignored"
 
     @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
     def test_an_untracked_baseline_needs_no_triple(self, tmp_path: Path) -> None:
@@ -749,14 +869,14 @@ class TestRunRecordCLI:
 
         exit_code = _main([
             "record", "--workdir", str(workdir), "--design", str(design),
-            "--root", str(root), "--today", TODAY,
+            "--root", str(root), "--today", CLI_TODAY,
         ])
         assert exit_code == 0
 
         doc = load_baseline(root / ".tech-debt" / "baseline.json")
         assert doc is not None
         assert doc["preset"] == "quick-wins"
-        assert doc["last_scan"] == TODAY
+        assert doc["last_scan"] == CLI_TODAY
         approved = [e for e in doc["findings"].values() if e["status"] == "approved"]
         assert len(approved) == 1
         assert approved[0]["file"] is not None, "matched against a real verified.json entry"
@@ -777,6 +897,38 @@ class TestRunRecordCLI:
         ])
         assert exit_code == 2
         assert "verified.json" in capsys.readouterr().err
+
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+    def test_ancestor_ignored_baseline_reports_still_ignored_with_guidance(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """When ensure_gitignore_triple can't win against a wholly ignored
+        ancestor, _run_record must say so instead of the usual "appended"."""
+        from baseline import _main
+
+        root = tmp_path
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text("build/\n", encoding="utf-8")
+        workdir = root / ".tech-debt"
+        workdir.mkdir()
+        shutil.copy(GOLDEN_VERIFIED, workdir / "verified.json")
+        design = root / "design.md"
+        design.write_text(
+            GOLDEN_DESIGN.read_text(encoding="utf-8").replace(
+                "status: pending", "status: approved", 1
+            ),
+            encoding="utf-8",
+        )
+        baseline = root / "build" / "scan" / "baseline.json"
+
+        exit_code = _main([
+            "record", "--workdir", str(workdir), "--design", str(design),
+            "--root", str(root), "--baseline", str(baseline), "--today", CLI_TODAY,
+        ])
+        assert exit_code == 0
+        out = capsys.readouterr().out
+        assert "still" in out and "ignored" in out
+        assert "un-ignore" in out or "by hand" in out
 
     def test_malformed_config_exits_2_not_a_traceback(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
