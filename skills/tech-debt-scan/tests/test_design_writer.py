@@ -174,7 +174,14 @@ def _write_workdir(workdir: Path, **overrides: Any) -> Path:
     return workdir
 
 
-def _inputs(tmp_path: Path, **overrides: Any) -> Any:
+def _inputs(tmp_path: Path, *, diff: dict[str, Any] | None = None, **overrides: Any) -> Any:
+    """``_write_workdir`` + ``load_inputs``, with a ``diff`` keyword for ``diff.json``.
+
+    ``diff=None`` (the default) writes no ``diff.json``, identical to omitting the
+    file entirely -- ``_write_workdir`` already skips writing any override whose
+    value is ``None``, so every existing call site is unaffected by this keyword.
+    """
+    overrides = {**overrides, "diff.json": diff}
     return load_inputs(_write_workdir(tmp_path / "wd", **overrides))
 
 
@@ -1150,3 +1157,50 @@ def test_the_slug_is_built_from_the_redacted_title(tmp_path: Path) -> None:
     assert doc["findings"][0]["slug"] == slug, "the twin carries the same slug"
     assert key not in text.upper(), "uppercasing a slug segment must not recover the key"
     assert key not in json.dumps(doc).upper()
+
+
+# --- diff.json: new/resolved, suppressed count, suppressed findings hidden -----
+
+
+def _diff_doc(**overrides: Any) -> dict[str, Any]:
+    doc: dict[str, Any] = {
+        "schema_version": 2, "baseline_found": True, "status": {}, "suppressed": [],
+        "counts": {"new": 0, "unchanged": 0, "moved": 0, "edited": 0,
+                   "resolved": 0, "suppressed": 0, "expired": 0},
+    }
+    doc.update(overrides)
+    return doc
+
+
+class TestDiffInFrontmatter:
+    def test_new_and_resolved_counts_come_from_the_diff(self, tmp_path: Path) -> None:
+        diff = _diff_doc(counts={"new": 3, "unchanged": 1, "moved": 0, "edited": 0,
+                                  "resolved": 2, "suppressed": 0, "expired": 0})
+        text = render_design(_inputs(tmp_path, diff=diff), SCAN_DATE)
+        assert "  new: 3\n" in text
+        assert "  resolved: 2\n" in text
+
+    def test_without_a_diff_document_the_counts_are_omitted_as_before(
+        self, tmp_path: Path
+    ) -> None:
+        text = render_design(_inputs(tmp_path, diff=None), SCAN_DATE)
+        assert "  new:" not in text
+        assert "  resolved:" not in text
+
+    def test_a_suppressed_finding_is_not_in_the_body_but_is_counted(
+        self, tmp_path: Path
+    ) -> None:
+        """The victim is TOP_FP, the sole top-N finding -- it would otherwise render
+        in the ``# Top`` section, so the assertion proves it left the body entirely
+        rather than merely being absent from the tier C table."""
+        victim = TOP_FP
+        diff = _diff_doc(
+            suppressed=[{"fingerprint": victim, "status": "rejected", "reason": "by design"}],
+            counts={"new": 0, "unchanged": 0, "moved": 0, "edited": 0,
+                    "resolved": 0, "suppressed": 1, "expired": 0},
+        )
+        out = tmp_path / "design.md"
+        write_design(_inputs(tmp_path, diff=diff), SCAN_DATE, out)
+        parsed = parse_design(out)
+        assert victim not in {f["fingerprint"] for f in parsed["findings"]}
+        assert "  suppressed: 1\n" in out.read_text(encoding="utf-8")
