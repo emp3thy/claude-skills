@@ -61,7 +61,10 @@ DEFAULTS: Final[dict[str, Any]] = {
     },
     "scout_cap": 12,
     "top": 5,
-    "chunking": {"max_files": 1500, "max_loc": 200000},
+    # ``max_modules`` bounds a chunked plan: entries are at most families x modules
+    # and SKILL.md dispatches one agent per entry, so without it a 40-directory
+    # monorepo plans 40x the scout budget of spec 7. See plan_scan._select_modules.
+    "chunking": {"max_files": 1500, "max_loc": 200000, "max_modules": 8},
     "verifier": {
         "batch_size": 6,
         "context_lines": 30,

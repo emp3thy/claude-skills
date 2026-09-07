@@ -65,10 +65,11 @@ EXPECTED_RUN: dict[str, set[str]] = {
 def test_plan_shape_and_default_set(corpus_workdirs: dict[str, tuple[Path, Path]]) -> None:
     _, workdir = corpus_workdirs["service-py"]
     plan, prompts = build_plan(workdir, DEFAULTS, families=None, top=None)
-    assert list(plan) == ["schema_version", "set", "top", "chunked", "thresholds", "entries",
-                          "families_run", "families_skipped"]
+    assert list(plan) == ["schema_version", "set", "top", "chunked", "thresholds", "modules",
+                          "modules_dropped", "entries", "families_run", "families_skipped"]
     assert plan["schema_version"] == 2 and plan["set"] == "default" and plan["top"] == 5
     assert plan["chunked"] is False and plan["thresholds"] == DEFAULTS["chunking"]
+    assert plan["modules"] == [] and plan["modules_dropped"] == []
     for entry in plan["entries"]:
         assert list(entry) == ["family", "module", "prompt", "output", "leads"]
         assert entry["module"] is None
@@ -532,11 +533,20 @@ def test_chunk_thresholds_halve_only_for_the_deep_set() -> None:
     from plan_scan import _chunk_thresholds
 
     cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 100, "max_loc": 1000, "max_modules": 4}
+    full = {"max_files": 100, "max_loc": 1000, "max_modules": 4}
+    assert _chunk_thresholds(cfg, "default") == full
+    assert _chunk_thresholds(cfg, "quick") == full
+    assert _chunk_thresholds(cfg, "explicit") == full
+    # max_modules bounds the dispatch and does not halve: a deep scan is the run
+    # that most needs the bound, not the one that should get a tighter one.
+    assert _chunk_thresholds(cfg, "deep") == {"max_files": 50, "max_loc": 500, "max_modules": 4}
+    # A ``chunking`` map written before ``max_modules`` existed still plans a
+    # bounded scan rather than raising.
     cfg["chunking"] = {"max_files": 100, "max_loc": 1000}
-    assert _chunk_thresholds(cfg, "default") == {"max_files": 100, "max_loc": 1000}
-    assert _chunk_thresholds(cfg, "quick") == {"max_files": 100, "max_loc": 1000}
-    assert _chunk_thresholds(cfg, "explicit") == {"max_files": 100, "max_loc": 1000}
-    assert _chunk_thresholds(cfg, "deep") == {"max_files": 50, "max_loc": 500}
+    assert _chunk_thresholds(cfg, "default")["max_modules"] == (
+        DEFAULTS["chunking"]["max_modules"]
+    )
 
 
 def test_below_both_thresholds_gives_an_unchunked_plan_with_todays_entries(
@@ -547,7 +557,9 @@ def test_below_both_thresholds_gives_an_unchunked_plan_with_todays_entries(
     cfg["chunking"] = {"max_files": 1000, "max_loc": 100000}
     plan, prompts = build_plan(workdir, cfg, families="default", top=None)
     assert plan["chunked"] is False
-    assert plan["thresholds"] == cfg["chunking"]
+    assert plan["thresholds"] == dict(
+        cfg["chunking"], max_modules=DEFAULTS["chunking"]["max_modules"]
+    )
     entry = next(e for e in plan["entries"] if e["family"] == "half-finished")
     assert entry["module"] is None
     assert entry["prompt"] == "prompts/scout-half-finished.md"
@@ -623,6 +635,83 @@ def test_lead_cap_applies_per_module_not_once_across_the_whole_repository(
     assert hf_leads_by_module == {"alpha": 22, "beta": 22, "gamma": 5}
 
 
+def test_max_modules_bounds_the_dispatch_and_names_what_it_dropped(
+    chunk_tree: tuple[Path, Path],
+) -> None:
+    """Nothing else bounds a chunked plan: entries are families x modules and one
+    agent is dispatched per entry, so a 40-directory monorepo -- the size chunking
+    exists for -- would plan 14x40 scouts against spec 7's "14, more with
+    chunking". The dropped modules are named with their lead counts, because a
+    scan that quietly stops looking at part of the repository is worse than one
+    that plans too many agents."""
+    _, workdir = chunk_tree
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 6, "max_loc": 100000, "max_modules": 2}
+    plan, prompts = build_plan(workdir, cfg, families="default", top=None)
+    assert plan["chunked"] is True
+    assert len(plan["modules"]) == 2
+    assert {e["module"] for e in plan["entries"]} == set(plan["modules"])
+    dropped = {d["module"]: d["leads"] for d in plan["modules_dropped"]}
+    assert set(plan["modules"]) | set(dropped) == {"alpha", "beta", "gamma", "root"}
+    assert all(count > 0 for count in dropped.values()), "a dropped module held real leads"
+    assert len(prompts) == len(plan["entries"])
+    again, _ = build_plan(workdir, cfg, families="default", top=None)
+    assert again == plan, "the selection is deterministic for identical inputs"
+
+
+def test_a_bound_that_does_not_bind_changes_nothing(chunk_tree: tuple[Path, Path]) -> None:
+    """The ordinary chunked repository -- a handful of top-level directories -- plans
+    exactly what it planned before the bound existed, in the same order."""
+    _, workdir = chunk_tree
+    loose = deepcopy(DEFAULTS)
+    loose["chunking"] = {"max_files": 6, "max_loc": 100000, "max_modules": 50}
+    plan, _ = build_plan(workdir, loose, families="default", top=None)
+    assert plan["modules_dropped"] == []
+    assert plan["modules"] == ["alpha", "beta", "gamma", "root"]
+
+
+def test_a_family_left_with_no_scanned_module_is_skipped_not_reported_as_run(
+    chunk_tree: tuple[Path, Path],
+) -> None:
+    """doc-drift's leads all sit in modules the bound drops here. Leaving it in
+    ``families_run`` would have ``design.md`` claim a family ran that dispatched no
+    agent at all; ``merge_findings`` would never see an entry for it either."""
+    _, workdir = chunk_tree
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 6, "max_loc": 100000, "max_modules": 2}
+    plan, _ = build_plan(workdir, cfg, families="default", top=None)
+    assert "doc-drift" not in plan["families_run"]
+    assert not [e for e in plan["entries"] if e["family"] == "doc-drift"]
+    skipped = {s["family"]: s["reason"] for s in plan["families_skipped"]}
+    assert skipped["doc-drift"] == "no leads in the scanned modules"
+    assert [s["family"] for s in plan["families_skipped"]] == [
+        f for f in FAMILIES if f in skipped
+    ], "families_skipped stays in FAMILIES order"
+
+
+def test_select_modules_ranks_by_hotspot_band_then_leads_then_name() -> None:
+    """The hotspot band is the scan's own statement of where debt concentrates, so
+    it decides first; lead count breaks a tie and the plan order breaks that."""
+    from plan_scan import Lead, ScanDocs, _select_modules
+
+    def leads(*paths: str) -> list[Lead]:
+        return [Lead(kind="satd", path=p, line=1, text="t") for p in paths]
+
+    family_leads = {
+        "half-finished": leads("banded/a.py", "big/a.py", "big/b.py", "big/c.py",
+                               "small/a.py", "tiny/a.py"),
+    }
+    docs = ScanDocs(inventory={"files": [], "hotspot_band": ["banded/a.py"]})
+    kept, dropped = _select_modules(family_leads, docs, 2)
+    # banded holds the only band file; big wins the rest on lead count; the
+    # survivors come back in plan order, not rank order.
+    assert kept == ["banded", "big"]
+    assert dropped == ["small", "tiny"]
+    assert _select_modules(family_leads, docs, 4) == (
+        ["banded", "big", "small", "tiny"], []
+    )
+
+
 def test_families_run_lists_a_chunked_family_once_not_once_per_module(
     chunk_tree: tuple[Path, Path],
 ) -> None:
@@ -646,9 +735,12 @@ def test_deep_set_halves_thresholds_so_a_repo_between_them_chunks_only_under_dee
     default_plan, _ = build_plan(workdir, cfg, families="default", top=None)
     deep_plan, _ = build_plan(workdir, cfg, families="deep", top=None)
     assert default_plan["chunked"] is False
-    assert default_plan["thresholds"] == {"max_files": 20, "max_loc": 100000}
+    modules = DEFAULTS["chunking"]["max_modules"]
+    assert default_plan["thresholds"] == {"max_files": 20, "max_loc": 100000,
+                                          "max_modules": modules}
     assert deep_plan["chunked"] is True
-    assert deep_plan["thresholds"] == {"max_files": 10, "max_loc": 50000}
+    assert deep_plan["thresholds"] == {"max_files": 10, "max_loc": 50000,
+                                       "max_modules": modules}
 
 
 def test_explicit_family_with_no_leads_stays_a_single_whole_repo_entry_when_chunked(

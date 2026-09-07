@@ -5,8 +5,16 @@
   "chunked": true,
   "thresholds": {
     "max_files": 6,
-    "max_loc": 100000
+    "max_loc": 100000,
+    "max_modules": 8
   },
+  "modules": [
+    "alpha",
+    "beta",
+    "gamma",
+    "root"
+  ],
+  "modules_dropped": [],
   "entries": [
     {
       "family": "half-finished",

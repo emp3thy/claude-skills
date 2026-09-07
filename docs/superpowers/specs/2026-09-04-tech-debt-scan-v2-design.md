@@ -204,7 +204,7 @@ fan_in:
     stoplist: [utils, config, index, main, types, common, base, core, helpers, models]
 scout_cap: 12
 top: 5
-chunking: { max_files: 1500, max_loc: 200000 }
+chunking: { max_files: 1500, max_loc: 200000, max_modules: 8 }
 verifier: { batch_size: 6, context_lines: 30, min_candidates: 30, top_multiple: 3, max_candidates: 72, always_families: [security], always_min_severity: 5 }
 ranking:
   preset: balanced
@@ -417,7 +417,7 @@ scan-plan.json
   "families_run": [], "families_skipped": [ {"family": "", "reason": "no leads|disabled|not in set"} ] }
 ```
 
-**Scope per scout:** the hotspot band, every file that family's leads point at, then the remainder if budget allows. **Chunking:** when source files exceed `chunking.max_files` (1,500) or source LOC exceeds `chunking.max_loc` (200,000), both untuned defaults, the repository is split by top-level directory and a module scout runs only for families with leads or hotspot-band files in that module. The halved thresholds (750 files, 100,000 LOC) follow from the selected set being `deep`, whichever spelling selected it. No corpus fixture is large enough to trigger chunking, so its tests lower `chunking.max_files` and `max_loc` through config and pin a chunked plan golden at both the full and the halved thresholds, which is also the only evidence that halving takes effect. The adaptive rule of 2.4 decides which families are dispatched.
+**Scope per scout:** the hotspot band, every file that family's leads point at, then the remainder if budget allows. **Chunking:** when source files exceed `chunking.max_files` (1,500) or source LOC exceeds `chunking.max_loc` (200,000), both untuned defaults, the repository is split by top-level directory and a module scout runs only for families with leads or hotspot-band files in that module. The lead cap of "40 per family" then applies per module rather than once repository-wide, so an early-sorting module cannot spend the family's whole budget; `chunking.max_modules` (8, and unlike the two size thresholds it does not halve under `deep`) bounds the module count, because entries are `families x modules` and one agent is dispatched per entry — a 40-directory monorepo would otherwise plan 560 scouts against section 7's budget. Over the limit, modules are ranked by how many hotspot-band files they hold, then by lead count, then by plan order; the scanned modules and the dropped ones with their lead counts are both named in `scan-plan.json`, and a family whose leads all sat in dropped modules is recorded in `families_skipped`, never in `families_run`. The halved thresholds (750 files, 100,000 LOC) follow from the selected set being `deep`, whichever spelling selected it. No corpus fixture is large enough to trigger chunking, so its tests lower `chunking.max_files` and `max_loc` through config and pin a chunked plan golden at both the full and the halved thresholds, which is also the only evidence that halving takes effect. The adaptive rule of 2.4 decides which families are dispatched.
 
 **Shared prefix** (from `categories.py`, rewritten): repository summary; read-only and do-not-invent rules; the evidence contract (file, `line_start`, `line_end`, verbatim quote of at most 6 lines); the per-scout cap (`scout_cap` 12) as a ceiling with "an empty list is a correct answer"; three channels `findings`, `open_questions`, `looks_bad_but_fine`; no fix proposals and no confidence field; never-assert rules (coverage, CVEs, EOL, library deprecation, flakiness, exploitability); the path-class note naming disabled families; the severity rubric, still headed "Severity rubric", with the hotspot amplifier clause removed. The word "hotspot" survives in the leads block, so every rendered prompt contains both "hotspot" and "Severity rubric".
 
@@ -682,7 +682,7 @@ Estimates, replaced by the live log after the first run.
 
 | Scan | v1 | v2 quick | v2 default | v2 deep |
 |---|---|---|---|---|
-| Scout agents | 8 (4 quick) | 6 | 12 | 14, more with chunking |
+| Scout agents | 8 (4 quick) | 6 | 12 | 14, and on a chunked plan at most `families x chunking.max_modules` (14 x 8) |
 | Verifier batches | 0 | 3 to 5 | 5 to 7 | 8 to 12 |
 | Note agent | 1 synthesis | 1 | 1 | 1 |
 | Output tokens | 80 to 110k | 35 to 50k | 60 to 85k | 90 to 130k |
@@ -690,7 +690,7 @@ Estimates, replaced by the live log after the first run.
 | Script time | seconds | under 2 min | under 2 min | under 3 min |
 | Tool time | none | 0 to 10 min | 0 to 10 min | 0 to 10 min |
 
-Output stays near v1 because scouts are lead-driven and capped and the synthesis prompt is gone. Input grows because scouts and verifiers read cited spans with context; the 40-lead cap, the adaptive rule and the verifier budget bound it. Per-tool timeouts bound tool time.
+Output stays near v1 because scouts are lead-driven and capped and the synthesis prompt is gone. Input grows because scouts and verifiers read cited spans with context; the 40-lead cap, the adaptive rule and the verifier budget bound it. A chunked plan multiplies the scout count by its module count, which is why `chunking.max_modules` bounds that too (4.6): the cap is per module once a plan is chunked, so nothing else would. Per-tool timeouts bound tool time.
 
 ## 8. Compatibility and migration
 

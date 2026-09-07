@@ -23,6 +23,17 @@ named ``root``, and a plain-string sentinel would be indistinguishable from it
 before ``unique_slugs`` ever runs (fix round 1, task 8). ``None`` becomes a
 display name and a filename token only at the point the plan is rendered.
 
+``chunking.max_modules`` (8) bounds the split. One entry per (family, module)
+and one dispatched agent per entry means the plan is ``families x modules``
+agents, and nothing else bounds the module count: a 40-directory monorepo would
+plan 560 scouts against spec 7's "14, more with chunking". Over the limit,
+modules are ranked by how many hotspot-band files they hold, then by lead count,
+then by ``_module_sort_key``; the survivors keep plan order, and the dropped
+ones are named with their lead counts in ``scan-plan.json``'s
+``modules_dropped`` (``modules`` names the scanned ones). A family whose leads
+all sat in dropped modules is recorded in ``families_skipped`` rather than left
+in ``families_run``, so nothing claims a family ran that dispatched no agent.
+
 Leads are one union of deterministic signals per family (the table in the phase 2
 plan), each kind sorted hotspot-band files first. ``KIND_CAPS`` bounds the
 pattern, SATD and inventory leads at ``LEAD_CAP`` each, band files first within
@@ -58,7 +69,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from categories import FAMILIES, render_scout_prompt
-from config import FAMILY_SETS, ConfigError, load_config
+from config import DEFAULTS, FAMILY_SETS, ConfigError, load_config
 from inventory import write_json
 from slugs import unique_slugs
 
@@ -132,14 +143,26 @@ def load_docs(workdir: Path) -> ScanDocs:
 # --- path classes and disables ----------------------------------------------------
 
 
-def _path_classes(docs: ScanDocs) -> dict[str, str]:
+def path_classes(inventory: dict[str, Any]) -> dict[str, str]:
+    """Every path the inventory knows, mapped to its class: files, then artefacts.
+
+    Public because ``merge_findings`` needs the same map to apply the same
+    ``families.per_path_class`` disables to a tool signal that
+    ``_filtered_sorted_leads`` applies to the lead built from it -- the two ends
+    of one signal must agree about whether the user's config covers it.
+    """
     classes = {
-        str(e["path"]): str(e.get("path_class", "source")) for e in _files(docs)
+        str(e["path"]): str(e.get("path_class", "source"))
+        for e in inventory.get("files", []) if isinstance(e, dict)
     }
-    for entries in (docs.inventory.get("artefacts") or {}).values():
+    for entries in (inventory.get("artefacts") or {}).values():
         for artefact in entries:
             classes.setdefault(str(artefact["path"]), str(artefact.get("path_class", "source")))
     return classes
+
+
+def _path_classes(docs: ScanDocs) -> dict[str, str]:
+    return path_classes(docs.inventory)
 
 
 def disabled_families(config: dict[str, Any], path_class: str) -> set[str]:
@@ -552,18 +575,29 @@ def _repo_summary(inventory: dict[str, Any]) -> str:
 
 
 def _chunk_thresholds(config: dict[str, Any], set_name: str) -> dict[str, int]:
-    """``chunking.max_files``/``max_loc``, halved when ``set_name`` is ``deep``.
+    """``chunking.max_files``/``max_loc``/``max_modules``, the first two halved when
+    ``set_name`` is ``deep``.
 
     ``set_name`` is the value ``_resolve_set`` already returns for both
     ``--families deep`` and a bare ``--deep`` flag (SKILL.md turns that into
     ``--families deep`` before this script ever runs), so the halving keys off
     the selected set rather than off argv, and the two spellings cannot diverge.
+
+    ``max_modules`` does not halve: it bounds the dispatch, and a deep scan is
+    the run that most needs the bound, not the one that should get a tighter
+    one. It is read with the ``DEFAULTS`` value as its fallback so a ``chunking``
+    map written before this key existed still plans a bounded scan rather than
+    raising.
     """
-    base = {"max_files": int(config["chunking"]["max_files"]),
-            "max_loc": int(config["chunking"]["max_loc"])}
+    chunking = config["chunking"]
+    modules = int(chunking.get("max_modules", DEFAULTS["chunking"]["max_modules"]))
+    base = {"max_files": int(chunking["max_files"]),
+            "max_loc": int(chunking["max_loc"]),
+            "max_modules": modules}
     if set_name != "deep":
         return base
-    return {"max_files": base["max_files"] // 2, "max_loc": base["max_loc"] // 2}
+    return {"max_files": base["max_files"] // 2, "max_loc": base["max_loc"] // 2,
+            "max_modules": modules}
 
 
 def _is_chunked(docs: ScanDocs, thresholds: dict[str, int]) -> bool:
@@ -620,6 +654,62 @@ def _leads_by_module(leads: list[Lead]) -> dict[str | None, list[Lead]]:
     return by_module
 
 
+def _select_modules(
+    family_leads: dict[str, list[Lead]], docs: ScanDocs, limit: int
+) -> tuple[list[str | None], list[str | None]]:
+    """The modules a chunked plan dispatches, and the ones it drops, in plan order.
+
+    Nothing else bounds a chunked plan. ``_module_of`` makes one module per
+    top-level directory, ``build_plan`` emits one entry per (family, module) and
+    SKILL.md step 6 dispatches one read-only agent per entry, so the product is
+    ``families x directories`` -- 14 x 40 = 560 scouts on a 40-directory
+    monorepo, which is squarely the repository size chunking exists to serve and
+    one to two orders of magnitude past spec 7's "14, more with chunking". The
+    per-module lead cap bounds each prompt but not their number. ``max_modules``
+    (8 by default) bounds it: at most ``families x max_modules`` entries, which
+    keeps the worst case within one order of magnitude of the stated budget
+    while leaving the ordinary chunked repository -- a handful of top-level
+    directories -- untouched.
+
+    Which modules survive: the hotspot band first. The band is the scan's own
+    statement of where debt concentrates (churn x complexity, spec 4.2), so
+    ranking by how many band files a module holds keeps the directories the rest
+    of the pipeline already ranks highest, rather than the merely largest. Total
+    leads breaks a tie, and ``_module_sort_key`` breaks that, so the selection is
+    deterministic for identical inputs. The order the survivors are returned in
+    is plan order (``_module_sort_key``), not rank order, so a bound that does
+    not bind changes nothing about the plan.
+
+    Dropped modules are returned rather than discarded: ``build_plan`` records
+    them in ``scan-plan.json``, because a scan that silently stops looking at
+    part of the repository is worse than one that plans too many agents.
+    """
+    modules = sorted(
+        {_module_of(lead.path) for leads in family_leads.values() for lead in leads},
+        key=_module_sort_key,
+    )
+    if limit <= 0 or len(modules) <= limit:
+        return modules, []
+    band_files: dict[str | None, int] = {}
+    for path in docs.inventory.get("hotspot_band", []):
+        module = _module_of(str(path))
+        band_files[module] = band_files.get(module, 0) + 1
+    lead_counts: dict[str | None, int] = {}
+    for leads in family_leads.values():
+        for lead in leads:
+            module = _module_of(lead.path)
+            lead_counts[module] = lead_counts.get(module, 0) + 1
+    ranked = sorted(
+        modules,
+        key=lambda m: (-band_files.get(m, 0), -lead_counts.get(m, 0), _module_sort_key(m)),
+    )
+    kept = set(ranked[:limit])
+    return (
+        [m for m in modules if m in kept],
+        [m for m in modules if m not in kept],
+    )
+
+
 def build_plan(
     workdir: Path,
     config: dict[str, Any],
@@ -644,17 +734,20 @@ def build_plan(
     # so both the entries list and families_run stay ordered exactly as the
     # unchunked path already is.
     family_leads: dict[str, list[Lead]] = {}
-    skipped: list[dict[str, str]] = []
+    # Keyed by family so a skip recorded in the module pass below still renders in
+    # FAMILIES order, the order this first pass produces; each family has at most
+    # one reason, and no family reaches both passes.
+    skips: dict[str, dict[str, str]] = {}
     for family in FAMILIES:
         if family in disabled:
-            skipped.append({"family": family, "reason": "disabled"})
+            skips[family] = {"family": family, "reason": "disabled"}
             continue
         if family not in wanted:
-            skipped.append({"family": family, "reason": "not in set"})
+            skips[family] = {"family": family, "reason": "not in set"}
             continue
         leads = _filtered_sorted_leads(family, docs, config)
         if not leads and not explicit:
-            skipped.append({"family": family, "reason": "no leads"})
+            skips[family] = {"family": family, "reason": "no leads"}
             continue
         family_leads[family] = leads
 
@@ -668,22 +761,43 @@ def build_plan(
     # same way any other same-named collision would.
     module_slug: dict[str | None, str] = {}
     real_modules: set[str] = set()
+    dropped_modules: list[dict[str, Any]] = []
+    scanned_modules: list[str] = []
+    scanned: set[str | None] = set()
     if chunked:
-        modules = sorted(
-            {_module_of(lead.path) for leads in family_leads.values() for lead in leads},
-            key=_module_sort_key,
-        )
-        real_modules = {m for m in modules if m is not None}
+        modules, dropped = _select_modules(family_leads, docs, thresholds["max_modules"])
+        scanned = set(modules)
+        # Display names are decided over every module the repository has, kept and
+        # dropped alike, so a name does not shift depending on where the cut fell.
+        real_modules = {m for m in (*modules, *dropped) if m is not None}
         display_names = [_module_display(m, real_modules) for m in modules]
         module_slug = dict(zip(modules, unique_slugs(display_names), strict=True))
+        scanned_modules = display_names
+        lead_counts: dict[str | None, int] = {}
+        for leads in family_leads.values():
+            for lead in leads:
+                module = _module_of(lead.path)
+                lead_counts[module] = lead_counts.get(module, 0) + 1
+        dropped_modules = [
+            {"module": _module_display(m, real_modules), "leads": lead_counts.get(m, 0)}
+            for m in dropped
+        ]
 
     entries: list[dict[str, Any]] = []
     prompts: dict[str, str] = {}
     for family, leads in family_leads.items():
         if chunked and leads:
             by_module = sorted(
-                _leads_by_module(leads).items(), key=lambda kv: _module_sort_key(kv[0])
+                (item for item in _leads_by_module(leads).items() if item[0] in scanned),
+                key=lambda kv: _module_sort_key(kv[0]),
             )
+            if not by_module:
+                # Every one of this family's leads is in a module the cap dropped.
+                # Recorded as a skip rather than left in families_run: nothing
+                # dispatches for it, and the report must not claim it ran.
+                skips[family] = {"family": family,
+                                 "reason": "no leads in the scanned modules"}
+                continue
             for module, subset in by_module:
                 # Finding 2 (fix round 1): capped here, per module, rather than
                 # once repo-wide in leads_for -- otherwise an early-sorting module
@@ -711,15 +825,22 @@ def build_plan(
             entries.append({"family": family, "module": None, "prompt": prompt_path,
                             "output": f"scouts/{family}.json", "leads": len(capped)})
 
+    dispatched = {str(entry["family"]) for entry in entries}
     plan: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "set": set_name,
         "top": int(top if top is not None else config["top"]),
         "chunked": chunked,
         "thresholds": thresholds,
+        # The modules this plan scans, and the ones ``max_modules`` dropped with
+        # the leads they held. Both are empty on an unchunked plan. A dropped
+        # module is not scanned at all, so it is named here rather than left for
+        # a reader to infer from a shorter entry list.
+        "modules": scanned_modules,
+        "modules_dropped": dropped_modules,
         "entries": entries,
-        "families_run": [f for f in FAMILIES if f in family_leads],
-        "families_skipped": skipped,
+        "families_run": [f for f in FAMILIES if f in dispatched],
+        "families_skipped": [skips[f] for f in FAMILIES if f in skips],
     }
     return plan, prompts
 
