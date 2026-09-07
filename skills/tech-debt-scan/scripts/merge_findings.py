@@ -48,13 +48,18 @@ exists, and otherwise enters untiered on its own, both with an *empty*
 these two fact-class tools are the whole producer set for a non-``None`` tier at
 merge time: ``verify_prompts.select_candidates`` pools only untiered candidates,
 so any other class acquiring one would reach a report with no verifier having
-read it -- the invariant ``test_merge_findings.TestTierProducerInvariant`` pins.
+read it -- the invariant ``test_merge_findings.TestTierProducerInvariant`` pins,
+over the corpus and over a canned signals file, as spec 4.7 requires.
 
-A tool candidate's fingerprint takes its line range as well as its family, path
-and message, and a fingerprint already raised in one pass collapses rather than
-duplicating: a tool emits one record per hit whose message repeats verbatim
-across hits, and two candidates sharing one id cannot be told apart by the one
-verdict ``apply_verdicts.apply`` will key to it.
+``tool-signals.json`` is the least validated document this module reads, so every
+tool route checks the signal before building anything from it: the family must be
+one ``categories.FAMILIES`` knows *and* the tool's own (``_TOOL_FAMILY``), an
+untiered route must name a usable root-relative file, and a fingerprint already
+raised in the same pass collapses instead of duplicating. Each drop is counted in
+``stats`` for the tool's own family, with its reason under ``dropped_reasons``.
+Tool candidates are then filtered by both of spec 4.7 step 7's tests -- fingerprint
+suppressions and path-class disables -- because unlike rule findings no upstream
+pass has applied a user's disables to them.
 """
 from __future__ import annotations
 
@@ -384,9 +389,26 @@ def corroborate_with_tools(
 
 # --- fact-class tool routings (spec 4.5, 4.7) ------------------------------------------
 
-# Tools whose fact merges into a same-file pipeline-infra rule finding's confirmed_by,
-# rather than raising a second candidate for a fact rules.py has already reported.
+# Tools whose fact merges into a same-file rule finding of its own family, rather than
+# raising a second candidate for a fact rules.py has already reported.
 _MERGE_INTO_RULE_TOOLS: Final[frozenset[str]] = frozenset({"hadolint", "actionlint"})
+# The one family each fact-class tool may claim. ``tool-signals.json`` is the least
+# validated input this module reads (scout findings go through ``_validate``, rule
+# findings through an isinstance check), and the family is not cosmetic: it picks the
+# 2.3 caps and the rubric a candidate is judged under, while ``debt_type`` and
+# ``type_id`` come from ``_TOOL_META`` keyed on the *tool*. Taking the family verbatim
+# let a signal claiming ``duplication`` reach a report as a tier-A duplication finding
+# carrying a dependency ``type_id`` -- a triple ``categories.FAMILY_BLOCKS`` does not
+# allow -- and a signal with no family at all reach it in a family literally named
+# ``"None"``. A tier literal closed to osv-scanner is not enough while the family is
+# open to anything, so every route checks both that the family is a family the skill
+# knows (``categories.FAMILIES``) and that it is this tool's own.
+_TOOL_FAMILY: Final[dict[str, str]] = {
+    "osv-scanner": "dependency-debt",
+    "gitleaks": "security",
+    "hadolint": "pipeline-infra",
+    "actionlint": "pipeline-infra",
+}
 # (debt_type, type_id, effort) per tool. osv-scanner, hadolint and actionlint reuse the
 # values rules.py's own GROUP_META gives the same fact (manifest, container, ci): a
 # lockfile advisory, a Dockerfile gap and a workflow gap are the same debt whether
@@ -441,7 +463,12 @@ def _fingerprint_span(path: str | None, line_start: Any, line_end: Any) -> str:
 
 
 def _fact_candidate(
-    sig: dict[str, Any], inventory: dict[str, Any], *, tier: str | None, confirmed_by: list[str]
+    sig: dict[str, Any],
+    inventory: dict[str, Any],
+    *,
+    path: str | None,
+    tier: str | None,
+    confirmed_by: list[str],
 ) -> dict[str, Any]:
     """One fact-class signal as a candidate, in the rule candidate shape (``rules.py``
     645-671): same keys, same order. ``quote_verified`` is true unconditionally -- the
@@ -466,8 +493,6 @@ def _fact_candidate(
     tool = str(sig.get("tool"))
     family = str(sig.get("family"))
     debt_type, type_id, effort = _TOOL_META[tool]
-    file = sig.get("file")
-    path = str(file) if isinstance(file, str) else ""
     extra = sig.get("extra")
     source_path = extra.get("source_path") if isinstance(extra, dict) else None
     raw_message = str(sig.get("message", ""))
@@ -493,7 +518,7 @@ def _fact_candidate(
         "rule_id": None,
         "note": message[:NOTE_MAX],
         "evidence": [{
-            "file": file if isinstance(file, str) else None,
+            "file": path,
             "line_start": line_start,
             "line_end": line_end,
             "quote": message,
@@ -501,24 +526,28 @@ def _fact_candidate(
         }],
         "confirmed_by": sorted(confirmed_by),
         "signals_cited": [],
-        "signals": signals_for(inventory, file if isinstance(file, str) else None),
+        "signals": signals_for(inventory, path),
         "tier": tier,
     }
 
 
-def _merge_into_rule(sig: dict[str, Any], rule_findings: list[dict[str, Any]], tool: str) -> bool:
-    """Fold ``sig`` into a same-file ``pipeline-infra`` rule finding's ``confirmed_by``.
+def _merge_into_rule(
+    rule_findings: list[dict[str, Any]], *, tool: str, family: str, path: str
+) -> bool:
+    """Fold one fact into a same-file, same-family rule finding's ``confirmed_by``.
 
     True when a match absorbed it, so the caller raises no candidate for it; False when
-    no rule finding covers the file, so the caller raises one of its own.
+    no rule finding covers the file, so the caller raises one of its own. The family
+    matched on is the signal's own -- already checked against ``_TOOL_FAMILY`` by the
+    caller -- not a literal: hard-coding ``pipeline-infra`` here was correct only for as
+    long as both merging tools stayed in that family, and the day either moved the merge
+    would silently stop merging and start raising a duplicate candidate beside the rule
+    finding, with nothing failing.
     """
-    file = sig.get("file")
-    if not isinstance(file, str) or not file:
-        return False
     for rule in rule_findings:
-        if rule.get("family") != "pipeline-infra":
+        if rule.get("family") != family:
             continue
-        if any(ev.get("file") == file for ev in rule.get("evidence") or []):
+        if any(ev.get("file") == path for ev in rule.get("evidence") or []):
             rule["confirmed_by"] = sorted(set(rule.get("confirmed_by") or []) | {f"tool:{tool}"})
             return True
     return False
@@ -533,9 +562,9 @@ def tool_candidates(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Fact-class tool signals as candidates or rule corroboration (spec 4.5).
 
-    Only a ``fact`` signal ever reaches a candidate; an inference-class signal (a
-    lint hint, a complexity count) stays corroboration-only, through
-    ``corroborate_with_tools``. Three routings for the four fact-class tools:
+    Only a ``fact`` signal from one of the four tools in ``_TOOL_META`` ever reaches a
+    candidate; an inference-class signal (a lint hint, a complexity count) stays
+    corroboration-only, through ``corroborate_with_tools``. Three routings:
 
     * osv-scanner enters tier A, exactly as a rule finding does -- verification is
       skipped, so its own ``tool:osv-scanner`` token in ``confirmed_by`` is a harmless
@@ -552,11 +581,28 @@ def tool_candidates(
       second candidate for a fact already on the record; the finding stays tier A
       either way, so the merge changes nothing but its provenance trail.
 
-    A signal whose fingerprint one earlier in the same pass already produced is the same
-    fact reported twice: same family, path, line range and message. It collapses,
-    counted through ``counts`` as ``clustered``, rather than becoming a second candidate
-    the one verdict keyed to that fingerprint can no longer tell apart. ``counts``
-    collects ``(family, stat key, reason)`` for the caller to fold into ``stats``.
+    Three things drop a signal that names one of the four tools, each counted through
+    ``counts`` so a dropped fact is visible in ``stats`` rather than silent:
+
+    * a family that is not one ``categories.FAMILIES`` knows, or is not this tool's own
+      (``_TOOL_FAMILY``) -- see that table for why the family cannot be taken verbatim;
+    * an untiered route (gitleaks, hadolint, actionlint) whose ``file`` is missing or is
+      not a usable root-relative path. There is nothing for a verifier to read, and the
+      candidate would reach ``verify_prompts._span``'s ``root / ev["file"]`` and abort
+      the whole scan with a ``TypeError`` rather than lose one finding. The tier-A osv
+      route keeps its null-file shape: ``select_candidates`` never pools a tiered
+      candidate, so it reaches no verifier, and every downstream consumer already
+      handles the path-less rule finding shape;
+    * a fingerprint already raised in this pass. Two signals that agree on family, path,
+      line range and message are the same fact reported twice, and duplicating them
+      gives two candidates one verdict can no longer tell apart (see
+      ``_fingerprint_span``). This is the collapse ``_cluster`` gives scout candidates,
+      narrowed to exact identity because a tool's records are already deduplicated
+      within a file by everything except repetition.
+
+    ``counts`` collects ``(family, stat key, reason)`` for the caller to fold into
+    ``stats`` and ``dropped_reasons``; the family is the tool's own registry family, so
+    a drop is counted somewhere a reader will look even when the claimed one was junk.
 
     Returns ``(new_candidates, rule_findings)``: the rule findings a merge mutated in
     place, returned for convenience, not a copy.
@@ -568,16 +614,35 @@ def tool_candidates(
         if not isinstance(sig, dict) or not sig.get("fact"):
             continue
         tool = str(sig.get("tool"))
-        if tool == "osv-scanner":
-            cand = _fact_candidate(sig, inventory, tier="A", confirmed_by=["tool:osv-scanner"])
-        elif tool == "gitleaks" or (
-            tool in _MERGE_INTO_RULE_TOOLS and not _merge_into_rule(sig, rule_findings, tool)
-        ):
-            cand = _fact_candidate(sig, inventory, tier=None, confirmed_by=[])
-        else:
+        if tool not in _TOOL_META:
             continue
+        expected = _TOOL_FAMILY[tool]
+        family = str(sig.get("family"))
+        if family not in FAMILIES:
+            record.append((expected, "dropped", f"{tool} family {family!r} is not a known family"))
+            continue
+        if family != expected:
+            record.append((expected, "dropped", f"{tool} family {family!r} is not {expected!r}"))
+            continue
+        path = _normalise_path(sig.get("file"))
+        if tool == "osv-scanner":
+            if sig.get("file") is not None and path is None:
+                record.append((family, "dropped", f"{tool} path {sig.get('file')!r} is unusable"))
+                continue
+            cand = _fact_candidate(
+                sig, inventory, path=path, tier="A", confirmed_by=["tool:osv-scanner"]
+            )
+        else:
+            if path is None:
+                record.append((family, "dropped", f"{tool} signal names no usable file"))
+                continue
+            if tool in _MERGE_INTO_RULE_TOOLS and _merge_into_rule(
+                rule_findings, tool=tool, family=family, path=path
+            ):
+                continue
+            cand = _fact_candidate(sig, inventory, path=path, tier=None, confirmed_by=[])
         if cand["fingerprint"] in seen:
-            record.append((str(cand["family"]), "clustered", None))
+            record.append((family, "clustered", None))
             continue
         seen.add(cand["fingerprint"])
         new.append(cand)
@@ -760,11 +825,22 @@ def merge(
     # own, narrower route into a rule finding's ``confirmed_by`` (``tool_candidates``,
     # above); this is not that mechanism.
     corroborate_with_tools(kept, tool_signals)
+    # A tool candidate goes through both filters spec 4.7 step 7 names, unlike a rule
+    # finding: rules.py drops disabled-class artefacts before emitting them, and the
+    # spec exempts rule findings here for exactly that reason, but ``tools_probe``
+    # filters only the vendored and generated classes, so no upstream pass has applied a
+    # user's per-path-class disables to a tool signal. Without this, a
+    # ``tests: {disable: [security]}`` -- the natural way to stop gitleaks reporting
+    # fixture credentials -- would be silently ignored.
     for cand in tool_cands:
         family = str(cand["family"])
         stats.setdefault(family, _new_stats())
         if _suppressed(cand, config, day):
             stats[family]["suppressed"] += 1
+            continue
+        path_class = str(cand["signals"]["path_class"] or "source")
+        if family in disabled_families(config, path_class):
+            stats[family]["disabled"] += 1
             continue
         kept.append(cand)
     rule_kept: list[dict[str, Any]] = []

@@ -766,11 +766,34 @@ class TestFactClassRoutings:
         assert new[0]["tier"] is None
 
     def test_an_inference_signal_never_becomes_a_candidate(self) -> None:
+        """Two ways a signal can be inference-class, and the ``fact`` guard is only
+        pinned by the first. A ``vulture`` row is rejected on its tool name alone --
+        the dispatch table has no entry for it -- so it says nothing about the guard:
+        deleting ``or not sig.get("fact")`` left that assertion green. A ``fact:
+        False`` row from a tool the dispatch *does* know is the case only the guard
+        can stop."""
         from merge_findings import tool_candidates
 
-        inference = dict(self._osv(), fact=False, tool="vulture", family="dead-code")
-        new, _ = tool_candidates([inference], {"files": []}, [])
+        known_tool = dict(self._osv(), fact=False)
+        assert known_tool["tool"] == "osv-scanner"
+        new, _ = tool_candidates([known_tool], {"files": []}, [])
         assert new == []
+
+        unknown_tool = dict(self._osv(), fact=False, tool="vulture", family="dead-code")
+        new, _ = tool_candidates([unknown_tool], {"files": []}, [])
+        assert new == []
+
+    def test_a_fact_class_signal_from_an_unknown_tool_is_ignored(self) -> None:
+        """The dispatch table, not the ``fact`` flag, is what closes the tool set: a
+        future scanner claiming ``fact: True`` has no metadata here to build from."""
+        from merge_findings import tool_candidates
+
+        counts: list[tuple[str, str, str | None]] = []
+        new, _ = tool_candidates(
+            [dict(self._gitleaks(), tool="trivy")], {"files": []}, [], counts=counts
+        )
+        assert new == []
+        assert counts == []
 
     def test_every_message_is_redacted(self) -> None:
         from merge_findings import tool_candidates
@@ -902,3 +925,217 @@ class TestFactSignalIdentity:
         assert by_fp[by_line[41]["fingerprint"]]["tier"] is None
         assert document["stats"]["selected"] == 2
         assert document["stats"]["verdicts"] == 2
+
+
+class TestFactSignalValidation:
+    """``tool-signals.json`` is unvalidated input, so every route checks it (spec 4.7)."""
+
+    def _osv(self) -> dict[str, Any]:
+        return {
+            "tool": "osv-scanner", "family": "dependency-debt", "kind": "vuln",
+            "file": "package-lock.json", "line_start": None, "line_end": None,
+            "message": "left-pad 1.1.3 (npm) is affected by GHSA-1",
+            "fact": True, "extra": {"package": "left-pad", "id": "GHSA-1"},
+        }
+
+    def _dropped(self, sig: dict[str, Any]) -> tuple[list[dict[str, Any]], list[Any]]:
+        from merge_findings import tool_candidates
+
+        counts: list[tuple[str, str, str | None]] = []
+        new, _ = tool_candidates([sig], {"files": []}, [], counts=counts)
+        return new, counts
+
+    def test_a_signal_with_no_family_is_dropped_not_given_the_family_None(self) -> None:
+        """It reached a report as a tier-A candidate in a family literally named
+        ``"None"``, with a ``"None"`` key in ``stats``, and survived apply and rank."""
+        sig = self._osv()
+        del sig["family"]
+        new, counts = self._dropped(sig)
+        assert new == []
+        assert counts == [("dependency-debt", "dropped",
+                           "osv-scanner family 'None' is not a known family")]
+
+    def test_a_signal_claiming_another_familys_name_is_dropped(self) -> None:
+        """``duplication`` is a real family, so a membership check alone passes it --
+        and it arrived as a tier-A duplication finding carrying the dependency
+        ``type_id`` TD-02, a triple ``categories.FAMILY_BLOCKS`` does not allow. The
+        family picks the caps and the rubric; ``_TOOL_META`` picks the type. They have
+        to agree."""
+        new, counts = self._dropped(dict(self._osv(), family="duplication"))
+        assert new == []
+        assert counts == [("dependency-debt", "dropped",
+                           "osv-scanner family 'duplication' is not 'dependency-debt'")]
+
+    def test_every_route_validates_its_family_not_only_the_tiered_one(self) -> None:
+        from merge_findings import tool_candidates
+
+        signals = [
+            {"tool": "gitleaks", "family": "duplication", "file": "a.py",
+             "line_start": 1, "line_end": 1, "message": "m", "fact": True, "extra": {}},
+            {"tool": "hadolint", "family": "duplication", "file": "Dockerfile",
+             "line_start": 1, "line_end": 1, "message": "m", "fact": True, "extra": {}},
+            {"tool": "actionlint", "family": "duplication", "file": "w.yml",
+             "line_start": 1, "line_end": 1, "message": "m", "fact": True, "extra": {}},
+        ]
+        counts: list[tuple[str, str, str | None]] = []
+        new, _ = tool_candidates(signals, {"files": []}, [], counts=counts)
+        assert new == []
+        assert counts == [
+            ("security", "dropped", "gitleaks family 'duplication' is not 'security'"),
+            ("pipeline-infra", "dropped",
+             "hadolint family 'duplication' is not 'pipeline-infra'"),
+            ("pipeline-infra", "dropped",
+             "actionlint family 'duplication' is not 'pipeline-infra'"),
+        ]
+
+    def test_a_hadolint_signal_with_a_foreign_family_cannot_merge_into_a_rule(self) -> None:
+        """Validation runs before the merge, so a junk family cannot put a
+        ``tool:hadolint`` token onto a rule finding either."""
+        from merge_findings import tool_candidates
+
+        rule = {"fingerprint": "a" * 16, "family": "pipeline-infra", "source": "rule",
+                "evidence": [{"file": "Dockerfile", "line_start": 3, "line_end": 3,
+                              "quote": "FROM python", "quote_verified": True}],
+                "confirmed_by": ["rule:container.image"], "tier": "A", "signals": {}}
+        sig = {"tool": "hadolint", "family": "duplication", "file": "Dockerfile",
+               "line_start": 1, "line_end": 1, "message": "DL3006: tag it",
+               "fact": True, "extra": {}}
+        new, merged = tool_candidates([sig], {"files": []}, [rule])
+        assert new == []
+        assert merged[0]["confirmed_by"] == ["rule:container.image"]
+
+    def test_an_untiered_signal_with_no_file_is_dropped_rather_than_crashing_later(self) -> None:
+        """``verify_prompts._span`` does ``root / ev["file"]`` on every pooled
+        candidate, and ``select_candidates`` pools every untiered one, so a null-file
+        gitleaks/hadolint/actionlint candidate aborted the whole scan with a
+        ``TypeError`` rather than losing one finding. There is nothing for a verifier
+        to read either way, so it never becomes a candidate. The tier-A osv route keeps
+        its null-file shape: it is never pooled, and every downstream consumer already
+        handles the path-less rule-finding shape."""
+        for tool, family in (("gitleaks", "security"), ("hadolint", "pipeline-infra"),
+                             ("actionlint", "pipeline-infra")):
+            sig = {"tool": tool, "family": family, "file": None, "line_start": 1,
+                   "line_end": 1, "message": "m", "fact": True, "extra": {}}
+            new, counts = self._dropped(sig)
+            assert new == [], f"{tool} raised a null-file candidate"
+            assert counts == [(family, "dropped", f"{tool} signal names no usable file")]
+
+    def test_an_untiered_signal_with_an_unusable_path_is_dropped(self) -> None:
+        """``_normalise_path`` is what "usable" means: a traversal or absolute path
+        would otherwise be joined to the root and read by the verifier prompt."""
+        sig = {"tool": "gitleaks", "family": "security", "file": "../../etc/shadow",
+               "line_start": 1, "line_end": 1, "message": "m", "fact": True, "extra": {}}
+        new, counts = self._dropped(sig)
+        assert new == []
+        assert counts == [("security", "dropped", "gitleaks signal names no usable file")]
+
+    def test_a_null_file_osv_fact_still_becomes_a_tier_A_candidate(self) -> None:
+        sig = dict(self._osv(), file=None,
+                   extra=dict(self._osv()["extra"], source_type="docker",
+                              source_path="alpine:3.18"))
+        new, counts = self._dropped(sig)
+        assert len(new) == 1 and new[0]["tier"] == "A"
+        assert counts == []
+
+    def test_a_null_file_untiered_candidate_no_longer_aborts_the_verify_plan(
+        self, tmp_path: Path
+    ) -> None:
+        """The same defect end to end: before, ``build_verify_plan`` raised
+        ``TypeError: unsupported operand type(s) for /: 'WindowsPath' and 'NoneType'``
+        and the scan died with a traceback and no output at all."""
+        from verify_prompts import build_verify_plan
+
+        repo, workdir = _repo(tmp_path)
+        _scout(workdir, "error-masking", [])
+        _scout(workdir, "security", [])
+        write_json(workdir / "tool-signals.json", {"schema_version": 2, "signals": [
+            {"tool": "hadolint", "family": "pipeline-infra", "kind": "dockerfile",
+             "file": None, "line_start": 1, "line_end": 1,
+             "message": "DL3006: Always tag the version of an image explicitly",
+             "fact": True, "extra": {"code": "DL3006"}},
+        ]})
+        document = merge(workdir, repo, DEFAULTS)
+        write_json(workdir / "candidates.json", document)
+        assert [c for c in document["candidates"] if c["source"] == "tool"] == []
+        assert document["stats"]["pipeline-infra"]["dropped"] == 1
+        plan, _prompts = build_verify_plan(workdir, repo, DEFAULTS, top=5)
+        assert plan["batches"] == []
+
+    def test_a_dropped_fact_is_counted_and_its_reason_recorded_in_stats(
+        self, tmp_path: Path
+    ) -> None:
+        repo, workdir = _repo(tmp_path)
+        _scout(workdir, "error-masking", [])
+        _scout(workdir, "security", [])
+        write_json(workdir / "tool-signals.json", {"schema_version": 2, "signals": [
+            dict(self._osv(), family="duplication"),
+        ]})
+        document = merge(workdir, repo, DEFAULTS)
+        assert document["stats"]["dependency-debt"]["dropped"] == 1
+        assert document["stats"]["dependency-debt"]["dropped_reasons"] == [
+            "osv-scanner family 'duplication' is not 'dependency-debt'"
+        ]
+
+
+class TestToolCandidateDisables:
+    def test_a_path_class_disable_drops_a_tool_candidate(self, tmp_path: Path) -> None:
+        """Spec 4.7 step 7 applies suppressions *and* path-class disables. Rule
+        findings are exempt because ``rules.py`` drops disabled-class artefacts before
+        emitting them; ``tools_probe`` filters only the vendored and generated classes,
+        so nothing upstream has applied a user's disables to a tool signal. Without
+        this, ``tests: {disable: [security]}`` -- the natural way to stop gitleaks
+        reporting fixture credentials -- was silently ignored."""
+        repo, workdir = _repo(tmp_path)
+        _scout(workdir, "error-masking", [])
+        _scout(workdir, "security", [])
+        write_json(workdir / "tool-signals.json", {"schema_version": 2, "signals": [
+            {"tool": "gitleaks", "family": "security", "kind": "secret",
+             "file": "src/pay.py", "line_start": 12, "line_end": 12,
+             "message": "generic-api-key: Detected a Generic API Key",
+             "fact": True, "extra": {"rule": "generic-api-key"}},
+        ]})
+        on = merge(workdir, repo, DEFAULTS)
+        assert [c for c in on["candidates"] if c["source"] == "tool"]
+
+        cfg = deepcopy(DEFAULTS)
+        cfg["families"]["per_path_class"]["source"] = {"disable": ["security"]}
+        off = merge(workdir, repo, cfg)
+        assert [c for c in off["candidates"] if c["source"] == "tool"] == []
+        assert off["stats"]["security"]["disabled"] == 1
+
+
+class TestMergeIntoRuleUsesTheSignalsFamily:
+    def _rule(self, family: str) -> dict[str, Any]:
+        return {"fingerprint": "a" * 16, "family": family, "source": "rule",
+                "evidence": [{"file": "Dockerfile", "line_start": 3, "line_end": 3,
+                              "quote": "FROM python", "quote_verified": True}],
+                "confirmed_by": ["rule:container.image"], "tier": "A", "signals": {}}
+
+    def _sig(self, family: str) -> dict[str, Any]:
+        return {"tool": "hadolint", "family": family, "kind": "dockerfile",
+                "file": "Dockerfile", "line_start": 1, "line_end": 1,
+                "message": "DL3006: tag it", "fact": True, "extra": {}}
+
+    def test_the_merge_target_family_follows_the_tools_registry_not_a_literal(
+        self, monkeypatch: Any
+    ) -> None:
+        """``_merge_into_rule`` hard-coded ``pipeline-infra``. Correct only while both
+        merging tools sat in that family: the day either moved, the merge would stop
+        merging and start raising a duplicate candidate beside the rule finding, with
+        nothing failing. Moving hadolint's registry family here is the only way to
+        observe that, because the family validation now guarantees a signal's family is
+        its tool's."""
+        import merge_findings
+
+        monkeypatch.setitem(merge_findings._TOOL_FAMILY, "hadolint", "architecture")
+        merged, findings = merge_findings.tool_candidates(
+            [self._sig("architecture")], {"files": []}, [self._rule("architecture")]
+        )
+        assert merged == []
+        assert "tool:hadolint" in findings[0]["confirmed_by"]
+
+        new, untouched = merge_findings.tool_candidates(
+            [self._sig("architecture")], {"files": []}, [self._rule("pipeline-infra")]
+        )
+        assert len(new) == 1
+        assert untouched[0]["confirmed_by"] == ["rule:container.image"]
