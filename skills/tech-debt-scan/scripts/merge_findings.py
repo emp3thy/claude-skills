@@ -76,7 +76,7 @@ from config import ConfigError, load_config
 from evidence import find_quote, fingerprint, signals_for
 from inventory import write_json
 from plan_scan import disabled_families
-from redaction import redact
+from redaction import redact, strip_url_userinfo
 from validation import ValidationError, validate_debt_type, validate_effort, validate_type_id
 
 SCHEMA_VERSION: Final[int] = 2
@@ -414,29 +414,48 @@ _TOOL_FAMILY: Final[dict[str, str]] = {
 # lockfile advisory, a Dockerfile gap and a workflow gap are the same debt whether
 # rules.py or a tool found them. gitleaks has no rules.py counterpart -- security is
 # scout- and tool-only -- so its values come from categories.FAMILY_BLOCKS["security"]
-# and the SEVERITY_RUBRIC's own top band, "credential shaped ... risk right now" S effort.
+# and the SEVERITY_RUBRIC's own top band. Its effort is M, not the S the other three
+# take: a confirmed live credential is not a one-line edit but a rotation, a redeploy,
+# an access audit and usually a history rewrite.
 _TOOL_META: Final[dict[str, tuple[str, str, str]]] = {
     "osv-scanner": ("dependency", "TD-02", "S"),
-    "gitleaks": ("security", "TD-03", "S"),
+    "gitleaks": ("security", "TD-03", "M"),
     "hadolint": ("infrastructure", "TD-19", "S"),
     "actionlint": ("build", "TD-14", "S"),
 }
-# Severity a fact carries with no verifier to set one. hadolint's own extra["severity"]
-# (its level, already scored) is preferred over this table when present; the rest have
-# no per-finding severity of their own, so a fixed value stands in: osv (an advisory
-# against a version actually installed) and hadolint fall where the SEVERITY_RUBRIC
-# scores ordinary, real debt; gitleaks (a live credential) takes the rubric's top band;
-# actionlint takes the same baseline rules.py's ci group gives an ordinary workflow gap.
+# The closed set of tools whose ``extra["severity"]`` may stand in for the table below.
+# Both compute it in their own normaliser from the tool's own data -- hadolint from its
+# level (``tool_normalisers.HADOLINT_SEVERITY``), osv-scanner from the advisory's
+# published severity (``tool_normalisers.osv_severity``) -- so reading it here is
+# reading the tool, not the signals file. It is a closed set rather than "any tool with
+# the key" because ``extra`` is unvalidated: letting any tool override the table would
+# let a corrupt or hand-edited ``tool-signals.json`` set the severity of a tier-A
+# advisory, which no verifier ever revises and which multiplies straight into
+# ``rank.priority``.
+_EXTRA_SEVERITY_TOOLS: Final[frozenset[str]] = frozenset({"hadolint", "osv-scanner"})
+# Severity a fact carries when its tool computed none. gitleaks and actionlint have no
+# per-finding severity at all, so a fixed value is all there is: gitleaks (a live
+# credential) takes the SEVERITY_RUBRIC's top band; actionlint takes the same baseline
+# rules.py's ci group gives an ordinary workflow gap. For hadolint and osv-scanner this
+# is only the fallback -- an unrecognised hadolint level, or an advisory that publishes
+# no severity of its own, which is where every osv advisory sat before 4b.
 _TOOL_SEVERITY: Final[dict[str, int]] = {
     "osv-scanner": 4, "gitleaks": 5, "hadolint": 3, "actionlint": 3,
 }
 
 
 def _tool_severity(sig: dict[str, Any], tool: str) -> int:
-    extra = sig.get("extra")
-    value = extra.get("severity") if isinstance(extra, dict) else None
-    if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 5:
-        return value
+    """The 1-5 severity for one fact, from the tool's own scoring where it has one.
+
+    Only ``_EXTRA_SEVERITY_TOOLS`` consult ``extra["severity"]``; every other tool takes
+    ``_TOOL_SEVERITY`` unconditionally, so a value in a signals file cannot reach a
+    severity the code did not intend. The value is range-checked either way.
+    """
+    if tool in _EXTRA_SEVERITY_TOOLS:
+        extra = sig.get("extra")
+        value = extra.get("severity") if isinstance(extra, dict) else None
+        if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 5:
+            return value
     return _TOOL_SEVERITY.get(tool, 3)
 
 
@@ -484,7 +503,11 @@ def _fact_candidate(
     ``tool_normalisers.normalise_osv_scanner``), that source is folded into the message
     before fingerprinting: two such facts about the same advisory but different images
     would otherwise share one empty path and one identical message, and collide onto a
-    single fingerprint instead of staying two candidates.
+    single fingerprint instead of staying two candidates. A git source is a URL, and a
+    URL can carry ``user:password@`` userinfo that neither ``redact`` pattern
+    recognises (``CREDENTIAL_RE`` needs a key name and an operator, ``SECRET_TOKEN_RE``
+    a known issuer prefix), so the userinfo is dropped before the fold rather than
+    relied on to be caught after it -- the host and path are all the fact needs.
 
     Redaction runs once, on the message, before it is cut into the title and note
     caps -- the order ``_validate`` uses. Cutting first would hand a length-gated
@@ -497,7 +520,7 @@ def _fact_candidate(
     source_path = extra.get("source_path") if isinstance(extra, dict) else None
     raw_message = str(sig.get("message", ""))
     if isinstance(source_path, str) and source_path:
-        raw_message = f"{raw_message} (source: {source_path})"
+        raw_message = f"{raw_message} (source: {strip_url_userinfo(source_path)})"
     message = redact(raw_message)
     line_start, line_end = sig.get("line_start"), sig.get("line_end")
     line_start = line_start if isinstance(line_start, int) and not isinstance(

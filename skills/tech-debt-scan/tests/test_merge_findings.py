@@ -1104,6 +1104,86 @@ class TestToolCandidateDisables:
         assert off["stats"]["security"]["disabled"] == 1
 
 
+class TestToolSeverityAndEffort:
+    def _sig(self, tool: str, family: str, **extra: Any) -> dict[str, Any]:
+        return {"tool": tool, "family": family, "kind": "k", "file": "a.py",
+                "line_start": 1, "line_end": 1, "message": "m", "fact": True,
+                "extra": dict(extra)}
+
+    def _one(self, sig: dict[str, Any]) -> dict[str, Any]:
+        from merge_findings import tool_candidates
+
+        new, _ = tool_candidates([sig], {"files": []}, [])
+        assert len(new) == 1
+        candidate: dict[str, Any] = new[0]
+        return candidate
+
+    def test_only_hadolint_and_osv_read_a_severity_out_of_extra(self) -> None:
+        """``_tool_severity`` read ``extra["severity"]`` for every tool while its own
+        comment and the module docstring said hadolint, and an osv ``extra`` severity
+        overrode the deliberate constant. Both tools in the closed set compute the value
+        in their own normaliser (hadolint from its level, osv from the advisory's
+        published severity); a tool that computes none must not be able to acquire one
+        from an unvalidated signals file."""
+        assert self._one(self._sig("gitleaks", "security", severity=1))["severity"] == 5
+        assert self._one(
+            self._sig("actionlint", "pipeline-infra", severity=1)
+        )["severity"] == 3
+        assert self._one(self._sig("hadolint", "pipeline-infra", severity=1))["severity"] == 1
+        assert self._one(
+            self._sig("osv-scanner", "dependency-debt", severity=2)
+        )["severity"] == 2
+
+    def test_an_out_of_range_severity_falls_back_to_the_table(self) -> None:
+        for value in (0, 6, True, "4", None):
+            cand = self._one(self._sig("hadolint", "pipeline-infra", severity=value))
+            assert cand["severity"] == 3, value
+
+    def test_an_osv_advisory_with_no_published_severity_keeps_the_constant(self) -> None:
+        assert self._one(self._sig("osv-scanner", "dependency-debt"))["severity"] == 4
+
+    def test_gitleaks_effort_is_M(self) -> None:
+        """A confirmed live credential is a rotation, a redeploy, an access audit and
+        usually a history rewrite -- not the S the other three fact tools take."""
+        assert self._one(self._sig("gitleaks", "security"))["effort"] == "M"
+
+
+class TestToolCandidateSourcePaths:
+    def _osv(self, source_path: str) -> dict[str, Any]:
+        return {
+            "tool": "osv-scanner", "family": "dependency-debt", "kind": "vuln",
+            "file": None, "line_start": None, "line_end": None,
+            "message": "libcrypto 1.1.1 is affected by CVE-2099-0001", "fact": True,
+            "extra": {"id": "CVE-2099-0001", "source_type": "git",
+                      "source_path": source_path},
+        }
+
+    def test_a_source_urls_userinfo_never_reaches_a_candidate(self) -> None:
+        """A git source is a URL, and a submodule remote or a CI checkout can carry
+        ``user:password@``. ``CREDENTIAL_RE`` needs a key name and an operator and
+        ``SECRET_TOKEN_RE`` a known issuer prefix, so neither catches it: the password
+        reached the title, note and quote verbatim. An issuer-prefixed token was caught
+        only by luck of its prefix."""
+        from merge_findings import tool_candidates
+
+        new, _ = tool_candidates(
+            [self._osv("https://user:hunter2password@git.example.com/o/r.git")],
+            {"files": []}, [],
+        )
+        blob = json.dumps(new)
+        assert "hunter2password" not in blob
+        assert "user:" not in blob
+        assert "https://git.example.com/o/r.git" in new[0]["note"]
+        assert "https://git.example.com/o/r.git" in new[0]["evidence"][0]["quote"]
+
+    def test_a_source_url_with_no_userinfo_is_untouched(self) -> None:
+        from merge_findings import tool_candidates
+
+        new, _ = tool_candidates([self._osv("https://git.example.com/o/r.git")],
+                                 {"files": []}, [])
+        assert "https://git.example.com/o/r.git" in new[0]["note"]
+
+
 class TestMergeIntoRuleUsesTheSignalsFamily:
     def _rule(self, family: str) -> dict[str, Any]:
         return {"fingerprint": "a" * 16, "family": family, "source": "rule",
