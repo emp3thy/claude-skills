@@ -54,6 +54,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -103,12 +105,47 @@ def _existing_bundle_dir(out_root: Path, slug: str) -> Path | None:
     A finding already marked ``promoted`` in design.md was bundled on some
     earlier run, possibly on a different date than this run's ``date``, so
     the lookup globs on the slug alone rather than reconstructing today's
-    ``chore-<slug>-<date>`` id.
+    ``chore-<slug>-<date>`` id. When two dated directories exist for the same
+    slug (an earlier promote, then a later regeneration that left the old
+    directory on disk), the newest by name wins -- the ``YYYY-MM-DD`` date
+    suffix sorts lexically, so the last name in sorted order is the most
+    recent. ``_write_back`` layers a further preference on top of this
+    pick: the baseline's own previously recorded bundle beats it whenever
+    that directory still exists (Ruling 2).
     """
     if not out_root.is_dir():
         return None
     matches = sorted(p for p in out_root.glob(f"chore-{slug}-*") if p.is_dir())
-    return matches[0] if matches else None
+    return matches[-1] if matches else None
+
+
+def _repo_root_for_baseline(baseline_path: Path) -> Path:
+    """The repository root that owns ``baseline_path``, for the gitignore triple.
+
+    Never derived from the process's cwd. SKILL.md documents running every
+    script command from the skill's own ``skills/tech-debt-scan/`` directory,
+    which is generally unrelated to ``<repo>`` (the scanned repo) -- and a cwd
+    inside a subdirectory of the scanned repo is a *descendant* of the repo
+    root, not an ancestor of ``.tech-debt/`` (a sibling of that subdirectory).
+    ``Path.cwd()`` is an ancestor of ``--baseline``'s path in neither case, so
+    ``ensure_gitignore_triple``'s ``Path.relative_to`` raised an uncaught
+    ``ValueError`` for both -- ``root`` must instead be derived from
+    ``baseline_path`` itself, which is immune to both failure modes.
+
+    Asks git for the repository containing ``baseline_path``'s own directory;
+    falls back to ``baseline_path.parent.parent`` (SKILL.md's
+    ``<repo>/.tech-debt/baseline.json`` layout) when git is absent or that
+    directory is not inside a git repository.
+    """
+    parent = baseline_path.resolve().parent
+    if shutil.which("git") is not None:
+        proc = subprocess.run(
+            ["git", "-C", str(parent), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=False,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return Path(proc.stdout.strip())
+    return baseline_path.resolve().parent.parent
 
 
 def run_promote(
@@ -192,7 +229,14 @@ def _read_json_object(path: Path) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
-def _write_back(design_path: Path, baseline_path: Path, result: PromoteResult, today: str) -> str:
+def _write_back(
+    design_path: Path,
+    baseline_path: Path,
+    result: PromoteResult,
+    today: str,
+    *,
+    out_root: Path,
+) -> str:
     """Record every decision in ``design_path`` into the baseline; return the outcome.
 
     Re-parses ``design_path`` so the decisions reflect run_promote's own
@@ -201,17 +245,37 @@ def _write_back(design_path: Path, baseline_path: Path, result: PromoteResult, t
     or its preset key is absent) from the design's own directory, and maps
     ``already_promoted`` and ``emitted`` bundle directories (by name, not
     path) into baseline.record's ``bundles`` argument (Ruling 2 and Ruling 3).
-    Raises BaselineError, unchanged, on any failure -- the caller turns that
-    into EXIT_WRITE_BACK.
+    An ``already_promoted`` fingerprint prefers the bundle the *previous*
+    baseline already recorded for it over the fresh (possibly ambiguous, see
+    ``_existing_bundle_dir``) glob pick, whenever that directory still exists
+    on disk under ``out_root`` (Ruling 2); an ``emitted`` fingerprint always
+    uses this run's own fresh bundle, since a bundle just written has no
+    ambiguity to resolve.
+
+    Raises BaselineError, ValueError (includes json.JSONDecodeError, e.g. a
+    malformed verified.json/ranked.json) or OSError on any failure -- the
+    caller (_main) turns each into EXIT_WRITE_BACK. ``root`` for the
+    gitignore triple is derived from ``baseline_path`` itself
+    (``_repo_root_for_baseline``), never from the process's cwd.
     """
     decisions = parse_design(design_path)["findings"]
     verified = _read_json_object(design_path.parent / "verified.json")
     findings = verified.get("findings") or []
     ranked = _read_json_object(design_path.parent / "ranked.json")
     preset = str(ranked.get("preset") or "balanced")
-    bundles = {
-        fp: path.name for fp, path in {**result.already_promoted, **result.emitted}.items()
-    }
+
+    prior = baseline.load_baseline(baseline_path)
+    prior_findings: dict[str, Any] = prior["findings"] if prior else {}
+
+    bundles: dict[str, str] = {}
+    for fp, path in result.already_promoted.items():
+        prior_bundle = prior_findings.get(fp, {}).get("bundle")
+        if prior_bundle and (out_root / prior_bundle).is_dir():
+            bundles[fp] = prior_bundle
+        else:
+            bundles[fp] = path.name
+    for fp, path in result.emitted.items():
+        bundles[fp] = path.name
 
     baseline.record(
         baseline_path,
@@ -221,7 +285,7 @@ def _write_back(design_path: Path, baseline_path: Path, result: PromoteResult, t
         today=today,
         preset=preset,
     )
-    return baseline.ensure_gitignore_triple(Path.cwd(), baseline_path)
+    return baseline.ensure_gitignore_triple(_repo_root_for_baseline(baseline_path), baseline_path)
 
 
 def _main(argv: list[str] | None = None) -> int:
@@ -270,8 +334,10 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.baseline is not None and result.exit_code == 0:
         try:
-            outcome = _write_back(args.design, args.baseline, result, scan_date)
-        except BaselineError as exc:
+            outcome = _write_back(
+                args.design, args.baseline, result, scan_date, out_root=args.out
+            )
+        except (BaselineError, ValueError, OSError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return EXIT_WRITE_BACK
         print(f"wrote {args.baseline}")

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -219,3 +222,154 @@ class TestWriteBack:
         promoted = [e for e in doc["findings"].values() if e["status"] == "promoted"]
         assert promoted and all(e["bundle"] for e in promoted)
         assert all((out / e["bundle"]).is_dir() for e in promoted)
+
+    # -- Fix round 1 --------------------------------------------------------
+
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+    def test_root_is_derived_from_baseline_not_cwd(
+        self, v2_design_workdir, monkeypatch
+    ) -> None:
+        """cwd need not be an ancestor of --baseline's path: SKILL.md's documented
+        invocation cwd (skills/tech-debt-scan/) is generally unrelated to the
+        scanned repo, and a cwd inside a subdirectory of the scanned repo isn't
+        an ancestor of .tech-debt/ either. Reproduced (Finding #1) as an
+        uncaught ValueError from Path.relative_to before this fix; root must be
+        derived from --baseline's own path instead."""
+        from promote import _main
+
+        design, workdir = v2_design_workdir
+        repo = workdir / "repo"
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        (repo / ".gitignore").write_text(".tech-debt/\n", encoding="utf-8")
+        tech_debt = repo / ".tech-debt"
+        tech_debt.mkdir()
+        baseline_path = tech_debt / "baseline.json"
+        ignored = subprocess.run(
+            ["git", "-C", str(repo), "check-ignore", "-q", ".tech-debt/baseline.json"]
+        )
+        assert ignored.returncode == 0, "precondition: the baseline starts ignored"
+
+        elsewhere = workdir / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        code = _main([str(design), "--out", str(workdir / "pbis"), "--baseline",
+                      str(baseline_path)])
+        assert code == 0
+        text = (repo / ".gitignore").read_text(encoding="utf-8")
+        assert text.endswith("!.tech-debt/\n.tech-debt/*\n!.tech-debt/baseline.json\n")
+
+    def test_malformed_ranked_json_is_exit_6_and_bundles_remain(
+        self, v2_design_workdir
+    ) -> None:
+        """A malformed ranked.json raised json.JSONDecodeError uncaught before
+        this fix (Finding #1, mode 2); the write-back must degrade to exit 6,
+        same as a BaselineError, with the bundles already emitted left intact."""
+        from promote import EXIT_WRITE_BACK, _main
+
+        design, workdir = v2_design_workdir
+        (workdir / "ranked.json").write_text("{not json", encoding="utf-8")
+
+        code = _main([str(design), "--out", str(workdir / "pbis"), "--baseline",
+                      str(workdir / "baseline.json")])
+        assert code == EXIT_WRITE_BACK == 6
+        assert any((workdir / "pbis").iterdir()), "bundles emitted before the write-back remain"
+        assert not (workdir / "baseline.json").exists()
+
+    def test_prefers_previously_recorded_bundle_over_newest_glob_match(
+        self, v2_design_workdir
+    ) -> None:
+        """Three dated bundle directories exist for one slug: one older than the
+        recorded bundle, the recorded bundle itself, and one newer -- neither
+        "oldest" (pre-fix behavior) nor "newest" alone picks the recorded
+        directory here, so only Ruling 2's actual rule (prefer the baseline's
+        own record, else newest) can pass this."""
+        from baseline import load_baseline
+        from promote import _main
+
+        design, workdir = v2_design_workdir
+        out = workdir / "pbis"
+        baseline_path = workdir / "baseline.json"
+
+        assert _main([str(design), "--out", str(out)]) == 0
+        assert _main([str(design), "--out", str(out), "--baseline", str(baseline_path)]) == 0
+        doc1 = load_baseline(baseline_path)
+        promoted1 = [e for e in doc1["findings"].values() if e["status"] == "promoted"]
+        assert len(promoted1) == 1
+        recorded_bundle = promoted1[0]["bundle"]
+
+        # Neither fake directory is ever recorded in the baseline; they only
+        # simulate stray regenerations left on disk. One sorts before the
+        # recorded bundle, one sorts after it -- oldest-pick and newest-pick
+        # each land on a different wrong directory, never the recorded one.
+        slug = recorded_bundle.removeprefix("chore-")[:-11]
+        (out / f"chore-{slug}-2000-01-01").mkdir()
+        (out / f"chore-{slug}-9999-01-01").mkdir()
+
+        assert _main([str(design), "--out", str(out), "--baseline", str(baseline_path)]) == 0
+        doc2 = load_baseline(baseline_path)
+        promoted2 = [e for e in doc2["findings"].values() if e["status"] == "promoted"]
+        assert promoted2[0]["bundle"] == recorded_bundle, "must keep the baseline's own record"
+
+    def test_preset_is_forwarded_from_ranked_json(self, v2_design_workdir) -> None:
+        """A mutant hard-coding a wrong preset must fail this: the baseline's
+        preset must equal ranked.json's actual value, not just its fallback."""
+        from baseline import load_baseline
+        from promote import _main
+
+        design, workdir = v2_design_workdir
+        ranked_path = workdir / "ranked.json"
+        ranked = json.loads(ranked_path.read_bytes())
+        ranked["preset"] = "hotspot-first"
+        ranked_path.write_text(json.dumps(ranked), encoding="utf-8")
+
+        baseline_path = workdir / "baseline.json"
+        assert _main([str(design), "--out", str(workdir / "pbis"), "--baseline",
+                      str(baseline_path)]) == 0
+        doc = load_baseline(baseline_path)
+        assert doc is not None
+        assert doc["preset"] == "hotspot-first"
+
+    def test_preset_defaults_to_balanced_when_ranked_json_absent(
+        self, v2_design_workdir
+    ) -> None:
+        from baseline import load_baseline
+        from promote import _main
+
+        design, workdir = v2_design_workdir
+        (workdir / "ranked.json").unlink()
+
+        baseline_path = workdir / "baseline.json"
+        assert _main([str(design), "--out", str(workdir / "pbis"), "--baseline",
+                      str(baseline_path)]) == 0
+        doc = load_baseline(baseline_path)
+        assert doc is not None
+        assert doc["preset"] == "balanced"
+
+    def test_promote_failure_writes_no_baseline(self, v2_design_workdir, monkeypatch) -> None:
+        """A mutant deleting `and result.exit_code == 0` from _main's write-back
+        gate must fail this: when run_promote itself fails for a reason other
+        than the v1 precheck, no write-back may be attempted.
+
+        A pre-existing bundle without --force does not, on its own, produce
+        this: run_promote's approved branch treats a BundleWriteError whose
+        message contains "already exists" as an idempotent already-promoted
+        case (exit stays 0), by design -- verified directly against this
+        checkout before writing this test. A genuine bundle-write failure
+        (disk full, permission denied, ...) is simulated instead, since it is
+        the only way run_promote's exit_code actually becomes nonzero here.
+        """
+        import promote as pmod
+        from promote import _main
+
+        design, workdir = v2_design_workdir
+
+        def boom(*_a: object, **_k: object) -> None:
+            raise pmod.BundleWriteError("cannot write bundle: disk full")
+
+        monkeypatch.setattr(pmod, "write_bundle", boom)
+        baseline_path = workdir / "baseline.json"
+        code = _main([str(design), "--out", str(workdir / "pbis"), "--baseline",
+                      str(baseline_path)])
+        assert code == 4
+        assert not baseline_path.exists()
