@@ -74,17 +74,40 @@ def _primary(finding: dict[str, Any]) -> tuple[str | None, int | None]:
     file = evidence[0].get("file")
     line = evidence[0].get("line_start")
     return (file if isinstance(file, str) else None,
-            line if isinstance(line, int) else None)
+            line if isinstance(line, int) and not isinstance(line, bool) else None)
+
+
+def _until_is_malformed(entry: dict[str, Any]) -> bool:
+    """True when `until` is present but not a parseable ISO date."""
+    until = entry.get("until")
+    if until is None:
+        return False
+    if isinstance(until, str):
+        try:
+            date.fromisoformat(until)
+            return False
+        except ValueError:
+            return True
+    return True
 
 
 def _expired(entry: dict[str, Any], today: str) -> bool:
+    """True when `until` has passed, or is present but malformed.
+
+    A missing `until` (None) means "no expiry" and is never expired. A
+    malformed `until` fails safe -- treated as expired so the finding
+    returns and `classify` can say why, rather than suppressing silently
+    forever.
+    """
     until = entry.get("until")
-    if not isinstance(until, str):
+    if until is None:
         return False
-    try:
-        return date.fromisoformat(until) < date.fromisoformat(today)
-    except ValueError:
-        return False
+    if isinstance(until, str):
+        try:
+            return date.fromisoformat(until) < date.fromisoformat(today)
+        except ValueError:
+            pass
+    return True
 
 
 def _suppressed_as(entry: dict[str, Any], today: str) -> str | None:
@@ -99,7 +122,18 @@ def _suppressed_as(entry: dict[str, Any], today: str) -> str | None:
 def _edited_match(
     finding: dict[str, Any], baseline: dict[str, Any], file: str, line: int | None
 ) -> str | None:
-    """The fingerprint of a baseline entry this finding is an edit of, if any."""
+    """The fingerprint of a baseline entry this finding is an edit of, if any.
+
+    Requires an integer line on both sides. A finding whose primary evidence
+    has no ``line_start`` (an osv-scanner advisory, spec 4.6, always has
+    none), or a baseline entry whose recorded ``line_start`` is not an
+    integer, can never match here: the heuristic exists for code that moved
+    or was retitled near its old location, and a manifest-level fact has no
+    "near" to check. Such findings fall through to fingerprint matching, or
+    NEW, instead of matching on title overlap alone at any distance.
+    """
+    if not isinstance(line, int):
+        return None
     wanted = title_tokens(str(finding.get("title", "")))
     family = finding.get("family")
     best: tuple[int, str] | None = None
@@ -107,12 +141,12 @@ def _edited_match(
         if entry.get("family") != family or entry.get("file") != file:
             continue
         base_line = entry.get("line_start")
-        if line is not None and isinstance(base_line, int) and abs(base_line - line) > EDIT_WINDOW:
+        if not isinstance(base_line, int) or abs(base_line - line) > EDIT_WINDOW:
             continue
         base_tokens = title_tokens(str(entry.get("title", "")))
         shared = len(wanted & base_tokens)
         if base_tokens and shared * 2 >= len(base_tokens):
-            distance = abs((base_line or 0) - (line or 0))
+            distance = abs(base_line - line)
             if best is None or distance < best[0]:
                 best = (distance, fp)
     return best[1] if best else None
@@ -131,7 +165,7 @@ def classify(
         suppressed = _suppressed_as(entry, today)
         note = None
         if entry.get("status") == "accepted" and suppressed is None:
-            note = "acceptance expired"
+            note = "until is not a date" if _until_is_malformed(entry) else "acceptance expired"
         moved = isinstance(line, int) and isinstance(entry.get("line_start"), int) \
             and entry["line_start"] != line
         return Classification("UNCHANGED (moved)" if moved else "UNCHANGED", fp, note, suppressed)

@@ -112,6 +112,18 @@ class TestClassify:
         assert out.diff == "UNCHANGED (moved)"
         assert out.matched == "aaaaaaaaaaaaaaaa"
 
+    def test_a_one_line_move_is_still_moved(self, tmp_path: Path) -> None:
+        """`moved` is any difference, not just a large one."""
+        from baseline import classify
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "x\n" * 33 + "except Exception:\n"})
+        finding = _finding(evidence=[{"file": "src/pay/refund.py", "line_start": 34,
+                                      "line_end": 34, "quote": "except Exception:",
+                                      "quote_verified": True}])
+        out = classify(finding, _baseline(aaaaaaaaaaaaaaaa=_entry(line_start=33)), root, TODAY)
+        assert out.diff == "UNCHANGED (moved)"
+        assert out.matched == "aaaaaaaaaaaaaaaa"
+
     def test_edited_match_shares_half_the_tokens_within_forty_lines(self, tmp_path: Path) -> None:
         from baseline import classify
 
@@ -175,6 +187,39 @@ class TestClassify:
         out = classify(finding, _baseline(aaaaaaaaaaaaaaaa=_entry(line_start=33)), root, TODAY)
         assert out.diff == "NEW"
 
+    def test_edited_match_requires_a_line_on_the_finding_side(self, tmp_path: Path) -> None:
+        """An osv-scanner finding always has `line_start: null` (spec 4.6). The
+        forty-line window has no "near" to check without a line on both sides,
+        so it can never match by the edited heuristic -- fingerprint or NEW."""
+        from baseline import classify
+
+        root = _repo(tmp_path, {"requirements.txt": "x\n" * 80})
+        finding = _finding(fingerprint="bbbbbbbbbbbbbbbb", quote_hash="r" * 40,
+                           family="dependency", title="Empty catch swallows write failure",
+                           evidence=[{"file": "requirements.txt", "line_start": None,
+                                      "line_end": None, "quote": "numpy==1.0",
+                                      "quote_verified": True}])
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry(family="dependency", file="requirements.txt",
+                                                  line_start=9999))
+        out = classify(finding, base, root, TODAY)
+        assert out.diff == "NEW"
+
+    def test_edited_match_requires_a_line_on_the_baseline_side(self, tmp_path: Path) -> None:
+        """Mirror of the above: a baseline entry recorded without a line (also
+        an osv-scanner shape) is likewise never a candidate for an edited match."""
+        from baseline import classify
+
+        root = _repo(tmp_path, {"requirements.txt": "x\n" * 80})
+        finding = _finding(fingerprint="bbbbbbbbbbbbbbbb", quote_hash="r" * 40,
+                           family="dependency", title="Empty catch swallows write failure",
+                           evidence=[{"file": "requirements.txt", "line_start": 33,
+                                      "line_end": 33, "quote": "numpy==1.0",
+                                      "quote_verified": True}])
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry(family="dependency", file="requirements.txt",
+                                                  line_start=None))
+        out = classify(finding, base, root, TODAY)
+        assert out.diff == "NEW"
+
     def test_no_match_at_all_is_new(self, tmp_path: Path) -> None:
         from baseline import classify
 
@@ -200,6 +245,7 @@ class TestClassify:
         out = classify(_finding(), base, root, TODAY)
         assert out.suppressed_as == "rejected"
         assert out.matched == "aaaaaaaaaaaaaaaa"
+        assert out.diff == "UNCHANGED"
 
     def test_unexpired_accepted_match_is_suppressed(self, tmp_path: Path) -> None:
         from baseline import classify
@@ -208,6 +254,7 @@ class TestClassify:
         base = _baseline(aaaaaaaaaaaaaaaa=_entry(status="accepted", until="2027-01-01"))
         out = classify(_finding(), base, root, TODAY)
         assert out.suppressed_as == "accepted"
+        assert out.diff == "UNCHANGED"
 
     def test_expired_accepted_match_returns_as_unchanged_with_a_note(self, tmp_path: Path) -> None:
         from baseline import classify
@@ -218,6 +265,18 @@ class TestClassify:
         assert out.suppressed_as is None
         assert out.diff == "UNCHANGED"
         assert out.note == "acceptance expired"
+
+    def test_malformed_until_is_treated_as_expired(self, tmp_path: Path) -> None:
+        """An `until` that isn't a parseable date fails safe: the finding
+        returns and says why, instead of suppressing silently forever."""
+        from baseline import classify
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "x\n" * 32 + "except Exception:\n"})
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry(status="accepted", until="soon"))
+        out = classify(_finding(), base, root, TODAY)
+        assert out.suppressed_as is None
+        assert out.diff == "UNCHANGED"
+        assert out.note == "until is not a date"
 
     def test_accepted_expiring_today_is_still_suppressed(self, tmp_path: Path) -> None:
         """`until` is inclusive: the acceptance holds through its last day."""
@@ -241,3 +300,13 @@ class TestClassify:
         out = classify(finding, base, root, TODAY)
         assert out.suppressed_as == "rejected"
         assert out.note == "suppressed by edited match"
+
+
+class TestPrimary:
+    def test_bool_line_start_is_excluded(self) -> None:
+        """`bool` is an `int` subclass; a boolean is never a line number
+        (matches the guard in merge_findings.py:129)."""
+        from baseline import _primary
+
+        _, line = _primary({"evidence": [{"file": "src/x.py", "line_start": True}]})
+        assert line is None
