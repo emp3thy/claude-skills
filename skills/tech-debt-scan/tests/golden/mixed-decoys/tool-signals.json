@@ -1,0 +1,38 @@
+{
+  "schema_version": 2,
+  "covered_tools": [
+    "jscpd",
+    "knip",
+    "lizard",
+    "madge",
+    "ruff",
+    "vulture"
+  ],
+  "tools": {
+    "ruff": {
+      "status": "skipped",
+      "reason": "no matching artefact"
+    },
+    "vulture": {
+      "status": "skipped",
+      "reason": "no matching artefact"
+    },
+    "lizard": {
+      "status": "ran",
+      "reason": ""
+    },
+    "jscpd": {
+      "status": "skipped",
+      "reason": "no matching artefact"
+    },
+    "knip": {
+      "status": "skipped",
+      "reason": "no matching artefact"
+    },
+    "madge": {
+      "status": "skipped",
+      "reason": "no matching artefact"
+    }
+  },
+  "signals": []
+}

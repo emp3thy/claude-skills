@@ -12,9 +12,13 @@ their behaviour.
 
 - **Language-independent.** The only language-aware code is the inventory's
   extension→language map, which also supplies each language's comment syntax
-  to `patterns.py`. Every rule in `inventory.py`, `patterns.py` and `rules.py`
-  is a union of idioms across languages; a test greps the scripts for any
-  branch on a language name. Scout, verifier and remediation-note prompts are
+  to `patterns.py`, and `tools_probe.py`'s tool registry, whose rows are
+  inherently tool-specific (ruff and vulture are Python-only; madge, jscpd and
+  knip are JS/TS-only; hadolint reads Dockerfiles; actionlint reads GitHub
+  Actions workflows). Every rule in `inventory.py`, `patterns.py` and
+  `rules.py` is a union of idioms across languages; a test greps every other
+  script for a branch on a language name (`tools_probe.py` is the one
+  exception the spec allows). Scout, verifier and remediation-note prompts are
   all language-neutral.
 - **LLM does the judgement, scripts do the determinism.** The model runs each
   dispatched family's scout, verifies a batch of candidates against that
@@ -174,6 +178,130 @@ workdir instead of calling out. Flags: `--workdir`, `--families`, `--top`,
 `--timeout`, `--log`, `--skip-agents`; exit 2 on a bad target or malformed
 input, 3 when `claude` is not on PATH (and `--skip-agents` is absent), 4 when
 an agent call fails after its retry or `--skip-agents` finds no cached reply.
+
+## External tool probe
+
+`tools_probe.py` and `tool_normalisers.py` split the phase 4a work in two:
+`tools_probe.py` owns every side effect — the CLI, presence detection, the
+ten-row tool registry, the subprocess runner, timeouts and redaction — while
+`tool_normalisers.py` holds the ten `normalise_<tool>(payload, root) ->
+list[Signal]` functions as pure code with no I/O. The split exists so a
+normaliser is testable from a captured payload with nothing mocked, and the
+runner is testable with no tool installed at all.
+
+Each registry row's artefact predicate and its argv builder must select the
+same thing. A predicate narrower than the invocation gates a tool out of work
+it would have done — osv-scanner's lockfile patterns matched the repository
+root only while its invocation is `--recursive`, so a monorepo with per-package
+lockfiles got no vulnerability scan at all. A predicate wider than the
+invocation turns a tool loose on work its gate never selected for — jscpd's
+gate is JS/TS while its invocation parsed every format it knows and descended
+into `node_modules`, which produced 92% of the signals from a scan of this
+repository. jscpd is now given `--format` restricted to its own gate's four
+languages, and every tool — not jscpd alone — is kept out of the vendored and
+generated trees `inventory.py` classifies, by one of the three mechanisms
+described under redaction below. Every builder names its target with an
+absolute path, because the runner also sets the child's working directory and
+a relative operand would be resolved against it twice.
+
+`python scripts/tools_probe.py <repo> [--workdir DIR] [--skip-all]` never
+installs anything, never invokes `npx`, and never executes project code.
+Presence detection is `shutil.which(name)` first, then
+`<repo>/node_modules/.bin/<name>[.cmd|.exe|.ps1]` for `jscpd`, `knip` and
+`madge` only — the three tools distributed as npm packages, whose project-
+local install a repository already depends on; every other tool is
+`shutil.which` alone. Each present tool the artefact predicate says is worth
+running gets one subprocess call under a per-tool timeout, and lands in one
+of four statuses: `ran` (the process exited with a code the registry allows
+and its output parsed), `absent` (no executable found), `failed` (a rejected
+exit code, a timeout, an OSError, output that failed to parse, or a
+normaliser that raised — which costs that tool's signals and no others), or
+`skipped` (no matching artefact, the tool is on the config deny list,
+`--skip-all` was given, or — for osv-scanner offline — no local vulnerability
+database). `tools_probe.py` writes `tool-signals.json` to the workdir;
+**nothing reads it until phase 4b** — `plan_scan.py`, `merge_findings.py` and
+SKILL.md all gain that wiring then, together with module chunking and the
+halved deep thresholds.
+
+Six of the ten normalisers — ruff, vulture, lizard, madge, jscpd, knip — were
+written against real captured output from the tool installed on this
+machine. The other four — osv-scanner, gitleaks, hadolint, actionlint — are
+Go binaries this machine cannot install, so their normalisers were written
+from documented output schemas alone and have never seen their tool run.
+`skills/tech-debt-scan/tests/fixtures/tool-output/PROVENANCE.md` records
+which fixture is which, and which command produced it. This distinction is
+not a formality: four of the five tools that could be installed contradicted
+their own documentation once actually run — madge silently returns an empty
+graph and exits 0 on a real TypeScript import cycle unless given
+`--extensions` explicitly, vulture exits 3 rather than the 1 most of this
+registry's other tools use for "findings present" and has no JSON output
+mode, lizard has no JSON output mode either (`--csv`, `--xml` and `--html`
+are its only structured formats), and jscpd's JSON reporter never writes to
+stdout — only to a report file in a directory the caller supplies. A
+normaliser written only from documentation carries the same risk: nothing
+has confirmed its assumed shape matches what the tool actually emits.
+
+No field that can carry source text or a credential is ever copied into a
+signal. `normalise_gitleaks` drops `Secret` and `Match` — the credential
+gitleaks matched — outright rather than redacting them, because a redacted
+secret is still its own first four characters while a dropped one is
+nothing. `normalise_jscpd` drops `fragment`, the duplicated source itself,
+for the same reason. `normalise_actionlint` drops `snippet`, a line of the
+workflow file that may carry a token or an inline secret reference. In every
+case the file and line range that remain are enough to find the finding by
+hand.
+
+Dropping those four fields is the first half of the guarantee; the second is
+that **every string written into `tool-signals.json` goes through
+`redaction.redact`**, not only the strings in the `signals` array. The array
+was not the only route: `tools[<name>].reason` carries up to 200 characters
+of a failing tool's stderr, and a tool that fails while reading a file
+routinely prints the offending source line — vulture prints it on a syntax
+error — so a credential on that line reached the document verbatim until the
+whole-branch review found it. Redaction is applied to the document at the
+point of writing, to dictionary keys as well as values and into every
+container (list, tuple, set), so a field added later cannot miss it. It is
+applied a second time, earlier, wherever `reason` is built: the general rule
+above — redact first, cap second — is enforced in `tools_probe.py` by a
+single `_capped` helper that every capping site calls, because truncating a
+credential in half destroys the shape the later document-wide `redact` would
+have matched on.
+
+**What `tools[<name>].reason` may still contain, stated plainly.** It is
+*arbitrary text the failed tool printed, minus credential-shaped substrings*
+— not merely a variable name and punctuation. `redact` recognises shapes: an
+assignment whose name contains password/secret/token/api_key/apikey/
+access_key, and a token carrying a known issuer prefix. Everything else on
+the line survives, up to the 200-character cap. A database connection string
+whose password is neither prefixed nor assigned to a matching name —
+`CONN = "postgres://admin:S3cretP4ssw0rd@db.internal:5432/prod"` — passes
+through intact. This is a deliberate trade, not an oversight: dropping stderr
+would make every tool failure undiagnosable, and the exposure is narrow — a
+`failed` tool only, at most 200 characters, and only when the tool echoes
+what it was reading. Read the module docstring's "no field that can carry
+source text or a credential is ever copied into a signal" as the statement
+about *signals* that it is; `reason` is in the `tools` map, and it is the one
+place source text can reach the file.
+
+**No tool is turned loose on a tree the repository does not own.** The
+vendored and generated path classes are `inventory.py`'s — the same
+`DEFAULT_IGNORE` and `PATH_CLASS_GLOBS` that decide every inventory entry's
+`path_class`, and that `patterns.py` already refuses to scan, credential rule
+included — so there is one notion of "vendored" in the skill and not two. The
+probe applies it three ways, chosen by what each tool accepts: an ignore flag
+where one exists (`jscpd --ignore`, `vulture --exclude`, `lizard -x`, `ruff
+--extend-exclude` — never `ruff --exclude`, which replaces ruff's own
+defaults instead of adding to them); a filtered operand list for the two
+tools this module globs operands for itself (`hadolint`, `actionlint`); and a
+filter over the signals produced, for the four with no usable path flag
+(`madge`, whose `-x` takes a regular expression rather than globs; `knip` and
+`gitleaks`, whose only path ignore is a config file in the repository being
+scanned; and `osv-scanner`, which has none). That last filter runs for all
+ten tools, so one that ignores the list it was given still cannot reach the
+document. `artefact_present` discounts vendored matches for the same reason:
+a repository whose only Dockerfile sits in `node_modules` has nothing for
+hadolint to do, and a gate that claimed otherwise would be the
+predicate-versus-argv disagreement again.
 
 ## Scout families
 

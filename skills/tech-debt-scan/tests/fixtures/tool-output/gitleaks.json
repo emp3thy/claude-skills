@@ -1,0 +1,18 @@
+[
+  {
+    "RuleID": "generic-api-key",
+    "Description": "Detected a Generic API Key",
+    "File": "src/config/settings.py",
+    "StartLine": 12,
+    "EndLine": 12,
+    "StartColumn": 14,
+    "EndColumn": 48,
+    "Entropy": 4.31,
+    "Secret": "EXAMPLE-NOT-A-REAL-SECRET-VALUE",
+    "Match": "api_key = \"EXAMPLE-NOT-A-REAL-SECRET-VALUE\"",
+    "Tags": [],
+    "Commit": "",
+    "Author": "",
+    "Date": ""
+  }
+]

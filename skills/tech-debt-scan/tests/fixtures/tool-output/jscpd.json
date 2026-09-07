@@ -1,0 +1,29 @@
+{
+  "duplicates": [
+    {
+      "firstFile": {
+        "end": 8,
+        "endLoc": {"column": 1, "line": 8, "position": 269},
+        "name": "src/util/format.ts",
+        "start": 1,
+        "startLoc": {"column": 0, "line": 1, "position": 0}
+      },
+      "format": "typescript",
+      "fragment": "export function compute(items: number[], rate: number): number {\n  let total = 0;\n}",
+      "isNew": false,
+      "lines": 8,
+      "secondFile": {
+        "end": 12,
+        "endLoc": {"column": 1, "line": 12, "position": 269},
+        "name": "src/util/format-legacy.ts",
+        "start": 5,
+        "startLoc": {"column": 0, "line": 5, "position": 0}
+      },
+      "tokens": 79
+    }
+  ],
+  "statistics": {
+    "detectionDate": "2026-09-06T16:32:58.732Z",
+    "total": {"clones": 1, "duplicatedLines": 8, "lines": 115, "percentage": 6.95}
+  }
+}

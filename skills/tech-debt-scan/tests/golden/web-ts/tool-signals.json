@@ -1,0 +1,131 @@
+{
+  "schema_version": 2,
+  "covered_tools": [
+    "hadolint",
+    "jscpd",
+    "knip",
+    "lizard",
+    "madge",
+    "ruff",
+    "vulture"
+  ],
+  "tools": {
+    "hadolint": {
+      "status": "skipped",
+      "reason": "no matching artefact"
+    },
+    "ruff": {
+      "status": "skipped",
+      "reason": "no matching artefact"
+    },
+    "vulture": {
+      "status": "skipped",
+      "reason": "no matching artefact"
+    },
+    "lizard": {
+      "status": "ran",
+      "reason": ""
+    },
+    "jscpd": {
+      "status": "ran",
+      "reason": ""
+    },
+    "knip": {
+      "status": "ran",
+      "reason": ""
+    },
+    "madge": {
+      "status": "ran",
+      "reason": ""
+    }
+  },
+  "signals": [
+    {
+      "tool": "knip",
+      "family": "dependency-debt",
+      "kind": "unused",
+      "file": "package.json",
+      "line_start": null,
+      "line_end": null,
+      "message": "unused dependency 'tiny-emitter'",
+      "fact": false,
+      "extra": {
+        "issue": "dependencies",
+        "symbol": "tiny-emitter"
+      }
+    },
+    {
+      "tool": "knip",
+      "family": "dependency-debt",
+      "kind": "unused",
+      "file": "package.json",
+      "line_start": 8,
+      "line_end": 8,
+      "message": "unused devDependency 'jest'",
+      "fact": false,
+      "extra": {
+        "issue": "devDependencies",
+        "symbol": "jest"
+      }
+    },
+    {
+      "tool": "knip",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/api/client-admin.ts",
+      "line_start": null,
+      "line_end": null,
+      "message": "unused file src/api/client-admin.ts",
+      "fact": false,
+      "extra": {
+        "issue": "files",
+        "symbol": "src/api/client-admin.ts"
+      }
+    },
+    {
+      "tool": "knip",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/api/client.ts",
+      "line_start": null,
+      "line_end": null,
+      "message": "unused file src/api/client.ts",
+      "fact": false,
+      "extra": {
+        "issue": "files",
+        "symbol": "src/api/client.ts"
+      }
+    },
+    {
+      "tool": "knip",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/cart/stock.ts",
+      "line_start": 11,
+      "line_end": 11,
+      "message": "unused export 'reserveCart'",
+      "fact": false,
+      "extra": {
+        "issue": "exports",
+        "symbol": "reserveCart"
+      }
+    },
+    {
+      "tool": "madge",
+      "family": "architecture",
+      "kind": "cycle",
+      "file": "src/cart/cart.ts",
+      "line_start": null,
+      "line_end": null,
+      "message": "import cycle through 3 modules: src/cart/cart.ts -> src/cart/pricing.ts -> src/cart/stock.ts",
+      "fact": false,
+      "extra": {
+        "cycle": [
+          "src/cart/cart.ts",
+          "src/cart/pricing.ts",
+          "src/cart/stock.ts"
+        ]
+      }
+    }
+  ]
+}

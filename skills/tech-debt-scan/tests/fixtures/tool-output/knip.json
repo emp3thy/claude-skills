@@ -1,0 +1,25 @@
+{
+  "issues": [
+    {
+      "file": "vendor/tiny-emitter.js",
+      "exports": [],
+      "files": [{"name": "vendor/tiny-emitter.js"}],
+      "types": [],
+      "dependencies": []
+    },
+    {
+      "file": "src/util/format-legacy.ts",
+      "exports": [{"name": "formatLegacy", "line": 4, "col": 17, "pos": 96}],
+      "files": [],
+      "types": [],
+      "dependencies": []
+    },
+    {
+      "file": "package.json",
+      "exports": [],
+      "files": [],
+      "types": [],
+      "dependencies": [{"name": "left-pad", "line": 12, "col": 6, "pos": 240}]
+    }
+  ]
+}
