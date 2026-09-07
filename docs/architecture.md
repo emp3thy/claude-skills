@@ -242,8 +242,19 @@ point (`plan_scan.py`'s chunking, halved thresholds under `--deep`).
 what is about to reach the network: osv-scanner sends package names,
 versions, ecosystems and file hashes to OSV.dev; every other first-cut tool
 (gitleaks, ruff, vulture, lizard, jscpd, knip, madge, hadolint, actionlint) is
-local-only and sends nothing. Setting `tools.network: false` in
-`.tech-debt.yaml` keeps the whole scan offline: the probe runs
+local-only and sends nothing. That claim rests on reading every tool's own
+`argv_for` branch in `tools_probe.py`: none but osv-scanner's inserts a
+network flag or builds a URL. That is a code-level check of what this
+project asks each tool to do, not an independent audit of the nine binaries
+themselves, and the phase 4b review flagged it as such: the "local-only"
+half of the notice is verified in-repo for gitleaks alone, and the remaining
+eight rest on the same argv-level check plus general knowledge of what a
+static analyser does, which is a weaker standard than osv-scanner's half of
+this notice meets (osv-scanner's network contract is OSV.dev's own
+documented API). Closing that gap — an in-repo citation or a captured-run
+confirmation per tool — is unresolved, deferred rather than fixed here.
+Setting `tools.network: false` in `.tech-debt.yaml` keeps the whole scan
+offline: the probe runs
 `osv-scanner --offline` against a database pre-downloaded with
 `osv-scanner --download-offline-databases` into
 `OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY`; an absent database is reported as
@@ -253,9 +264,10 @@ still written, with every tool `skipped`.
 
 Six of the ten normalisers — ruff, vulture, lizard, madge, jscpd, knip — were
 written against real captured output from the tool installed on this
-machine. The other four — osv-scanner, gitleaks, hadolint, actionlint — are
-Go binaries this machine cannot install, so their normalisers were written
-from documented output schemas alone and have never seen their tool run.
+machine. The other four — osv-scanner, gitleaks and actionlint (Go binaries)
+and hadolint (a Haskell binary) — are none of them installable on this
+machine, so their normalisers were written from documented output schemas
+alone and have never seen their tool run.
 `skills/tech-debt-scan/tests/fixtures/tool-output/PROVENANCE.md` records
 which fixture is which, and which command produced it. This distinction is
 not a formality: four of the five tools that could be installed contradicted
