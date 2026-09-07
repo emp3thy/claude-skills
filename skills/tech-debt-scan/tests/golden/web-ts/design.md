@@ -928,6 +928,6 @@ test("total sums items", () => {
 # Not assessed
 
 - Families not run: security (no leads)
-- Tools: the tool probe lands in phase 4, so currency, end-of-life and vulnerability claims are not assessed
+- Tools: a claim that needs a tool which did not run -- currency, end-of-life, vulnerability -- is not assessed; the frontmatter's tools_absent names every such tool
 - Runtime-only: coverage numbers, flake confirmation, model staleness, rollout state, deploy frequency
 - By design: magic literals, convention violations, and class-level metrics that need a parser

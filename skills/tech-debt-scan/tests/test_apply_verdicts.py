@@ -267,6 +267,66 @@ class TestTierReason:
         assert out["tier"] == "C"
         assert out["tier_reason"] == "not selected for verification"
 
+    def test_a_selected_candidate_with_no_verdict_is_not_told_it_was_never_selected(
+        self,
+    ) -> None:
+        """The two no-verdict states are both tier C and call for opposite responses:
+        raise ``--top`` for the first, re-dispatch the lost batch for the second.
+        Only the reason tells them apart."""
+        from apply_verdicts import _finding
+
+        out = _finding(self._cand(), None, selected=True)
+        assert out["tier"] == "C" and out["verdict"] == "unverified"
+        assert out["tier_reason"] == "selected for verification, but no verdict came back"
+        assert out["tier_reason"] != _finding(self._cand(), None, selected=False)["tier_reason"]
+
+    def test_apply_gives_the_two_no_verdict_states_different_reasons(self) -> None:
+        """End to end through ``apply``: the plan's own ``selected`` list decides, so a
+        finding counted under ``stats.missing_verdict`` cannot read as never selected."""
+        from apply_verdicts import apply
+
+        picked = self._cand(fingerprint="a" * 16)
+        left_out = self._cand(fingerprint="b" * 16)
+        plan = {"schema_version": 2, "top": 5, "batch_size": 6,
+                "selected": [picked["fingerprint"]], "unverified": [left_out["fingerprint"]],
+                "batches": [{"prompt": "prompts/verify-01.md",
+                             "output": "verdicts/verify-01.json",
+                             "fingerprints": [picked["fingerprint"]]}]}
+        out = apply([picked, left_out], plan, {})
+        by_fp = {f["fingerprint"]: f for f in out["findings"]}
+        assert out["stats"]["missing_verdict"] == 1
+        assert (by_fp[picked["fingerprint"]]["tier_reason"]
+                == "selected for verification, but no verdict came back")
+        assert by_fp[left_out["fingerprint"]]["tier_reason"] == "not selected for verification"
+
+    def test_a_tool_raised_candidate_is_not_told_no_tool_corroborated_it(self) -> None:
+        """A gitleaks candidate carries an empty ``confirmed_by`` by design (a self-token
+        would read as an independent second source and lift this very cap), so a confirm
+        always lands on the security cap. The scout wording -- "capped at B without tool
+        corroboration" -- would say no tool corroborated the secret a tool found, in the
+        same characters a scout-only finding gets."""
+        from apply_verdicts import _finding
+
+        tool = self._cand(family="security", source="tool", confirmed_by=[])
+        scout = self._cand(family="security", source="scout",
+                           confirmed_by=["scout:security"])
+        out = _finding(tool, self._confirm(), selected=True)
+        assert out["tier"] == "B"
+        assert out["tier_reason"] == (
+            "security is capped at B: the tool that raised it is not its own "
+            "corroboration, and there is no other tool corroboration"
+        )
+        assert out["tier_reason"] != _finding(scout, self._confirm(), selected=True)["tier_reason"]
+
+    def test_a_tool_raised_candidate_that_a_second_tool_corroborates_still_lifts(self) -> None:
+        """The wording change is not the mechanism: a real second tool still lifts."""
+        from apply_verdicts import _finding
+
+        cand = self._cand(family="security", source="tool", confirmed_by=["tool:ruff"])
+        out = _finding(cand, self._confirm(), selected=True)
+        assert out["tier"] == "A"
+        assert out["tier_reason"] == "confirmed and corroborated by tool:ruff"
+
     def test_a_downgrade_says_so(self) -> None:
         from apply_verdicts import _finding
 

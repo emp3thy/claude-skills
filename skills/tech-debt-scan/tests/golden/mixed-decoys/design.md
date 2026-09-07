@@ -905,10 +905,10 @@ image: mailhog/mailhog:latest
 
 | slug | family | file | reason |
 | --- | --- | --- | --- |
-| payments-kill-switch-has-no-test-verifying-it-changes-behaviour | test-gaps | internal/flags/flags.go | not selected for verification |
+| payments-kill-switch-has-no-test-verifying-it-changes-behaviour | test-gaps | internal/flags/flags.go | selected for verification, but no verdict came back |
 | f-290-entry-lookup-table-is-fully-redundant-with-its-own-fallbac | dead-code | internal/lookup/lookup.go | dead-code is capped at C without tool corroboration |
-| deprecated-but-still-called-httpc-fetch-path-has-no-test | test-gaps | internal/httpc/httpc.go | not selected for verification |
-| deprecated-httpc-fetch-still-called-instead-of-fetchwithtimeout | migration | internal/httpc/httpc.go | not selected for verification |
+| deprecated-but-still-called-httpc-fetch-path-has-no-test | test-gaps | internal/httpc/httpc.go | selected for verification, but no verdict came back |
+| deprecated-httpc-fetch-still-called-instead-of-fetchwithtimeout | migration | internal/httpc/httpc.go | selected for verification, but no verdict came back |
 | store-load-logs-unmarshal-failure-without-the-cause-and-returns | error-masking | internal/store/store.go | the verifier downgraded it |
 | string-concatenated-sql-query-on-exported-store-method | security | internal/store/store.go | the verifier downgraded it |
 | internal-shell-package-is-entirely-unimported | dead-code | internal/shell/run.go | dead-code is capped at C without tool corroboration |
@@ -967,6 +967,6 @@ image: mailhog/mailhog:latest
 # Not assessed
 
 - Families not run: none
-- Tools: the tool probe lands in phase 4, so currency, end-of-life and vulnerability claims are not assessed
+- Tools: a claim that needs a tool which did not run -- currency, end-of-life, vulnerability -- is not assessed; the frontmatter's tools_absent names every such tool
 - Runtime-only: coverage numbers, flake confirmation, model staleness, rollout state, deploy frequency
 - By design: magic literals, convention violations, and class-level metrics that need a parser

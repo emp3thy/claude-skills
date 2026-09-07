@@ -671,7 +671,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
-      "tier_reason": "not selected for verification",
+      "tier_reason": "selected for verification, but no verdict came back",
       "verdict": "unverified",
       "proof": "",
       "checked": [],
@@ -727,7 +727,7 @@
         "in_hotspot_band": true
       },
       "tier": "C",
-      "tier_reason": "not selected for verification",
+      "tier_reason": "selected for verification, but no verdict came back",
       "verdict": "unverified",
       "proof": "",
       "checked": [],
@@ -974,7 +974,7 @@
         "in_hotspot_band": true
       },
       "tier": "C",
-      "tier_reason": "not selected for verification",
+      "tier_reason": "selected for verification, but no verdict came back",
       "verdict": "unverified",
       "proof": "",
       "checked": [],

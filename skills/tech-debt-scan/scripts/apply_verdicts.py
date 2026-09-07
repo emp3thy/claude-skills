@@ -10,7 +10,9 @@ unverified (not selected, or selected with no verdict). Rejected findings keep
 ``tier: null`` with the proof for the report's "considered and rejected"
 section. Rule findings and tool facts are tier A without a verifier. Family
 caps from spec 2.3 apply after a confirm; the verifier's severity and effort
-replace the scout's. Migration's "churn on both sides" lift uses the
+replace the scout's. The two unverified states get different reasons: not
+selected (raise ``--top`` or the verifier budget) and selected with no verdict
+returned (re-dispatch that batch). Migration's "churn on both sides" lift uses the
 ``coupling`` corroboration only, because a candidate carries churn for its
 primary file alone. Every finding also carries ``tier_reason``, the prose for
 why it landed on its tier -- computed on the same branch as the tier itself
@@ -19,7 +21,10 @@ tier C table renders in place of the bare verdict word. A capped finding's
 reason names the corroboration that family's cap actually wants (tool,
 coupling, both, a specific signal token, or -- for doc-drift and
 pipeline-infra, which never lift -- neither), read off ``_family_cap_and_lift``
-so the wording cannot drift from ``family_cap``'s own branching. Every piece of
+so the wording cannot drift from ``family_cap``'s own branching; a tool-raised
+candidate gets its own wording there, because its ``confirmed_by`` is empty by
+design and the scout sentence would read as "no tool corroborated this" on a
+finding a tool raised. Every piece of
 verifier prose kept on a finding (``proof``, ``checked``, ``opened``,
 ``trap_matched``) goes through ``redaction.redact`` first: the verifier reads
 the repository, so it can quote a credential back.
@@ -115,19 +120,31 @@ def _weakest(a: str, b: str | None) -> str:
 
 
 def _tier_and_reason(
-    cand: dict[str, Any], verdict: dict[str, Any] | None
+    cand: dict[str, Any], verdict: dict[str, Any] | None, *, selected: bool
 ) -> tuple[str | None, str]:
     """The earned tier and, on the same branch, why it earned it.
 
     One function so the tier and its reason cannot disagree: ``earned_tier`` and
     ``tier_reason`` are both thin wrappers over this that discard the half they
     don't need, rather than two copies of the same branching.
+
+    ``selected`` splits the one tier the verifier never spoke for. Both states
+    are tier C, but they call for opposite responses: a candidate the budget
+    rule left below the cut is recovered by raising ``--top`` or the verifier
+    budget, while one the plan *did* select and got no verdict for means a
+    verifier batch was lost or came back short, and is recovered by
+    re-dispatching that batch -- the only one of the two where re-running
+    recovers a real answer. ``apply`` already counts them apart
+    (``stats.missing_verdict``); this is the same fact in the sentence the
+    maintainer reads.
     """
     if cand.get("tier") == "A":
         if cand.get("source") == "rule":
             return "A", "a deterministic rule finding, true by construction"
         return "A", "a published advisory, true by construction"
     if verdict is None:
+        if selected:
+            return "C", "selected for verification, but no verdict came back"
         return "C", "not selected for verification"
     kind = str(verdict.get("verdict"))
     if kind == "reject":
@@ -144,6 +161,15 @@ def _tier_and_reason(
     if cap is not None:
         if lift is None:
             return tier, f"{cand['family']} is capped at {tier} for every scout-detected finding"
+        if cand.get("source") == "tool":
+            # A tool-raised candidate carries an empty ``confirmed_by`` on purpose
+            # (a self-token would read as an independent second source and lift
+            # this very cap), so it always lands here. Saying "without tool
+            # corroboration" -- word for word what a scout-only finding gets --
+            # would tell the maintainer no tool corroborated the secret a tool
+            # found, and make the two indistinguishable in the report's tables.
+            return tier, (f"{cand['family']} is capped at {tier}: the tool that raised it is "
+                          f"not its own corroboration, and there is no other {lift}")
         return tier, f"{cand['family']} is capped at {tier} without {lift}"
     if tier == "A":
         own = f"scout:{cand['family']}"
@@ -152,22 +178,29 @@ def _tier_and_reason(
     return tier, "confirmed, with no independent corroboration"
 
 
-def earned_tier(cand: dict[str, Any], verdict: dict[str, Any] | None) -> str | None:
-    return _tier_and_reason(cand, verdict)[0]
+def earned_tier(
+    cand: dict[str, Any], verdict: dict[str, Any] | None, *, selected: bool = False
+) -> str | None:
+    """The earned tier. ``selected`` defaults because the tier is C either way; only
+    the reason half of ``_tier_and_reason`` differs between the two states."""
+    return _tier_and_reason(cand, verdict, selected=selected)[0]
 
 
-def tier_reason(cand: dict[str, Any], verdict: dict[str, Any] | None) -> str:
-    return _tier_and_reason(cand, verdict)[1]
+def tier_reason(cand: dict[str, Any], verdict: dict[str, Any] | None, *, selected: bool) -> str:
+    """Why the finding landed on its tier. ``selected`` has no default here: it is
+    exactly the half this function returns that the two no-verdict states differ on."""
+    return _tier_and_reason(cand, verdict, selected=selected)[1]
 
 
 def _finding(
     cand: dict[str, Any], verdict: dict[str, Any] | None, *, selected: bool
 ) -> dict[str, Any]:
-    # `selected` is accepted and unused in phase 2: a selected candidate with no
-    # verdict and an unselected one both land in `unverified` here. Kept so the
-    # phase 5 baseline can tell the two apart.
+    # `selected` reaches `_tier_and_reason` so the two no-verdict states -- below
+    # the budget cut, and selected with a verdict that never came back -- do not
+    # share one sentence. Both are tier C and both are `unverified`; only the
+    # reason tells them apart, and only one of them is worth re-running.
     out = dict(cand)
-    out["tier"], out["tier_reason"] = _tier_and_reason(cand, verdict)
+    out["tier"], out["tier_reason"] = _tier_and_reason(cand, verdict, selected=selected)
     if verdict is not None:
         severity = verdict.get("severity")
         if isinstance(severity, int) and not isinstance(severity, bool) and 1 <= severity <= 5:
