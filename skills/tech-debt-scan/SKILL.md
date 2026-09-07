@@ -171,7 +171,7 @@ phase 5 inserts it without renumbering the rest.
 
 | Scan | v1 | v2 quick | v2 default | v2 deep |
 |---|---|---|---|---|
-| Scout agents | 8 (4 quick) | 6 | 12 | 14, more with chunking |
+| Scout agents | 8 (4 quick) | 6 | 12 | 14, and on a chunked plan at most `families x chunking.max_modules` (14 x 8) |
 | Verifier batches | 0 | 3 to 5 | 5 to 7 | 8 to 12 |
 | Note agent | 1 top-N picker | 1 | 1 | 1 |
 | Output tokens | 80 to 110k | 35 to 50k | 60 to 85k | 90 to 130k |
@@ -211,6 +211,8 @@ with `--skip-all`) brings it to 0.
   assignment — an osv-scanner advisory can reach tier A on its own, the same
   way a `rules.py` finding does, without a verifier reading it; those two are
   the only producers allowed to assign a tier without one. `design.md`'s
-  `tools_run` and `tools_absent` reflect the real probe result (every tool
-  `skipped` under `--no-tools`). There is still no baseline: every finding
+  `tools_run` names every tool the probe recorded as `ran`, and `tools_absent`
+  every other one with its status in parentheses — `absent`, `failed` or
+  `skipped` — so a `--no-tools` run lists all ten as `skipped` and is not the
+  same document as a full probe. There is still no baseline: every finding
   carries `diff: NEW`. Phase 5 adds it.
