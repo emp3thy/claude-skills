@@ -1,5 +1,9 @@
 # tech-debt-scan v2: design brainstorm
 
+**Superseded.** This is the original brainstorm kept for history; where it
+disagrees with what shipped, the binding text is
+[`docs/superpowers/specs/2026-09-04-tech-debt-scan-v2-design.md`](../../superpowers/specs/2026-09-04-tech-debt-scan-v2-design.md).
+
 Decision document for human review. Written 2026-09-02 from the consolidated taxonomy (`02-debt-types-consolidated.md`, cited as [T TD-xx]), the three gap analyses (`04-gap-analysis-code-design.md` [GC], `04-gap-analysis-arch-test-docs.md` [GA], `04-gap-analysis-infra-deps-process.md` [GI]), the judge's reference architecture (`05-architecture-best-practice.md` [J s1..s6]) and the current skill under `skills/tech-debt-scan/`. Nothing here is implemented; section 9 lists the choices that need an answer before a plan is written. The document was revised after the assumption-validation pass (`07-validation-summary.md` and the four `07-validation-*.md` reports); section 10 lists the 36 amendments and where each landed.
 
 Fixed constraints, taken as given: Claude Code skill; SKILL.md orchestration with pinned commands, pinned output files and the exit-5 no-improvisation rule; pure Python 3.11+ with pyyaml as the only dependency, every script direct-path invocable; read-only Agent subagents for all LLM work; language-agnostic by default, external tools only when already installed; human review of `design.md` before `promote.py`; no live LLM in tests; Windows-safe argv; ruff, mypy strict, pytest and `skill_check.py` in CI.

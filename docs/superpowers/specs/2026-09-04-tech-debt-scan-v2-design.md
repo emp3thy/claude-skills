@@ -552,7 +552,7 @@ Findings are emitted in priority order, tier C and rejected included with `in_to
 ```json
 .tech-debt/baseline.json
 { "schema_version": 2, "last_scan": "2026-09-04", "preset": "balanced",
-  "findings": { "<fingerprint>": {"family": "", "file": "", "line_start": 0, "quote_hash": "", "title": "", "tier": "A",
+  "findings": { "<fingerprint>": {"family": "", "file": "", "line_start": 0, "quote_hash": "", "quote": "", "title": "", "tier": "A",
                                   "status": "pending|approved|rejected|accepted|promoted",
                                   "first_seen": "", "last_seen": "", "reason": null, "until": null, "bundle": null} } }
 ```

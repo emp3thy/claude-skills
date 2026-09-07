@@ -62,10 +62,11 @@ If any expected output file from a numbered step is missing, abort with exit 5. 
   findings `approved`, `rejected` or `accepted`, convert the approved ones
   into PBI bundles you can paste into a ralph queue.
 
-Human-in-the-loop throughout. There is no autonomous "fix it" step. This is
-delivery phase 4b: the scan runs the external tool probe (step 4) and folds
-tool signals into leads, corroboration and tier assignment; phase 5 still
-needs to add the baseline diff.
+Human-in-the-loop throughout. There is no autonomous "fix it" step. Phase 4b
+folded the external tool probe (step 4) into leads, corroboration and tier
+assignment; phase 5a lands the baseline diff (step 11) and the promote
+write-back described below. Phase 5b — the live-run measurement that sets a
+hard tier A precision bar — has not landed yet.
 
 ## Flags
 
@@ -97,9 +98,9 @@ every tool is marked `skipped` and nothing reaches the network.
 
 ## Scan steps
 
-Step numbers are fixed across phases: step 4 (the tool probe) lands in this
-phase; step 11 (the baseline diff) is still missing from this list, and
-phase 5 inserts it without renumbering the rest.
+Step numbers are fixed across phases: step 4 (the tool probe) landed in
+phase 4b and step 11 (the baseline diff) lands in phase 5a; neither
+renumbers the rest.
 
 1. `python scripts/inventory.py <repo> --workdir .tech-debt` writes
    `inventory.json` and `coupling.json`. Add `--churn-months <n>` to change
@@ -139,6 +140,8 @@ phase 5 inserts it without renumbering the rest.
    `verified.json`.
 10. `python scripts/rank.py --workdir .tech-debt --preset <p> --top <n>`
     writes `ranked.json`.
+11. `python scripts/baseline.py diff --workdir .tech-debt --baseline .tech-debt/baseline.json`
+    writes `diff.json`; an absent baseline marks everything NEW.
 12. `python scripts/design_writer.py notes-prompt --workdir .tech-debt --top <n>`
     writes `prompts/notes.md`; dispatch one read-only Agent; write
     `notes.json`.
@@ -157,12 +160,24 @@ phase 5 inserts it without renumbering the rest.
    exit 5.
 2. Optional: `python scripts/design_parser.py .tech-debt/design.md` prints
    the parsed findings as JSON and mutates nothing.
-3. `python scripts/promote.py .tech-debt/design.md --out ./tech-debt-pbis`
+3. `python scripts/promote.py .tech-debt/design.md --out ./tech-debt-pbis --baseline .tech-debt/baseline.json`
    writes one bundle per `approved` finding, flips them to `promoted` in
-   `design.md` so a re-run is a no-op. Add `--force` to overwrite an existing
-   bundle directory.
+   `design.md` so a re-run is a no-op, then records every finding's decision
+   (`promoted`, `rejected` or `accepted`, with its `reason` and `until`) back
+   into the baseline. Writing back may append three lines to the
+   repository's `.gitignore` the first time the baseline path is
+   git-ignored — `!.tech-debt/`, `.tech-debt/*`, then
+   `!.tech-debt/baseline.json` — which un-ignore the workdir directory,
+   re-ignore everything in it, then un-ignore the baseline file alone, so
+   the baseline is tracked while the rest of `.tech-debt/` stays out of
+   source control. Add `--force` to overwrite an existing bundle directory.
 4. Report the counts (emitted, already promoted, rejected, accepted,
-   pending) and the bundle location under `./tech-debt-pbis`. To queue a
+   pending), the bundle location under `./tech-debt-pbis`, and — when
+   `--baseline` was given — whether the gitignore triple was appended and
+   whether the baseline write-back itself succeeded. Exit code 6 means the
+   bundles were written and `design.md` was marked, but the write-back to
+   the baseline failed; fix the cause and re-run promote, which picks up
+   the already-emitted bundles rather than duplicating them. To queue a
    bundle, copy its `chore-<slug>-<date>/` directory into the ralph inbox and
    commit it as `chore(queue): add <id>`. This skill does not commit on the
    user's behalf.
@@ -194,10 +209,16 @@ with `--skip-all`) brings it to 0.
   missing, times out, or the path is not a repository, churn falls back to 0
   and `hotspots` is empty. This is never a fatal error.
 - **Exit codes.** `inventory.py`: 2 on a bad path. `promote.py`: 0 success, 2
-  on a parse / mark-promoted error, 4 on a bundle-write failure after at
-  least one bundle was written (roll-forward — the succeeded bundles
-  persist), 6 (`EXIT_WRITE_BACK`) reserved for phase 5's baseline write-back
-  — no code path returns it yet.
+  on a parse / mark-promoted error (or a v1 `design.md` given with
+  `--baseline`, refused before anything is emitted — a baseline keyed by
+  fingerprint cannot record a decision that has none), 4 on a bundle-write
+  failure after at least one bundle was written (roll-forward — the
+  succeeded bundles persist), 6 (`EXIT_WRITE_BACK`) when `--baseline` was
+  given and the write-back to the baseline raised after the bundles were
+  already emitted and `design.md` already marked — only the baseline itself
+  did not update. Fix the cause and re-run promote: a finding already
+  emitted, or already `promoted` on disk, is picked up by the
+  `already_promoted` handling rather than emitted twice.
 - **Single-user.** Do not run two promotes against the same `design.md`
   concurrently; there is no file locking.
 - **Backwards compatibility.** A v1 `design.md` (no `fingerprint`, `tier`,
@@ -206,13 +227,16 @@ with `--skip-all`) brings it to 0.
   discarded, and `god-modules` as a category value still promotes. The v1
   top-N picker step and its files are gone with no shim: they are never
   produced or consumed, and nothing outside this repository reads them.
-- **Tools are wired in; the baseline still is not.** Step 4 runs the external
-  tool probe and folds its signals into leads, corroboration and tier
-  assignment — an osv-scanner advisory can reach tier A on its own, the same
-  way a `rules.py` finding does, without a verifier reading it; those two are
-  the only producers allowed to assign a tier without one. `design.md`'s
+- **Tools are wired in; so is the baseline.** Step 4 runs the external tool
+  probe and folds its signals into leads, corroboration and tier assignment
+  — an osv-scanner advisory can reach tier A on its own, the same way a
+  `rules.py` finding does, without a verifier reading it; those two are the
+  only producers allowed to assign a tier without one. `design.md`'s
   `tools_run` names every tool the probe recorded as `ran`, and `tools_absent`
   every other one with its status in parentheses — `absent`, `failed` or
   `skipped` — so a `--no-tools` run lists all ten as `skipped` and is not the
-  same document as a full probe. There is still no baseline: every finding
-  carries `diff: NEW`. Phase 5 adds it.
+  same document as a full probe. Step 11 diffs every finding against the
+  committed baseline (`NEW`, `UNCHANGED`, `UNCHANGED (moved)`, `UNCHANGED
+  (edited)` or `RESOLVED`; see `docs/architecture.md`'s "The baseline"
+  section for what each means and how suppression and expiry work) and
+  promote's `--baseline` writes the human's decisions back into it.
