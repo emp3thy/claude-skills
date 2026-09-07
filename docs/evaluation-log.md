@@ -73,16 +73,21 @@ producing an all-`skipped` one ("no-tools" arm, the exact command
 `--no-tools` runs) — the same replayed repository copy for both arms of a
 fixture, so the two rows differ only in the probe. Total cost across all six
 runs: $20.27. Full per-fixture, per-family tier tables, the fingerprint-level
-diff against the five candidates predicted to move, and the one prediction
-that did not hold as cleanly as expected (web-ts's clone-pair duplication
-finding: found by the scout, corroborated by `tool:jscpd`, and still
+diff against the five candidates predicted to move, and the two predictions
+that did not hold as cleanly as expected — web-ts's clone-pair duplication
+finding (found by the scout, corroborated by `tool:jscpd`, and still
 downgraded to C by the verifier's own judgement that de-duplicating dead code
-is moot) are in
+is moot) and web-ts's cart/pricing/stock import cycle (found by `madge`,
+raised by the scout as an `architecture` candidate, corroborated via
+`tool:madge`, and rejected outright by the verifier as an intra-package
+design smell matching the family's own trap list) — are in
 `.superpowers/sdd/2026-09-07-tech-debt-scan-v2-phase-4b/task-10-report.md`.
-Summary: three of the five predicted dead-code fingerprints reached tier A in
-the tools arm and two of those three reappeared at tier C, capped, in the
-no-tools arm with the identical fingerprint (the third was not raised by the
-no-tools arm's scout at all — LLM run-to-run variability, not a tools
+In both cases the tool corroborated the candidate before the verifier ever
+ruled on it — a verifier decline, not a failure of tool corroboration to
+occur. Summary: three of the five predicted dead-code fingerprints reached
+tier A in the tools arm and two of those three reappeared at tier C, capped,
+in the no-tools arm with the identical fingerprint (the third was not raised
+by the no-tools arm's scout at all — LLM run-to-run variability, not a tools
 effect); two further dead-code candidates (not among the five, one on
 `web-ts`'s `stock.ts`, matched by identical fingerprint across both arms)
 showed the same clean C-to-A movement; `mixed-decoys` showed no dead-code or
@@ -91,7 +96,11 @@ no tool in the ten-tool registry produces a Go dead-code or duplication
 signal. `web-ts` family-level `dead-code` **recall** stayed `0.00` in both
 arms regardless — the officially planted dead-code items are not the files
 any candidate above moved on — recorded as a claim that did not hold when
-read that way, alongside the candidate-level claim that did.
+read that way, alongside the candidate-level claim that did. Cycles
+(`architecture`) never reached tier A in either arm: the tools arm's only
+cycle candidate was the madge-corroborated one the verifier rejected above,
+and the no-tools arm's scout did not raise the cycle as a candidate at all
+this run, leaving nothing to compare a tier against there.
 
 | date | fixture | model | churn_months | tier_a_precision | reported_precision | decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd |
 |---|---|---|---|---|---|---|---|---|---|---|---|
