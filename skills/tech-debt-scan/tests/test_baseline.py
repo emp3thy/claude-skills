@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -450,3 +452,183 @@ class TestDiff:
         out = diff(self._verified(), None, tmp_path, TODAY)
         assert set(out) == {"schema_version", "baseline_found", "status", "suppressed", "counts"}
         assert out["schema_version"] == 2
+
+
+def _git_repo(tmp_path: Path) -> Path:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text(".tech-debt/\n", encoding="utf-8")
+    return tmp_path
+
+
+def _decision(**over) -> dict:
+    base = {"fingerprint": "aaaaaaaaaaaaaaaa", "status": "approved", "family": "error-masking",
+            "title": "Empty catch swallows write failure", "tier": "A",
+            "reason": None, "until": None}
+    base.update(over)
+    return base
+
+
+class TestRecord:
+    def test_writes_every_field_and_round_trips(self, tmp_path: Path) -> None:
+        from baseline import load_baseline, record
+
+        path = tmp_path / ".tech-debt" / "baseline.json"
+        doc = record(path, decisions=[_decision(status="accepted", reason="tracked",
+                                                until="2027-01-01")],
+                     findings=[_finding()], bundles={}, today=TODAY, preset="balanced")
+        entry = doc["findings"]["aaaaaaaaaaaaaaaa"]
+        assert entry == {"family": "error-masking", "file": "src/pay/refund.py", "line_start": 33,
+                         "quote_hash": "q" * 40, "quote": "except Exception:",
+                         "title": "Empty catch swallows write failure", "tier": "A",
+                         "status": "accepted", "first_seen": TODAY, "last_seen": TODAY,
+                         "reason": "tracked", "until": "2027-01-01", "bundle": None}
+        assert load_baseline(path) == doc
+
+    def test_first_seen_survives_a_second_record(self, tmp_path: Path) -> None:
+        from baseline import record
+
+        path = tmp_path / ".tech-debt" / "baseline.json"
+        record(path, decisions=[_decision()], findings=[_finding()], bundles={},
+               today="2026-09-01", preset="balanced")
+        doc = record(path, decisions=[_decision()], findings=[_finding()], bundles={},
+                     today=TODAY, preset="balanced")
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["first_seen"] == "2026-09-01"
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["last_seen"] == TODAY
+
+    def test_a_promoted_finding_records_its_bundle(self, tmp_path: Path) -> None:
+        from baseline import record
+
+        path = tmp_path / ".tech-debt" / "baseline.json"
+        doc = record(path, decisions=[_decision(status="promoted")], findings=[_finding()],
+                     bundles={"aaaaaaaaaaaaaaaa": "chore-empty-catch-2026-09-07"},
+                     today=TODAY, preset="balanced")
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["bundle"] == "chore-empty-catch-2026-09-07"
+
+    def test_an_entry_absent_from_this_scan_is_kept(self, tmp_path: Path) -> None:
+        """The baseline remembers decisions across scans; a finding the scan did
+        not raise this time keeps its status."""
+        from baseline import record
+
+        path = tmp_path / ".tech-debt" / "baseline.json"
+        record(path, decisions=[_decision(status="rejected", reason="by design")],
+               findings=[_finding()], bundles={}, today="2026-09-01", preset="balanced")
+        doc = record(path, decisions=[], findings=[], bundles={}, today=TODAY, preset="balanced")
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["status"] == "rejected"
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["last_seen"] == "2026-09-01"
+
+    def test_an_unknown_status_raises(self, tmp_path: Path) -> None:
+        from baseline import BaselineError, record
+
+        with pytest.raises(BaselineError, match="status"):
+            record(tmp_path / "b.json", decisions=[_decision(status="maybe")],
+                   findings=[_finding()], bundles={}, today=TODAY, preset="balanced")
+
+    def test_title_and_reason_are_redacted(self, tmp_path: Path) -> None:
+        from baseline import record
+
+        doc = record(tmp_path / "b.json",
+                     decisions=[_decision(reason='see token = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"')],
+                     findings=[_finding(title='key "sk_live_51H8f2kL9mN3pQ7rS4tU6vW" leaks')],
+                     bundles={}, today=TODAY, preset="balanced")
+        blob = json.dumps(doc)
+        assert "sk_live_51H8f2kL9mN3pQ7rS4tU6vW" not in blob
+        assert "sk_l***" in blob
+
+    def test_the_write_is_atomic(self, tmp_path: Path, monkeypatch) -> None:
+        """A crash mid-write must leave the previous baseline intact."""
+        import baseline as mod
+
+        path = tmp_path / "b.json"
+        mod.record(path, decisions=[_decision()], findings=[_finding()], bundles={},
+                   today="2026-09-01", preset="balanced")
+        before = path.read_bytes()
+
+        def boom(*a, **k):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(mod.os, "replace", boom)
+        with pytest.raises(mod.BaselineError):
+            mod.record(path, decisions=[_decision(status="rejected")], findings=[_finding()],
+                       bundles={}, today=TODAY, preset="balanced")
+        assert path.read_bytes() == before
+
+
+class TestGitignoreTriple:
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+    def test_appends_the_triple_once_and_the_baseline_becomes_tracked(self, tmp_path: Path) -> None:
+        from baseline import ensure_gitignore_triple
+
+        root = _git_repo(tmp_path)
+        baseline = root / ".tech-debt" / "baseline.json"
+        baseline.parent.mkdir()
+        baseline.write_text("{}", encoding="utf-8")
+        ignored = subprocess.run(
+            ["git", "-C", str(root), "check-ignore", "-q", ".tech-debt/baseline.json"]
+        )
+        assert ignored.returncode == 0, "precondition: the baseline starts ignored"
+
+        assert ensure_gitignore_triple(root, baseline) == "appended"
+        text = (root / ".gitignore").read_text(encoding="utf-8")
+        assert text.endswith("!.tech-debt/\n.tech-debt/*\n!.tech-debt/baseline.json\n")
+        tracked = subprocess.run(
+            ["git", "-C", str(root), "check-ignore", "-q", ".tech-debt/baseline.json"]
+        )
+        assert tracked.returncode == 1, "the baseline is no longer ignored"
+        other = subprocess.run(
+            ["git", "-C", str(root), "check-ignore", "-q", ".tech-debt/ranked.json"]
+        )
+        assert other.returncode == 0, "every other workdir file stays ignored"
+
+        assert ensure_gitignore_triple(root, baseline) == "present"
+        assert (root / ".gitignore").read_text(encoding="utf-8") == text
+
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+    def test_an_untracked_baseline_needs_no_triple(self, tmp_path: Path) -> None:
+        """A repository whose .gitignore never mentions the workdir at all has
+        nothing to fix -- the baseline was never ignored in the first place."""
+        from baseline import ensure_gitignore_triple
+
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        baseline = tmp_path / ".tech-debt" / "baseline.json"
+        baseline.parent.mkdir()
+        baseline.write_text("{}", encoding="utf-8")
+        # Not ignored to begin with, so nothing to do.
+        assert ensure_gitignore_triple(tmp_path, baseline) == "present"
+
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+    def test_creates_gitignore_when_absent(self, tmp_path: Path) -> None:
+        """The baseline is ignored via .git/info/exclude, not .gitignore, so
+        .gitignore does not exist yet -- this is what exercises 4.10's
+        "creating it if absent"."""
+        from baseline import ensure_gitignore_triple
+
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        exclude = tmp_path / ".git" / "info" / "exclude"
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        exclude.write_text(".tech-debt/\n", encoding="utf-8")
+        baseline = tmp_path / ".tech-debt" / "baseline.json"
+        baseline.parent.mkdir()
+        baseline.write_text("{}", encoding="utf-8")
+        ignored = subprocess.run(
+            ["git", "-C", str(tmp_path), "check-ignore", "-q", ".tech-debt/baseline.json"]
+        )
+        assert ignored.returncode == 0, "precondition: the baseline starts ignored"
+        assert not (tmp_path / ".gitignore").is_file(), "precondition: no .gitignore yet"
+
+        assert ensure_gitignore_triple(tmp_path, baseline) == "appended"
+        assert (tmp_path / ".gitignore").read_text(encoding="utf-8") == (
+            "# tech-debt-scan: track the baseline, ignore the rest of the workdir\n"
+            "!.tech-debt/\n"
+            ".tech-debt/*\n"
+            "!.tech-debt/baseline.json\n"
+        )
+        tracked = subprocess.run(
+            ["git", "-C", str(tmp_path), "check-ignore", "-q", ".tech-debt/baseline.json"]
+        )
+        assert tracked.returncode == 1, "the baseline is now tracked, not ignored"
+
+    def test_without_git_reports_no_git(self, tmp_path: Path, monkeypatch) -> None:
+        import baseline as mod
+
+        monkeypatch.setattr(mod.shutil, "which", lambda name: None)
+        assert mod.ensure_gitignore_triple(tmp_path, tmp_path / "b.json") == "no-git"

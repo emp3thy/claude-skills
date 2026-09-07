@@ -22,7 +22,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import date
@@ -30,8 +33,10 @@ from pathlib import Path
 from typing import Any, Final
 
 from config import ConfigError, load_config
+from design_parser import DesignParseError, parse_design
 from evidence import find_quote
 from inventory import write_json
+from redaction import redact
 
 SCHEMA_VERSION: Final[int] = 2
 STATUSES: Final[tuple[str, ...]] = ("pending", "approved", "rejected", "accepted", "promoted")
@@ -265,6 +270,128 @@ def diff(
             "status": status, "suppressed": suppressed, "counts": counts}
 
 
+TRIPLE: Final[tuple[str, ...]] = ("!.tech-debt/", ".tech-debt/*", "!.tech-debt/baseline.json")
+TRIPLE_COMMENT: Final[str] = "# tech-debt-scan: track the baseline, ignore the rest of the workdir"
+
+
+def record(
+    baseline_path: Path,
+    *,
+    decisions: list[dict[str, Any]],
+    findings: list[dict[str, Any]],
+    bundles: dict[str, str],
+    today: str,
+    preset: str,
+) -> dict[str, Any]:
+    """Write every decision into the baseline and return the document (spec 4.10).
+
+    ``decisions`` are the parsed design.md findings; ``findings`` the matching
+    ``verified.json`` entries, which carry the file, line and quote the design
+    document does not; ``bundles`` maps a promoted fingerprint to its bundle
+    directory name. Entries absent from this scan are kept: the baseline
+    remembers decisions across scans. The write is atomic so a crash mid-write
+    leaves the previous baseline intact.
+    """
+    existing = load_baseline(baseline_path) or {"findings": {}}
+    by_fp = {str(f.get("fingerprint")): f for f in findings if isinstance(f, dict)}
+    out = dict(existing["findings"])
+    for decision in decisions:
+        fp = str(decision.get("fingerprint", ""))
+        status = str(decision.get("status", ""))
+        if status not in STATUSES:
+            raise BaselineError(f"{fp}: unknown status {status!r}")
+        finding = by_fp.get(fp, {})
+        file, line = _primary(finding)
+        quote = None
+        evidence = finding.get("evidence") or []
+        if evidence and isinstance(evidence[0], dict):
+            quote = evidence[0].get("quote")
+        previous = out.get(fp, {})
+        out[fp] = {
+            "family": decision.get("family") or finding.get("family"),
+            "file": file,
+            "line_start": line,
+            "quote_hash": finding.get("quote_hash"),
+            "quote": redact(quote) if isinstance(quote, str) else None,
+            "title": redact(str(decision.get("title") or finding.get("title") or ""))[:120],
+            "tier": decision.get("tier") or finding.get("tier"),
+            "status": status,
+            "first_seen": previous.get("first_seen") or today,
+            "last_seen": today,
+            "reason": redact(str(decision["reason"])) if decision.get("reason") else None,
+            "until": decision.get("until"),
+            "bundle": bundles.get(fp, previous.get("bundle")),
+        }
+    doc = {"schema_version": SCHEMA_VERSION, "last_scan": today, "preset": preset,
+           "findings": dict(sorted(out.items()))}
+    baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    temp = baseline_path.with_suffix(".json.tmp")
+    try:
+        write_json(temp, doc)
+        os.replace(temp, baseline_path)
+    except OSError as exc:
+        temp.unlink(missing_ok=True)
+        raise BaselineError(f"{baseline_path}: {exc}") from exc
+    return doc
+
+
+def ensure_gitignore_triple(root: Path, baseline_path: Path) -> str:
+    """Append the triple once when git ignores the baseline (spec 4.10).
+
+    Returns ``"appended"``, ``"present"`` (already tracked, or the triple is
+    already there) or ``"no-git"``.
+    """
+    if shutil.which("git") is None:
+        return "no-git"
+    rel = baseline_path.resolve().relative_to(root.resolve()).as_posix()
+    check = subprocess.run(["git", "-C", str(root), "check-ignore", "-q", rel],
+                           capture_output=True, check=False)
+    if check.returncode != 0:
+        return "present"
+    gitignore = root / ".gitignore"
+    existing = gitignore.read_text(encoding="utf-8") if gitignore.is_file() else ""
+    lines = existing.splitlines()
+    if all(line in lines for line in TRIPLE):
+        return "present"
+    block = "\n".join((TRIPLE_COMMENT, *TRIPLE)) + "\n"
+    prefix = existing if existing.endswith("\n") or not existing else existing + "\n"
+    gitignore.write_text(prefix + block, encoding="utf-8")
+    return "appended"
+
+
+def _run_record(args: argparse.Namespace) -> int:
+    root = Path(args.root)
+    workdir = Path(args.workdir)
+    verified_path = workdir / "verified.json"
+    if not verified_path.is_file():
+        print(f"error: {verified_path} not found; run the chain first", file=sys.stderr)
+        return 2
+    try:
+        parsed = parse_design(Path(args.design))
+        verified = json.loads(verified_path.read_bytes())
+        if not isinstance(verified, dict):
+            raise ValueError(f"{verified_path} is not a JSON object")
+        config = load_config(root)
+        baseline_path = Path(args.baseline) if args.baseline else root / str(config["baseline"])
+        today = args.today or date.today().isoformat()
+        doc = record(
+            baseline_path,
+            decisions=parsed["findings"],
+            findings=verified.get("findings") or [],
+            bundles={},
+            today=today,
+            preset=str(config["ranking"]["preset"]),
+        )
+        outcome = ensure_gitignore_triple(root, baseline_path)
+    except (BaselineError, DesignParseError, ConfigError, OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"wrote {baseline_path}; {len(doc['findings'])} findings recorded")
+    if outcome == "appended":
+        print("appended the gitignore triple")
+    return 0
+
+
 def _run_diff(args: argparse.Namespace) -> int:
     root = Path(args.root)
     workdir = Path(args.workdir)
@@ -306,9 +433,21 @@ def _main(argv: list[str] | None = None) -> int:
     )
     p_diff.add_argument("--today", default=None, help="ISO date (default: today)")
 
+    p_record = sub.add_parser("record", help="write design.md decisions back into the baseline")
+    p_record.add_argument("--workdir", default=".tech-debt", help="directory holding verified.json")
+    p_record.add_argument("--design", required=True, help="path to the edited design.md")
+    p_record.add_argument("--root", default=".", help="repository root the baseline is relative to")
+    p_record.add_argument(
+        "--baseline", default=None,
+        help="baseline path (default: config's baseline, resolved against --root)",
+    )
+    p_record.add_argument("--today", default=None, help="ISO date (default: today)")
+
     args = parser.parse_args(argv)
     if args.cmd == "diff":
         return _run_diff(args)
+    if args.cmd == "record":
+        return _run_record(args)
     return 2
 
 
