@@ -436,6 +436,13 @@ def normalise_knip(payload: Any, root: Path) -> list[Signal]:
     return out
 
 
+# osv-scanner ``source.type`` values that name something other than a file under
+# the scanned root: a container image reference or a git remote URL. Both are
+# real 4b input (a base-image or a submodule dependency can carry a real
+# advisory) but neither is a path ``rel_path`` should ever be asked to resolve.
+_OSV_NON_FILE_SOURCE_TYPES: Final[frozenset[str]] = frozenset({"docker", "git"})
+
+
 def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
     """osv-scanner's results as fact-class dependency signals.
 
@@ -443,6 +450,22 @@ def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
     lockfile path with a null line range (spec 4.5). One signal per
     vulnerability per package, not one per package, so two advisories against
     one dependency stay separately actionable.
+
+    ``source.path`` is a real repository path when ``source.type`` says it is
+    one ("lockfile", "sbom", "directory") -- resolved with ``rel_path`` as
+    before, dropped when that fails, exactly as it always was. A "docker"
+    (``alpine:3.18``) or "git" (a URL) source is not a path at all -- both
+    carry a colon ``rel_path`` correctly rejects (its own docstring records
+    this as a known 4b consequence) -- so it is never sent through ``rel_path``
+    to begin with; instead it is carried as a fact about the image or
+    repository: the signal's ``file`` stays null (the shape 4b's merge already
+    gives a path-less rule fact) and the raw source string moves into
+    ``extra["source_path"]`` (with ``extra["source_type"]``) so the candidate
+    that reads it can still say what was scanned. Any other or missing
+    ``source.type`` falls back to the original file-path handling, so a real
+    payload nobody here has seen (osv-scanner's ``source.type`` set is not
+    contractually closed) degrades to the pre-existing behaviour rather than a
+    new one.
     """
     if not isinstance(payload, dict):
         return []
@@ -456,9 +479,20 @@ def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
         # of the four normalisers whose real payload has never been observed,
         # so the unexpected shape is likelier here than anywhere else.
         source = result.get("source")
-        rel = rel_path(root, source.get("path")) if isinstance(source, dict) else None
-        if rel is None:
+        if not isinstance(source, dict):
             continue
+        raw_path = source.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        source_type = str(source.get("type", ""))
+        non_file_extra: dict[str, Any] = {}
+        if source_type in _OSV_NON_FILE_SOURCE_TYPES:
+            rel = None
+            non_file_extra = {"source_type": source_type, "source_path": raw_path}
+        else:
+            rel = rel_path(root, raw_path)
+            if rel is None:
+                continue
         for entry in result.get("packages") or []:
             if not isinstance(entry, dict):
                 continue
@@ -491,6 +525,7 @@ def normalise_osv_scanner(payload: Any, root: Path) -> list[Signal]:
                             "package": name, "version": version,
                             "ecosystem": ecosystem, "id": identifier,
                             "aliases": aliases,
+                            **non_file_extra,
                         },
                     )
                 )

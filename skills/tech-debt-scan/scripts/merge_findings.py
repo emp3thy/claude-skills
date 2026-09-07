@@ -34,6 +34,21 @@ never diluted by a scout claim. Rule findings are not re-checked against
 path-class disables here: ``rules.py`` drops disabled-class artefacts before
 emitting them, so a rule finding reaching this module has already passed that
 filter.
+
+Fact-class tool signals earn a candidate the same way (``tool_candidates``, spec
+4.5): an osv-scanner advisory enters tier A exactly as a rule finding does (the
+manifest or lockfile is the evidence, or -- when osv named a docker image or a
+git remote instead of a file -- a null-file repository-level fact, the shape a
+path-less rule finding already uses); a gitleaks secret enters untiered, so a
+verifier judges whether it is a live credential or a fixture; a hadolint or
+actionlint fact merges into a same-file rule finding's ``confirmed_by`` when one
+exists, and otherwise enters untiered on its own, both with an *empty*
+``confirmed_by`` (spec 2.3's family caps would otherwise read the signal's own
+``tool:<name>`` origin as independent corroboration of itself). ``rules.py`` and
+these two fact-class tools are the whole producer set for a non-``None`` tier at
+merge time: ``verify_prompts.select_candidates`` pools only untiered candidates,
+so any other class acquiring one would reach a report with no verifier having
+read it -- the invariant ``test_merge_findings.TestTierProducerInvariant`` pins.
 """
 from __future__ import annotations
 
@@ -361,6 +376,171 @@ def corroborate_with_tools(
         cand["confirmed_by"] = sorted(set(cand["confirmed_by"]) | {f"tool:{t}" for t in tools})
 
 
+# --- fact-class tool routings (spec 4.5, 4.7) ------------------------------------------
+
+# Tools whose fact merges into a same-file pipeline-infra rule finding's confirmed_by,
+# rather than raising a second candidate for a fact rules.py has already reported.
+_MERGE_INTO_RULE_TOOLS: Final[frozenset[str]] = frozenset({"hadolint", "actionlint"})
+# (debt_type, type_id, effort) per tool. osv-scanner, hadolint and actionlint reuse the
+# values rules.py's own GROUP_META gives the same fact (manifest, container, ci): a
+# lockfile advisory, a Dockerfile gap and a workflow gap are the same debt whether
+# rules.py or a tool found them. gitleaks has no rules.py counterpart -- security is
+# scout- and tool-only -- so its values come from categories.FAMILY_BLOCKS["security"]
+# and the SEVERITY_RUBRIC's own top band, "credential shaped ... risk right now" S effort.
+_TOOL_META: Final[dict[str, tuple[str, str, str]]] = {
+    "osv-scanner": ("dependency", "TD-02", "S"),
+    "gitleaks": ("security", "TD-03", "S"),
+    "hadolint": ("infrastructure", "TD-19", "S"),
+    "actionlint": ("build", "TD-14", "S"),
+}
+# Severity a fact carries with no verifier to set one. hadolint's own extra["severity"]
+# (its level, already scored) is preferred over this table when present; the rest have
+# no per-finding severity of their own, so a fixed value stands in: osv (an advisory
+# against a version actually installed) and hadolint fall where the SEVERITY_RUBRIC
+# scores ordinary, real debt; gitleaks (a live credential) takes the rubric's top band;
+# actionlint takes the same baseline rules.py's ci group gives an ordinary workflow gap.
+_TOOL_SEVERITY: Final[dict[str, int]] = {
+    "osv-scanner": 4, "gitleaks": 5, "hadolint": 3, "actionlint": 3,
+}
+
+
+def _tool_severity(sig: dict[str, Any], tool: str) -> int:
+    extra = sig.get("extra")
+    value = extra.get("severity") if isinstance(extra, dict) else None
+    if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 5:
+        return value
+    return _TOOL_SEVERITY.get(tool, 3)
+
+
+def _fact_candidate(
+    sig: dict[str, Any], inventory: dict[str, Any], *, tier: str | None, confirmed_by: list[str]
+) -> dict[str, Any]:
+    """One fact-class signal as a candidate, in the rule candidate shape (``rules.py``
+    645-671): same keys, same order. ``quote_verified`` is true unconditionally -- the
+    tool already found the exact site, and there is no disk text left to re-check it
+    against, the same reasoning ``rules.py`` uses for its own evidence.
+
+    The quote states the fact rather than quoting a file (spec 4.5's shape for a
+    repository-level rule fact, reused here): a tool signal carries a message, not a
+    span of source text, so the message *is* the quote, for a real file's evidence
+    exactly as for a null one. When the signal names no repository path at all (an
+    osv-scanner advisory against a docker image or a git remote, carried with
+    ``file: None`` and the source recorded in ``extra`` -- see
+    ``tool_normalisers.normalise_osv_scanner``), that source is folded into the message
+    before fingerprinting: two such facts about the same advisory but different images
+    would otherwise share one empty path and one identical message, and collide onto a
+    single fingerprint instead of staying two candidates.
+
+    Redaction runs once, on the message, before it is cut into the title and note
+    caps -- the order ``_validate`` uses. Cutting first would hand a length-gated
+    ``SECRET_TOKEN_RE`` branch a fragment already too short to match its own pattern.
+    """
+    tool = str(sig.get("tool"))
+    family = str(sig.get("family"))
+    debt_type, type_id, effort = _TOOL_META[tool]
+    file = sig.get("file")
+    path = str(file) if isinstance(file, str) else ""
+    extra = sig.get("extra")
+    source_path = extra.get("source_path") if isinstance(extra, dict) else None
+    raw_message = str(sig.get("message", ""))
+    if isinstance(source_path, str) and source_path:
+        raw_message = f"{raw_message} (source: {source_path})"
+    message = redact(raw_message)
+    fp, quote_hash = fingerprint(family, path, message)
+    line_start, line_end = sig.get("line_start"), sig.get("line_end")
+    return {
+        "fingerprint": fp,
+        "quote_hash": quote_hash,
+        "family": family,
+        "debt_type": debt_type,
+        "type_id": type_id,
+        "title": message[:TITLE_MAX],
+        "severity": _tool_severity(sig, tool),
+        "effort": effort,
+        "source": "tool",
+        "rule_id": None,
+        "note": message[:NOTE_MAX],
+        "evidence": [{
+            "file": file if isinstance(file, str) else None,
+            "line_start": (
+                line_start if isinstance(line_start, int) and not isinstance(line_start, bool)
+                else None
+            ),
+            "line_end": (
+                line_end if isinstance(line_end, int) and not isinstance(line_end, bool)
+                else None
+            ),
+            "quote": message,
+            "quote_verified": True,
+        }],
+        "confirmed_by": sorted(confirmed_by),
+        "signals_cited": [],
+        "signals": signals_for(inventory, file if isinstance(file, str) else None),
+        "tier": tier,
+    }
+
+
+def _merge_into_rule(sig: dict[str, Any], rule_findings: list[dict[str, Any]], tool: str) -> bool:
+    """Fold ``sig`` into a same-file ``pipeline-infra`` rule finding's ``confirmed_by``.
+
+    True when a match absorbed it, so the caller raises no candidate for it; False when
+    no rule finding covers the file, so the caller raises one of its own.
+    """
+    file = sig.get("file")
+    if not isinstance(file, str) or not file:
+        return False
+    for rule in rule_findings:
+        if rule.get("family") != "pipeline-infra":
+            continue
+        if any(ev.get("file") == file for ev in rule.get("evidence") or []):
+            rule["confirmed_by"] = sorted(set(rule.get("confirmed_by") or []) | {f"tool:{tool}"})
+            return True
+    return False
+
+
+def tool_candidates(
+    signals: list[dict[str, Any]],
+    inventory: dict[str, Any],
+    rule_findings: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fact-class tool signals as candidates or rule corroboration (spec 4.5).
+
+    Only a ``fact`` signal ever reaches a candidate; an inference-class signal (a
+    lint hint, a complexity count) stays corroboration-only, through
+    ``corroborate_with_tools``. Three routings for the four fact-class tools:
+
+    * osv-scanner enters tier A, exactly as a rule finding does -- verification is
+      skipped, so its own ``tool:osv-scanner`` token in ``confirmed_by`` is a harmless
+      self-reference; a tier-A candidate's tier is never reconsidered.
+    * gitleaks, and an uncovered hadolint or actionlint (no same-file rule finding
+      exists), enter untiered with an *empty* ``confirmed_by``. A self-reported
+      ``tool:<name>`` token here would be read by ``apply_verdicts.family_cap`` and
+      ``corroborated`` as independent corroboration of the very thing that raised it --
+      neither knows the token names the candidate's own source -- letting a single bare
+      "confirm" jump straight to tier A with no second opinion. Leaving it empty is what
+      lets the verifier's own judgement, not a self-reference, decide the tier.
+    * a covered hadolint or actionlint (spec 4.4's rules.py already reported the same
+      file) merges into that rule finding's ``confirmed_by`` instead of raising a
+      second candidate for a fact already on the record; the finding stays tier A
+      either way, so the merge changes nothing but its provenance trail.
+
+    Returns ``(new_candidates, rule_findings)``: the rule findings a merge mutated in
+    place, returned for convenience, not a copy.
+    """
+    new: list[dict[str, Any]] = []
+    for sig in signals:
+        if not isinstance(sig, dict) or not sig.get("fact"):
+            continue
+        tool = str(sig.get("tool"))
+        if tool == "osv-scanner":
+            new.append(_fact_candidate(sig, inventory, tier="A", confirmed_by=["tool:osv-scanner"]))
+        elif tool == "gitleaks" or (
+            tool in _MERGE_INTO_RULE_TOOLS and not _merge_into_rule(sig, rule_findings, tool)
+        ):
+            new.append(_fact_candidate(sig, inventory, tier=None, confirmed_by=[]))
+    return new, rule_findings
+
+
 # --- suppressions and disables --------------------------------------------------------
 
 
@@ -446,6 +626,14 @@ def merge(
     patterns = _read_json(workdir / "patterns.json") or {}
     rules_doc = _read_json(workdir / "rule-findings.json") or {}
     rule_findings = [f for f in rules_doc.get("findings") or [] if isinstance(f, dict)]
+    # Read and routed here, right after rule_findings and before any suppression check,
+    # so a hadolint or actionlint fact can still find and merge into the same-file rule
+    # finding it corroborates (a fact merged in after the rule suppression loop below
+    # would be merging into a finding that pass may have already dropped), and so the
+    # new candidates it raises are themselves suppressed like any other, in the loop
+    # below that appends them to ``kept``.
+    tool_signals = (_read_json(workdir / "tool-signals.json") or {}).get("signals") or []
+    tool_cands, rule_findings = tool_candidates(tool_signals, inventory, rule_findings)
     day = today or date.today()
     files = _Files(root.resolve())
     stats: dict[str, dict[str, int]] = {}
@@ -511,17 +699,23 @@ def merge(
         _redact_candidate(cand)
         kept.append(cand)
     # Tool corroboration runs over ``kept`` exactly as the scout/pattern/rule pass above
-    # left it -- before any fact-class tool signal becomes a candidate of its own (a
-    # later phase, appended to the candidate list after this point) and could be read as
-    # vouching for the very finding it raised.
+    # left it -- before any fact-class tool signal becomes a candidate of its own
+    # (``tool_cands``, appended to ``kept`` right below) and could be read as vouching
+    # for the very finding it raised.
     #
     # ``rule_kept`` below is never passed to ``corroborate_with_tools``: a rule finding
     # is already tier A by construction, so ``apply_verdicts.family_cap`` (which this
     # token exists to unlock) is never reached for it. Fact-class tool signals get their
-    # own, narrower route into a rule finding's ``confirmed_by`` in a later phase (spec
-    # 4.7); this is not that mechanism.
-    tool_signals = (_read_json(workdir / "tool-signals.json") or {}).get("signals") or []
+    # own, narrower route into a rule finding's ``confirmed_by`` (``tool_candidates``,
+    # above); this is not that mechanism.
     corroborate_with_tools(kept, tool_signals)
+    for cand in tool_cands:
+        family = str(cand["family"])
+        stats.setdefault(family, _new_stats())
+        if _suppressed(cand, config, day):
+            stats[family]["suppressed"] += 1
+            continue
+        kept.append(cand)
     rule_kept: list[dict[str, Any]] = []
     for cand in rule_findings:
         family = str(cand["family"])

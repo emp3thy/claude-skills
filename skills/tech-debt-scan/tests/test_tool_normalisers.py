@@ -512,6 +512,71 @@ class TestNormaliseOsvScanner:
         }
         assert normalise_osv_scanner(payload, ROOT)[0]["extra"]["aliases"] == []
 
+    def test_a_docker_source_is_not_dropped_for_the_colon_in_its_path(self) -> None:
+        """``rel_path`` rejects any colon-bearing segment, and an image reference like
+        ``alpine:3.18`` has one -- so before the 4b fix, every advisory against a
+        docker-sourced scan was silently dropped here. A docker or git source is not a
+        path at all, so it is never sent through ``rel_path``: the signal carries a
+        null ``file`` (4b's merge gives that the path-less repository-fact shape) and
+        the raw source moves into ``extra``, rather than being lost."""
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = {
+            "results": [{
+                "source": {"path": "alpine:3.18", "type": "docker"},
+                "packages": [{
+                    "package": {"name": "libssl", "version": "1.1.1", "ecosystem": "Alpine"},
+                    "vulnerabilities": [{"id": "GHSA-docker-1"}],
+                }],
+            }]
+        }
+        signals = normalise_osv_scanner(payload, ROOT)
+        assert len(signals) == 1
+        assert signals[0]["file"] is None
+        assert signals[0]["extra"]["source_type"] == "docker"
+        assert signals[0]["extra"]["source_path"] == "alpine:3.18"
+
+    def test_a_git_source_is_carried_the_same_way(self) -> None:
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = {
+            "results": [{
+                "source": {"path": "https://github.com/example/vendored", "type": "git"},
+                "packages": [{
+                    "package": {"name": "left-pad", "version": "1.1.3", "ecosystem": "npm"},
+                    "vulnerabilities": [{"id": "GHSA-git-1"}],
+                }],
+            }]
+        }
+        signals = normalise_osv_scanner(payload, ROOT)
+        assert len(signals) == 1
+        assert signals[0]["file"] is None
+        assert signals[0]["extra"]["source_type"] == "git"
+        assert signals[0]["extra"]["source_path"] == "https://github.com/example/vendored"
+
+    def test_an_unrecognised_type_with_an_unresolvable_path_still_drops(self) -> None:
+        """Only ``docker`` and ``git`` are known non-file sources. A colon-bearing path
+        under any other (or missing) type is not known to be a legitimate non-file
+        source, so it keeps the pre-fix behaviour: dropped, not invented a fact for."""
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = {
+            "results": [{
+                "source": {"path": "docs/plans/phase-4a.md:markdown", "type": "sbom"},
+                "packages": [{
+                    "package": {"name": "left-pad", "version": "1.1.3", "ecosystem": "npm"},
+                    "vulnerabilities": [{"id": "GHSA-sbom-1"}],
+                }],
+            }]
+        }
+        assert normalise_osv_scanner(payload, ROOT) == []
+
+    def test_a_docker_source_still_needs_a_non_empty_path(self) -> None:
+        from tool_normalisers import normalise_osv_scanner
+
+        payload = {"results": [{"source": {"path": "", "type": "docker"}, "packages": []}]}
+        assert normalise_osv_scanner(payload, ROOT) == []
+
 
 class TestNormaliseGitleaks:
     def _signals(self) -> list:

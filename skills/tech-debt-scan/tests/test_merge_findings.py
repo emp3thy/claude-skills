@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 from config import DEFAULTS
 from evidence import fingerprint
 from inventory import build_all, write_json, write_outputs
+from make_history import replay_fixture
 from merge_findings import (
     CLUSTER_WINDOW,
     NOTE_MAX,
@@ -24,6 +25,11 @@ from rules import run_rules
 SECRET = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"
 SWALLOW = "except Exception:\n        pass"
 AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
+CORPUS = Path(__file__).parent / "fixtures" / "corpus"
+# A fixed clock for the corpus chain, the same reason test_chain_goldens pins one:
+# rules.py derives day counts (and so fingerprints) from "now", and an unpinned
+# clock would make TestTierProducerInvariant's candidate count drift by the day.
+RULES_NOW = datetime(2026, 9, 5, tzinfo=UTC)
 # The key starts at character 62 and ends at 82, so a cut at TITLE_MAX (80) lands
 # inside it. Every branch of SECRET_TOKEN_RE is length-gated -- the AWS branch
 # needs 16 characters after the four-letter prefix -- so the surviving fragment
@@ -126,6 +132,34 @@ def _scout(
         "not_assessed": [],
     }
     write_json(workdir / "scouts" / f"{family}.json", doc)
+
+
+def merge_over_corpus_fixture(tmp_path: Path, name: str) -> dict[str, Any]:
+    """``merge``'s document for a real corpus fixture, replayed and chain-built up to
+    that step (inventory, patterns, rules), over an empty scan plan.
+
+    No scout runs and no golden scout output is copied in: every test that uses this
+    helper cares only about the tier a candidate carries, which rule findings (and,
+    once wired, fact-class tool signals) supply without a scout ever running: dispatching
+    one and reading its golden reply here would only slow the test down for no
+    assertion it makes.
+    """
+    repo = replay_fixture(name, tmp_path / "repo")
+    workdir = tmp_path / "wd"
+    planted = json.loads((CORPUS / name / "planted.json").read_bytes())
+    inventory, coupling = build_all(
+        repo, churn_months=int(planted["churn_months"]), config=DEFAULTS
+    )
+    write_outputs(inventory, coupling, workdir)
+    patterns, _inline = run_patterns(repo, inventory, DEFAULTS, blame=False)
+    write_json(workdir / "patterns.json", patterns)
+    findings, leads = run_rules(repo, inventory, DEFAULTS, now=RULES_NOW)
+    write_json(
+        workdir / "rule-findings.json",
+        {"schema_version": 2, "findings": findings, "leads": leads},
+    )
+    write_json(workdir / "scan-plan.json", {"schema_version": 2, "entries": []})
+    return merge(workdir, repo, DEFAULTS)
 
 
 def test_invented_quote_becomes_an_open_question_and_moved_quote_gets_real_range(
@@ -628,3 +662,180 @@ class TestToolTokenLiftsTheCap:
                      "confirmed_by": ["scout:duplication", "tool:jscpd"], "signals": {}}
         assert family_cap(without) == "B"
         assert family_cap(with_tool) is None
+
+
+class TestTierProducerInvariant:
+    """Spec 4.7: rules.py and osv fact-class signals are the only producers of a
+    non-None tier at merge time. select_candidates pools only candidates whose
+    tier is None, so any other class acquiring one skips verification silently."""
+
+    def test_only_rule_and_tool_sources_ever_carry_a_tier(self, tmp_path: Path) -> None:
+        document = merge_over_corpus_fixture(tmp_path, "service-py")
+        tiered = [c for c in document["candidates"] if c.get("tier") is not None]
+        assert tiered, "the fixture must produce at least one tiered candidate"
+        assert {c["source"] for c in tiered} <= {"rule", "tool"}
+
+    def test_every_tiered_tool_candidate_came_from_an_osv_fact(self, tmp_path: Path) -> None:
+        document = merge_over_corpus_fixture(tmp_path, "service-py")
+        for cand in document["candidates"]:
+            if cand.get("tier") is not None and cand["source"] == "tool":
+                assert any(t == "tool:osv-scanner" for t in cand["confirmed_by"])
+
+
+class TestFactClassRoutings:
+    def _osv(self) -> dict:
+        return {
+            "tool": "osv-scanner", "family": "dependency-debt", "kind": "vuln",
+            "file": "package-lock.json", "line_start": None, "line_end": None,
+            "message": "left-pad 1.1.3 (npm) is affected by GHSA-xxxx-yyyy-zzzz",
+            "fact": True,
+            "extra": {"package": "left-pad", "version": "1.1.3",
+                      "ecosystem": "npm", "id": "GHSA-xxxx-yyyy-zzzz", "aliases": []},
+        }
+
+    def _gitleaks(self) -> dict:
+        return {
+            "tool": "gitleaks", "family": "security", "kind": "secret",
+            "file": "src/config/settings.py", "line_start": 12, "line_end": 12,
+            "message": "generic-api-key: Detected a Generic API Key",
+            "fact": True, "extra": {"rule": "generic-api-key", "entropy": 4.31},
+        }
+
+    def _hadolint(self) -> dict:
+        return {
+            "tool": "hadolint", "family": "pipeline-infra", "kind": "dockerfile",
+            "file": "Dockerfile", "line_start": 1, "line_end": 1,
+            "message": "DL3006: Always tag the version of an image explicitly",
+            "fact": True, "extra": {"code": "DL3006", "level": "warning", "severity": 3},
+        }
+
+    def test_an_osv_fact_becomes_a_tier_A_candidate_with_no_line_range(self) -> None:
+        from merge_findings import tool_candidates
+
+        new, _ = tool_candidates([self._osv()], {"files": []}, [])
+        assert len(new) == 1
+        cand = new[0]
+        assert cand["tier"] == "A"
+        assert cand["source"] == "tool"
+        assert cand["evidence"][0]["file"] == "package-lock.json"
+        assert cand["evidence"][0]["line_start"] is None
+        assert cand["evidence"][0]["quote_verified"] is True
+        assert "tool:osv-scanner" in cand["confirmed_by"]
+
+    def test_an_osv_candidate_has_a_fingerprint_like_any_other(self) -> None:
+        from merge_findings import tool_candidates
+
+        new, _ = tool_candidates([self._osv()], {"files": []}, [])
+        assert len(new[0]["fingerprint"]) == 16
+
+    def test_two_advisories_on_one_package_are_two_candidates(self) -> None:
+        from merge_findings import tool_candidates
+
+        second = self._osv()
+        second["extra"] = dict(second["extra"], id="GHSA-aaaa-bbbb-cccc")
+        second["message"] = "left-pad 1.1.3 (npm) is affected by GHSA-aaaa-bbbb-cccc"
+        new, _ = tool_candidates([self._osv(), second], {"files": []}, [])
+        assert len({c["fingerprint"] for c in new}) == 2
+
+    def test_a_gitleaks_fact_becomes_a_candidate_with_no_tier(self) -> None:
+        """Placeholders and test fixtures produce false positives, so gitleaks
+        goes to the verifier (spec 4.5)."""
+        from merge_findings import tool_candidates
+
+        new, _ = tool_candidates([self._gitleaks()], {"files": []}, [])
+        assert new[0]["tier"] is None
+        assert new[0]["source"] == "tool"
+
+    def test_hadolint_merges_into_a_same_file_rule_finding(self) -> None:
+        from merge_findings import tool_candidates
+
+        rule = {"fingerprint": "a" * 16, "family": "pipeline-infra", "source": "rule",
+                "evidence": [{"file": "Dockerfile", "line_start": 3, "line_end": 3,
+                              "quote": "FROM python", "quote_verified": True}],
+                "confirmed_by": ["rule:container.image"], "tier": "A", "signals": {}}
+        new, merged = tool_candidates([self._hadolint()], {"files": []}, [rule])
+        assert new == []
+        assert "tool:hadolint" in merged[0]["confirmed_by"]
+
+    def test_hadolint_becomes_its_own_candidate_when_no_rule_covers_the_file(self) -> None:
+        from merge_findings import tool_candidates
+
+        new, merged = tool_candidates([self._hadolint()], {"files": []}, [])
+        assert len(new) == 1
+        assert new[0]["evidence"][0]["file"] == "Dockerfile"
+        assert new[0]["tier"] is None
+
+    def test_an_inference_signal_never_becomes_a_candidate(self) -> None:
+        from merge_findings import tool_candidates
+
+        inference = dict(self._osv(), fact=False, tool="vulture", family="dead-code")
+        new, _ = tool_candidates([inference], {"files": []}, [])
+        assert new == []
+
+    def test_every_message_is_redacted(self) -> None:
+        from merge_findings import tool_candidates
+
+        leaky = dict(self._gitleaks(),
+                     message='found token = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW" in settings')
+        new, _ = tool_candidates([leaky], {"files": []}, [])
+        blob = json.dumps(new)
+        assert "sk_live_51H8f2kL9mN3pQ7rS4tU6vW" not in blob
+        assert "sk_l***" in blob
+
+    def test_a_confirmed_gitleaks_candidate_does_not_self_corroborate_to_tier_A(self) -> None:
+        """A candidate's own ``tool:<name>`` token, if it carried one, would be read by
+        ``apply_verdicts.family_cap`` (``_has(cand, "tool:")``) and ``corroborated`` as
+        independent corroboration of the very thing that raised it -- neither knows the
+        token names the candidate's own source. That would let a single bare "confirm"
+        verdict jump straight to tier A with no second opinion, the exact self-vouching
+        ``corroborate_with_tools`` was built to keep out of the scout path. An empty
+        ``confirmed_by`` at construction is what closes the same hole on this path:
+        this test would fail (tier A instead of B) if that empty list were replaced
+        with a self-referencing ``tool:gitleaks`` entry."""
+        from apply_verdicts import earned_tier
+        from merge_findings import tool_candidates
+
+        new, _ = tool_candidates([self._gitleaks()], {"files": []}, [])
+        cand = new[0]
+        verdict = {"verdict": "confirm", "severity": 4, "effort": "M"}
+        assert earned_tier(cand, verdict) == "B"
+
+    def test_an_osv_fact_with_no_file_becomes_a_repository_level_tier_A_candidate(self) -> None:
+        """osv-scanner names a docker image or git remote in ``source.path``, which is
+        not a file ``rel_path`` can resolve (the 4b fix in
+        ``tool_normalisers.normalise_osv_scanner``): the signal reaches here with
+        ``file: None`` and the source recorded in ``extra``, and the candidate takes
+        the null-file repository-fact shape a path-less rule finding already uses."""
+        from merge_findings import tool_candidates
+
+        sig = dict(
+            self._osv(),
+            file=None,
+            extra=dict(self._osv()["extra"], source_type="docker", source_path="alpine:3.18"),
+        )
+        new, _ = tool_candidates([sig], {"files": []}, [])
+        assert len(new) == 1
+        cand = new[0]
+        assert cand["tier"] == "A"
+        assert cand["evidence"][0]["file"] is None
+        assert cand["evidence"][0]["line_start"] is None
+        assert cand["evidence"][0]["quote_verified"] is True
+        assert "alpine:3.18" in cand["title"]
+
+    def test_two_non_file_sources_with_the_same_advisory_are_two_candidates(self) -> None:
+        """Without the source folded into the quote before fingerprinting, two docker
+        images affected by the same advisory would share one empty path and one
+        identical message, collide onto a single fingerprint, and silently merge into
+        one candidate."""
+        from merge_findings import tool_candidates
+
+        first = dict(
+            self._osv(), file=None,
+            extra=dict(self._osv()["extra"], source_type="docker", source_path="alpine:3.18"),
+        )
+        second = dict(
+            self._osv(), file=None,
+            extra=dict(self._osv()["extra"], source_type="docker", source_path="alpine:3.19"),
+        )
+        new, _ = tool_candidates([first, second], {"files": []}, [])
+        assert len({c["fingerprint"] for c in new}) == 2
