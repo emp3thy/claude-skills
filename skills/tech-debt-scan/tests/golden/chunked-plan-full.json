@@ -1,0 +1,98 @@
+{
+  "schema_version": 2,
+  "set": "default",
+  "top": 5,
+  "chunked": true,
+  "thresholds": {
+    "max_files": 6,
+    "max_loc": 100000
+  },
+  "entries": [
+    {
+      "family": "half-finished",
+      "module": "alpha",
+      "prompt": "prompts/scout-half-finished-alpha.md",
+      "output": "scouts/half-finished-alpha.json",
+      "leads": 4
+    },
+    {
+      "family": "half-finished",
+      "module": "beta",
+      "prompt": "prompts/scout-half-finished-beta.md",
+      "output": "scouts/half-finished-beta.json",
+      "leads": 4
+    },
+    {
+      "family": "half-finished",
+      "module": "gamma",
+      "prompt": "prompts/scout-half-finished-gamma.md",
+      "output": "scouts/half-finished-gamma.json",
+      "leads": 4
+    },
+    {
+      "family": "dependency-debt",
+      "module": "alpha",
+      "prompt": "prompts/scout-dependency-debt-alpha.md",
+      "output": "scouts/dependency-debt-alpha.json",
+      "leads": 1
+    },
+    {
+      "family": "doc-drift",
+      "module": "root",
+      "prompt": "prompts/scout-doc-drift-root.md",
+      "output": "scouts/doc-drift-root.json",
+      "leads": 3
+    }
+  ],
+  "families_run": [
+    "half-finished",
+    "dependency-debt",
+    "doc-drift"
+  ],
+  "families_skipped": [
+    {
+      "family": "complex-units",
+      "reason": "no leads"
+    },
+    {
+      "family": "god-classes",
+      "reason": "no leads"
+    },
+    {
+      "family": "duplication",
+      "reason": "no leads"
+    },
+    {
+      "family": "dead-code",
+      "reason": "no leads"
+    },
+    {
+      "family": "error-masking",
+      "reason": "no leads"
+    },
+    {
+      "family": "test-gaps",
+      "reason": "no leads"
+    },
+    {
+      "family": "migration",
+      "reason": "no leads"
+    },
+    {
+      "family": "architecture",
+      "reason": "no leads"
+    },
+    {
+      "family": "security",
+      "reason": "no leads"
+    },
+    {
+      "family": "test-quality",
+      "reason": "not in set"
+    },
+    {
+      "family": "pipeline-infra",
+      "reason": "not in set"
+    }
+  ]
+}

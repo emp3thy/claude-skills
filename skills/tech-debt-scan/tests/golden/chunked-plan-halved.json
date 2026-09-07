@@ -1,0 +1,102 @@
+{
+  "schema_version": 2,
+  "set": "deep",
+  "top": 5,
+  "chunked": true,
+  "thresholds": {
+    "max_files": 3,
+    "max_loc": 50000
+  },
+  "entries": [
+    {
+      "family": "half-finished",
+      "module": "alpha",
+      "prompt": "prompts/scout-half-finished-alpha.md",
+      "output": "scouts/half-finished-alpha.json",
+      "leads": 4
+    },
+    {
+      "family": "half-finished",
+      "module": "beta",
+      "prompt": "prompts/scout-half-finished-beta.md",
+      "output": "scouts/half-finished-beta.json",
+      "leads": 4
+    },
+    {
+      "family": "half-finished",
+      "module": "gamma",
+      "prompt": "prompts/scout-half-finished-gamma.md",
+      "output": "scouts/half-finished-gamma.json",
+      "leads": 4
+    },
+    {
+      "family": "dependency-debt",
+      "module": "alpha",
+      "prompt": "prompts/scout-dependency-debt-alpha.md",
+      "output": "scouts/dependency-debt-alpha.json",
+      "leads": 1
+    },
+    {
+      "family": "doc-drift",
+      "module": "root",
+      "prompt": "prompts/scout-doc-drift-root.md",
+      "output": "scouts/doc-drift-root.json",
+      "leads": 3
+    },
+    {
+      "family": "pipeline-infra",
+      "module": "beta",
+      "prompt": "prompts/scout-pipeline-infra-beta.md",
+      "output": "scouts/pipeline-infra-beta.json",
+      "leads": 1
+    }
+  ],
+  "families_run": [
+    "half-finished",
+    "dependency-debt",
+    "doc-drift",
+    "pipeline-infra"
+  ],
+  "families_skipped": [
+    {
+      "family": "complex-units",
+      "reason": "no leads"
+    },
+    {
+      "family": "god-classes",
+      "reason": "no leads"
+    },
+    {
+      "family": "duplication",
+      "reason": "no leads"
+    },
+    {
+      "family": "dead-code",
+      "reason": "no leads"
+    },
+    {
+      "family": "error-masking",
+      "reason": "no leads"
+    },
+    {
+      "family": "test-gaps",
+      "reason": "no leads"
+    },
+    {
+      "family": "migration",
+      "reason": "no leads"
+    },
+    {
+      "family": "architecture",
+      "reason": "no leads"
+    },
+    {
+      "family": "security",
+      "reason": "no leads"
+    },
+    {
+      "family": "test-quality",
+      "reason": "no leads"
+    }
+  ]
+}

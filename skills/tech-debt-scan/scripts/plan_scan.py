@@ -3,8 +3,21 @@
 Reads ``inventory.json``, ``coupling.json``, ``patterns.json`` and
 ``rule-findings.json`` from ``--workdir``, applies the adaptive rule, and writes
 ``scan-plan.json`` plus one ``prompts/scout-<family>.md`` per dispatched family.
-SKILL.md (phase 3) dispatches exactly the plan's entries. In phase 2 ``chunked``
-is always false and the chunking thresholds are recorded only.
+SKILL.md (phase 3) dispatches exactly the plan's entries.
+
+**Chunking** (spec 4.6). When source files exceed ``chunking.max_files`` or
+source LOC exceeds ``chunking.max_loc``, the repository is split by top-level
+directory and each dispatched family's leads are grouped by the module their
+path falls under; a module gets an entry, ``prompts/scout-<family>-<module>.md``,
+only where that split leaves it at least one lead (which already covers "or a
+hotspot-band file there", since the hotspot band is itself a lead kind). The
+thresholds halve when the selected set is ``deep`` -- keyed off the same
+``set_name`` value ``_resolve_set`` returns for both ``--families deep`` and a
+bare ``--deep`` flag (SKILL.md turns that into ``--families deep`` before this
+script runs), so the two spellings cannot select different thresholds. Every
+module's filename token comes from one shared, plan-wide ``slugs.unique_slugs``
+call, so two top-level directories that collide after slugging still get
+distinct prompt paths.
 
 Leads are one union of deterministic signals per family (the table in the phase 2
 plan), each kind sorted hotspot-band files first. ``KIND_CAPS`` bounds the
@@ -38,6 +51,7 @@ from typing import Any, Final
 from categories import FAMILIES, render_scout_prompt
 from config import FAMILY_SETS, ConfigError, load_config
 from inventory import write_json
+from slugs import unique_slugs
 
 SCHEMA_VERSION: Final[int] = 2
 LEAD_CAP: Final[int] = 40
@@ -496,6 +510,45 @@ def _repo_summary(inventory: dict[str, Any]) -> str:
             f"{inventory.get('total_loc')} LOC, languages: {languages}; git: {git}")
 
 
+# --- chunking (spec 4.6) ----------------------------------------------------------------
+
+
+def _chunk_thresholds(config: dict[str, Any], set_name: str) -> dict[str, int]:
+    """``chunking.max_files``/``max_loc``, halved when ``set_name`` is ``deep``.
+
+    ``set_name`` is the value ``_resolve_set`` already returns for both
+    ``--families deep`` and a bare ``--deep`` flag (SKILL.md turns that into
+    ``--families deep`` before this script ever runs), so the halving keys off
+    the selected set rather than off argv, and the two spellings cannot diverge.
+    """
+    base = {"max_files": int(config["chunking"]["max_files"]),
+            "max_loc": int(config["chunking"]["max_loc"])}
+    if set_name != "deep":
+        return base
+    return {"max_files": base["max_files"] // 2, "max_loc": base["max_loc"] // 2}
+
+
+def _is_chunked(docs: ScanDocs, thresholds: dict[str, int]) -> bool:
+    """True when source files or source LOC exceed either threshold."""
+    source = _source_files(docs)
+    total_loc = sum(int(_number(e.get("loc")) or 0) for e in source)
+    return len(source) > thresholds["max_files"] or total_loc > thresholds["max_loc"]
+
+
+def _module_of(path: str) -> str:
+    """The top-level directory ``path`` lives under; ``"root"`` for a repo-root file."""
+    head, sep, _ = path.partition("/")
+    return head if sep else "root"
+
+
+def _leads_by_module(leads: list[Lead]) -> dict[str, list[Lead]]:
+    """``leads``, grouped by ``_module_of`` its path, each group in its original order."""
+    by_module: dict[str, list[Lead]] = {}
+    for lead in leads:
+        by_module.setdefault(_module_of(lead.path), []).append(lead)
+    return by_module
+
+
 def build_plan(
     workdir: Path,
     config: dict[str, Any],
@@ -510,9 +563,15 @@ def build_plan(
     disabled = {str(name) for name in config["families"].get("disabled", [])}
     summary = _repo_summary(docs.inventory)
     note = disabled_note(config)
-    entries: list[dict[str, Any]] = []
+    thresholds = _chunk_thresholds(config, set_name)
+    chunked = _is_chunked(docs, thresholds)
+
+    # One pass to decide, per family, whether it is dispatched at all and what its
+    # repo-wide leads are; a chunked plan then splits those leads by module below.
+    # This dict preserves FAMILIES order (insertion order), so both the entries
+    # list and families_run stay ordered exactly as the unchunked path already is.
+    family_leads: dict[str, list[Lead]] = {}
     skipped: list[dict[str, str]] = []
-    prompts: dict[str, str] = {}
     for family in FAMILIES:
         if family in disabled:
             skipped.append({"family": family, "reason": "disabled"})
@@ -524,21 +583,51 @@ def build_plan(
         if not leads and not explicit:
             skipped.append({"family": family, "reason": "no leads"})
             continue
-        prompt_path = f"prompts/scout-{family}.md"
-        prompts[prompt_path] = render_scout_prompt(
-            family, repo_summary=summary, leads_block=render_leads(leads),
-            scout_cap=int(config["scout_cap"]), disabled_note=note,
-        )
-        entries.append({"family": family, "module": None, "prompt": prompt_path,
-                        "output": f"scouts/{family}.json", "leads": len(leads)})
+        family_leads[family] = leads
+
+    # One slug per module, shared across every family: unique_slugs guarantees the
+    # mapping is injective, so two top-level directories that collide after
+    # slugging (e.g. "foo_bar" and "foo-bar") still get distinct filename tokens,
+    # and the same directory always gets the same token in every family's prompt.
+    module_slug: dict[str, str] = {}
+    if chunked:
+        modules = sorted({
+            _module_of(lead.path) for leads in family_leads.values() for lead in leads
+        })
+        module_slug = dict(zip(modules, unique_slugs(modules), strict=True))
+
+    entries: list[dict[str, Any]] = []
+    prompts: dict[str, str] = {}
+    for family, leads in family_leads.items():
+        if chunked and leads:
+            for module, subset in sorted(_leads_by_module(leads).items()):
+                token = module_slug[module]
+                prompt_path = f"prompts/scout-{family}-{token}.md"
+                module_summary = f"{summary}; chunked scan scoped to top-level directory " \
+                                  f"'{module}' only"
+                prompts[prompt_path] = render_scout_prompt(
+                    family, repo_summary=module_summary, leads_block=render_leads(subset),
+                    scout_cap=int(config["scout_cap"]), disabled_note=note,
+                )
+                entries.append({"family": family, "module": module, "prompt": prompt_path,
+                                "output": f"scouts/{family}-{token}.json", "leads": len(subset)})
+        else:
+            prompt_path = f"prompts/scout-{family}.md"
+            prompts[prompt_path] = render_scout_prompt(
+                family, repo_summary=summary, leads_block=render_leads(leads),
+                scout_cap=int(config["scout_cap"]), disabled_note=note,
+            )
+            entries.append({"family": family, "module": None, "prompt": prompt_path,
+                            "output": f"scouts/{family}.json", "leads": len(leads)})
+
     plan: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "set": set_name,
         "top": int(top if top is not None else config["top"]),
-        "chunked": False,
-        "thresholds": dict(config["chunking"]),
+        "chunked": chunked,
+        "thresholds": thresholds,
         "entries": entries,
-        "families_run": [e["family"] for e in entries],
+        "families_run": [f for f in FAMILIES if f in family_leads],
         "families_skipped": skipped,
     }
     return plan, prompts

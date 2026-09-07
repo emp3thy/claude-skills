@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import os
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 import pytest
 from categories import FAMILIES
@@ -15,6 +17,8 @@ from plan_scan import LEAD_CAP, ScanDocs, _main, build_plan, leads_for, load_doc
 from rules import run_rules
 
 CORPUS = ("service-py", "web-ts", "mixed-decoys")
+GOLDEN = Path(__file__).parent / "golden"
+UPDATE_GOLDENS = os.environ.get("UPDATE_GOLDENS") == "1"
 
 
 def _signals(repo: Path, workdir: Path, *, churn_months: int = 240) -> None:
@@ -422,3 +426,263 @@ class TestToolLeads:
         section = text.split("Tool signals:")[1]
         assert "src/legacy.py:1" in section
         assert "vulture: unused function 'export_v1'" in section
+
+
+# --- chunking and the halved deep thresholds (task 8, spec 4.6) ------------------------
+
+
+def _todo_file(marker_index: int) -> str:
+    return (
+        f"# TODO: revisit helper {marker_index} later\n"
+        "def helper():\n"
+        "    value = 1\n"
+        "    return value\n"
+    )
+
+
+def _build_chunk_tree(root: Path) -> None:
+    """Three top-level directories, twelve source files total (spec 4.6 test tree).
+
+    Every file carries a TODO marker, so half-finished has a lead in all three
+    modules. Only ``alpha`` holds a manifest (``requirements.txt``), so
+    dependency-debt has a lead in exactly one module; only ``beta`` holds a
+    Dockerfile, so pipeline-infra (not in the default set at all) has a lead in
+    exactly one module too. No file anywhere is named uniquely across modules
+    (every module repeats ``f0.py``..``f3.py``), which makes every stem shared
+    and ``fan_in_approx`` ambiguous (null) everywhere, so dead-code's
+    zero-fan-in-and-zero-churn lead never fires here and does not confound the
+    module-scoping assertions below.
+    """
+    for module in ("alpha", "beta", "gamma"):
+        (root / module).mkdir(parents=True)
+        for i in range(4):
+            (root / module / f"f{i}.py").write_text(_todo_file(i), encoding="utf-8")
+    (root / "alpha" / "requirements.txt").write_text("requests==2.31.0\n", encoding="utf-8")
+    (root / "beta" / "Dockerfile").write_text(
+        'FROM python:3.11\nCMD ["python", "app.py"]\n', encoding="utf-8"
+    )
+
+
+@pytest.fixture
+def chunk_tree(tmp_path: Path) -> tuple[Path, Path]:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _build_chunk_tree(repo)
+    workdir = tmp_path / "wd"
+    _signals(repo, workdir)
+    return repo, workdir
+
+
+def _check_plan(name: str, plan: dict[str, Any], golden: Path) -> None:
+    got = (json.dumps(plan, indent=2) + "\n").encode("utf-8")
+    if UPDATE_GOLDENS:
+        golden.parent.mkdir(parents=True, exist_ok=True)
+        golden.write_bytes(got)
+    assert golden.is_file(), f"missing golden {golden}"
+    assert got == golden.read_bytes(), f"{name} differs from {golden}"
+
+
+def test_module_of_uses_only_the_top_level_directory() -> None:
+    from plan_scan import _module_of
+
+    assert _module_of("src/pay/refund.py") == "src"
+    assert _module_of("src/pay/deep/refund.py") == "src"
+    assert _module_of("README.md") == "root"
+
+
+def test_chunk_thresholds_halve_only_for_the_deep_set() -> None:
+    """Spec 4.6: the halving follows from the selected set being ``deep``, not from
+    argv spelling -- ``_resolve_set`` returns ``"deep"`` for both ``--families
+    deep`` and a bare ``--deep`` flag (SKILL.md translates the latter before this
+    script runs), and returns ``"explicit"`` even for an explicit list with the
+    exact same family content as the deep set, which must not halve."""
+    from plan_scan import _chunk_thresholds
+
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 100, "max_loc": 1000}
+    assert _chunk_thresholds(cfg, "default") == {"max_files": 100, "max_loc": 1000}
+    assert _chunk_thresholds(cfg, "quick") == {"max_files": 100, "max_loc": 1000}
+    assert _chunk_thresholds(cfg, "explicit") == {"max_files": 100, "max_loc": 1000}
+    assert _chunk_thresholds(cfg, "deep") == {"max_files": 50, "max_loc": 500}
+
+
+def test_below_both_thresholds_gives_an_unchunked_plan_with_todays_entries(
+    chunk_tree: tuple[Path, Path],
+) -> None:
+    _, workdir = chunk_tree
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 1000, "max_loc": 100000}
+    plan, prompts = build_plan(workdir, cfg, families="default", top=None)
+    assert plan["chunked"] is False
+    assert plan["thresholds"] == cfg["chunking"]
+    entry = next(e for e in plan["entries"] if e["family"] == "half-finished")
+    assert entry["module"] is None
+    assert entry["prompt"] == "prompts/scout-half-finished.md"
+    assert entry["output"] == "scouts/half-finished.json"
+    assert entry["prompt"] in prompts
+
+
+def test_above_max_files_splits_by_top_level_directory(chunk_tree: tuple[Path, Path]) -> None:
+    _, workdir = chunk_tree
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 6, "max_loc": 100000}
+    plan, prompts = build_plan(workdir, cfg, families="default", top=None)
+    assert plan["chunked"] is True
+    hf_entries = [e for e in plan["entries"] if e["family"] == "half-finished"]
+    assert {e["module"] for e in hf_entries} == {"alpha", "beta", "gamma"}
+    for entry in hf_entries:
+        assert entry["prompt"] == f"prompts/scout-half-finished-{entry['module']}.md"
+        assert entry["output"] == f"scouts/half-finished-{entry['module']}.json"
+        assert entry["prompt"] in prompts
+        assert f"top-level directory '{entry['module']}'" in prompts[entry["prompt"]]
+
+
+def test_above_max_loc_splits_by_top_level_directory(chunk_tree: tuple[Path, Path]) -> None:
+    _, workdir = chunk_tree
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 100000, "max_loc": 20}
+    plan, _ = build_plan(workdir, cfg, families="default", top=None)
+    assert plan["chunked"] is True
+    hf_modules = {e["module"] for e in plan["entries"] if e["family"] == "half-finished"}
+    assert hf_modules == {"alpha", "beta", "gamma"}
+
+
+def test_a_module_with_nothing_for_a_family_gets_no_entry_there(
+    chunk_tree: tuple[Path, Path],
+) -> None:
+    """dependency-debt's only lead (the manifest) lives in ``alpha``; ``beta`` and
+    ``gamma`` are real, populated modules for other families but must not get a
+    dependency-debt entry of their own."""
+    _, workdir = chunk_tree
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 6, "max_loc": 100000}
+    plan, _ = build_plan(workdir, cfg, families="default", top=None)
+    dd_modules = {e["module"] for e in plan["entries"] if e["family"] == "dependency-debt"}
+    assert dd_modules == {"alpha"}
+    hf_modules = {e["module"] for e in plan["entries"] if e["family"] == "half-finished"}
+    assert {"beta", "gamma"} <= hf_modules
+
+
+def test_families_run_lists_a_chunked_family_once_not_once_per_module(
+    chunk_tree: tuple[Path, Path],
+) -> None:
+    _, workdir = chunk_tree
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 6, "max_loc": 100000}
+    plan, _ = build_plan(workdir, cfg, families="default", top=None)
+    assert plan["families_run"].count("half-finished") == 1
+    assert len([e for e in plan["entries"] if e["family"] == "half-finished"]) == 3
+
+
+def test_deep_set_halves_thresholds_so_a_repo_between_them_chunks_only_under_deep(
+    chunk_tree: tuple[Path, Path],
+) -> None:
+    """12 source files sit strictly between the halved (10) and full (20) values,
+    so this is the one test where the halving decides ``chunked`` itself rather
+    than only the recorded ``thresholds`` number."""
+    _, workdir = chunk_tree
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 20, "max_loc": 100000}
+    default_plan, _ = build_plan(workdir, cfg, families="default", top=None)
+    deep_plan, _ = build_plan(workdir, cfg, families="deep", top=None)
+    assert default_plan["chunked"] is False
+    assert default_plan["thresholds"] == {"max_files": 20, "max_loc": 100000}
+    assert deep_plan["chunked"] is True
+    assert deep_plan["thresholds"] == {"max_files": 10, "max_loc": 50000}
+
+
+def test_explicit_family_with_no_leads_stays_a_single_whole_repo_entry_when_chunked(
+    chunk_tree: tuple[Path, Path],
+) -> None:
+    """Chunking splits a family's leads by module; a family with none at all
+    (dispatched anyway because it was named explicitly) has nothing to split, so
+    it keeps the unchunked whole-repo shape instead of inventing an entry -- or
+    inventing none at all -- for every module."""
+    _, workdir = chunk_tree
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 6, "max_loc": 100000}
+    plan, prompts = build_plan(workdir, cfg, families=["security"], top=None)
+    assert plan["chunked"] is True
+    assert plan["entries"] == [
+        {"family": "security", "module": None, "prompt": "prompts/scout-security.md",
+         "output": "scouts/security.json", "leads": 0}
+    ]
+    assert "prompts/scout-security.md" in prompts
+
+
+def test_tool_leads_land_in_the_right_module_when_chunked(chunk_tree: tuple[Path, Path]) -> None:
+    """A tool signal is just another lead with a path; splitting by module must
+    route it into that path's module's prompt and no one else's (task 8's
+    interface note on ``ScanDocs.tool_signals``). ``security`` has no other lead
+    source in this fixture (no pattern hit), so the one entry it gets can only
+    have come from the tool signal itself."""
+    _, workdir = chunk_tree
+    signal = {
+        "tool": "gitleaks", "family": "security", "kind": "secret",
+        "file": "beta/f0.py", "line_start": 1, "line_end": 1,
+        "message": "hardcoded credential", "fact": False, "extra": {},
+    }
+    (workdir / "tool-signals.json").write_bytes(json.dumps(
+        {"schema_version": 2, "tools": {}, "signals": [signal]}
+    ).encode("utf-8"))
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 6, "max_loc": 100000}
+    plan, prompts = build_plan(workdir, cfg, families=["security"], top=None)
+    sec_entries = [e for e in plan["entries"] if e["family"] == "security"]
+    assert {e["module"] for e in sec_entries} == {"beta"}
+    text = prompts[sec_entries[0]["prompt"]]
+    assert "beta/f0.py:1" in text
+    assert "gitleaks: hardcoded credential" in text
+
+
+def test_every_prompt_path_in_a_chunked_plan_is_unique(tmp_path: Path) -> None:
+    """Two top-level directories that collide after slugging (``foo_bar`` and
+    ``foo-bar`` both slugify to ``foo-bar``) must not overwrite each other's
+    prompt: a real collision would make two entries share one ``prompt``/
+    ``output`` path, so the plan would dispatch one agent twice and silently
+    lose the other module's scout."""
+    repo = tmp_path / "repo"
+    for module in ("foo_bar", "foo-bar"):
+        (repo / module).mkdir(parents=True)
+        (repo / module / "a.py").write_text(_todo_file(0), encoding="utf-8")
+        (repo / module / "b.py").write_text(_todo_file(1), encoding="utf-8")
+    workdir = tmp_path / "wd"
+    _signals(repo, workdir)
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 2, "max_loc": 100000}
+    plan, prompts = build_plan(workdir, cfg, families="default", top=None)
+    assert plan["chunked"] is True
+    hf_entries = [e for e in plan["entries"] if e["family"] == "half-finished"]
+    assert {e["module"] for e in hf_entries} == {"foo_bar", "foo-bar"}
+    prompt_paths = [e["prompt"] for e in plan["entries"]]
+    output_paths = [e["output"] for e in plan["entries"]]
+    assert len(prompt_paths) == len(set(prompt_paths)), prompt_paths
+    assert len(output_paths) == len(set(output_paths)), output_paths
+    assert set(prompts) == set(prompt_paths)
+    tokens = {
+        e["prompt"].removeprefix("prompts/scout-half-finished-").removesuffix(".md")
+        for e in hf_entries
+    }
+    assert len(tokens) == 2, "the two colliding module names must get distinct tokens"
+
+
+def test_chunked_plan_goldens_at_full_and_halved_thresholds(
+    chunk_tree: tuple[Path, Path],
+) -> None:
+    """Step 4: one config and one synthetic tree, read at the default (full) and
+    deep (halved) thresholds. The tree is sized to exceed both max_files values
+    at once, so both plans chunk; what differs between the two goldens is the
+    recorded ``thresholds``, family coverage (pipeline-infra is not in the
+    default set, so its one lead -- the Dockerfile in ``beta`` -- only reaches an
+    entry in the deep/halved plan), and nothing else.
+    """
+    _, workdir = chunk_tree
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 6, "max_loc": 100000}
+    full, _ = build_plan(workdir, cfg, families="default", top=5)
+    halved, _ = build_plan(workdir, cfg, families="deep", top=5)
+    _check_plan("chunked-plan-full", full, GOLDEN / "chunked-plan-full.json")
+    _check_plan("chunked-plan-halved", halved, GOLDEN / "chunked-plan-halved.json")
+    assert full["chunked"] is True and halved["chunked"] is True
+    assert full["thresholds"] != halved["thresholds"]
+    assert set(full["families_run"]) < set(halved["families_run"])
