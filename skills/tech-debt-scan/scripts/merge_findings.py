@@ -49,6 +49,12 @@ these two fact-class tools are the whole producer set for a non-``None`` tier at
 merge time: ``verify_prompts.select_candidates`` pools only untiered candidates,
 so any other class acquiring one would reach a report with no verifier having
 read it -- the invariant ``test_merge_findings.TestTierProducerInvariant`` pins.
+
+A tool candidate's fingerprint takes its line range as well as its family, path
+and message, and a fingerprint already raised in one pass collapses rather than
+duplicating: a tool emits one record per hit whose message repeats verbatim
+across hits, and two candidates sharing one id cannot be told apart by the one
+verdict ``apply_verdicts.apply`` will key to it.
 """
 from __future__ import annotations
 
@@ -412,6 +418,28 @@ def _tool_severity(sig: dict[str, Any], tool: str) -> int:
     return _TOOL_SEVERITY.get(tool, 3)
 
 
+def _fingerprint_span(path: str | None, line_start: Any, line_end: Any) -> str:
+    """The path component ``evidence.fingerprint`` hashes, with the line range folded in.
+
+    ``fingerprint`` hashes family, path and quote, and a fact-class tool emits one
+    record per hit whose message repeats verbatim across hits: every
+    ``generic-api-key`` hit in one file carries the same
+    ``f"{RuleID}: {Description}"``, and hadolint repeats one code's message down a
+    Dockerfile. Without the range those hits share one fingerprint --
+    ``apply_verdicts.apply`` keys verdicts by fingerprint and the last write wins, so a
+    single verdict then decides all of them, and a confirmed live credential inherits a
+    placeholder's rejection and never reaches the report. The range is folded into the
+    path rather than into the quote so the message a reader sees stays the tool's own.
+
+    The cost, accepted deliberately: a hit that moves by a line between two scans reads
+    as a new finding to phase 5's baseline. Sharing one id between two different hits is
+    the worse failure, because it loses one of them silently.
+    """
+    if line_start is None and line_end is None:
+        return path or ""
+    return f"{path or ''}:{line_start}-{line_end}"
+
+
 def _fact_candidate(
     sig: dict[str, Any], inventory: dict[str, Any], *, tier: str | None, confirmed_by: list[str]
 ) -> dict[str, Any]:
@@ -446,8 +474,12 @@ def _fact_candidate(
     if isinstance(source_path, str) and source_path:
         raw_message = f"{raw_message} (source: {source_path})"
     message = redact(raw_message)
-    fp, quote_hash = fingerprint(family, path, message)
     line_start, line_end = sig.get("line_start"), sig.get("line_end")
+    line_start = line_start if isinstance(line_start, int) and not isinstance(
+        line_start, bool
+    ) else None
+    line_end = line_end if isinstance(line_end, int) and not isinstance(line_end, bool) else None
+    fp, quote_hash = fingerprint(family, _fingerprint_span(path, line_start, line_end), message)
     return {
         "fingerprint": fp,
         "quote_hash": quote_hash,
@@ -462,14 +494,8 @@ def _fact_candidate(
         "note": message[:NOTE_MAX],
         "evidence": [{
             "file": file if isinstance(file, str) else None,
-            "line_start": (
-                line_start if isinstance(line_start, int) and not isinstance(line_start, bool)
-                else None
-            ),
-            "line_end": (
-                line_end if isinstance(line_end, int) and not isinstance(line_end, bool)
-                else None
-            ),
+            "line_start": line_start,
+            "line_end": line_end,
             "quote": message,
             "quote_verified": True,
         }],
@@ -502,6 +528,8 @@ def tool_candidates(
     signals: list[dict[str, Any]],
     inventory: dict[str, Any],
     rule_findings: list[dict[str, Any]],
+    *,
+    counts: list[tuple[str, str, str | None]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Fact-class tool signals as candidates or rule corroboration (spec 4.5).
 
@@ -524,20 +552,35 @@ def tool_candidates(
       second candidate for a fact already on the record; the finding stays tier A
       either way, so the merge changes nothing but its provenance trail.
 
+    A signal whose fingerprint one earlier in the same pass already produced is the same
+    fact reported twice: same family, path, line range and message. It collapses,
+    counted through ``counts`` as ``clustered``, rather than becoming a second candidate
+    the one verdict keyed to that fingerprint can no longer tell apart. ``counts``
+    collects ``(family, stat key, reason)`` for the caller to fold into ``stats``.
+
     Returns ``(new_candidates, rule_findings)``: the rule findings a merge mutated in
     place, returned for convenience, not a copy.
     """
     new: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    record = counts if counts is not None else []
     for sig in signals:
         if not isinstance(sig, dict) or not sig.get("fact"):
             continue
         tool = str(sig.get("tool"))
         if tool == "osv-scanner":
-            new.append(_fact_candidate(sig, inventory, tier="A", confirmed_by=["tool:osv-scanner"]))
+            cand = _fact_candidate(sig, inventory, tier="A", confirmed_by=["tool:osv-scanner"])
         elif tool == "gitleaks" or (
             tool in _MERGE_INTO_RULE_TOOLS and not _merge_into_rule(sig, rule_findings, tool)
         ):
-            new.append(_fact_candidate(sig, inventory, tier=None, confirmed_by=[]))
+            cand = _fact_candidate(sig, inventory, tier=None, confirmed_by=[])
+        else:
+            continue
+        if cand["fingerprint"] in seen:
+            record.append((str(cand["family"]), "clustered", None))
+            continue
+        seen.add(cand["fingerprint"])
+        new.append(cand)
     return new, rule_findings
 
 
@@ -633,11 +676,19 @@ def merge(
     # new candidates it raises are themselves suppressed like any other, in the loop
     # below that appends them to ``kept``.
     tool_signals = (_read_json(workdir / "tool-signals.json") or {}).get("signals") or []
-    tool_cands, rule_findings = tool_candidates(tool_signals, inventory, rule_findings)
+    tool_counts: list[tuple[str, str, str | None]] = []
+    tool_cands, rule_findings = tool_candidates(
+        tool_signals, inventory, rule_findings, counts=tool_counts
+    )
     day = today or date.today()
     files = _Files(root.resolve())
     stats: dict[str, dict[str, int]] = {}
     dropped_reasons: dict[str, list[str]] = {}
+    for tool_family, stat_key, reason in tool_counts:
+        stats.setdefault(tool_family, _new_stats())
+        stats[tool_family][stat_key] += 1
+        if reason is not None:
+            dropped_reasons.setdefault(tool_family, []).append(redact(reason))
     scout_cands: list[dict[str, Any]] = []
     open_questions: list[dict[str, Any]] = []
     looks_fine: list[dict[str, Any]] = []

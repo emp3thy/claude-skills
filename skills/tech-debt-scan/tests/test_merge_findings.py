@@ -839,3 +839,66 @@ class TestFactClassRoutings:
         )
         new, _ = tool_candidates([first, second], {"files": []}, [])
         assert len({c["fingerprint"] for c in new}) == 2
+
+
+class TestFactSignalIdentity:
+    """One fact per candidate, and one candidate per fact (spec 4.7 steps 4 and 5)."""
+
+    def _gitleaks(self, line: int) -> dict[str, Any]:
+        return {
+            "tool": "gitleaks", "family": "security", "kind": "secret",
+            "file": "src/app/config.py", "line_start": line, "line_end": line,
+            "message": "generic-api-key: Detected a Generic API Key",
+            "fact": True, "extra": {"rule": "generic-api-key"},
+        }
+
+    def test_two_hits_of_one_rule_in_one_file_have_distinct_fingerprints(self) -> None:
+        """gitleaks emits one record per hit and builds its message as
+        ``f"{RuleID}: {Description}"``, identical for every hit of one rule in one file;
+        hadolint repeats one code's message down a Dockerfile. With family, path and
+        message the whole fingerprint input, those hits collided."""
+        from merge_findings import tool_candidates
+
+        new, _ = tool_candidates([self._gitleaks(3), self._gitleaks(41)], {"files": []}, [])
+        assert len(new) == 2
+        assert len({c["fingerprint"] for c in new}) == 2
+
+    def test_two_identical_signals_collapse_to_one_candidate(self) -> None:
+        """Same family, path, range and message is the same fact twice. Before, it gave
+        two candidates sharing one fingerprint, which is worse than either merging or
+        keeping them apart: one verdict then decided both."""
+        from merge_findings import tool_candidates
+
+        counts: list[tuple[str, str, str | None]] = []
+        new, _ = tool_candidates(
+            [self._gitleaks(3), self._gitleaks(3)], {"files": []}, [], counts=counts
+        )
+        assert len(new) == 1
+        assert counts == [("security", "clustered", None)]
+
+    def test_a_confirmed_hit_does_not_inherit_another_hits_rejection(self) -> None:
+        """The end-to-end failure the line range exists to stop. ``apply_verdicts.apply``
+        keys verdicts by fingerprint and the last write wins, so while two hits in one
+        file shared an id, a verifier that confirmed the live key at line 3 and rejected
+        the placeholder at line 41 saw both land ``reject``, and the real credential left
+        the report with nothing counting it."""
+        from apply_verdicts import apply
+        from merge_findings import tool_candidates
+
+        new, _ = tool_candidates([self._gitleaks(3), self._gitleaks(41)], {"files": []}, [])
+        by_line = {c["evidence"][0]["line_start"]: c for c in new}
+        plan = {"selected": [c["fingerprint"] for c in new]}
+        verdicts = {"verdicts/verify-01.json": [
+            {"fingerprint": by_line[3]["fingerprint"], "verdict": "confirm",
+             "severity": 5, "effort": "M", "proof": "a live key"},
+            {"fingerprint": by_line[41]["fingerprint"], "verdict": "reject",
+             "severity": 1, "effort": "S", "proof": "a placeholder"},
+        ]}
+        document = apply(new, plan, verdicts)
+        by_fp = {f["fingerprint"]: f for f in document["findings"]}
+        assert by_fp[by_line[3]["fingerprint"]]["verdict"] == "confirm"
+        assert by_fp[by_line[3]["fingerprint"]]["tier"] == "B"
+        assert by_fp[by_line[41]["fingerprint"]]["verdict"] == "reject"
+        assert by_fp[by_line[41]["fingerprint"]]["tier"] is None
+        assert document["stats"]["selected"] == 2
+        assert document["stats"]["verdicts"] == 2
