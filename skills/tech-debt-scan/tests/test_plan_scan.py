@@ -473,6 +473,26 @@ def chunk_tree(tmp_path: Path) -> tuple[Path, Path]:
     return repo, workdir
 
 
+def _build_lead_cap_tree(root: Path) -> None:
+    """Three modules whose SATD-lead counts (22, 22, 5) straddle ``LEAD_CAP`` (40)
+    when totalled repo-wide but not per module -- the reviewer's exact
+    reproduction shape for task 8 fix round 1, finding 2."""
+    for module, count in (("alpha", 22), ("beta", 22), ("gamma", 5)):
+        (root / module).mkdir(parents=True)
+        for i in range(count):
+            (root / module / f"f{i}.py").write_text(_todo_file(i), encoding="utf-8")
+
+
+@pytest.fixture
+def lead_cap_tree(tmp_path: Path) -> tuple[Path, Path]:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _build_lead_cap_tree(repo)
+    workdir = tmp_path / "wd"
+    _signals(repo, workdir)
+    return repo, workdir
+
+
 def _check_plan(name: str, plan: dict[str, Any], golden: Path) -> None:
     got = (json.dumps(plan, indent=2) + "\n").encode("utf-8")
     if UPDATE_GOLDENS:
@@ -487,7 +507,20 @@ def test_module_of_uses_only_the_top_level_directory() -> None:
 
     assert _module_of("src/pay/refund.py") == "src"
     assert _module_of("src/pay/deep/refund.py") == "src"
-    assert _module_of("README.md") == "root"
+    assert _module_of("README.md") is None
+
+
+def test_module_of_root_sentinel_is_not_confusable_with_a_real_root_directory() -> None:
+    """A genuine top-level directory named ``root`` must not collide with the
+    identity ``_module_of`` returns for a true repository-root file (task 8 fix
+    round 1, finding 1; reviewer-reproduced). ``None`` is not a legal directory
+    name, so it cannot equal a real directory's identity the way the string
+    ``"root"`` used to."""
+    from plan_scan import _module_of
+
+    assert _module_of("root/pay/refund.py") == "root"
+    assert _module_of("top.py") is None
+    assert _module_of("root/pay/refund.py") != _module_of("top.py")
 
 
 def test_chunk_thresholds_halve_only_for_the_deep_set() -> None:
@@ -560,7 +593,34 @@ def test_a_module_with_nothing_for_a_family_gets_no_entry_there(
     dd_modules = {e["module"] for e in plan["entries"] if e["family"] == "dependency-debt"}
     assert dd_modules == {"alpha"}
     hf_modules = {e["module"] for e in plan["entries"] if e["family"] == "half-finished"}
-    assert {"beta", "gamma"} <= hf_modules
+    # Exact equality (fix round 1, finding 3): a subset check here survives a
+    # phantom-lead injection that leaks an extraneous module into the set
+    # (reviewer mutation-confirmed); tightened rather than left for the sibling
+    # test_above_max_files_splits_by_top_level_directory to catch alone.
+    assert hf_modules == {"alpha", "beta", "gamma"}
+
+
+def test_lead_cap_applies_per_module_not_once_across_the_whole_repository(
+    lead_cap_tree: tuple[Path, Path],
+) -> None:
+    """Reviewer-reproduced (task 8 review, finding 2): with ``LEAD_CAP`` (40)
+    applied repo-wide before the module split, alpha's 22 leads and beta's first
+    18 (paths sort "alpha/..." before "beta/..." before "gamma/..." lexically, so
+    entire modules are consumed in that order) exhausted the family's whole
+    budget, leaving gamma's 5 real leads with no entry at all. Chunking exists
+    for repositories too large to scan whole -- exactly the size at which a
+    repo-wide cap starves a later module -- so once a plan is chunked, the cap
+    must apply per module instead, and every module with real leads keeps them
+    all (none of the three modules here reaches the cap on its own)."""
+    _, workdir = lead_cap_tree
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 10, "max_loc": 100000}
+    plan, _ = build_plan(workdir, cfg, families="default", top=None)
+    assert plan["chunked"] is True
+    hf_leads_by_module = {
+        e["module"]: e["leads"] for e in plan["entries"] if e["family"] == "half-finished"
+    }
+    assert hf_leads_by_module == {"alpha": 22, "beta": 22, "gamma": 5}
 
 
 def test_families_run_lists_a_chunked_family_once_not_once_per_module(
@@ -633,6 +693,40 @@ def test_tool_leads_land_in_the_right_module_when_chunked(chunk_tree: tuple[Path
     text = prompts[sec_entries[0]["prompt"]]
     assert "beta/f0.py:1" in text
     assert "gitleaks: hardcoded credential" in text
+
+
+def test_a_real_root_directory_and_true_repo_root_files_get_separate_module_entries(
+    tmp_path: Path,
+) -> None:
+    """Reviewer-reproduced (task 8 review, finding 1): a repository with a genuine
+    top-level directory named ``root`` must not have its leads silently merged
+    with true repository-root files under one mislabeled entry. These are two
+    different physical scopes and must get two entries, each scoped to only its
+    own leads -- unlike the slug-collision case below, this collision happens one
+    level upstream of ``unique_slugs``, at module *identity*, so a fix there alone
+    could not have caught it."""
+    repo = tmp_path / "repo"
+    (repo / "root").mkdir(parents=True)
+    for i in range(4):
+        (repo / "root" / f"f{i}.py").write_text(_todo_file(i), encoding="utf-8")
+    (repo / "top.py").write_text(_todo_file(9), encoding="utf-8")
+    workdir = tmp_path / "wd"
+    _signals(repo, workdir)
+    cfg = deepcopy(DEFAULTS)
+    cfg["chunking"] = {"max_files": 2, "max_loc": 100000}
+    plan, prompts = build_plan(workdir, cfg, families="default", top=None)
+    assert plan["chunked"] is True
+    hf_entries = [e for e in plan["entries"] if e["family"] == "half-finished"]
+    assert len(hf_entries) == 2, hf_entries
+    prompt_paths = {e["prompt"] for e in hf_entries}
+    assert len(prompt_paths) == 2, "the two scopes must not share one prompt file"
+    root_dir_entry = next(e for e in hf_entries if "root/f0.py" in prompts[e["prompt"]])
+    sentinel_entry = next(e for e in hf_entries if e is not root_dir_entry)
+    assert "top.py:1" in prompts[sentinel_entry["prompt"]]
+    assert "top.py" not in prompts[root_dir_entry["prompt"]]
+    for i in range(4):
+        assert f"root/f{i}.py" in prompts[root_dir_entry["prompt"]]
+        assert f"root/f{i}.py" not in prompts[sentinel_entry["prompt"]]
 
 
 def test_every_prompt_path_in_a_chunked_plan_is_unique(tmp_path: Path) -> None:
