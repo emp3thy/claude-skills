@@ -163,6 +163,21 @@ def _edited_match(
     return best[1] if best else None
 
 
+def _expiry_note(entry: dict[str, Any], suppressed: str | None) -> str | None:
+    """The expiry note for a matched entry, or None when none applies.
+
+    An entry only carries an expiry note when its `status` is `accepted` and
+    it is not currently suppressing (`suppressed` is None) -- a rejected or
+    pending entry, or an accepted one still within `until`, has nothing to
+    report here. Shared by both match branches so a match on the edited
+    heuristic reports an expired acceptance exactly as a direct fingerprint
+    match does (ruling 23).
+    """
+    if entry.get("status") == "accepted" and suppressed is None:
+        return "until is not a date" if _until_is_malformed(entry) else "acceptance expired"
+    return None
+
+
 def classify(
     finding: dict[str, Any], baseline: dict[str, Any] | None, root: Path, today: str
 ) -> Classification:
@@ -174,9 +189,7 @@ def classify(
     entry = baseline["findings"].get(fp)
     if entry is not None:
         suppressed = _suppressed_as(entry, today)
-        note = None
-        if entry.get("status") == "accepted" and suppressed is None:
-            note = "until is not a date" if _until_is_malformed(entry) else "acceptance expired"
+        note = _expiry_note(entry, suppressed)
         moved = isinstance(line, int) and isinstance(entry.get("line_start"), int) \
             and entry["line_start"] != line
         return Classification("UNCHANGED (moved)" if moved else "UNCHANGED", fp, note, suppressed)
@@ -185,7 +198,7 @@ def classify(
         if edited is not None:
             entry = baseline["findings"][edited]
             suppressed = _suppressed_as(entry, today)
-            note = "suppressed by edited match" if suppressed else None
+            note = "suppressed by edited match" if suppressed else _expiry_note(entry, suppressed)
             return Classification("UNCHANGED (edited)", edited, note, suppressed)
     return Classification("NEW", None, None, None)
 

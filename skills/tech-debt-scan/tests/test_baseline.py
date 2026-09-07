@@ -312,6 +312,37 @@ class TestClassify:
         assert out.suppressed_as == "rejected"
         assert out.note == "suppressed by edited match"
 
+    def test_edited_match_reports_an_expired_acceptance(self, tmp_path: Path) -> None:
+        """Ruling 23: an edited match against an entry whose acceptance has
+        expired must report the same note a direct match would, not None."""
+        from baseline import classify
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "x\n" * 80})
+        finding = _finding(fingerprint="bbbbbbbbbbbbbbbb", quote_hash="r" * 40,
+                           title="Empty catch hides failure silently",
+                           evidence=[{"file": "src/pay/refund.py", "line_start": 40,
+                                      "line_end": 40, "quote": "except:", "quote_verified": True}])
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry(status="accepted", until="2026-01-01"))
+        out = classify(finding, base, root, TODAY)
+        assert out.diff == "UNCHANGED (edited)"
+        assert out.note == "acceptance expired"
+        assert out.suppressed_as is None
+
+    def test_edited_match_reports_a_malformed_until(self, tmp_path: Path) -> None:
+        """Same, but the matched entry's `until` cannot be parsed as a date."""
+        from baseline import classify
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "x\n" * 80})
+        finding = _finding(fingerprint="bbbbbbbbbbbbbbbb", quote_hash="r" * 40,
+                           title="Empty catch hides failure silently",
+                           evidence=[{"file": "src/pay/refund.py", "line_start": 40,
+                                      "line_end": 40, "quote": "except:", "quote_verified": True}])
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry(status="accepted", until="soon"))
+        out = classify(finding, base, root, TODAY)
+        assert out.diff == "UNCHANGED (edited)"
+        assert out.note == "until is not a date"
+        assert out.suppressed_as is None
+
 
 class TestPrimary:
     def test_bool_line_start_is_excluded(self) -> None:
@@ -430,6 +461,27 @@ class TestDiff:
         out = diff(self._verified(_finding()), base, root, TODAY)
         assert out["status"]["aaaaaaaaaaaaaaaa"]["note"] == "until is not a date"
         assert out["counts"]["expired"] == 1
+
+    def test_expired_acceptance_through_an_edited_match_is_counted(self, tmp_path: Path) -> None:
+        """Ruling 23: `diff()` already counts `acceptance expired` and `until is
+        not a date` notes wherever they land; this proves an edited match's
+        expiry note now reaches that count too, instead of being lost as
+        `note: None` and left out of both `counts["expired"]` and the edited
+        classification's visibility as an expired acceptance."""
+        from baseline import diff
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "x\n" * 80})
+        finding = _finding(fingerprint="bbbbbbbbbbbbbbbb", quote_hash="r" * 40,
+                           title="Empty catch hides failure silently",
+                           evidence=[{"file": "src/pay/refund.py", "line_start": 40,
+                                      "line_end": 40, "quote": "except:", "quote_verified": True}])
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry(status="accepted", until="2026-01-01"))
+        out = diff(self._verified(finding), base, root, TODAY)
+        assert out["status"]["bbbbbbbbbbbbbbbb"]["diff"] == "UNCHANGED (edited)"
+        assert out["status"]["bbbbbbbbbbbbbbbb"]["note"] == "acceptance expired"
+        assert out["counts"]["expired"] == 1
+        assert out["counts"]["edited"] == 1
+        assert out["suppressed"] == []
 
     def test_counts_sum_over_every_classification(self, tmp_path: Path) -> None:
         from baseline import diff
