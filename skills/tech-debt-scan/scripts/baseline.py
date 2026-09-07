@@ -20,11 +20,18 @@ The baseline lives inside the ignored workdir and is re-included by three
 """
 from __future__ import annotations
 
+import argparse
+import json
 import re
+import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Final
+
+from config import ConfigError, load_config
+from evidence import find_quote
+from inventory import write_json
 
 SCHEMA_VERSION: Final[int] = 2
 STATUSES: Final[tuple[str, ...]] = ("pending", "approved", "rejected", "accepted", "promoted")
@@ -47,8 +54,6 @@ class Classification:
 
 def load_baseline(path: Path) -> dict[str, Any] | None:
     """The baseline document, or None when the file does not exist."""
-    import json
-
     if not path.is_file():
         return None
     try:
@@ -177,3 +182,131 @@ def classify(
             note = "suppressed by edited match" if suppressed else None
             return Classification("UNCHANGED (edited)", edited, note, suppressed)
     return Classification("NEW", None, None, None)
+
+
+def _resolved(entry: dict[str, Any], root: Path) -> tuple[bool, str | None]:
+    """Whether an unmatched baseline entry's debt is gone, and why.
+
+    Spec 4.10's baseline schema lists ``quote_hash`` only, but a hash cannot be
+    searched for; ``record`` (Task 3) writes an optional ``quote`` alongside it
+    so RESOLVED has text to look for. An entry with no usable quote cannot be
+    checked either way, so it is presumed resolved -- with ``note`` saying why
+    -- the same as one whose file is gone outright; only a quote that is
+    present in the entry AND still findable in the file keeps it open.
+    """
+    file = entry.get("file")
+    if not isinstance(file, str):
+        return True, "file unknown"
+    path = root / file
+    if not path.is_file():
+        return True, "file absent"
+    quote = entry.get("quote")
+    if not isinstance(quote, str) or not quote:
+        return True, "quote unavailable"
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return True, "file unreadable"
+    line = entry.get("line_start") if isinstance(entry.get("line_start"), int) else None
+    return find_quote(lines, quote, line, line) is None, None
+
+
+def diff(
+    verified: dict[str, Any], baseline: dict[str, Any] | None, root: Path, today: str
+) -> dict[str, Any]:
+    """The ``diff.json`` document of spec 4.10.
+
+    Every current finding is classified against the baseline; every baseline
+    entry no finding matched is checked on disk and marked RESOLVED when its
+    quote or its file is gone. A suppressed finding (``rejected`` or an
+    unexpired ``accepted``) is listed under ``suppressed`` instead of statused,
+    so it never appears twice. An expired acceptance is counted under
+    ``expired`` whether its ``until`` passed cleanly or was malformed --
+    ``classify`` returns the finding either way, for the same underlying
+    reason, so both notes (``acceptance expired`` and ``until is not a date``)
+    count there.
+    """
+    status: dict[str, dict[str, Any]] = {}
+    suppressed: list[dict[str, Any]] = []
+    counts = {"new": 0, "unchanged": 0, "moved": 0, "edited": 0,
+              "resolved": 0, "suppressed": 0, "expired": 0}
+    matched: set[str] = set()
+    for finding in verified.get("findings") or []:
+        if not isinstance(finding, dict):
+            continue
+        fp = str(finding.get("fingerprint", ""))
+        out = classify(finding, baseline, root, today)
+        if out.matched:
+            matched.add(out.matched)
+        if out.suppressed_as:
+            entry = baseline["findings"][out.matched] if baseline and out.matched else {}
+            suppressed.append({"fingerprint": fp, "status": out.suppressed_as,
+                               "reason": entry.get("reason") or ""})
+            counts["suppressed"] += 1
+            continue
+        status[fp] = {"diff": out.diff, "note": out.note, "matched": out.matched}
+        if out.note in ("acceptance expired", "until is not a date"):
+            counts["expired"] += 1
+        counts[{"NEW": "new", "UNCHANGED": "unchanged", "UNCHANGED (moved)": "moved",
+                "UNCHANGED (edited)": "edited"}[out.diff]] += 1
+    if baseline is not None:
+        for fp, entry in baseline["findings"].items():
+            if fp in matched:
+                continue
+            gone, note = _resolved(entry, root)
+            if gone:
+                status[fp] = {"diff": "RESOLVED", "note": note, "matched": None}
+                counts["resolved"] += 1
+    return {"schema_version": SCHEMA_VERSION, "baseline_found": baseline is not None,
+            "status": status, "suppressed": suppressed, "counts": counts}
+
+
+def _run_diff(args: argparse.Namespace) -> int:
+    root = Path(args.root)
+    workdir = Path(args.workdir)
+    verified_path = workdir / "verified.json"
+    if not verified_path.is_file():
+        print(f"error: {verified_path} not found; run the chain first", file=sys.stderr)
+        return 2
+    try:
+        verified = json.loads(verified_path.read_bytes())
+        if not isinstance(verified, dict):
+            raise ValueError(f"{verified_path} is not a JSON object")
+        baseline_path = (
+            Path(args.baseline) if args.baseline
+            else root / str(load_config(root)["baseline"])
+        )
+        baseline = load_baseline(baseline_path)
+    except (BaselineError, ConfigError, OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    today = args.today or date.today().isoformat()
+    doc = diff(verified, baseline, root, today)
+    write_json(workdir / "diff.json", doc)
+    print(f"wrote {workdir / 'diff.json'}; counts: {doc['counts']}")
+    return 0
+
+
+def _main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="The baseline: classify verified findings, diff, and record (spec 4.10)"
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_diff = sub.add_parser("diff", help="classify verified.json against the baseline")
+    p_diff.add_argument("--workdir", default=".tech-debt", help="directory holding verified.json")
+    p_diff.add_argument("--root", default=".", help="repository root the baseline is relative to")
+    p_diff.add_argument(
+        "--baseline", default=None,
+        help="baseline path (default: config's baseline, resolved against --root)",
+    )
+    p_diff.add_argument("--today", default=None, help="ISO date (default: today)")
+
+    args = parser.parse_args(argv)
+    if args.cmd == "diff":
+        return _run_diff(args)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

@@ -43,6 +43,7 @@ from typing import Any
 
 import pytest
 from apply_verdicts import apply
+from baseline import diff
 from config import DEFAULTS
 from design_parser import parse_design
 from design_writer import load_inputs, write_design
@@ -194,6 +195,13 @@ def _chain(name: str, repo: Path, tmp_path: Path) -> Chain:
     ranked = rank(verified, inventory, DEFAULTS, preset="balanced", top=5)
     write_json(workdir / "ranked.json", ranked)
     _check("ranked", ranked, golden / "ranked.json", root)
+    # No fixture has a baseline yet (phase 5's ``record`` is Task 3), so every
+    # status is NEW and ``baseline_found`` is false -- the point of this golden
+    # is that the chain now produces the file ``design_writer`` has been
+    # waiting for, not that it changes any classification.
+    diff_doc = diff(verified, None, repo, SCAN_DATE)
+    write_json(workdir / "diff.json", diff_doc)
+    _check("diff", diff_doc, golden / "diff.json", root)
     # The render stage. ``notes.json`` is the one input on this chain that no
     # script produces: it is the remediation agent's reply, so it is hand-written
     # per fixture and copied in exactly as a real run would drop it in the

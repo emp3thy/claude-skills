@@ -310,3 +310,112 @@ class TestPrimary:
 
         _, line = _primary({"evidence": [{"file": "src/x.py", "line_start": True}]})
         assert line is None
+
+
+class TestDiff:
+    def _verified(self, *findings: dict) -> dict:
+        return {"schema_version": 2, "findings": list(findings)}
+
+    def test_absent_baseline_marks_everything_new(self, tmp_path: Path) -> None:
+        from baseline import diff
+
+        out = diff(self._verified(_finding()), None, tmp_path, TODAY)
+        assert out["baseline_found"] is False
+        assert out["status"]["aaaaaaaaaaaaaaaa"]["diff"] == "NEW"
+        assert out["counts"] == {"new": 1, "unchanged": 0, "moved": 0, "edited": 0,
+                                 "resolved": 0, "suppressed": 0, "expired": 0}
+
+    def test_an_unmatched_baseline_entry_whose_quote_is_gone_is_resolved(
+        self, tmp_path: Path
+    ) -> None:
+        from baseline import diff
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "nothing here\n"})
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry())
+        out = diff(self._verified(), base, root, TODAY)
+        assert out["status"]["aaaaaaaaaaaaaaaa"]["diff"] == "RESOLVED"
+        assert out["counts"]["resolved"] == 1
+
+    def test_an_unmatched_entry_whose_file_is_gone_is_resolved(self, tmp_path: Path) -> None:
+        from baseline import diff
+
+        out = diff(self._verified(), _baseline(aaaaaaaaaaaaaaaa=_entry()), tmp_path, TODAY)
+        assert out["status"]["aaaaaaaaaaaaaaaa"]["diff"] == "RESOLVED"
+        assert out["status"]["aaaaaaaaaaaaaaaa"]["note"] == "file absent"
+
+    def test_an_unmatched_entry_whose_quote_still_exists_is_not_resolved(
+        self, tmp_path: Path
+    ) -> None:
+        """The scan simply did not raise it this time; it is neither resolved nor
+        current, so it is absent from status and counted nowhere."""
+        from baseline import diff
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "x\n" * 32 + "except Exception:\n"})
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry())
+        base["findings"]["aaaaaaaaaaaaaaaa"]["quote"] = "except Exception:"
+        out = diff(self._verified(), base, root, TODAY)
+        assert "aaaaaaaaaaaaaaaa" not in out["status"]
+        assert out["counts"]["resolved"] == 0
+
+    def test_suppressed_findings_are_listed_not_statused(self, tmp_path: Path) -> None:
+        from baseline import diff
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "x\n" * 32 + "except Exception:\n"})
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry(status="rejected", reason="by design"))
+        out = diff(self._verified(_finding()), base, root, TODAY)
+        assert "aaaaaaaaaaaaaaaa" not in out["status"]
+        assert out["suppressed"] == [{"fingerprint": "aaaaaaaaaaaaaaaa", "status": "rejected",
+                                      "reason": "by design"}]
+        assert out["counts"]["suppressed"] == 1
+
+    def test_expired_acceptance_is_counted(self, tmp_path: Path) -> None:
+        from baseline import diff
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "x\n" * 32 + "except Exception:\n"})
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry(status="accepted", until="2026-01-01"))
+        out = diff(self._verified(_finding()), base, root, TODAY)
+        assert out["status"]["aaaaaaaaaaaaaaaa"]["note"] == "acceptance expired"
+        assert out["counts"]["expired"] == 1
+
+    def test_malformed_until_is_counted_as_expired(self, tmp_path: Path) -> None:
+        """Task 1's ruling: a malformed `until` returns the finding under a
+        different note (`until is not a date`) but must still count as expired,
+        since `diff` returns the finding for the same reason either way."""
+        from baseline import diff
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "x\n" * 32 + "except Exception:\n"})
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry(status="accepted", until="soon"))
+        out = diff(self._verified(_finding()), base, root, TODAY)
+        assert out["status"]["aaaaaaaaaaaaaaaa"]["note"] == "until is not a date"
+        assert out["counts"]["expired"] == 1
+
+    def test_counts_sum_over_every_classification(self, tmp_path: Path) -> None:
+        from baseline import diff
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "x\n" * 80, "src/gone.py": "z\n"})
+        moved = _finding(evidence=[{"file": "src/pay/refund.py", "line_start": 41,
+                                    "line_end": 41, "quote": "except Exception:",
+                                    "quote_verified": True}])
+        edited = _finding(fingerprint="bbbbbbbbbbbbbbbb", quote_hash="r" * 40,
+                          title="Empty catch hides failure silently",
+                          evidence=[{"file": "src/pay/refund.py", "line_start": 60,
+                                     "line_end": 60, "quote": "except:", "quote_verified": True}])
+        new = _finding(fingerprint="cccccccccccccccc", quote_hash="s" * 40, family="security",
+                       evidence=[{"file": "src/gone.py", "line_start": 1, "line_end": 1,
+                                  "quote": "z", "quote_verified": True}])
+        base = _baseline(
+            aaaaaaaaaaaaaaaa=_entry(line_start=33),
+            dddddddddddddddd=_entry(file="src/pay/refund.py", line_start=70,
+                                    title="Entirely different wording here", quote="absent"),
+            eeeeeeeeeeeeeeee=_entry(file="src/missing.py", line_start=1, quote="gone"),
+        )
+        out = diff(self._verified(moved, edited, new), base, root, TODAY)
+        assert out["counts"] == {"new": 1, "unchanged": 0, "moved": 1, "edited": 1,
+                                 "resolved": 2, "suppressed": 0, "expired": 0}
+
+    def test_the_document_has_the_spec_shape(self, tmp_path: Path) -> None:
+        from baseline import diff
+
+        out = diff(self._verified(), None, tmp_path, TODAY)
+        assert set(out) == {"schema_version", "baseline_found", "status", "suppressed", "counts"}
+        assert out["schema_version"] == 2
