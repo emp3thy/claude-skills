@@ -13,6 +13,9 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+GOLDEN_DESIGN = Path(__file__).parent / "golden" / "service-py" / "design.md"
+GOLDEN_VERIFIED = Path(__file__).parent / "golden" / "service-py" / "verified.json"
+
 TODAY = "2026-09-07"
 
 
@@ -552,6 +555,60 @@ class TestRecord:
                        bundles={}, today=TODAY, preset="balanced")
         assert path.read_bytes() == before
 
+    def test_missing_fingerprint_raises_naming_the_decision(self, tmp_path: Path) -> None:
+        from baseline import BaselineError, record
+
+        decision = _decision(title="Untracked finding with no fingerprint")
+        del decision["fingerprint"]
+        with pytest.raises(BaselineError, match="Untracked finding with no fingerprint"):
+            record(tmp_path / "b.json", decisions=[decision], findings=[_finding()],
+                   bundles={}, today=TODAY, preset="balanced")
+
+    def test_two_fingerprintless_decisions_do_not_collide(self, tmp_path: Path) -> None:
+        """Without a guard, both decisions key onto the empty string and the
+        second silently overwrites the first -- reproduced before this fix."""
+        from baseline import BaselineError, record
+
+        first = _decision(title="First finding, no fingerprint")
+        del first["fingerprint"]
+        second = _decision(title="Second finding, no fingerprint")
+        del second["fingerprint"]
+        with pytest.raises(BaselineError):
+            record(tmp_path / "b.json", decisions=[first, second], findings=[_finding()],
+                   bundles={}, today=TODAY, preset="balanced")
+
+    def test_empty_string_fingerprint_raises(self, tmp_path: Path) -> None:
+        """A hand-typed `fingerprint: ""` parses to an empty string, not a
+        missing key -- also rejected."""
+        from baseline import BaselineError, record
+
+        with pytest.raises(BaselineError, match="fingerprint"):
+            record(tmp_path / "b.json", decisions=[_decision(fingerprint="")],
+                   findings=[_finding()], bundles={}, today=TODAY, preset="balanced")
+
+    def test_promoted_with_no_bundle_and_no_history_raises(self, tmp_path: Path) -> None:
+        """Only `promote` can vouch for a bundle; a hand-recorded `promoted`
+        decision with nothing in `bundles` and no prior entry must not write
+        `bundle: null` silently."""
+        from baseline import BaselineError, record
+
+        with pytest.raises(BaselineError, match="bundle"):
+            record(tmp_path / "b.json", decisions=[_decision(status="promoted")],
+                   findings=[_finding()], bundles={}, today=TODAY, preset="balanced")
+
+    def test_promoted_keeps_a_previously_recorded_bundle(self, tmp_path: Path) -> None:
+        """A later call for the same fingerprint need not repeat the bundle
+        map; the guard only fires when no bundle exists anywhere."""
+        from baseline import record
+
+        path = tmp_path / "b.json"
+        record(path, decisions=[_decision(status="promoted")], findings=[_finding()],
+               bundles={"aaaaaaaaaaaaaaaa": "chore-empty-catch-2026-09-07"},
+               today="2026-09-01", preset="balanced")
+        doc = record(path, decisions=[_decision(status="promoted")], findings=[_finding()],
+                     bundles={}, today=TODAY, preset="balanced")
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["bundle"] == "chore-empty-catch-2026-09-07"
+
 
 class TestGitignoreTriple:
     @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
@@ -581,6 +638,37 @@ class TestGitignoreTriple:
 
         assert ensure_gitignore_triple(root, baseline) == "present"
         assert (root / ".gitignore").read_text(encoding="utf-8") == text
+
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+    def test_derives_the_triple_for_a_baseline_outside_tech_debt(self, tmp_path: Path) -> None:
+        """The hardcoded `.tech-debt/` triple would append lines that never match a
+        baseline configured elsewhere, leaving it ignored while reporting
+        "appended" -- reproduced before this fix. The derived triple must track
+        the real directory and file name instead."""
+        from baseline import ensure_gitignore_triple
+
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        (tmp_path / ".gitignore").write_text("custom_baseline_dir/\n", encoding="utf-8")
+        baseline = tmp_path / "custom_baseline_dir" / "state.json"
+        baseline.parent.mkdir()
+        baseline.write_text("{}", encoding="utf-8")
+        ignored = subprocess.run(
+            ["git", "-C", str(tmp_path), "check-ignore", "-q", "custom_baseline_dir/state.json"]
+        )
+        assert ignored.returncode == 0, "precondition: the baseline starts ignored"
+
+        assert ensure_gitignore_triple(tmp_path, baseline) == "appended"
+        text = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+        assert text.endswith(
+            "!custom_baseline_dir/\ncustom_baseline_dir/*\n!custom_baseline_dir/state.json\n"
+        )
+        tracked = subprocess.run(
+            ["git", "-C", str(tmp_path), "check-ignore", "-q", "custom_baseline_dir/state.json"]
+        )
+        assert tracked.returncode == 1, "the baseline is no longer ignored"
+
+        assert ensure_gitignore_triple(tmp_path, baseline) == "present"
+        assert (tmp_path / ".gitignore").read_text(encoding="utf-8") == text
 
     @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
     def test_an_untracked_baseline_needs_no_triple(self, tmp_path: Path) -> None:
@@ -632,3 +720,87 @@ class TestGitignoreTriple:
 
         monkeypatch.setattr(mod.shutil, "which", lambda name: None)
         assert mod.ensure_gitignore_triple(tmp_path, tmp_path / "b.json") == "no-git"
+
+
+class TestRunRecordCLI:
+    """`_run_record` end to end: argparse, config load, the `verified.json` read
+    and the exit codes -- none of it was exercised by anything above, which is
+    how the `config["preset"]` bug (fixed to `config["ranking"]["preset"]`)
+    reached the report only because it was hand-tested."""
+
+    def test_happy_path_writes_the_baseline_and_exits_zero(self, tmp_path: Path) -> None:
+        from baseline import _main, load_baseline
+
+        root = tmp_path
+        workdir = root / ".tech-debt"
+        workdir.mkdir()
+        shutil.copy(GOLDEN_VERIFIED, workdir / "verified.json")
+        design = root / "design.md"
+        design.write_text(
+            GOLDEN_DESIGN.read_text(encoding="utf-8").replace(
+                "status: pending", "status: approved", 1
+            ),
+            encoding="utf-8",
+        )
+        # A non-default preset proves _run_record reads config["ranking"]["preset"],
+        # not the "balanced" default that would mask a regression of that bug.
+        (root / ".tech-debt.yaml").write_text("ranking:\n  preset: quick-wins\n",
+                                               encoding="utf-8")
+
+        exit_code = _main([
+            "record", "--workdir", str(workdir), "--design", str(design),
+            "--root", str(root), "--today", TODAY,
+        ])
+        assert exit_code == 0
+
+        doc = load_baseline(root / ".tech-debt" / "baseline.json")
+        assert doc is not None
+        assert doc["preset"] == "quick-wins"
+        assert doc["last_scan"] == TODAY
+        approved = [e for e in doc["findings"].values() if e["status"] == "approved"]
+        assert len(approved) == 1
+        assert approved[0]["file"] is not None, "matched against a real verified.json entry"
+
+    def test_missing_verified_json_exits_2_with_a_message(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from baseline import _main
+
+        root = tmp_path
+        workdir = root / ".tech-debt"
+        workdir.mkdir()  # no verified.json written
+        design = root / "design.md"
+        design.write_text(GOLDEN_DESIGN.read_text(encoding="utf-8"), encoding="utf-8")
+
+        exit_code = _main([
+            "record", "--workdir", str(workdir), "--design", str(design), "--root", str(root),
+        ])
+        assert exit_code == 2
+        assert "verified.json" in capsys.readouterr().err
+
+    def test_malformed_config_exits_2_not_a_traceback(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Item 4: yaml.YAMLError from a malformed .tech-debt.yaml must hit the
+        "error: ..." / exit 2 convention, not escape as an uncaught traceback."""
+        from baseline import _main
+
+        root = tmp_path
+        workdir = root / ".tech-debt"
+        workdir.mkdir()
+        (workdir / "verified.json").write_text(
+            json.dumps({"schema_version": 2, "findings": []}), encoding="utf-8"
+        )
+        design = root / "design.md"
+        design.write_text(
+            "## T\n\n```yaml\nstatus: pending\nslug: t\nseverity: 1\ncategory: security\n"
+            "fingerprint: bbbbbbbbbbbbbbbb\n```\n",
+            encoding="utf-8",
+        )
+        (root / ".tech-debt.yaml").write_text("families: [oops\n", encoding="utf-8")
+
+        exit_code = _main([
+            "record", "--workdir", str(workdir), "--design", str(design), "--root", str(root),
+        ])
+        assert exit_code == 2
+        assert capsys.readouterr().err.startswith("error:")

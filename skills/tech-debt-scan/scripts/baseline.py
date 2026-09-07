@@ -32,6 +32,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Final
 
+import yaml
 from config import ConfigError, load_config
 from design_parser import DesignParseError, parse_design
 from evidence import find_quote
@@ -270,6 +271,10 @@ def diff(
             "status": status, "suppressed": suppressed, "counts": counts}
 
 
+# The triple at the default baseline location. ``ensure_gitignore_triple`` derives
+# the real triple from wherever the baseline actually lives (see ``_triple``); at
+# the default path the two are byte for byte identical, which is what the tests
+# below assert. Kept as the documented default-path value.
 TRIPLE: Final[tuple[str, ...]] = ("!.tech-debt/", ".tech-debt/*", "!.tech-debt/baseline.json")
 TRIPLE_COMMENT: Final[str] = "# tech-debt-scan: track the baseline, ignore the rest of the workdir"
 
@@ -291,12 +296,22 @@ def record(
     directory name. Entries absent from this scan are kept: the baseline
     remembers decisions across scans. The write is atomic so a crash mid-write
     leaves the previous baseline intact.
+
+    A decision with no fingerprint raises: the baseline is keyed by
+    fingerprint, so an empty key would collide every fingerprint-less
+    decision in one call onto the same entry, silently discarding all but the
+    last. A ``promoted`` decision raises unless a bundle is in ``bundles`` or
+    was already recorded for that fingerprint -- only ``promote`` can vouch
+    for a bundle.
     """
     existing = load_baseline(baseline_path) or {"findings": {}}
     by_fp = {str(f.get("fingerprint")): f for f in findings if isinstance(f, dict)}
     out = dict(existing["findings"])
     for decision in decisions:
-        fp = str(decision.get("fingerprint", ""))
+        fp = str(decision.get("fingerprint") or "")
+        if not fp:
+            title = decision.get("title") or "<untitled>"
+            raise BaselineError(f"{title!r}: missing fingerprint")
         status = str(decision.get("status", ""))
         if status not in STATUSES:
             raise BaselineError(f"{fp}: unknown status {status!r}")
@@ -307,6 +322,9 @@ def record(
         if evidence and isinstance(evidence[0], dict):
             quote = evidence[0].get("quote")
         previous = out.get(fp, {})
+        bundle = bundles.get(fp, previous.get("bundle"))
+        if status == "promoted" and bundle is None:
+            raise BaselineError(f"{fp}: promoted with no bundle")
         out[fp] = {
             "family": decision.get("family") or finding.get("family"),
             "file": file,
@@ -320,7 +338,7 @@ def record(
             "last_seen": today,
             "reason": redact(str(decision["reason"])) if decision.get("reason") else None,
             "until": decision.get("until"),
-            "bundle": bundles.get(fp, previous.get("bundle")),
+            "bundle": bundle,
         }
     doc = {"schema_version": SCHEMA_VERSION, "last_scan": today, "preset": preset,
            "findings": dict(sorted(out.items()))}
@@ -333,6 +351,20 @@ def record(
         temp.unlink(missing_ok=True)
         raise BaselineError(f"{baseline_path}: {exc}") from exc
     return doc
+
+
+def _triple(rel: str) -> tuple[str, ...]:
+    """The three gitignore lines for a baseline at ``rel`` (posix, root-relative).
+
+    At the default location (``.tech-debt/baseline.json``) this reproduces
+    ``TRIPLE`` byte for byte; at any other location under some directory it
+    is the same three-line pattern derived from that directory and file
+    name, so a baseline configured elsewhere is tracked correctly too.
+    """
+    dir_part, sep, name = rel.rpartition("/")
+    if not sep:
+        raise BaselineError(f"{rel}: baseline must live inside a directory to be tracked")
+    return (f"!{dir_part}/", f"{dir_part}/*", f"!{dir_part}/{name}")
 
 
 def ensure_gitignore_triple(root: Path, baseline_path: Path) -> str:
@@ -348,12 +380,13 @@ def ensure_gitignore_triple(root: Path, baseline_path: Path) -> str:
                            capture_output=True, check=False)
     if check.returncode != 0:
         return "present"
+    triple = _triple(rel)
     gitignore = root / ".gitignore"
     existing = gitignore.read_text(encoding="utf-8") if gitignore.is_file() else ""
     lines = existing.splitlines()
-    if all(line in lines for line in TRIPLE):
+    if all(line in lines for line in triple):
         return "present"
-    block = "\n".join((TRIPLE_COMMENT, *TRIPLE)) + "\n"
+    block = "\n".join((TRIPLE_COMMENT, *triple)) + "\n"
     prefix = existing if existing.endswith("\n") or not existing else existing + "\n"
     gitignore.write_text(prefix + block, encoding="utf-8")
     return "appended"
@@ -383,7 +416,8 @@ def _run_record(args: argparse.Namespace) -> int:
             preset=str(config["ranking"]["preset"]),
         )
         outcome = ensure_gitignore_triple(root, baseline_path)
-    except (BaselineError, DesignParseError, ConfigError, OSError, ValueError) as exc:
+    except (BaselineError, DesignParseError, ConfigError, OSError, ValueError,
+            yaml.YAMLError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(f"wrote {baseline_path}; {len(doc['findings'])} findings recorded")
@@ -408,7 +442,7 @@ def _run_diff(args: argparse.Namespace) -> int:
             else root / str(load_config(root)["baseline"])
         )
         baseline = load_baseline(baseline_path)
-    except (BaselineError, ConfigError, OSError, ValueError) as exc:
+    except (BaselineError, ConfigError, OSError, ValueError, yaml.YAMLError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     today = args.today or date.today().isoformat()
