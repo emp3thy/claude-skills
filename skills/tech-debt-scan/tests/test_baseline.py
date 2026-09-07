@@ -126,6 +126,24 @@ class TestClassify:
         assert out.diff == "UNCHANGED (edited)"
         assert out.matched == "aaaaaaaaaaaaaaaa"
 
+    def test_edited_match_at_exactly_half_the_tokens(self, tmp_path: Path) -> None:
+        from baseline import classify
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "x\n" * 80})
+        # Baseline title has 4 tokens; the new title shares exactly 2 of them (= half).
+        # Base: {"error", "catch", "missing", "handler"}
+        # New:  {"catch", "error", "in", "callback"}
+        # Shared: {"catch", "error"} = 2, which is exactly 50% (shared * 2 >= 4).
+        finding = _finding(fingerprint="cccccccccccccccc", quote_hash="t" * 40,
+                           title="catch error in callback",
+                           evidence=[{"file": "src/pay/refund.py", "line_start": 40,
+                                      "line_end": 40, "quote": "except:", "quote_verified": True}])
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry(title="error catch missing handler",
+                                                 line_start=33))
+        out = classify(finding, base, root, TODAY)
+        assert out.diff == "UNCHANGED (edited)"
+        assert out.matched == "aaaaaaaaaaaaaaaa"
+
     def test_edited_requires_at_least_half_not_fewer(self, tmp_path: Path) -> None:
         from baseline import classify
 
