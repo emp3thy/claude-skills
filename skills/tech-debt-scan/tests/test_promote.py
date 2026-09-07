@@ -121,3 +121,101 @@ def test_write_back_exit_code_is_reserved() -> None:
     from promote import EXIT_WRITE_BACK
 
     assert EXIT_WRITE_BACK == 6
+
+
+class TestWriteBack:
+    def test_without_baseline_flag_nothing_is_written(self, v2_design_workdir) -> None:
+        from promote import _main
+
+        design, workdir = v2_design_workdir
+        assert _main([str(design), "--out", str(workdir / "pbis")]) == 0
+        assert not (workdir / "baseline.json").exists()
+
+    def test_with_baseline_flag_every_decision_is_recorded(self, v2_design_workdir) -> None:
+        from baseline import load_baseline
+        from promote import _main
+
+        design, workdir = v2_design_workdir
+        baseline = workdir / "baseline.json"
+        code = _main([str(design), "--out", str(workdir / "pbis"), "--baseline", str(baseline)])
+        assert code == 0
+        doc = load_baseline(baseline)
+        assert doc is not None
+        statuses = {e["status"] for e in doc["findings"].values()}
+        assert "promoted" in statuses  # every approved finding was emitted, so is now promoted
+
+    def test_an_emitted_finding_records_its_bundle_directory(self, v2_design_workdir) -> None:
+        from baseline import load_baseline
+        from promote import _main
+
+        design, workdir = v2_design_workdir
+        baseline = workdir / "baseline.json"
+        _main([str(design), "--out", str(workdir / "pbis"), "--baseline", str(baseline)])
+        doc = load_baseline(baseline)
+        promoted = [e for e in doc["findings"].values() if e["status"] == "promoted"]
+        assert promoted and all(e["bundle"] for e in promoted)
+        assert all((workdir / "pbis" / e["bundle"]).is_dir() for e in promoted)
+
+    def test_write_back_failure_is_exit_6_and_bundles_remain(
+        self, v2_design_workdir, monkeypatch
+    ) -> None:
+        import baseline as bmod
+        from promote import EXIT_WRITE_BACK, _main
+
+        design, workdir = v2_design_workdir
+
+        def boom(*a, **k):
+            raise bmod.BaselineError("simulated")
+
+        monkeypatch.setattr(bmod, "record", boom)
+        code = _main([str(design), "--out", str(workdir / "pbis"), "--baseline",
+                      str(workdir / "baseline.json")])
+        assert code == EXIT_WRITE_BACK == 6
+        assert any((workdir / "pbis").iterdir()), "bundles emitted before the write-back remain"
+
+    def test_a_promote_failure_is_not_reported_as_write_back(self, v2_design_workdir) -> None:
+        """Exit 6 means the write-back failed and nothing else did."""
+        from promote import EXIT_WRITE_BACK, _main
+
+        design, workdir = v2_design_workdir
+        baseline = workdir / "b.json"
+        # A second run without --force hits the already-promoted path, which is not exit 6.
+        _main([str(design), "--out", str(workdir / "pbis"), "--baseline", str(baseline)])
+        code = _main([str(design), "--out", str(workdir / "pbis"), "--baseline", str(baseline)])
+        assert code != EXIT_WRITE_BACK
+
+    def test_v1_design_with_baseline_refuses_before_emitting(self, tmp_path: Path) -> None:
+        from promote import _main
+
+        design = tmp_path / "design.md"
+        design.write_text(GOLDEN.read_text().replace("status: pending", "status: approved", 1))
+        code = _main([str(design), "--out", str(tmp_path / "out"), "--baseline",
+                      str(tmp_path / "baseline.json")])
+        assert code == 2
+        assert not (tmp_path / "out").exists()
+        assert not (tmp_path / "baseline.json").exists()
+
+    def test_already_promoted_finding_with_no_baseline_history_is_exit_zero(
+        self, v2_design_workdir
+    ) -> None:
+        """A finding promoted before --baseline existed has no map entry and no
+        baseline history; run_promote's already-promoted path must supply its
+        existing bundle directory so record() does not raise."""
+        from baseline import load_baseline
+        from promote import _main
+
+        design, workdir = v2_design_workdir
+        out = workdir / "pbis"
+        # First run with no --baseline: emits the bundle and marks it promoted,
+        # exactly like every promote run before this task existed.
+        assert _main([str(design), "--out", str(out)]) == 0
+        assert not (workdir / "baseline.json").exists()
+
+        baseline = workdir / "baseline.json"
+        code = _main([str(design), "--out", str(out), "--baseline", str(baseline)])
+        assert code == 0
+        doc = load_baseline(baseline)
+        assert doc is not None
+        promoted = [e for e in doc["findings"].values() if e["status"] == "promoted"]
+        assert promoted and all(e["bundle"] for e in promoted)
+        assert all((out / e["bundle"]).is_dir() for e in promoted)
