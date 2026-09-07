@@ -742,7 +742,16 @@ def _below_the_cut(
 
 
 def _tier_c_table(rows: list[Row]) -> list[str]:
-    """One table row per tier C or unverified finding; a reject belongs elsewhere."""
+    """One table row per tier C or unverified finding; a reject belongs elsewhere.
+
+    The reason column prints ``tier_reason`` -- why the finding landed below the
+    cut, not just the verdict word that used to sit there and tell a maintainer
+    nothing. A finding written before this field existed (an older
+    ``verified.json``, or a v1 document) carries no ``tier_reason``, so the
+    column falls back to the verdict; if even that is absent the cell is empty
+    rather than the literal word ``None`` -- the same guard ``_primary_file``
+    already gives the file column, extended to its neighbour.
+    """
     selected = [
         row
         for row in rows
@@ -754,9 +763,10 @@ def _tier_c_table(rows: list[Row]) -> list[str]:
     lines = ["| slug | family | file | reason |", "| --- | --- | --- | --- |"]
     for row in selected:
         finding = row.finding
+        reason = free_text(str(finding.get("tier_reason") or finding.get("verdict") or ""))
         lines.append(
             f"| {row.slug} | {finding.get('family')} | {_primary_file(finding)} "
-            f"| {finding.get('verdict')} |"
+            f"| {reason} |"
         )
     return lines
 

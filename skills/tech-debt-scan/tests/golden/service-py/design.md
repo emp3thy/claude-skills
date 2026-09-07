@@ -1222,12 +1222,12 @@ requests==2.32.3
 
 | slug | family | file | reason |
 | --- | --- | --- | --- |
-| refund-issue-partial-has-no-callers-in-production-or-tests | dead-code | src/pay/refund.py | confirm |
-| legacy-export-bypasses-the-ledger-writing-refund-data-to-a-secon | architecture | src/pay/legacy_export.py | unverified |
-| export-v1-and-its-legacy-export-module-have-zero-callers | dead-code | src/pay/legacy_export.py | confirm |
-| utils-fingerprint-has-no-callers-anywhere-in-the-repo | dead-code | src/pay/utils.py | confirm |
-| audit-trail-assertion-hard-codes-a-string-built-from-fixture-val | test-quality | tests/test_refund.py | downgrade |
-| legacy-export-export-v1-has-no-automated-test | test-gaps | src/pay/legacy_export.py | downgrade |
+| refund-issue-partial-has-no-callers-in-production-or-tests | dead-code | src/pay/refund.py | dead-code is capped at C without tool corroboration |
+| legacy-export-bypasses-the-ledger-writing-refund-data-to-a-secon | architecture | src/pay/legacy_export.py | not selected for verification |
+| export-v1-and-its-legacy-export-module-have-zero-callers | dead-code | src/pay/legacy_export.py | dead-code is capped at C without tool corroboration |
+| utils-fingerprint-has-no-callers-anywhere-in-the-repo | dead-code | src/pay/utils.py | dead-code is capped at C without tool corroboration |
+| audit-trail-assertion-hard-codes-a-string-built-from-fixture-val | test-quality | tests/test_refund.py | the verifier downgraded it |
+| legacy-export-export-v1-has-no-automated-test | test-gaps | src/pay/legacy_export.py | the verifier downgraded it |
 
 # Considered and rejected
 

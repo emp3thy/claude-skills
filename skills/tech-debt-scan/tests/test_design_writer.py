@@ -319,6 +319,26 @@ def test_tier_c_table_and_empty_sections(tmp_path: Path) -> None:
     assert text.count("_None._") == 1, "only 'Considered and rejected' is empty here"
 
 
+def test_the_tier_c_table_prints_the_tier_reason_not_the_verdict(tmp_path: Path) -> None:
+    """Four rows reading `confirm` told a maintainer nothing about why a
+    finding is below the cut.
+
+    ``_verified()``'s tier C finding predates ``tier_reason`` (no such key on
+    the fixture), so it still renders the bare verdict word -- the fallback
+    path this same table must keep. Here the finding carries a real,
+    distinctive ``tier_reason``, and the table must print that sentence in
+    its place, not the verdict word next to or instead of it.
+    """
+    verified = _verified()
+    verified["findings"][2]["tier_reason"] = "dead-code is capped at C without tool corroboration"
+    text = render_design(_inputs(tmp_path, **{"verified.json": verified}), SCAN_DATE)
+    assert (
+        "| unused-helper-in-the-ledger-module | dead-code | src/pay/ledger.py "
+        "| dead-code is capped at C without tool corroboration |"
+    ) in text
+    assert "| unverified |" not in text, "the verdict word must not stand alone in the column"
+
+
 def test_rejected_and_trap_findings_land_in_their_sections(tmp_path: Path) -> None:
     verified = _verified()
     verified["findings"].append(

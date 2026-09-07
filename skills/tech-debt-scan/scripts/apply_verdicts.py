@@ -12,9 +12,13 @@ section. Rule findings and tool facts are tier A without a verifier. Family
 caps from spec 2.3 apply after a confirm; the verifier's severity and effort
 replace the scout's. Migration's "churn on both sides" lift uses the
 ``coupling`` corroboration only, because a candidate carries churn for its
-primary file alone. Every piece of verifier prose kept on a finding (``proof``,
-``checked``, ``opened``, ``trap_matched``) goes through ``redaction.redact``
-first: the verifier reads the repository, so it can quote a credential back.
+primary file alone. Every finding also carries ``tier_reason``, the prose for
+why it landed on its tier -- computed on the same branch as the tier itself
+(``_tier_and_reason``) so the two cannot disagree -- which the design writer's
+tier C table renders in place of the bare verdict word. Every piece of
+verifier prose kept on a finding (``proof``, ``checked``, ``opened``,
+``trap_matched``) goes through ``redaction.redact`` first: the verifier reads
+the repository, so it can quote a credential back.
 """
 from __future__ import annotations
 
@@ -89,20 +93,48 @@ def _weakest(a: str, b: str | None) -> str:
     return a if b is None or TIER_ORDER[a] >= TIER_ORDER[b] else b
 
 
-def earned_tier(cand: dict[str, Any], verdict: dict[str, Any] | None) -> str | None:
+def _tier_and_reason(
+    cand: dict[str, Any], verdict: dict[str, Any] | None
+) -> tuple[str | None, str]:
+    """The earned tier and, on the same branch, why it earned it.
+
+    One function so the tier and its reason cannot disagree: ``earned_tier`` and
+    ``tier_reason`` are both thin wrappers over this that discard the half they
+    don't need, rather than two copies of the same branching.
+    """
     if cand.get("tier") == "A":
-        return "A"
+        if cand.get("source") == "rule":
+            return "A", "a deterministic rule finding, true by construction"
+        return "A", "a published advisory, true by construction"
     if verdict is None:
-        return "C"
+        return "C", "not selected for verification"
     kind = str(verdict.get("verdict"))
     if kind == "reject":
-        return None
-    if kind in ("downgrade", "refer"):
-        return "C"
+        return None, "the verifier rejected it"
+    if kind == "downgrade":
+        return "C", "the verifier downgraded it"
+    if kind == "refer":
+        return "C", "the verifier referred it"
     if kind != "confirm" or not all(e.get("quote_verified") for e in cand.get("evidence", [])):
-        return "C"
+        return "C", "a quote could not be verified"
     base = "A" if corroborated(cand) else "B"
-    return _weakest(base, family_cap(cand))
+    cap = family_cap(cand)
+    tier = _weakest(base, cap)
+    if cap is not None:
+        return tier, f"{cand['family']} is capped at {tier} without tool corroboration"
+    if tier == "A":
+        own = f"scout:{cand['family']}"
+        tokens = ", ".join(s for s in cand.get("confirmed_by", []) if s != own)
+        return tier, f"confirmed and corroborated by {tokens}"
+    return tier, "confirmed, with no independent corroboration"
+
+
+def earned_tier(cand: dict[str, Any], verdict: dict[str, Any] | None) -> str | None:
+    return _tier_and_reason(cand, verdict)[0]
+
+
+def tier_reason(cand: dict[str, Any], verdict: dict[str, Any] | None) -> str:
+    return _tier_and_reason(cand, verdict)[1]
 
 
 def _finding(
@@ -112,7 +144,7 @@ def _finding(
     # verdict and an unselected one both land in `unverified` here. Kept so the
     # phase 5 baseline can tell the two apart.
     out = dict(cand)
-    out["tier"] = earned_tier(cand, verdict)
+    out["tier"], out["tier_reason"] = _tier_and_reason(cand, verdict)
     if verdict is not None:
         severity = verdict.get("severity")
         if isinstance(severity, int) and not isinstance(severity, bool) and 1 <= severity <= 5:

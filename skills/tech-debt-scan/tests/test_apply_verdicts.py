@@ -187,3 +187,70 @@ def test_cli_exits_2_on_wrongly_shaped_input(
     (workdir / bad_file).write_text(bad_content, encoding="utf-8")
     assert _main(["--workdir", str(workdir)]) == 2
     assert capsys.readouterr().err.startswith("error:")
+
+
+class TestTierReason:
+    def _cand(self, **over: Any) -> dict[str, Any]:
+        base = {"fingerprint": "f" * 16, "family": "duplication", "source": "scout",
+                "confirmed_by": ["scout:duplication"], "signals": {},
+                "evidence": [{"file": "a.ts", "line_start": 1, "line_end": 2,
+                              "quote": "x", "quote_verified": True}]}
+        base.update(over)
+        return base
+
+    def _confirm(self) -> dict[str, Any]:
+        return {"verdict": "confirm", "proof": "p", "severity": 3, "effort": "M",
+                "trap_matched": None, "checked": [], "opened": []}
+
+    def test_a_family_cap_says_so(self) -> None:
+        from apply_verdicts import _finding
+
+        out = _finding(self._cand(), self._confirm(), selected=True)
+        assert out["tier"] == "B"
+        assert out["tier_reason"] == "duplication is capped at B without tool corroboration"
+
+    def test_a_lifted_cap_says_which_tool(self) -> None:
+        from apply_verdicts import _finding
+
+        cand = self._cand(confirmed_by=["scout:duplication", "tool:jscpd"])
+        out = _finding(cand, self._confirm(), selected=True)
+        assert out["tier"] == "A"
+        assert "tool:jscpd" in out["tier_reason"]
+
+    def test_an_unverified_candidate_says_so(self) -> None:
+        from apply_verdicts import _finding
+
+        out = _finding(self._cand(), None, selected=False)
+        assert out["tier"] == "C"
+        assert out["tier_reason"] == "not selected for verification"
+
+    def test_a_downgrade_says_so(self) -> None:
+        from apply_verdicts import _finding
+
+        out = _finding(self._cand(), dict(self._confirm(), verdict="downgrade"), selected=True)
+        assert out["tier_reason"] == "the verifier downgraded it"
+
+    def test_a_rule_fact_says_so(self) -> None:
+        from apply_verdicts import _finding
+
+        out = _finding(self._cand(tier="A", source="rule"), None, selected=False)
+        assert out["tier_reason"] == "a deterministic rule finding, true by construction"
+
+    def test_an_osv_fact_says_so_not_the_rule_wording(self) -> None:
+        """The ruling: key the reason on ``source``, not on the tier alone -- an osv
+        fact-class candidate arrives with ``tier: "A"`` and ``source: "tool"``, exactly
+        as a rule finding arrives with ``tier: "A"`` and ``source: "rule"``, and the two
+        must render different prose."""
+        from apply_verdicts import _finding
+
+        out = _finding(self._cand(tier="A", source="tool"), None, selected=False)
+        assert out["tier_reason"] == "a published advisory, true by construction"
+        assert "rule" not in out["tier_reason"]
+
+    def test_every_finding_has_a_reason(self) -> None:
+        """A blank reason renders a blank column, which is what this replaces."""
+        from apply_verdicts import _finding
+
+        for verdict in (None, self._confirm(), dict(self._confirm(), verdict="reject")):
+            out = _finding(self._cand(), verdict, selected=True)
+            assert out["tier_reason"].strip()

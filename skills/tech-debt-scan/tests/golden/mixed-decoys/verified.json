@@ -48,6 +48,7 @@
         "in_hotspot_band": true
       },
       "tier": "B",
+      "tier_reason": "duplication is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "Fetch (httpc.go:12-17) and FetchWithTimeout (httpc_safe.go:10-15) both implement GET-then-handle-response against a URL parameter, with divergent behavior (string body vs status code, no timeout vs 5s timeout, TLS bypass vs none). main.go:28 calls only Fetch; FetchWithTimeout is uncalled anywhere. Both bodies are live source (not fixture/generated/vendored), so they are duplicate/overlapping implementations that could drift.",
       "checked": [
@@ -104,6 +105,7 @@
         "in_hotspot_band": true
       },
       "tier": "B",
+      "tier_reason": "duplication is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "Read full paths map (lines 12-302): all 290 entries are 'nXXX': 'data/nXXX.json', exactly matching the fallback formula at line 8. No entry deviates from the pattern, so the map is not an override table with exceptions \u2014 it is pure duplication of the fallback logic, expressed as 290 literals that must be kept in sync with the format string if the scheme changes. store.go:18 (Open) calls lookup.PathFor but relies on neither the map's presence nor any special-cased value. A generated loop or removal of the map (letting the fallback handle all cases) would be strictly simpler.",
       "checked": [
@@ -160,6 +162,7 @@
         "in_hotspot_band": false
       },
       "tier": null,
+      "tier_reason": "the verifier rejected it",
       "verdict": "reject",
       "proof": "main.go:15 builds via `build.NewConfig().WithName(\"app\").WithPort(8080).Build()` \u2014 WithTLS is never chained, and Config.TLS is never read anywhere in the repo (grep for '.TLS' and 'WithTLS' returns only the builder.go definition line 17). Not a plugin/reflection surface; Config is a plain struct consumed only by the literal builder chain in main.go.",
       "checked": [
@@ -210,6 +213,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
+      "tier_reason": "dead-code is capped at C without tool corroboration",
       "verdict": "confirm",
       "proof": "Grep for 'Fingerprint' across all 11 Go files returns only the definition at hash.go:8. No caller, no reflection/string-dispatch/route/DI/serialisation use found. It's an exported function in an internal package, not a public library API or plugin hook, so zero fan-in genuinely indicates dead code.",
       "checked": [
@@ -268,6 +272,7 @@
         "in_hotspot_band": true
       },
       "tier": null,
+      "tier_reason": "the verifier rejected it",
       "verdict": "reject",
       "proof": "This duplicates candidate a9f954d154719182 but mislabels the finding as dead-code. legacyHandler is not dead: it is a live entry in the CLI dispatch table (dispatch.go:7-12) invoked via main.go:25 dispatch.Run(os.Args[1:]), so any user typing `app legacy` reaches it. Absence of an internal repo caller is expected for a leaf CLI command reached by user-typed argument, not evidence of dead code \u2014 the real issue (unconditional panic) is already captured correctly under half-finished (a9f954d154719182).",
       "checked": [
@@ -329,6 +334,7 @@
         "in_hotspot_band": true
       },
       "tier": null,
+      "tier_reason": "the verifier rejected it",
       "verdict": "reject",
       "proof": "The claim mislabels which function is dead. Fetch (httpc.go:12-21) is not dead code \u2014 it is the sole live call site, invoked unconditionally from main.go:28. The genuinely unused code is FetchWithTimeout (httpc_safe.go:10-17), which has zero callers anywhere in the repo, but this candidate's proof and title point at Fetch instead. The underlying fact (deprecation not followed through) duplicates candidate 45d73ee57cd37a54 (half-finished), already confirmed there; framing it as 'dead-code' targeting the live function is incorrect.",
       "checked": [
@@ -384,6 +390,7 @@
         "in_hotspot_band": true
       },
       "tier": "C",
+      "tier_reason": "dead-code is capped at C without tool corroboration",
       "verdict": "confirm",
       "proof": "Every visible entry in `paths` (lookup.go:12-301) follows the exact pattern \"n0XX\": \"data/n0XX.json\", which is identical to what the fallback at line 8 (`\"data/\"+name+\".json\"`) computes for any nXXX key. PathFor (line 4-9) therefore returns the same value whether or not the map lookup hits, for every key present. store.go:18 is the only referrer and just receives the computed path; nothing distinguishes map-hit from fallback. The map is provably redundant. Effort to remove is trivial (delete the map and the lookup branch), so S rather than M.",
       "checked": [
@@ -433,6 +440,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
+      "tier_reason": "dead-code is capped at C without tool corroboration",
       "verdict": "confirm",
       "proof": "Grepped the whole module for 'shell': only self-match in internal/shell/run.go itself. dispatch.go:7-12 uses a static handler map (start/stop/status/legacy) with no string-based plugin loading or reflection that could reach internal/shell indirectly. main.go imports build, dispatch, flags, httpc, store \u2014 not shell. No cmd/ entry point, test runner, or plugin registry references it. The package is genuinely unreferenced dead code.",
       "checked": [
@@ -487,6 +495,7 @@
         "in_hotspot_band": true
       },
       "tier": "A",
+      "tier_reason": "confirmed and corroborated by hotspot, satd",
       "verdict": "confirm",
       "proof": "Fetch (httpc.go:14-20) returns \"\" on both http.Get error (line 15-17) and io.ReadAll error (line 19, err discarded via `_`), with no logging in either path. The sole caller, main.go:28, does `_ = httpc.Fetch(...)`, discarding the return value entirely. A failed health check (network error, read error, or a real empty body) is indistinguishable and produces no observable signal anywhere in the process.",
       "checked": [
@@ -543,6 +552,7 @@
         "in_hotspot_band": true
       },
       "tier": "C",
+      "tier_reason": "the verifier downgraded it",
       "verdict": "downgrade",
       "proof": "Confirmed: Load (store.go:25-35) swallows the unmarshal error, printing a message without err (line 32) and returning the partial/empty map with no error signal. However, grepping the whole module for '.Load(' shows the only caller is store_test.go:16, a smoke test that discards the result (`_ = ...Load(\"k\")`). main.go never calls Load. So the masked failure currently has no production consumer to mislead \u2014 it's a real latent bug in an otherwise unreachable-in-prod path, not an active masking of a live failure. Downgrade to 2.",
       "checked": [
@@ -602,6 +612,7 @@
         "in_hotspot_band": true
       },
       "tier": "A",
+      "tier_reason": "confirmed and corroborated by hotspot, signal:no-mapped-tests",
       "verdict": "confirm",
       "proof": "Only test file in the repo is internal/store/store_test.go (glob for **/*_test.go); no dispatch_test.go or unconventionally named test exists. Run() (dispatch.go:15-24) is invoked directly from main.go:25 with raw os.Args, so its empty-args, unknown-command and legacy-panic paths are all reachable from real CLI input with zero test coverage.",
       "checked": [
@@ -660,6 +671,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
+      "tier_reason": "not selected for verification",
       "verdict": "unverified",
       "proof": "",
       "checked": [],
@@ -715,6 +727,7 @@
         "in_hotspot_band": true
       },
       "tier": "C",
+      "tier_reason": "not selected for verification",
       "verdict": "unverified",
       "proof": "",
       "checked": [],
@@ -767,6 +780,7 @@
         "in_hotspot_band": false
       },
       "tier": "A",
+      "tier_reason": "confirmed and corroborated by signal:no-mapped-tests",
       "verdict": "confirm",
       "proof": "TestLoadSmoke (store_test.go:14-17) discards Load's return with `_ =`, never checking parsed map contents or the swallowed-unmarshal-error path (store.go:31-33, fmt.Println only). Find (store.go:37-39) has zero test coverage and concatenates `id` directly into a SQL string, an untested injection-prone path. Glob of internal/store shows only this one test file, and repo-wide grep found no other callers/tests referencing Find or Load, so the gap is real, not just unmapped naming.",
       "checked": [
@@ -830,6 +844,7 @@
         "in_hotspot_band": true
       },
       "tier": "A",
+      "tier_reason": "confirmed and corroborated by hotspot, pattern:stub",
       "verdict": "confirm",
       "proof": "main.go:25 calls dispatch.Run(os.Args[1:]) directly, so running the binary with argument 'legacy' reaches handlers[\"legacy\"] (dispatch.go:11) -> legacyHandler (dispatch.go:30-32), which unconditionally panics. This is a live CLI command table, not an abstract interface stub, and crashes the whole process instead of returning an error like its sibling handlers.",
       "checked": [
@@ -898,6 +913,7 @@
         "in_hotspot_band": true
       },
       "tier": "A",
+      "tier_reason": "confirmed and corroborated by hotspot, pattern:no-timeout, satd",
       "verdict": "confirm",
       "proof": "Fetch (httpc.go:12-21) carries a Deprecated comment (line 11) pointing at FetchWithTimeout (httpc_safe.go:10-17), but main.go:28 still calls httpc.Fetch, not the replacement. Grep confirms FetchWithTimeout has zero call sites anywhere in the repo. The migration was never completed; no ticket reference exists in the comment.",
       "checked": [
@@ -958,6 +974,7 @@
         "in_hotspot_band": true
       },
       "tier": "C",
+      "tier_reason": "not selected for verification",
       "verdict": "unverified",
       "proof": "",
       "checked": [],
@@ -1008,6 +1025,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "dependency-debt is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "go.mod (lines 1-3) has no require block at all; go.sum (line 1) records github.com/example/dep v1.2.0. Grep for 'github.com/example/dep' across the repo returns only the go.sum line itself, confirming it is unreferenced by any import. This is a genuine manifest/lockfile mismatch, not a monorepo split or migration artifact (single-module repo, 11 Go files total).",
       "checked": [
@@ -1070,6 +1088,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "doc-drift is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "README.md is 3 lines with no changelog/contributing pointers; globs for CHANGELOG* and CONTRIBUTING* return no files. Two tags exist (v0.1.0 at 1b1cd9e, v0.2.0 at b57194e) per commit log, including notable changes like the builder TLS option (b57194e) and kill switch (1b1cd9e), with no ADR or changelog capturing why.",
       "checked": [
@@ -1125,6 +1144,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "doc-drift is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "docs/runbook.md:5-7 tells on-call the flag 'stops payments' and is a permanent operational control not to be removed. flags.go:5-6 comment repeats the same operational framing. But main.go:22-24 is the only reader of the flag anywhere in the repo (confirmed by grep for IsEnabled/flags. usage) and it only does log.Println \u2014 a repo-wide search found no payment-processing code for it to gate, so the doc's operational claim is unsupported by the code.",
       "checked": [
@@ -1195,6 +1215,7 @@
         "in_hotspot_band": true
       },
       "tier": "B",
+      "tier_reason": "security is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "httpc.go:13 sets http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true} unconditionally inside Fetch. main.go:28 calls httpc.Fetch(\"https://example.com/health\") unconditionally at startup with no build/env guard, and no other call site exists. Because DefaultTransport is a package-level global, this disables TLS verification for the whole process for its remaining lifetime, affecting any other code using http.DefaultTransport. This is a live, real, unguarded security defect.",
       "checked": [
@@ -1246,6 +1267,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
+      "tier_reason": "the verifier downgraded it",
       "verdict": "downgrade",
       "proof": "The gosec suppression at run.go:7 relies solely on the comment at line 5 with no enforcement (no allowlist, no escaping) \u2014 the note's concern is accurate. However, candidate 2's search confirms internal/shell has zero callers anywhere in the module (grep for 'shell' only matches the file itself, and dispatch.go's handler map at dispatch.go:7-12 is static, not string-injected from shell). With no live call path, there is currently no reachable user input at this sink, so this is a latent footgun rather than an active vulnerability. Downgrade to 2 pending an actual caller.",
       "checked": [
@@ -1298,6 +1320,7 @@
         "in_hotspot_band": true
       },
       "tier": "C",
+      "tier_reason": "the verifier downgraded it",
       "verdict": "downgrade",
       "proof": "Find (store.go:37-39) does concatenate id directly into SQL, which is a real injection pattern. But grepping the module for '.Find(' or 'db =' /'db:' shows zero callers and the db field is never assigned anywhere (Open at store.go:17-23 only sets path, never db). Calling Find today panics on a nil *sql.DB before the query ever runs \u2014 the method is currently non-functional dead code, not a reachable attack surface. The injection pattern should still be fixed before any caller or db wiring is added, but current exploitability is zero. Downgrade to 2.",
       "checked": [
@@ -1358,6 +1381,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "test-quality is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "Load() (store.go:25-35) is pure synchronous file I/O with no goroutine, channel, or timer involved. TestLoadSmoke (store_test.go:14-17) sleeps 10ms before calling it and asserts nothing on the result (`_ =`). There is no async work the sleep could be waiting on, so it is dead latency that only risks flakiness under load, matching the sleep/assert-free pattern exactly.",
       "checked": [
@@ -1416,6 +1440,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
+      "tier_reason": "pipeline-infra is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "Dockerfile exists at repo root and k8s/deployment.yaml + k8s/service.yaml exist, but ci.yml:1-16 only checks out code, sets up Go, and runs `go test ./...`. No job builds/pushes an image or applies k8s manifests. README.md (3 lines) and docs/runbook.md (kill-switch only) do not mention any deploy process, so release is undocumented and manual.",
       "checked": [
@@ -1470,6 +1495,7 @@
         "in_hotspot_band": true
       },
       "tier": "B",
+      "tier_reason": "pipeline-infra is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "main.go uses the standard log package throughout (log.Printf line 18, log.Println line 23, log.Fatal line 26), while store.go:32 uses fmt.Println directly inside library code, confirming the described inconsistency \u2014 it cannot be leveled, redirected, or captured via the app's log configuration. Note: Load's only caller found is store_test.go:16 (a discarded smoke-test call), so the write is not currently hit in production traffic, but the pattern itself (library bypassing the app's logging convention) is real and would surface as soon as Load is exercised.",
       "checked": [
@@ -1516,6 +1542,7 @@
         "in_hotspot_band": false
       },
       "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
       "verdict": "rule",
       "proof": "verified by construction",
       "checked": [],
@@ -1588,6 +1615,7 @@
         "in_hotspot_band": false
       },
       "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
       "verdict": "rule",
       "proof": "verified by construction",
       "checked": [],
@@ -1629,6 +1657,7 @@
         "in_hotspot_band": false
       },
       "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
       "verdict": "rule",
       "proof": "verified by construction",
       "checked": [],
@@ -1677,6 +1706,7 @@
         "in_hotspot_band": false
       },
       "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
       "verdict": "rule",
       "proof": "verified by construction",
       "checked": [],
@@ -1734,6 +1764,7 @@
         "in_hotspot_band": false
       },
       "tier": "A",
+      "tier_reason": "a deterministic rule finding, true by construction",
       "verdict": "rule",
       "proof": "verified by construction",
       "checked": [],

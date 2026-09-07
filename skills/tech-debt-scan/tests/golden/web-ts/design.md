@@ -820,16 +820,16 @@ test("total sums items", () => {
 
 | slug | family | file | reason |
 | --- | --- | --- | --- |
-| client-admin-ts-exports-are-never-called-adminpanel-flag-key-doe | dead-code | src/api/client-admin.ts | confirm |
-| getjson-has-no-in-repo-callers-betabanner-flag-inside-it-is-alwa | dead-code | src/api/client.ts | confirm |
-| empty-catch-swallows-fetch-json-errors-in-getjson | error-masking | src/api/client.ts | downgrade |
-| duplicated-fetch-with-auth-headers-logic-across-api-clients | duplication | src/api/client.ts | downgrade |
-| getjson-fetch-has-no-timeout-and-swallows-all-errors | half-finished | src/api/client.ts | downgrade |
-| checkout-reaches-past-declared-cart-boundary-into-pricing-intern | architecture | docs/architecture.md | confirm |
-| newcheckout-flag-hardcoded-off-checkout-branch-unreachable | dead-code | src/flags.ts | confirm |
-| newcheckout-flag-path-is-dead-only-legacy-deprecated-path-ever-r | migration | src/flags.ts | downgrade |
-| deprecated-legacyformat-wrapper-still-called-from-checkout | dead-code | src/util/format-legacy.ts | confirm |
-| deprecated-legacyformat-still-used-on-the-live-checkout-path | half-finished | src/util/format-legacy.ts | downgrade |
+| client-admin-ts-exports-are-never-called-adminpanel-flag-key-doe | dead-code | src/api/client-admin.ts | dead-code is capped at C without tool corroboration |
+| getjson-has-no-in-repo-callers-betabanner-flag-inside-it-is-alwa | dead-code | src/api/client.ts | dead-code is capped at C without tool corroboration |
+| empty-catch-swallows-fetch-json-errors-in-getjson | error-masking | src/api/client.ts | the verifier downgraded it |
+| duplicated-fetch-with-auth-headers-logic-across-api-clients | duplication | src/api/client.ts | the verifier downgraded it |
+| getjson-fetch-has-no-timeout-and-swallows-all-errors | half-finished | src/api/client.ts | the verifier downgraded it |
+| checkout-reaches-past-declared-cart-boundary-into-pricing-intern | architecture | docs/architecture.md | architecture is capped at C without tool corroboration |
+| newcheckout-flag-hardcoded-off-checkout-branch-unreachable | dead-code | src/flags.ts | dead-code is capped at C without tool corroboration |
+| newcheckout-flag-path-is-dead-only-legacy-deprecated-path-ever-r | migration | src/flags.ts | the verifier downgraded it |
+| deprecated-legacyformat-wrapper-still-called-from-checkout | dead-code | src/util/format-legacy.ts | dead-code is capped at C without tool corroboration |
+| deprecated-legacyformat-still-used-on-the-live-checkout-path | half-finished | src/util/format-legacy.ts | the verifier downgraded it |
 
 # Considered and rejected
 
