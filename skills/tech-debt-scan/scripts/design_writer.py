@@ -83,6 +83,7 @@ from design_parser import DesignParseError, parse_design
 from inventory import write_json
 from redaction import redact
 from slugs import unique_slugs
+from tools_probe import TOOLS
 
 SCHEMA_VERSION: Final[int] = 2
 
@@ -449,10 +450,25 @@ def tool_lists(tools: dict[str, Any]) -> tuple[list[str], list[str]]:
     reaches the frontmatter but a registry tool name -- a ``failed`` entry's
     ``reason`` carries up to 200 characters of tool stderr, which could carry a
     newline or a colon and break the YAML block this list sits in.
+
+    The *name* -- a ``tools`` map key -- goes through the same closed set:
+    ``tools_probe.TOOLS`` is the only source of tool identities this document
+    ever names, so a key outside it is not a tool, whatever status it claims.
+    Without this check a key carrying a newline plus a second ``key: value``
+    line renders as two YAML lines once the block is joined, and the second
+    line silently overwrites an earlier frontmatter field (``preset``,
+    ``total_files``, ...) -- still valid YAML, so the write-time self-check
+    (which only re-parses findings and headings, never frontmatter values)
+    never sees it. A key outside the registry is folded into ``tools_absent``
+    under the fixed, non-interpolated label ``(unregistered tool)`` -- it can
+    never claim ``ran``, and nothing of the key itself reaches the document.
     """
     ran: list[str] = []
     absent: list[str] = []
     for name in sorted(str(key) for key in tools):
+        if name not in TOOLS:
+            absent.append("(unregistered tool)")
+            continue
         entry = tools.get(name)
         status = str(entry.get("status")) if isinstance(entry, dict) else ""
         if status == "ran":

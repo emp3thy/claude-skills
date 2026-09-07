@@ -412,9 +412,11 @@ Reads the workdir and config, decides scope and chunking, renders every prompt t
 ```json
 scan-plan.json
 { "schema_version": 2, "set": "default|quick|deep|explicit", "top": 5, "chunked": false,
-  "thresholds": { "max_files": 1500, "max_loc": 200000 },
+  "thresholds": { "max_files": 1500, "max_loc": 200000, "max_modules": 8 },
+  "modules": [], "modules_dropped": [ {"module": "", "leads": 0} ],
   "entries": [ {"family": "", "module": null, "prompt": "prompts/scout-<family>.md", "output": "scouts/<family>.json", "leads": 0} ],
-  "families_run": [], "families_skipped": [ {"family": "", "reason": "no leads|disabled|not in set"} ] }
+  "families_run": [],
+  "families_skipped": [ {"family": "", "reason": "no leads|disabled|not in set|no leads in the scanned modules"} ] }
 ```
 
 **Scope per scout:** the hotspot band, every file that family's leads point at, then the remainder if budget allows. **Chunking:** when source files exceed `chunking.max_files` (1,500) or source LOC exceeds `chunking.max_loc` (200,000), both untuned defaults, the repository is split by top-level directory and a module scout runs only for families with leads or hotspot-band files in that module. The lead cap of "40 per family" then applies per module rather than once repository-wide, so an early-sorting module cannot spend the family's whole budget; `chunking.max_modules` (8, and unlike the two size thresholds it does not halve under `deep`) bounds the module count, because entries are `families x modules` and one agent is dispatched per entry — a 40-directory monorepo would otherwise plan 560 scouts against section 7's budget. Over the limit, modules are ranked by how many hotspot-band files they hold, then by lead count, then by plan order; the scanned modules and the dropped ones with their lead counts are both named in `scan-plan.json`, and a family whose leads all sat in dropped modules is recorded in `families_skipped`, never in `families_run`. The halved thresholds (750 files, 100,000 LOC) follow from the selected set being `deep`, whichever spelling selected it. No corpus fixture is large enough to trigger chunking, so its tests lower `chunking.max_files` and `max_loc` through config and pin a chunked plan golden at both the full and the halved thresholds, which is also the only evidence that halving takes effect. The adaptive rule of 2.4 decides which families are dispatched.

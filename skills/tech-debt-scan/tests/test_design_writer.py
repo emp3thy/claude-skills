@@ -648,6 +648,29 @@ def test_a_failed_tools_stderr_never_reaches_the_frontmatter(tmp_path: Path) -> 
     assert _metadata(tmp_path, text)["tools_absent"] == ["knip (failed)"]
 
 
+def test_an_unregistered_tool_name_never_reaches_the_frontmatter(tmp_path: Path) -> None:
+    """``tool-signals.json`` is hand-editable; a *key* is not a registry tool name
+    until checked, same as an unrecognised status is not ``ran`` until checked.
+
+    A key carrying a newline plus a second ``key: value`` line is still valid
+    YAML once joined into the frontmatter block, so it silently overwrites an
+    earlier field (here ``preset``) instead of breaking the self-check.
+    """
+    text = render_design(
+        _inputs(tmp_path, **{"tool-signals.json": {
+            "schema_version": 2,
+            "tools": {"lizard\npreset: hand-edited": {"status": "ran"}},
+            "signals": [],
+        }}),
+        SCAN_DATE,
+    )
+    assert "preset: hand-edited" not in text
+    metadata = _metadata(tmp_path, text)
+    assert metadata["preset"] == "balanced"
+    assert metadata["tools_run"] == []
+    assert metadata["tools_absent"] == ["(unregistered tool)"]
+
+
 def test_not_assessed_names_the_modules_the_chunking_bound_dropped(tmp_path: Path) -> None:
     """A chunked plan that hit ``chunking.max_modules`` scanned part of the repository
     and not the rest; unnamed, that reads as an absence of debt rather than an absence
