@@ -129,7 +129,7 @@ KB_CONTAINERS=1 pytest -m containers -k spring-shipments -v
 | `coupling.json` | `inventory.py` (with `--workdir`) | `{schema_version: 2, min_shared, min_ratio, bulk_threshold, fan_in_mode, pairs[], degree{}, cycles[], directories[], unstable_edges[]}` |
 | `patterns.json` | `patterns.py` | `{schema_version: 2, leads{<family>: [{rule, file, line, quote, path_class, extra}]}, satd[], stats{}}`; a lead or SATD entry on an artefact carries the artefact's real `path_class` (a workflow under a tests tree reports `tests`, not `ci`) while rule scope still keys on the artefact class, and artefacts classed `generated` or `vendored` or marked `skipped_large` are not scanned; also fills `files[].inline_disables` in `inventory.json` |
 | `rule-findings.json` | `rules.py` | `{schema_version: 2, findings[], leads{migration[]}}`; each finding is a candidate with `source: "rule"`, `tier: "A"`, `confirmed_by: ["rule:<id>"]` and the artefact's `path_class` in `signals`; artefacts under a tests, vendored or generated tree are skipped, and an artefact the inventory marked `skipped_large` is never read |
-| `tool-signals.json` | `tools_probe.py <repo> [--workdir DIR] [--skip-all]` (standalone; not yet read by `/tech-debt-scan` — phase 4b wires it in) | `{schema_version: 2, tools{<name>: {status, version, duration_s, reason}}, signals[]}`; `status` is one of `ran`, `absent`, `failed`, `skipped`; the ten normalisers turning each tool's raw output into `signals[]` live in `tool_normalisers.py` |
+| `tool-signals.json` | `tools_probe.py <repo> [--workdir DIR] [--skip-all]`, run as `/tech-debt-scan` step 4 after a network notice | `{schema_version: 2, tools{<name>: {status, version, duration_s, reason}}, signals[]}`; `status` is one of `ran`, `absent`, `failed`, `skipped`; the ten normalisers turning each tool's raw output into `signals[]` live in `tool_normalisers.py`; read by `plan_scan.py` (inference-class signals become leads) and `merge_findings.py` (fact-class signals become candidates — an osv-scanner advisory reaches tier A without a verifier, the same way a `rules.py` finding does) |
 | `scan-plan.json` | `plan_scan.py` | `{schema_version: 2, set, top, chunked, thresholds{}, entries[{family, module, prompt, output, leads}], families_run[], families_skipped[{family, reason}]}` |
 | `candidates.json` | `merge_findings.py` | `{schema_version: 2, candidates[], open_questions[{file, line_start, question, reason}], looks_bad_but_fine[{file, line_start, why}], stats{<family>: {raw, dropped, quote_failed, clustered, suppressed, disabled}}}`; each candidate is `{fingerprint, quote_hash, family, debt_type, type_id, title, severity, effort, source, rule_id, note, evidence[{file, line_start, line_end, quote, quote_verified}], confirmed_by[], signals_cited[], signals{}, tier}` with `tier: null` for scout candidates; a scout file the plan names but that is absent adds `missing_file: 1` to that family's stats; a family with at least one dropped item adds `dropped_reasons: []`, the reason string from each drop, appended after `missing_file` when both are present; rule findings keep `source: "rule"` and `tier: "A"` and are appended after the scout candidates |
 | `verify-plan.json` | `verify_prompts.py` | `{schema_version: 2, top, batch_size, selected[], unverified[], batches[{prompt, output, fingerprints[]}]}`; `selected` is every fingerprint sent for verification, in batch order, and `unverified` every `tier: null` candidate the budget rule left out; tier A candidates are in neither list; each batch names the prompt written at `prompts/verify-<nn>.md` (two digits from 01) and the `output` path `verdicts/verify-<nn>.json` the read-only verifier's reply must be stored at, a JSON array of `{fingerprint, verdict, proof, severity, effort, trap_matched, checked[], opened[]}` with `verdict` one of `confirm`, `downgrade`, `reject`, `refer` |
@@ -206,18 +206,32 @@ fourteen family blocks, `plan_scan.py`, `merge_findings.py`,
 fixture corpus, the goldens and the evaluation log that scores it. **Phase 3
 is complete:** `design_writer.py`, `design_parser.py`, `bundle_writer.py` and
 `promote.py` render and promote the v2 report, and `/tech-debt-scan` and
-`/tech-debt-promote` now run this chain end to end — without external tool
-signals or a baseline diff. `--families deep` already selects the full
-fourteen-family set today (`plan_scan.py`, phase 2).
+`/tech-debt-promote` now run this chain end to end. `--families deep` already
+selects the full fourteen-family set today (`plan_scan.py`, phase 2).
 
-Phase 4 splits in two. **Phase 4a is complete:** `tools_probe.py` and
-`tool_normalisers.py` run ten already-installed external tools (osv-scanner,
-gitleaks, ruff, vulture, lizard, jscpd, knip, madge, hadolint, actionlint) —
-never installing anything and never invoking `npx` — and write
-`tool-signals.json`. Nothing reads that file yet. Phase 4b consumes it: tool
-signals become leads and corroboration, tier caps lift on tool presence, and
-long modules are chunked. Phase 5 adds the baseline (`baseline.py`, the `diff`
-anchor key, promote write-back, `accepted` expiry).
+**Phase 4 is complete.** Phase 4a built `tools_probe.py` and
+`tool_normalisers.py`, which run ten already-installed external tools
+(osv-scanner, gitleaks, ruff, vulture, lizard, jscpd, knip, madge, hadolint,
+actionlint) — never installing anything and never invoking `npx` — and write
+`tool-signals.json`. Phase 4b wired that file into the scan: `/tech-debt-scan`
+step 4 gives the user a network notice (what osv-scanner sends to OSV.dev,
+that every other tool is local-only, and how `tools.network: false` stays
+offline — see `skills/tech-debt-scan/SKILL.md` for the exact wording) and
+then runs the probe; `--no-tools` runs it with `--skip-all` instead, still
+writing the file with every tool `skipped`.
+
+Inference-class signals (ruff, vulture, lizard, jscpd, knip, madge) become
+scout leads and `confirmed_by` corroboration that lifts several families'
+tier caps; fact-class signals (osv-scanner, gitleaks, hadolint, actionlint)
+become candidates, and an osv-scanner advisory is one of only **two** kinds
+of finding that can reach tier A — the report's strongest,
+most-likely-to-rank-first claim — without a verifier agent ever reading the
+affected code; the other is a `rules.py` finding. Every other tool-raised
+candidate, including gitleaks and hadolint findings, still goes through a
+verifier before it can outrank anything. Long repositories are also chunked
+into per-directory module scouts as of phase 4b. Phase 5 adds the baseline
+(`baseline.py`, the `diff` anchor key, promote write-back, `accepted`
+expiry).
 
 "Mow the lawn" autonomy — applying fixes without review — is a separate
 follow-on, deferred and out of scope.

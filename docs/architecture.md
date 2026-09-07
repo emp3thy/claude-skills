@@ -52,14 +52,21 @@ their behaviour.
 
 ## Two-command flow
 
-`/tech-debt-scan <repo>` runs a twelve-step chain (the spec numbers the full
-fourteen; steps 4 and 11 — the tool probe and the baseline diff — are
-inserted by phases 4 and 5 without renumbering the rest):
+`/tech-debt-scan <repo>` runs a thirteen-step chain (the spec numbers the full
+fourteen; step 11 — the baseline diff — is inserted by phase 5 without
+renumbering the rest):
 
 1. `inventory.py` writes `inventory.json` and `coupling.json`: churn,
    complexity, hotspots and change coupling.
 2. `patterns.py` writes `patterns.json`: regex leads and SATD markers.
 3. `rules.py` writes `rule-findings.json`: deterministic tier-A findings.
+4. A network notice, then `tools_probe.py` writes `tool-signals.json`. The
+   notice states what osv-scanner sends to OSV.dev (package names, versions,
+   ecosystems and file hashes), that every other first-cut tool is
+   local-only, and how `tools.network: false` keeps the scan offline (see
+   [External tool probe](#external-tool-probe)). `--no-tools` runs this step
+   with `--skip-all`, and the file is still written with every tool
+   `skipped`.
 5. `plan_scan.py` writes `scan-plan.json` and `prompts/scout-<family>.md`,
    applying the adaptive rule over the [family table](#scout-families)
    below: a family is dispatched only when it has at least one lead.
@@ -73,8 +80,11 @@ inserted by phases 4 and 5 without renumbering the rest):
    table below has the exact selection order and caps).
 9. Read-only verifier Agents reply per batch; `apply_verdicts.py` writes
    `verified.json`, earning every candidate a tier from the table in the
-   `apply_verdicts.py` row below: A (confirmed and corroborated, or a rule
-   or tool fact), B (confirmed without corroboration, or downgraded), C
+   `apply_verdicts.py` row below: A (confirmed and corroborated, **or** a
+   `rules.py` finding **or** an osv-scanner advisory, the only two kinds of
+   candidate allowed to reach tier A without a verifier having read them —
+   read [What tier A means for a reader](#what-tier-a-means-for-a-reader) before
+   trusting one), B (confirmed without corroboration, or downgraded), C
    (rejected, unverified, or capped by a family rule).
 10. `rank.py` writes `ranked.json`, scoring every verified finding with the
     fixed formula `priority = severity x interest x tier_weight x
@@ -112,8 +122,8 @@ The scripts below (landed across v2 phases 1 to 3) are wired into
 | `inventory.py <repo> --workdir .tech-debt` | the tree, one `git log` pass, `.tech-debt.yaml` | `inventory.json`, `coupling.json` | path classes (tests, generated, vendored, docs, source) on code files and artefacts alike, artefact classes, per-file churn and authorship (authors keyed by email, bots dropped, joined against HEAD), `hotspot_score` and the `hotspot_band` (top 10 percent of source files, 5 to 50), blame line share on the band, change-coupling pairs (`shared >= 3`, `ratio >= 0.30`, bulk commits over 50 files excluded), approximate fan-in and fan-out by identifier stems over import-like lines with the mechanical ambiguity rule, import-line cycles of size 2 to 5 as leads, directory instability, test mapping across seven naming conventions, the docs and tests blocks, and the size guard that never reads a file over 2 MB or with a NUL byte in its first KB (`skipped_large` per entry, `skipped_large_files` at the top level) |
 | `patterns.py <repo> --workdir .tech-debt [--no-blame]` | `inventory.json`, the files | `patterns.json`; fills `files[].inline_disables` | regex leads per family (half-finished stubs and skips and no-timeout calls, error-masking catches with the caught variable and carrier exclusion, dead-code commented-out runs, legacy names, deprecations and flag SDK calls, security credentials with four-character redaction, string SQL, dynamic evaluation, TLS off, weak hashes, permissive CORS and suppressions, test-quality signals, stdout writes where a logger exists) and the SATD table with blame age and ticket flags; artefacts are scoped by their artefact class but every lead and SATD entry on one reports the artefact's real `path_class`, and an artefact classed `generated` or `vendored`, or marked `skipped_large`, is not scanned |
 | `rules.py <repo> --workdir .tech-debt` | `inventory.json`, the artefacts | `rule-findings.json` | tier-A findings for CI jobs, Dockerfiles and compose images, Kubernetes manifests, manifests without lockfiles, release cadence and stale environment branches, and ownership (knowledge islands, inactive top authors, CODEOWNERS coverage); an island also needs `churn >= island_min_churn` (2) in the window; a CODEOWNERS the inventory skipped or that sits under a disabled tree is not consulted; migration leads for `setup.py` beside `pyproject.toml` and `tslint` beside `eslint`; an artefact under a tests, vendored or generated tree is skipped, an artefact the inventory marked `skipped_large` is never read, and every finding carries the artefact's `path_class` in `signals` |
-| `plan_scan.py --workdir .tech-debt [--families <set>] [--top N]` | `inventory.json`, `coupling.json`, `patterns.json`, `rule-findings.json` | `scan-plan.json`, `prompts/scout-<family>.md`, an empty `scouts/` for phase 3's replies | the adaptive rule (a family runs only when it has at least one lead after path-class disables; an inventory lead counts only above the family's own floor, since `max_indent >= 1` and `loc >= 1` are true of every non-empty file — complex-units needs `longest_indented_run` or `deep_indent_lines` above zero, god-classes `loc >= 300` or `fan_in_approx >= 3`), the 40-lead cap applied independently to the pattern, SATD and inventory leads, band files first within each capped kind (the hotspot band, the coupled pairs, the artefacts, the cycles and the docs and tests signals are the remaining kinds and are emitted in full, the band already bounded by `hotspot_band.max`), the fourteen family blocks; `--families` takes `default`, `quick`, `deep`, a comma-separated list or a single family name (a list of one); a missing or corrupt signal file exits 2 with an `error:` line; `chunked` is always false until phase 4 |
-| `merge_findings.py --workdir .tech-debt` | `scan-plan.json`, the `scouts/<family>.json` it names, `rule-findings.json`, `inventory.json`, `patterns.json`, `.tech-debt.yaml` | `candidates.json` | one verified candidate list: a scout file missing from disk is counted under `missing_file` and one that is unreadable or not valid JSON is counted under `read_failed`, and neither aborts the merge — every other family's scout file is still read; malformed scout items are dropped with a reason and counted, and paths are normalised to root-relative forward slashes; every quote is re-found on disk (cited range first, then anywhere, whitespace-insensitive) so the recorded range is the real one, and a finding with no verified evidence becomes an `open_questions` entry with reason `quote not found` instead of a candidate; scout candidates of the same family whose primary evidence sits in the same file within 10 lines cluster into one (union of evidence, maximum severity, minimum effort, title and note from the highest-severity member, the lowest fingerprint keeping the identity); `confirmed_by` collects `scout:<family>` plus every pattern lead of the candidate's own family and every SATD marker and rule finding, each within 10 lines, `coupling` and `hotspot` from the primary file's signals, and `signal:no-mapped-tests` for `test-gaps`; suppressions match by fingerprint with an optional `until` expiry and path-class disables drop a family the config switches off for that class, both counted in `stats`; every title, note and quote is redacted before writing — the title and note at validation, before their 80- and 300-character caps are applied, so a cut never breaks a token out of the redactor's reach, and each quote after it has been matched on disk, which a redacted quote could not be — and rule findings are appended unchanged after the scout candidates as tier A |
+| `plan_scan.py --workdir .tech-debt [--families <set>] [--top N]` | `inventory.json`, `coupling.json`, `patterns.json`, `rule-findings.json`, `tool-signals.json` (absent means no tool leads) | `scan-plan.json`, `prompts/scout-<family>.md`, an empty `scouts/` for phase 3's replies | the adaptive rule (a family runs only when it has at least one lead after path-class disables; an inventory lead counts only above the family's own floor, since `max_indent >= 1` and `loc >= 1` are true of every non-empty file — complex-units needs `longest_indented_run` or `deep_indent_lines` above zero, god-classes `loc >= 300` or `fan_in_approx >= 3`), the 40-lead cap applied independently to the pattern, SATD and inventory leads, band files first within each capped kind (the hotspot band, the coupled pairs, the artefacts, the cycles and the docs and tests signals are the remaining kinds and are emitted in full, the band already bounded by `hotspot_band.max`), the fourteen family blocks; `--families` takes `default`, `quick`, `deep`, a comma-separated list or a single family name (a list of one); a missing or corrupt signal file exits 2 with an `error:` line; inference-class tool signals (ruff, vulture, lizard, jscpd, knip, madge) add a capped `tool` lead kind per family, the same `LEAD_CAP` as the pattern and SATD kinds (phase 4b); `chunked` is true once source files exceed `chunking.max_files` or source LOC exceeds `chunking.max_loc` (both halved when the selected set is `deep`), splitting dispatch into per-directory module scouts with each family's lead cap applied per module rather than once repository-wide (phase 4b) |
+| `merge_findings.py --workdir .tech-debt` | `scan-plan.json`, the `scouts/<family>.json` it names, `rule-findings.json`, `tool-signals.json` (absent means no tool candidates), `inventory.json`, `patterns.json`, `.tech-debt.yaml` | `candidates.json` | one verified candidate list: a scout file missing from disk is counted under `missing_file` and one that is unreadable or not valid JSON is counted under `read_failed`, and neither aborts the merge — every other family's scout file is still read; malformed scout items are dropped with a reason and counted, and paths are normalised to root-relative forward slashes; every quote is re-found on disk (cited range first, then anywhere, whitespace-insensitive) so the recorded range is the real one, and a finding with no verified evidence becomes an `open_questions` entry with reason `quote not found` instead of a candidate; scout candidates of the same family whose primary evidence sits in the same file within 10 lines cluster into one (union of evidence, maximum severity, minimum effort, title and note from the highest-severity member, the lowest fingerprint keeping the identity); `confirmed_by` collects `scout:<family>` plus every pattern lead of the candidate's own family and every SATD marker and rule finding, each within 10 lines, `coupling` and `hotspot` from the primary file's signals, and `signal:no-mapped-tests` for `test-gaps`; suppressions match by fingerprint with an optional `until` expiry and path-class disables drop a family the config switches off for that class, both counted in `stats`; every title, note and quote is redacted before writing — the title and note at validation, before their 80- and 300-character caps are applied, so a cut never breaks a token out of the redactor's reach, and each quote after it has been matched on disk, which a redacted quote could not be — and rule findings are appended unchanged after the scout candidates as tier A; fact-class tool signals (phase 4b, spec 4.5, 4.7) route three ways — an osv-scanner advisory enters as its own tier A candidate exactly like a rule finding (a null line range at manifest or lockfile level, since osv's JSON carries no line numbers); a gitleaks secret enters untiered, because a placeholder or fixture value needs a verifier's judgement, not a fact; a hadolint or actionlint fact merges into a same-file rule finding's `confirmed_by` when one exists and otherwise enters untiered on its own — and `rules.py` findings plus these osv facts are the *only* two producers of a non-null tier at merge time (`TestTierProducerInvariant`, spec 4.7's invariant), so every other candidate, tool-raised or not, still reaches a verifier before it can be trusted |
 | `verify_prompts.py --workdir .tech-debt [--top N]` | `candidates.json`, `inventory.json`, `coupling.json`, `.tech-debt.yaml` | `verify-plan.json`, `prompts/verify-<nn>.md`, an empty `verdicts/` for phase 3's replies | the budget rule of spec 4.8: every candidate with `tier: null` is ranked by provisional priority (the 4.9 formula at tier B, with `H`, `C` and `F` normalised against the candidate pool's own maxima, so a large raw signal such as a `coupling_degree` of 12 cannot outweigh severity in this provisional order), ties broken on fingerprint ascending; the first `max(top_multiple x N, min_candidates)` (3N or 30, whichever is larger) are selected, then every candidate at or above `always_min_severity` (5) and every candidate in `always_families` (`security`) is added, and the selection is truncated to `max_candidates` (72) in that same order; tier A candidates (rules and tool facts) are never sent to a verifier and appear in neither list, and every other unselected candidate is listed under `unverified`; batches of `batch_size` (6) sorted by primary file then fingerprint keep one file's candidates together; each prompt carries the read-only rule and an allowance of three further files the verifier may open and must name in `opened`, then per candidate its fingerprint, title, family, severity, effort, note, `confirmed_by`, the deterministic signals, every cited span read from disk with `context_lines` (30) lines of context either side and 1-based line numbers (the cited lines marked `>`), the change-coupled partners of the primary file from `coupling.pairs`, approximate referrers from the stem graph, built once per plan and passed to every prompt (`not computed` when the graph raises, so a graph failure never aborts a verification), the family's `verifier_questions`, the family block's own traps (the same list the scout prompt carries, under `known non-debt shapes for this family`) and then the `traps` from config whose `family` matches and whose `path_glob` fnmatches the primary file; every line of repository text passes through `redact`, and the prompt shares no text with the scout prompts beyond the read-only rule and that family trap list, restated on purpose so the verifier can match a known non-debt shape |
 | `apply_verdicts.py --workdir .tech-debt` | `candidates.json`, `verify-plan.json`, the `verdicts/verify-<nn>.json` files `verify-plan.json`'s batches name | `verified.json` | the tier table of spec 4.8: a candidate already `tier: "A"` (rule findings, tool facts) stays A with no verifier; `confirm` with every cited quote `quote_verified` and at least one `confirmed_by` entry beyond the scout's own `scout:<family>` (a `pattern:`, `rule:`, `tool:`, `signal:` prefix, `satd`, `coupling`, `hotspot`, or a second `scout:` family counts as corroboration) earns A, otherwise B; `downgrade` or `refer` earns C; `reject` keeps `tier: null` with `verified: true` and the verdict's `proof` for the report's considered-and-rejected section; a candidate that was never selected, or was selected but no batch returned a verdict for it, is C with `verdict: "unverified"` and `verified: false`; the 2.3 family caps then weaken a confirmed tier (never strengthen it) — duplication and architecture (unless `tool:` or `coupling`), god-classes TD-20 (unless `coupling`), test-gaps (unless `signal:no-mapped-tests`), test-quality (severity also capped at 3), dependency-debt, security and migration (unless `coupling`) cap at B; dead-code caps at C unless churn and fan-in are both 0 and `path_class` is `source` (then B) or a `tool:` is present (then no cap); doc-drift and pipeline-infra scout candidates cap at B unconditionally; every other family is uncapped; where a verdict exists its `severity` (1-5) and validated `effort` replace the scout's, and its `checked`, `opened`, `proof` and `trap_matched` are copied onto the finding; a verdict whose `fingerprint` matches no candidate is counted `unknown_fingerprint` and ignored, and a batch whose output file is missing on disk prints a warning and leaves its candidates `unverified` rather than failing the run; exits 2 (with an `error:` line to stderr) when `candidates.json` or `verify-plan.json` is missing or unreadable/malformed |
 | `rank.py --workdir .tech-debt [--preset balanced\|hotspot-first\|architecture\|quick-wins] [--top N]` | `verified.json`, `inventory.json`, `.tech-debt.yaml` | `ranked.json` | spec 4.9's priority formula: `priority = severity x interest x tier_weight x tractability`, `interest = 1 + wH*H + wC*C + wF*F` with `H`, `C` and `F` the finding's `hotspot_score`, `coupling_degree` and (`0` when the primary file's `fan_in_mode` is `anywhere`) `fan_in_approx`, each normalised against `repo_maxima(inventory)`; `tier_weight` is A 1.0, B 0.7, C 0.35; `tractability` is S 1.0, M 0.75, L 0.5 (`quick-wins`: 1.0, 0.5, 0.2); the four presets (`balanced`, `hotspot-first`, `architecture`, `quick-wins`) fix their own weights and tractability by name, `--preset` overrides `ranking.preset`, and only `balanced` reads `ranking.weights`/`ranking.tractability` from config; only tier A and B findings are eligible for the top N, and under `quick-wins` a duplication finding without `tool:` or `coupling` corroboration and every ownership finding are excluded from it too (still emitted with `in_top_n: false`); findings are walked in priority-descending, fingerprint-ascending order (the tie-break) filling the top N while each family holds fewer than `ceil(spread_cap x N)` (spread_cap 0.5) chosen entries, a finding a family cap displaces is marked `spread_capped: true` and keeps its priority-ordered `rank` (numbered over every finding, top or not); `formula_version` (1), every term, the preset name, weights and tractability are recorded on the document so any priority can be recomputed; the output is byte-identical across runs on identical inputs; exits 2 (with an `error:` line to stderr) when `verified.json` or `inventory.json` is missing, unreadable, malformed, of the wrong top-level shape, or `--preset` names an unknown preset |
@@ -218,10 +228,28 @@ exit code, a timeout, an OSError, output that failed to parse, or a
 normaliser that raised — which costs that tool's signals and no others), or
 `skipped` (no matching artefact, the tool is on the config deny list,
 `--skip-all` was given, or — for osv-scanner offline — no local vulnerability
-database). `tools_probe.py` writes `tool-signals.json` to the workdir;
-**nothing reads it until phase 4b** — `plan_scan.py`, `merge_findings.py` and
-SKILL.md all gain that wiring then, together with module chunking and the
-halved deep thresholds.
+database). `tools_probe.py` writes `tool-signals.json` to the workdir, and
+`/tech-debt-scan` step 4 runs it after the network notice below. Its
+inference-class signals (ruff, vulture, lizard, jscpd, knip, madge) become
+leads and `confirmed_by` corroboration through `plan_scan.py` and
+`merge_findings.py`; its fact-class signals (osv-scanner, gitleaks, hadolint,
+actionlint) become candidates, with osv-scanner alone entering at tier A —
+see [What tier A means for a reader](#what-tier-a-means-for-a-reader) below.
+Long repositories are also split into per-directory module scouts at this
+point (`plan_scan.py`'s chunking, halved thresholds under `--deep`).
+
+**The network notice.** Before step 4 runs, SKILL.md has Claude tell the user
+what is about to reach the network: osv-scanner sends package names,
+versions, ecosystems and file hashes to OSV.dev; every other first-cut tool
+(gitleaks, ruff, vulture, lizard, jscpd, knip, madge, hadolint, actionlint) is
+local-only and sends nothing. Setting `tools.network: false` in
+`.tech-debt.yaml` keeps the whole scan offline: the probe runs
+`osv-scanner --offline` against a database pre-downloaded with
+`osv-scanner --download-offline-databases` into
+`OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY`; an absent database is reported as
+`skipped: no local database` for that tool rather than failing the scan.
+`--no-tools` runs the same step with `--skip-all`, and `tool-signals.json` is
+still written, with every tool `skipped`.
 
 Six of the ten normalisers — ruff, vulture, lizard, madge, jscpd, knip — were
 written against real captured output from the tool installed on this
@@ -302,6 +330,34 @@ document. `artefact_present` discounts vendored matches for the same reason:
 a repository whose only Dockerfile sits in `node_modules` has nothing for
 hadolint to do, and a gate that claimed otherwise would be the
 predicate-versus-argv disagreement again.
+
+### What tier A means for a reader
+
+Tier A is the report's strongest claim: `rank.py` weights it at 1.0 (against
+0.7 for B), and a tier A finding is the one most likely to sit in `# Top N`.
+For most tier A findings that claim rests on a verifier Agent having read the
+code and confirmed it, plus at least one independent corroborating signal
+(spec 4.8). **Two kinds of candidate skip that verifier entirely** and reach
+tier A by construction: a `rules.py` finding (a deterministic fact — a
+missing `timeout-minutes:`, an untagged `FROM`, a knowledge island — whose
+quote is verified by construction, spec 4.4) and an osv-scanner advisory at
+manifest or lockfile level (a fact about a *published* vulnerability, not
+about how the repository uses the affected package, spec 4.5's fact-versus-
+inference split). `merge_findings.py`'s own invariant test,
+`TestTierProducerInvariant`, asserts over the fixture corpus and a canned
+`tool-signals.json` that no other route — not gitleaks, not hadolint, not
+actionlint, not a scout — can produce a candidate with a tier already set;
+every one of those instead reaches the verifier or is merged into a rule
+finding's `confirmed_by`, never gaining a tier of its own.
+
+Read plainly: **a tier A osv advisory can reach the top of `design.md`
+without any agent in this pipeline having read a line of the affected code.**
+That is by design — a published CVE against a pinned version is a fact
+`osv-scanner` fetched from OSV.dev, not a judgement call a verifier is better
+placed to make — but it means a reader deciding whether to trust a tier A
+finding should look at its `confirmed_by` and `source`: `rule:<id>` or
+`tool:osv-scanner` (or both, when a manifest also tripped a `rules.py`
+finding) means no verifier read it; anything else means one did.
 
 ## Scout families
 
@@ -457,10 +513,12 @@ code path returns it yet.
 Human in the loop throughout: nothing is fixed automatically. The v2 delivery
 phases run from phase 1 (deterministic signals) to phase 5 (baseline and
 evaluation). Phases 1 to 3 have landed: `/tech-debt-scan` and
-`/tech-debt-promote` run the full detect-verify-rank chain end to end, without
-external tool signals or a baseline diff. `--families deep` already selects
-the full fourteen-family set today (`plan_scan.py`, phase 2). Phase 4 adds
-the tool probe, tier caps lifted by tool presence and module chunking; phase 5
-adds the baseline, its `diff` reporting, and promote write-back. Autonomously
-applying fixes without review is a separate follow-on, deferred and out of
-scope.
+`/tech-debt-promote` run the full detect-verify-rank chain end to end.
+`--families deep` already selects the full fourteen-family set today
+(`plan_scan.py`, phase 2). **Phase 4 has landed:** `tools_probe.py` runs the
+ten first-cut external tools (phase 4a), and step 4's network notice, tool
+leads and corroboration, the fact-class tier route, module chunking and the
+halved deep thresholds are wired in (phase 4b) — see
+[External tool probe](#external-tool-probe). Phase 5 still adds the baseline,
+its `diff` reporting, and promote write-back. Autonomously applying fixes
+without review is a separate follow-on, deferred and out of scope.

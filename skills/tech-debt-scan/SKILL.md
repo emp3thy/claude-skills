@@ -63,15 +63,18 @@ If any expected output file from a numbered step is missing, abort with exit 5. 
   into PBI bundles you can paste into a ralph queue.
 
 Human-in-the-loop throughout. There is no autonomous "fix it" step. This is
-delivery phase 3: the scan runs without external tool signals or a baseline
-diff; phases 4 and 5 add them.
+delivery phase 4b: the scan runs the external tool probe (step 4) and folds
+tool signals into leads, corroboration and tier assignment; phase 5 still
+needs to add the baseline diff.
 
 ## Flags
 
-`/tech-debt-scan <repo> [--quick | --deep] [--preset balanced|hotspot-first|architecture|quick-wins] [--families a,b,c] [--top N]`.
+`/tech-debt-scan <repo> [--quick | --deep] [--preset balanced|hotspot-first|architecture|quick-wins] [--families a,b,c] [--top N] [--no-tools]`.
 `--quick` selects the quick family set (six families) and `--top 3`; `--deep`
 selects the deep family set (all fourteen families, `plan_scan.py --families
-deep`); `--families` overrides both and bypasses the adaptive rule.
+deep`); `--families` overrides both and bypasses the adaptive rule; `--no-tools`
+runs step 4 with `--skip-all`, so `tool-signals.json` is still written but
+every tool is marked `skipped` and nothing reaches the network.
 
 ## Conventions
 
@@ -94,8 +97,9 @@ deep`); `--families` overrides both and bypasses the adaptive rule.
 
 ## Scan steps
 
-Step numbers are fixed across phases: this phase ships the list without steps
-4 and 11, which phases 4 and 5 insert without renumbering.
+Step numbers are fixed across phases: step 4 (the tool probe) lands in this
+phase; step 11 (the baseline diff) is still missing from this list, and
+phase 5 inserts it without renumbering the rest.
 
 1. `python scripts/inventory.py <repo> --workdir .tech-debt` writes
    `inventory.json` and `coupling.json`. Add `--churn-months <n>` to change
@@ -105,6 +109,19 @@ Step numbers are fixed across phases: this phase ships the list without steps
    `patterns.json` and fills `inline_disables` in `inventory.json`.
 3. `python scripts/rules.py <repo> --workdir .tech-debt` writes
    `rule-findings.json`.
+4. Network notice, then the probe. Before anything leaves the machine, tell
+   the user which installed tools will reach the network and what they send:
+   osv-scanner sends package names, versions, ecosystems and file hashes to
+   OSV.dev; every other first-cut tool (gitleaks, ruff, vulture, lizard,
+   jscpd, knip, madge, hadolint, actionlint) is local-only and sends nothing.
+   To stay offline, set `tools.network: false` in `.tech-debt.yaml` — the
+   probe then runs `osv-scanner --offline` against a pre-downloaded database
+   (`OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY`); an absent database reports
+   `skipped: no local database` for that tool rather than failing the scan.
+   Then `python scripts/tools_probe.py <repo> --workdir .tech-debt` writes
+   `tool-signals.json`. With `--no-tools` the command is
+   `python scripts/tools_probe.py <repo> --workdir .tech-debt --skip-all`
+   instead, and the file is still written with every tool `skipped`.
 5. `python scripts/plan_scan.py --workdir .tech-debt --families <set> --top <n>`
    writes `scan-plan.json` and `prompts/scout-*.md`; `<set>` is `default`,
    `quick`, `deep` or a comma-separated list.
@@ -165,8 +182,9 @@ Step numbers are fixed across phases: this phase ships the list without steps
 Output stays near v1 because scouts are lead-driven and capped and there is no
 separate agent call to pick the top N. Input grows because scouts and
 verifiers read cited spans with context; the 40-lead cap, the adaptive rule
-and the verifier budget bound it. Tool time is 0 in this phase — no external
-tool runs until a later phase adds the network probe step.
+and the verifier budget bound it. Tool time depends on which of the ten
+first-cut tools step 4's probe finds already installed; `--no-tools` (step 4
+with `--skip-all`) brings it to 0.
 
 ## Caveats
 
@@ -188,7 +206,11 @@ tool runs until a later phase adds the network probe step.
   discarded, and `god-modules` as a category value still promotes. The v1
   top-N picker step and its files are gone with no shim: they are never
   produced or consumed, and nothing outside this repository reads them.
-- **No tools or baseline yet.** This phase ships without external tool
-  signals or a baseline diff: every `design.md` renders `tools_run` and
-  `tools_absent` as empty lists, and every finding carries `diff: NEW`.
-  Phases 4 and 5 add them.
+- **Tools are wired in; the baseline still is not.** Step 4 runs the external
+  tool probe and folds its signals into leads, corroboration and tier
+  assignment — an osv-scanner advisory can reach tier A on its own, the same
+  way a `rules.py` finding does, without a verifier reading it; those two are
+  the only producers allowed to assign a tier without one. `design.md`'s
+  `tools_run` and `tools_absent` reflect the real probe result (every tool
+  `skipped` under `--no-tools`). There is still no baseline: every finding
+  carries `diff: NEW`. Phase 5 adds it.
