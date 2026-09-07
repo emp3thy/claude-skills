@@ -825,7 +825,7 @@ test("total sums items", () => {
 | empty-catch-swallows-fetch-json-errors-in-getjson | error-masking | src/api/client.ts | the verifier downgraded it |
 | duplicated-fetch-with-auth-headers-logic-across-api-clients | duplication | src/api/client.ts | the verifier downgraded it |
 | getjson-fetch-has-no-timeout-and-swallows-all-errors | half-finished | src/api/client.ts | the verifier downgraded it |
-| checkout-reaches-past-declared-cart-boundary-into-pricing-intern | architecture | docs/architecture.md | architecture is capped at C without tool corroboration |
+| checkout-reaches-past-declared-cart-boundary-into-pricing-intern | architecture | docs/architecture.md | architecture is capped at C without tool or coupling corroboration |
 | newcheckout-flag-hardcoded-off-checkout-branch-unreachable | dead-code | src/flags.ts | dead-code is capped at C without tool corroboration |
 | newcheckout-flag-path-is-dead-only-legacy-deprecated-path-ever-r | migration | src/flags.ts | the verifier downgraded it |
 | deprecated-legacyformat-wrapper-still-called-from-checkout | dead-code | src/util/format-legacy.ts | dead-code is capped at C without tool corroboration |

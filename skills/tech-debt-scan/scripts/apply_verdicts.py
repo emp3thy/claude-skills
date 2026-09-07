@@ -15,7 +15,11 @@ replace the scout's. Migration's "churn on both sides" lift uses the
 primary file alone. Every finding also carries ``tier_reason``, the prose for
 why it landed on its tier -- computed on the same branch as the tier itself
 (``_tier_and_reason``) so the two cannot disagree -- which the design writer's
-tier C table renders in place of the bare verdict word. Every piece of
+tier C table renders in place of the bare verdict word. A capped finding's
+reason names the corroboration that family's cap actually wants (tool,
+coupling, both, a specific signal token, or -- for doc-drift and
+pipeline-infra, which never lift -- neither), read off ``_family_cap_and_lift``
+so the wording cannot drift from ``family_cap``'s own branching. Every piece of
 verifier prose kept on a finding (``proof``, ``checked``, ``opened``,
 ``trap_matched``) goes through ``redaction.redact`` first: the verifier reads
 the repository, so it can quote a credential back.
@@ -37,6 +41,7 @@ SCHEMA_VERSION: Final[int] = 2
 CORROBORATING_PREFIXES: Final[tuple[str, ...]] = ("pattern:", "rule:", "tool:", "signal:")
 CORROBORATING_TOKENS: Final[frozenset[str]] = frozenset({"satd", "coupling", "hotspot"})
 TIER_ORDER: Final[dict[str, int]] = {"A": 0, "B": 1, "C": 2}
+TEST_GAPS_LIFT_TOKEN: Final[str] = "signal:no-mapped-tests"
 
 
 def _has(cand: dict[str, Any], prefix: str) -> bool:
@@ -59,34 +64,50 @@ def corroborated(cand: dict[str, Any]) -> bool:
     return False
 
 
-def family_cap(cand: dict[str, Any]) -> str | None:
-    """The strongest tier the family allows without tool corroboration; None means no cap."""
+def _family_cap_and_lift(cand: dict[str, Any]) -> tuple[str | None, str | None]:
+    """The family's cap tier and, from the same branch, what would lift it.
+
+    One function so the cap and its description cannot disagree: ``family_cap``
+    and the cap sentence in ``_tier_and_reason`` are both read off this rather
+    than a second table naming what each family wants, which could drift from
+    the tier logic below. The lift half is ``None`` exactly when nothing in
+    ``confirmed_by`` can lift the cap at all -- doc-drift and pipeline-infra
+    scout findings are always capped -- so the caller can pick a template that
+    does not promise a way out that does not exist.
+    """
     family = cand["family"]
     signals = cand.get("signals") or {}
     tool, coupling = _has(cand, "tool:"), _token(cand, "coupling")
     if family == "duplication":
-        return None if tool or coupling else "B"
+        return (None if tool or coupling else "B"), "tool or coupling corroboration"
     if family == "dead-code":
         if tool:
-            return None
+            return None, "tool corroboration"
         ordinary = (signals.get("churn") == 0 and signals.get("fan_in_approx") == 0
                     and signals.get("path_class") == "source")
-        return "B" if ordinary else "C"
+        return ("B" if ordinary else "C"), "tool corroboration"
     if family == "god-classes":
-        return "B" if cand.get("type_id") == "TD-20" and not coupling else None
+        capped = cand.get("type_id") == "TD-20" and not coupling
+        return ("B" if capped else None), "coupling corroboration"
     if family == "architecture":
         if tool or coupling:
-            return None
-        return "C" if cand.get("type_id") == "TD-10" else "B"
+            return None, "tool or coupling corroboration"
+        return ("C" if cand.get("type_id") == "TD-10" else "B"), "tool or coupling corroboration"
     if family == "test-gaps":
-        return None if _token(cand, "signal:no-mapped-tests") else "B"
+        lifted = _token(cand, TEST_GAPS_LIFT_TOKEN)
+        return (None if lifted else "B"), f"the {TEST_GAPS_LIFT_TOKEN} signal"
     if family in ("test-quality", "dependency-debt", "security"):
-        return None if tool else "B"
+        return (None if tool else "B"), "tool corroboration"
     if family == "migration":
-        return None if coupling else "B"
+        return (None if coupling else "B"), "coupling corroboration"
     if family in ("doc-drift", "pipeline-infra") and cand.get("source") == "scout":
-        return "B"
-    return None
+        return "B", None
+    return None, None
+
+
+def family_cap(cand: dict[str, Any]) -> str | None:
+    """The strongest tier the family allows without enough corroboration; None means no cap."""
+    return _family_cap_and_lift(cand)[0]
 
 
 def _weakest(a: str, b: str | None) -> str:
@@ -118,10 +139,12 @@ def _tier_and_reason(
     if kind != "confirm" or not all(e.get("quote_verified") for e in cand.get("evidence", [])):
         return "C", "a quote could not be verified"
     base = "A" if corroborated(cand) else "B"
-    cap = family_cap(cand)
+    cap, lift = _family_cap_and_lift(cand)
     tier = _weakest(base, cap)
     if cap is not None:
-        return tier, f"{cand['family']} is capped at {tier} without tool corroboration"
+        if lift is None:
+            return tier, f"{cand['family']} is capped at {tier} for every scout-detected finding"
+        return tier, f"{cand['family']} is capped at {tier} without {lift}"
     if tier == "A":
         own = f"scout:{cand['family']}"
         tokens = ", ".join(s for s in cand.get("confirmed_by", []) if s != own)

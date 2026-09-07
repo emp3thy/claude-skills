@@ -48,7 +48,7 @@
         "in_hotspot_band": true
       },
       "tier": "B",
-      "tier_reason": "duplication is capped at B without tool corroboration",
+      "tier_reason": "duplication is capped at B without tool or coupling corroboration",
       "verdict": "confirm",
       "proof": "Fetch (httpc.go:12-17) and FetchWithTimeout (httpc_safe.go:10-15) both implement GET-then-handle-response against a URL parameter, with divergent behavior (string body vs status code, no timeout vs 5s timeout, TLS bypass vs none). main.go:28 calls only Fetch; FetchWithTimeout is uncalled anywhere. Both bodies are live source (not fixture/generated/vendored), so they are duplicate/overlapping implementations that could drift.",
       "checked": [
@@ -105,7 +105,7 @@
         "in_hotspot_band": true
       },
       "tier": "B",
-      "tier_reason": "duplication is capped at B without tool corroboration",
+      "tier_reason": "duplication is capped at B without tool or coupling corroboration",
       "verdict": "confirm",
       "proof": "Read full paths map (lines 12-302): all 290 entries are 'nXXX': 'data/nXXX.json', exactly matching the fallback formula at line 8. No entry deviates from the pattern, so the map is not an override table with exceptions \u2014 it is pure duplication of the fallback logic, expressed as 290 literals that must be kept in sync with the format string if the scheme changes. store.go:18 (Open) calls lookup.PathFor but relies on neither the map's presence nor any special-cased value. A generated loop or removal of the map (letting the fallback handle all cases) would be strictly simpler.",
       "checked": [
@@ -1088,7 +1088,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "doc-drift is capped at B without tool corroboration",
+      "tier_reason": "doc-drift is capped at B for every scout-detected finding",
       "verdict": "confirm",
       "proof": "README.md is 3 lines with no changelog/contributing pointers; globs for CHANGELOG* and CONTRIBUTING* return no files. Two tags exist (v0.1.0 at 1b1cd9e, v0.2.0 at b57194e) per commit log, including notable changes like the builder TLS option (b57194e) and kill switch (1b1cd9e), with no ADR or changelog capturing why.",
       "checked": [
@@ -1144,7 +1144,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "doc-drift is capped at B without tool corroboration",
+      "tier_reason": "doc-drift is capped at B for every scout-detected finding",
       "verdict": "confirm",
       "proof": "docs/runbook.md:5-7 tells on-call the flag 'stops payments' and is a permanent operational control not to be removed. flags.go:5-6 comment repeats the same operational framing. But main.go:22-24 is the only reader of the flag anywhere in the repo (confirmed by grep for IsEnabled/flags. usage) and it only does log.Println \u2014 a repo-wide search found no payment-processing code for it to gate, so the doc's operational claim is unsupported by the code.",
       "checked": [
@@ -1440,7 +1440,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "pipeline-infra is capped at B without tool corroboration",
+      "tier_reason": "pipeline-infra is capped at B for every scout-detected finding",
       "verdict": "confirm",
       "proof": "Dockerfile exists at repo root and k8s/deployment.yaml + k8s/service.yaml exist, but ci.yml:1-16 only checks out code, sets up Go, and runs `go test ./...`. No job builds/pushes an image or applies k8s manifests. README.md (3 lines) and docs/runbook.md (kill-switch only) do not mention any deploy process, so release is undocumented and manual.",
       "checked": [
@@ -1495,7 +1495,7 @@
         "in_hotspot_band": true
       },
       "tier": "B",
-      "tier_reason": "pipeline-infra is capped at B without tool corroboration",
+      "tier_reason": "pipeline-infra is capped at B for every scout-detected finding",
       "verdict": "confirm",
       "proof": "main.go uses the standard log package throughout (log.Printf line 18, log.Println line 23, log.Fatal line 26), while store.go:32 uses fmt.Println directly inside library code, confirming the described inconsistency \u2014 it cannot be leveled, redirected, or captured via the app's log configuration. Note: Load's only caller found is store_test.go:16 (a discarded smoke-test call), so the write is not currently hit in production traffic, but the pattern itself (library bypassing the app's logging convention) is real and would surface as soon as Load is exercised.",
       "checked": [

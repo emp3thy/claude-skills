@@ -329,7 +329,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "test-gaps is capped at B without tool corroboration",
+      "tier_reason": "test-gaps is capped at B without the signal:no-mapped-tests signal",
       "verdict": "confirm",
       "proof": "ci.yml:12 runs bare `pytest -q` with no `--cov` flag or coverage invocation, so the `[tool.coverage.report] fail_under = 80` block (pyproject.toml:7-8) is dead configuration - coverage.report only enforces a threshold when preceded by `coverage run`/`--cov`. Neither pytest-cov nor coverage appear in requirements.txt. gateway.py (0 real tests, see candidate 4) and legacy_export.py (0 callers/tests) can merge untested with the gate never tripping.",
       "checked": [
@@ -485,7 +485,7 @@
         "in_hotspot_band": true
       },
       "tier": "B",
-      "tier_reason": "test-gaps is capped at B without tool corroboration",
+      "tier_reason": "test-gaps is capped at B without the signal:no-mapped-tests signal",
       "verdict": "confirm",
       "proof": "Grep confirms no test calls issue_partial anywhere in tests/. Unlike test_issue_calls_gateway (explicitly marked @pytest.mark.skip), issue_partial has no test stub at all \u2014 not even a skipped placeholder. The fraction-to-cents conversion (refund.py:46) and full delegation to issue() are unguarded, so a rounding or scale regression would ship undetected.",
       "checked": [
@@ -872,7 +872,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "migration is capped at B without tool corroboration",
+      "tier_reason": "migration is capped at B without coupling corroboration",
       "verdict": "confirm",
       "proof": "setup.py:1 states 'pyproject.toml is the source of truth' for packaging, yet ci.yml:11 runs 'pip install -r requirements.txt' rather than installing the package's own dependencies. requirements.txt:1 pins requests==2.32.3 while pyproject.toml:5 declares requests>=2.31 \u2014 two manifests can drift silently since CI only ever installs from the former. No consolidation plan is stated anywhere in the repo. Real split-manifest debt.",
       "checked": [
@@ -935,7 +935,7 @@
         "in_hotspot_band": true
       },
       "tier": "B",
-      "tier_reason": "migration is capped at B without tool corroboration",
+      "tier_reason": "migration is capped at B without coupling corroboration",
       "verdict": "confirm",
       "proof": "export_v1 (legacy_export.py:8-14) has zero call sites confirmed by repo-wide grep for 'export_v1'/'legacy_export' outside its own definition. TODO(#42) at line 7 references a v2 report that doesn't exist anywhere in the repo (no export_v2, no mention in README/CHANGELOG/docs). Commented-out export_v0 stub at lines 17-19 confirms a prior migration was also never cleaned up. This is real orphaned migration debt.",
       "checked": [
@@ -1055,7 +1055,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "doc-drift is capped at B without tool corroboration",
+      "tier_reason": "doc-drift is capped at B for every scout-detected finding",
       "verdict": "confirm",
       "proof": "pyproject.toml:3 declares version 0.2.0 but CHANGELOG.md:1-5 stops at '0.1.0 - 2024-10-05' with no 0.2.0 section. Git log shows gateway v2 migration and refund audit trail commits landed after that tag, none reflected in the changelog. Real, low-impact doc drift.",
       "checked": [
@@ -1133,7 +1133,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "doc-drift is capped at B without tool corroboration",
+      "tier_reason": "doc-drift is capped at B for every scout-detected finding",
       "verdict": "confirm",
       "proof": "README.md:10 names a path ('src/pay/exporter.py') that never appears in the repo (glob of src/pay/*.py shows legacy_export.py instead) and claims the job was removed in 0.1.0, but legacy_export.py:8 export_v1 still performs the same CSV-style export, still called nowhere else, still containing an f-string SQL query (line 11) and shell=True subprocess call (line 13). The README's removal claim is false; the job is live under a different name.",
       "checked": [
@@ -1554,7 +1554,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "pipeline-infra is capped at B without tool corroboration",
+      "tier_reason": "pipeline-infra is capped at B for every scout-detected finding",
       "verdict": "confirm",
       "proof": "release.yml:2-4 only triggers on pushed 'v*' tags and has no step diffing the tag against pyproject.toml's version (lines 10-12 just build and upload). pyproject.toml:3 is already at 0.2.0 while CHANGELOG.md tops out at 0.1.0, meaning the 0.2.0 bump happened without a corresponding tag/release run or changelog update \u2014 a manual, unverified version bump. Real pipeline gap.",
       "checked": [
@@ -1607,7 +1607,7 @@
         "in_hotspot_band": true
       },
       "tier": "B",
-      "tier_reason": "pipeline-infra is capped at B without tool corroboration",
+      "tier_reason": "pipeline-infra is capped at B for every scout-detected finding",
       "verdict": "confirm",
       "proof": "refund.py:39-40 uses `log.exception` for the OSError path, but line 41 uses bare `print()` for the normal-outcome message in the same function, on the same code path a few lines later. There is no __main__ guard or CLI parsing in this module (it's a library import per refund.py:1), so the print goes to stdout uncontrolled by log level/handlers, breaking aggregation for a production refund outcome. Real, low-effort fix (swap to log.info).",
       "checked": [

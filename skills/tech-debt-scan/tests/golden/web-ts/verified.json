@@ -471,7 +471,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "test-gaps is capped at B without tool corroboration",
+      "tier_reason": "test-gaps is capped at B without the signal:no-mapped-tests signal",
       "verdict": "confirm",
       "proof": "package.json:5,8 \u2014 \"test\": \"jest\" with no --coverage flag, while jest.coverageThreshold.global.lines is set to 80. No jest.config.* file exists to add coverage-on-by-default. Coverage (and thus the threshold) only evaluates with `--coverage`, so plain `npm test`/`yarn test` never triggers it. Confirmed only one test file exists repo-wide (src/__tests__/cart.test.ts); client.ts, client-admin.ts, and checkout.ts have no corresponding test files, so the unmet threshold would go undetected.",
       "checked": [
@@ -959,7 +959,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "migration is capped at B without tool corroboration",
+      "tier_reason": "migration is capped at B without coupling corroboration",
       "verdict": "confirm",
       "proof": "Grep confirms legacyFormat's only call site is checkout.ts:11 (import at line 4), and formatMoney (format.ts:1-3) has no callers besides format-legacy.ts:1's import \u2014 i.e. 100% of live call sites use the deprecated wrapper, 0% call formatMoney directly. No evidence of deliberate multi-backend design; it's a single incomplete migration.",
       "checked": [
@@ -1024,7 +1024,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "migration is capped at B without tool corroboration",
+      "tier_reason": "migration is capped at B without coupling corroboration",
       "verdict": "confirm",
       "proof": "tslint.json:1 (`tslint:recommended`) has no corresponding tooling: package.json:7 lists eslint but not tslint, and grep confirms tslint appears nowhere else in the repo (no script, no CI step). ci.yml only runs `npm test` (no lint step at all), so neither tslint.json nor .eslintrc.json is actually invoked \u2014 but tslint.json specifically is a dead leftover from a superseded tool with zero remaining references, matching the migration-debris pattern exactly.",
       "checked": [
@@ -1136,7 +1136,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "doc-drift is capped at B without tool corroboration",
+      "tier_reason": "doc-drift is capped at B for every scout-detected finding",
       "verdict": "confirm",
       "proof": "README.md:1-5 is the entire file: title, one-line description, `npm test`. Globbed for CONTRIBUTING*, CHANGELOG*, and any adr/ directory repo-wide \u2014 none exist. docs/ only contains architecture.md. So the absence is real and total, not just missing a link to existing docs.",
       "checked": [
@@ -1199,7 +1199,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "doc-drift is capped at B without tool corroboration",
+      "tier_reason": "doc-drift is capped at B for every scout-detected finding",
       "verdict": "confirm",
       "proof": "architecture.md:3-4 claims pricing and stock 'import each other' through stock.ts. Actual code: stock.ts:1 imports only `type Cart` from cart.ts, nothing from pricing.ts; pricing.ts:1 imports `reserve` from stock.ts. This is a one-way dependency (pricing -> stock), not a cycle, and stock's only import is a type from cart, not pricing. The doc's cycle claim is factually wrong.",
       "checked": [
@@ -1255,7 +1255,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
-      "tier_reason": "architecture is capped at C without tool corroboration",
+      "tier_reason": "architecture is capped at C without tool or coupling corroboration",
       "verdict": "confirm",
       "proof": "checkout.ts:1-2 imports `total` from cart.ts and `priceOf` from cart/pricing.ts directly. The active legacy branch (checkout.ts:10-11, since flags.ts shows newCheckout permanently false with comment 'never finished') calls priceOf(first.sku) itself rather than total(cart), bypassing cart's aggregation function. cart.ts:16-18 shows total() is the intended single point for price aggregation. Any future change there (e.g. quantity-based pricing added only to total()) would silently not apply to the legacy path.",
       "checked": [

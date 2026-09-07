@@ -203,11 +203,17 @@ class TestTierReason:
                 "trap_matched": None, "checked": [], "opened": []}
 
     def test_a_family_cap_says_so(self) -> None:
+        """dead-code's uncorroborated base is B; its cap forces C -- a real
+        numeric effect. A mutant that computes ``family_cap`` but never joins it
+        into the tier (``tier = base`` instead of ``_weakest(base, cap)``) must
+        fail this test: with the duplication fixture the two coincide at B, so
+        that mutant would ship green (see fix-round-1 report for the proof)."""
         from apply_verdicts import _finding
 
-        out = _finding(self._cand(), self._confirm(), selected=True)
-        assert out["tier"] == "B"
-        assert out["tier_reason"] == "duplication is capped at B without tool corroboration"
+        cand = self._cand(family="dead-code", confirmed_by=["scout:dead-code"])
+        out = _finding(cand, self._confirm(), selected=True)
+        assert out["tier"] == "C"
+        assert out["tier_reason"] == "dead-code is capped at C without tool corroboration"
 
     def test_a_lifted_cap_says_which_tool(self) -> None:
         from apply_verdicts import _finding
@@ -215,7 +221,44 @@ class TestTierReason:
         cand = self._cand(confirmed_by=["scout:duplication", "tool:jscpd"])
         out = _finding(cand, self._confirm(), selected=True)
         assert out["tier"] == "A"
-        assert "tool:jscpd" in out["tier_reason"]
+        assert out["tier_reason"] == "confirmed and corroborated by tool:jscpd"
+
+    def test_a_tool_or_coupling_cap_names_both(self) -> None:
+        """architecture lifts its cap on tool OR coupling, not tool alone."""
+        from apply_verdicts import _finding
+
+        cand = self._cand(family="architecture", confirmed_by=["scout:architecture"])
+        out = _finding(cand, self._confirm(), selected=True)
+        assert (out["tier_reason"]
+                == "architecture is capped at B without tool or coupling corroboration")
+
+    def test_a_coupling_only_cap_says_so(self) -> None:
+        """migration's cap has no tool check at all -- it lifts on coupling alone."""
+        from apply_verdicts import _finding
+
+        cand = self._cand(family="migration", confirmed_by=["scout:migration"])
+        out = _finding(cand, self._confirm(), selected=True)
+        assert out["tier_reason"] == "migration is capped at B without coupling corroboration"
+
+    def test_a_signal_gated_cap_names_the_signal(self) -> None:
+        """test-gaps lifts on the signal:no-mapped-tests token, not a tool at all."""
+        from apply_verdicts import _finding
+
+        cand = self._cand(family="test-gaps", confirmed_by=["scout:test-gaps"])
+        out = _finding(cand, self._confirm(), selected=True)
+        assert (out["tier_reason"]
+                == "test-gaps is capped at B without the signal:no-mapped-tests signal")
+
+    def test_an_unconditional_cap_says_so(self) -> None:
+        """doc-drift's cap never lifts on any corroboration in confirmed_by --
+        every scout-detected finding in this family is capped at B, so "without
+        tool corroboration" would promise a way out that does not exist, even
+        with a tool signal present."""
+        from apply_verdicts import _finding
+
+        cand = self._cand(family="doc-drift", confirmed_by=["scout:doc-drift", "tool:x"])
+        out = _finding(cand, self._confirm(), selected=True)
+        assert out["tier_reason"] == "doc-drift is capped at B for every scout-detected finding"
 
     def test_an_unverified_candidate_says_so(self) -> None:
         from apply_verdicts import _finding
@@ -229,6 +272,12 @@ class TestTierReason:
 
         out = _finding(self._cand(), dict(self._confirm(), verdict="downgrade"), selected=True)
         assert out["tier_reason"] == "the verifier downgraded it"
+
+    def test_a_referral_says_so(self) -> None:
+        from apply_verdicts import _finding
+
+        out = _finding(self._cand(), dict(self._confirm(), verdict="refer"), selected=True)
+        assert out["tier_reason"] == "the verifier referred it"
 
     def test_a_rule_fact_says_so(self) -> None:
         from apply_verdicts import _finding
