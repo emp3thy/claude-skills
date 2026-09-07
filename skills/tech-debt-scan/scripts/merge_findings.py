@@ -481,6 +481,17 @@ def _fingerprint_span(path: str | None, line_start: Any, line_end: Any) -> str:
     return f"{path or ''}:{line_start}-{line_end}"
 
 
+def _usable_line(value: Any) -> int | None:
+    """A signal's ``line_start``/``line_end`` coerced to the shape a candidate can
+    carry: a plain ``int`` survives, everything else -- ``None``, a ``bool`` (a
+    ``bool`` is an ``int`` subclass), a float, or a string like ``"12"`` a
+    truncated or hand-edited ``tool-signals.json`` might carry -- becomes ``None``.
+    Shared by ``_fact_candidate`` (which builds the coerced shape) and
+    ``tool_candidates`` (which must reject that shape on the untiered route before
+    it reaches a verifier)."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 def _fact_candidate(
     sig: dict[str, Any],
     inventory: dict[str, Any],
@@ -522,11 +533,8 @@ def _fact_candidate(
     if isinstance(source_path, str) and source_path:
         raw_message = f"{raw_message} (source: {strip_url_userinfo(source_path)})"
     message = redact(raw_message)
-    line_start, line_end = sig.get("line_start"), sig.get("line_end")
-    line_start = line_start if isinstance(line_start, int) and not isinstance(
-        line_start, bool
-    ) else None
-    line_end = line_end if isinstance(line_end, int) and not isinstance(line_end, bool) else None
+    line_start = _usable_line(sig.get("line_start"))
+    line_end = _usable_line(sig.get("line_end"))
     fp, quote_hash = fingerprint(family, _fingerprint_span(path, line_start, line_end), message)
     return {
         "fingerprint": fp,
@@ -604,7 +612,7 @@ def tool_candidates(
       second candidate for a fact already on the record; the finding stays tier A
       either way, so the merge changes nothing but its provenance trail.
 
-    Three things drop a signal that names one of the four tools, each counted through
+    Four things drop a signal that names one of the four tools, each counted through
     ``counts`` so a dropped fact is visible in ``stats`` rather than silent:
 
     * a family that is not one ``categories.FAMILIES`` knows, or is not this tool's own
@@ -616,6 +624,15 @@ def tool_candidates(
       route keeps its null-file shape: ``select_candidates`` never pools a tiered
       candidate, so it reaches no verifier, and every downstream consumer already
       handles the path-less rule finding shape;
+    * that same untiered route with a ``line_start`` or ``line_end`` that is not a
+      plain ``int`` once ``_usable_line`` coerces it -- the same reachability profile
+      one field over: ``_span`` does ``int(ev["line_start"])`` right after the
+      ``root / ev["file"]`` the file guard closed, so a null, a float or a string
+      range aborts the scan exactly as a null file did. The osv route is exempt for
+      the same reason as the file check -- it is decided by which branch a tool
+      falls into (``tool == "osv-scanner"`` above), not by inspecting ``tier``, so a
+      future tier change to either route cannot silently widen or narrow this guard.
+      Spec 4.5's null osv range (a manifest path, not a line) is untouched;
     * a fingerprint already raised in this pass. Two signals that agree on family, path,
       line range and message are the same fact reported twice, and duplicating them
       gives two candidates one verdict can no longer tell apart (see
@@ -658,6 +675,14 @@ def tool_candidates(
         else:
             if path is None:
                 record.append((family, "dropped", f"{tool} signal names no usable file"))
+                continue
+            if (
+                _usable_line(sig.get("line_start")) is None
+                or _usable_line(sig.get("line_end")) is None
+            ):
+                record.append(
+                    (family, "dropped", f"{tool} signal names no usable line range")
+                )
                 continue
             if tool in _MERGE_INTO_RULE_TOOLS and _merge_into_rule(
                 rule_findings, tool=tool, family=family, path=path

@@ -1124,6 +1124,119 @@ class TestFactSignalValidation:
         plan, _prompts = build_verify_plan(workdir, repo, DEFAULTS, top=5)
         assert plan["batches"] == []
 
+    def test_a_gitleaks_signal_with_a_null_line_start_is_dropped_rather_than_crashing_later(
+        self, tmp_path: Path
+    ) -> None:
+        """N1's sibling of the null-file defect: ``verify_prompts._span`` does
+        ``int(ev["line_start"])`` on every pooled candidate's evidence, two lines past
+        the ``root / ev["file"]`` the null-file guard closed. A null ``line_start`` on
+        an untiered candidate reached that line and aborted the whole scan."""
+        from verify_prompts import build_verify_plan
+
+        repo, workdir = _repo(tmp_path)
+        _scout(workdir, "error-masking", [])
+        _scout(workdir, "security", [])
+        write_json(workdir / "tool-signals.json", {"schema_version": 2, "signals": [
+            {"tool": "gitleaks", "family": "security", "kind": "secret",
+             "file": "src/pay.py", "line_start": None, "line_end": 3,
+             "message": "generic-api-key: Detected a Generic API Key",
+             "fact": True, "extra": {"rule": "generic-api-key"}},
+        ]})
+        document = merge(workdir, repo, DEFAULTS)
+        write_json(workdir / "candidates.json", document)
+        plan, _prompts = build_verify_plan(workdir, repo, DEFAULTS, top=5)
+        assert plan["batches"] == []
+        assert [c for c in document["candidates"] if c["source"] == "tool"] == []
+        assert document["stats"]["security"]["dropped"] == 1
+        assert document["stats"]["security"]["dropped_reasons"] == [
+            "gitleaks signal names no usable line range"
+        ]
+
+    def test_a_gitleaks_signal_with_a_null_line_end_is_dropped_rather_than_crashing_later(
+        self, tmp_path: Path
+    ) -> None:
+        """Same defect, the other half of the pair: ``line_end`` null with
+        ``line_start`` present still fails ``int(ev["line_end"])``."""
+        from verify_prompts import build_verify_plan
+
+        repo, workdir = _repo(tmp_path)
+        _scout(workdir, "error-masking", [])
+        _scout(workdir, "security", [])
+        write_json(workdir / "tool-signals.json", {"schema_version": 2, "signals": [
+            {"tool": "gitleaks", "family": "security", "kind": "secret",
+             "file": "src/pay.py", "line_start": 3, "line_end": None,
+             "message": "generic-api-key: Detected a Generic API Key",
+             "fact": True, "extra": {"rule": "generic-api-key"}},
+        ]})
+        document = merge(workdir, repo, DEFAULTS)
+        write_json(workdir / "candidates.json", document)
+        plan, _prompts = build_verify_plan(workdir, repo, DEFAULTS, top=5)
+        assert plan["batches"] == []
+        assert [c for c in document["candidates"] if c["source"] == "tool"] == []
+        assert document["stats"]["security"]["dropped"] == 1
+
+    def test_a_gitleaks_signal_with_a_non_integer_line_range_is_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        """``_fact_candidate`` silently coerces a non-``int`` ``line_start`` (a
+        string, a float) to ``None`` -- the entirely plausible
+        ``"line_start": "3"`` a hand-edited or truncated ``tool-signals.json`` would
+        carry -- so this crashes exactly like the null case, one step removed."""
+        from verify_prompts import build_verify_plan
+
+        repo, workdir = _repo(tmp_path)
+        _scout(workdir, "error-masking", [])
+        _scout(workdir, "security", [])
+        write_json(workdir / "tool-signals.json", {"schema_version": 2, "signals": [
+            {"tool": "gitleaks", "family": "security", "kind": "secret",
+             "file": "src/pay.py", "line_start": "3", "line_end": 3,
+             "message": "generic-api-key: Detected a Generic API Key",
+             "fact": True, "extra": {"rule": "generic-api-key"}},
+        ]})
+        document = merge(workdir, repo, DEFAULTS)
+        write_json(workdir / "candidates.json", document)
+        plan, _prompts = build_verify_plan(workdir, repo, DEFAULTS, top=5)
+        assert plan["batches"] == []
+        assert [c for c in document["candidates"] if c["source"] == "tool"] == []
+        assert document["stats"]["security"]["dropped"] == 1
+
+    def test_a_hadolint_signal_with_a_null_line_range_is_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        """The same guard on the other untiered route: hadolint with a real file but
+        no usable line range."""
+        from verify_prompts import build_verify_plan
+
+        repo, workdir = _repo(tmp_path)
+        _scout(workdir, "error-masking", [])
+        _scout(workdir, "security", [])
+        write_json(workdir / "tool-signals.json", {"schema_version": 2, "signals": [
+            {"tool": "hadolint", "family": "pipeline-infra", "kind": "dockerfile",
+             "file": "src/util.py", "line_start": None, "line_end": None,
+             "message": "DL3006: Always tag the version of an image explicitly",
+             "fact": True, "extra": {"code": "DL3006"}},
+        ]})
+        document = merge(workdir, repo, DEFAULTS)
+        write_json(workdir / "candidates.json", document)
+        plan, _prompts = build_verify_plan(workdir, repo, DEFAULTS, top=5)
+        assert plan["batches"] == []
+        assert [c for c in document["candidates"] if c["source"] == "tool"] == []
+        assert document["stats"]["pipeline-infra"]["dropped"] == 1
+        assert document["stats"]["pipeline-infra"]["dropped_reasons"] == [
+            "hadolint signal names no usable line range"
+        ]
+
+    def test_a_null_line_range_osv_fact_still_becomes_a_tier_A_candidate(self) -> None:
+        """The exemption N1 calls for: osv-scanner's null range is spec 4.5's
+        deliberate shape (its evidence is a manifest path, not a line), it is tier A,
+        and ``select_candidates`` never pools a tiered candidate -- so it must not be
+        caught by the untiered range guard."""
+        new, counts = self._dropped(self._osv())
+        assert len(new) == 1 and new[0]["tier"] == "A"
+        assert new[0]["evidence"][0]["line_start"] is None
+        assert new[0]["evidence"][0]["line_end"] is None
+        assert counts == []
+
     def test_a_dropped_fact_is_counted_and_its_reason_recorded_in_stats(
         self, tmp_path: Path
     ) -> None:
