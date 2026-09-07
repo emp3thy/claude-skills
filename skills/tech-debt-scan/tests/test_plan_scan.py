@@ -269,3 +269,66 @@ def test_cli_writes_plan_and_prompts(corpus_workdirs: dict[str, tuple[Path, Path
         assert "hotspot" in text.lower() and "Severity rubric" in text
     assert (workdir / "scan-plan.json").read_bytes().count(b"\r") == 0
     assert _main(["--workdir", str(workdir / "missing")]) == 2
+
+
+class TestToolLeads:
+    def _docs(self, signals: list[dict]) -> object:
+        from plan_scan import ScanDocs
+
+        return ScanDocs(
+            inventory={"files": [], "hotspots": []},
+            tool_signals={"schema_version": 2, "tools": {}, "signals": signals},
+        )
+
+    def _signal(self, **over) -> dict:
+        base = {
+            "tool": "vulture", "family": "dead-code", "kind": "unused",
+            "file": "src/pay/legacy.py", "line_start": 8, "line_end": 8,
+            "message": "unused function 'export_v1'", "fact": False, "extra": {},
+        }
+        base.update(over)
+        return base
+
+    def test_an_inference_signal_for_the_family_becomes_a_lead(self) -> None:
+        from plan_scan import _tool_leads
+
+        leads = _tool_leads(self._docs([self._signal()]), "dead-code")
+        assert [(lead.kind, lead.path, lead.line) for lead in leads] == [
+            ("tool", "src/pay/legacy.py", 8)
+        ]
+
+    def test_the_lead_text_names_the_tool_and_its_message(self) -> None:
+        from plan_scan import _tool_leads
+
+        text = _tool_leads(self._docs([self._signal()]), "dead-code")[0].text
+        assert "vulture" in text
+        assert "unused function 'export_v1'" in text
+
+    def test_a_signal_for_another_family_is_not_a_lead_here(self) -> None:
+        from plan_scan import _tool_leads
+
+        signals = [self._signal(family="duplication", tool="jscpd", kind="clone")]
+        assert _tool_leads(self._docs(signals), "dead-code") == []
+
+    def test_a_fact_class_signal_is_never_a_lead(self) -> None:
+        """Fact-class signals become candidates in merge_findings; a lead as well
+        would put the same fact in front of a scout and in the candidate list."""
+        from plan_scan import _tool_leads
+
+        signals = [self._signal(tool="gitleaks", family="security", kind="secret", fact=True)]
+        assert _tool_leads(self._docs(signals), "security") == []
+
+    def test_a_signal_with_no_file_is_dropped(self) -> None:
+        from plan_scan import _tool_leads
+
+        assert _tool_leads(self._docs([self._signal(file=None)]), "dead-code") == []
+
+    def test_absent_tool_signals_yield_no_leads_and_do_not_raise(self) -> None:
+        from plan_scan import ScanDocs, _tool_leads
+
+        assert _tool_leads(ScanDocs(inventory={"files": []}), "dead-code") == []
+
+    def test_the_tool_kind_is_capped_like_pattern_and_satd(self) -> None:
+        from plan_scan import KIND_CAPS, LEAD_CAP
+
+        assert KIND_CAPS["tool"] == LEAD_CAP

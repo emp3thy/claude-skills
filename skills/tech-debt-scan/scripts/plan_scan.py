@@ -46,7 +46,9 @@ LEAD_CAP: Final[int] = 40
 # same reason (a TODO-heavy or large repository would otherwise fill the prompt). The
 # hotspot band is bounded by hotspot_band.max, and the coupling, artefact, cycle, docs
 # and tests kinds are bounded by the repository's own structure, so they are emitted whole.
-KIND_CAPS: Final[dict[str, int]] = {"pattern": LEAD_CAP, "satd": LEAD_CAP, "inventory": LEAD_CAP}
+KIND_CAPS: Final[dict[str, int]] = {
+    "pattern": LEAD_CAP, "satd": LEAD_CAP, "inventory": LEAD_CAP, "tool": LEAD_CAP,
+}
 KIND_ORDER: Final[tuple[str, ...]] = (
     "hotspot", "coupling", "pattern", "satd", "artefact", "cycle", "inventory", "docs", "tests",
 )
@@ -58,6 +60,7 @@ KIND_TITLE: Final[dict[str, str]] = {
     "artefact": "Artefacts",
     "cycle": "Import cycles (approximate, lead only)",
     "inventory": "Inventory signals",
+    "tool": "Tool signals",
     "docs": "Documentation and structure signals",
     "tests": "Test signals",
 }
@@ -78,6 +81,7 @@ class ScanDocs:
     coupling: dict[str, Any] = field(default_factory=dict)
     patterns: dict[str, Any] = field(default_factory=dict)
     rules: dict[str, Any] = field(default_factory=dict)
+    tool_signals: dict[str, Any] = field(default_factory=dict)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -97,6 +101,7 @@ def load_docs(workdir: Path) -> ScanDocs:
         coupling=_read_json(workdir / "coupling.json"),
         patterns=_read_json(workdir / "patterns.json"),
         rules=_read_json(workdir / "rule-findings.json"),
+        tool_signals=_read_json(workdir / "tool-signals.json"),
     )
 
 
@@ -179,6 +184,33 @@ def _pattern_leads(docs: ScanDocs, family: str, *, rule: str | None = None) -> l
             continue
         out.append(Lead("pattern", str(item["file"]), int(item["line"]),
                         f"{family}:{item['rule']}: {item['quote']}"))
+    return out
+
+
+def _tool_leads(docs: ScanDocs, family: str) -> list[Lead]:
+    """Inference-class tool signals for ``family``, as leads (spec 4.6, 4.7).
+
+    Fact-class signals are deliberately excluded: ``merge_findings`` turns
+    those into candidates, and a lead as well would put the same fact both in
+    front of a scout and in the candidate list. A signal with no file has
+    nothing for a scout to open.
+    """
+    out: list[Lead] = []
+    for item in docs.tool_signals.get("signals") or []:
+        if not isinstance(item, dict) or item.get("fact"):
+            continue
+        if str(item.get("family")) != family:
+            continue
+        path = item.get("file")
+        if not isinstance(path, str) or not path:
+            continue
+        line = item.get("line_start")
+        out.append(
+            Lead(
+                "tool", path, line if isinstance(line, int) else None,
+                f"{item.get('tool')}: {item.get('message', '')}",
+            )
+        )
     return out
 
 
@@ -324,44 +356,64 @@ def _migration_rule_leads(docs: ScanDocs) -> list[Lead]:
 
 def _raw_leads(family: str, docs: ScanDocs) -> list[Lead]:
     if family == "complex-units":
-        return _band(docs) + _top_by(
+        return (_band(docs) + _top_by(
             docs, ("longest_indented_run", "deep_indent_lines", "max_indent"), 10,
-            _has_deep_nesting)
+            _has_deep_nesting) + _tool_leads(docs, family))
     if family == "god-classes":
         return (_band(docs)
                 + _top_by(docs, ("loc", "fan_in_approx"), 10, _is_large_or_depended_on)
-                + _pairs(docs))
+                + _pairs(docs) + _tool_leads(docs, family))
     if family == "duplication":
-        return _band(docs) + _pairs(docs)
+        return _band(docs) + _pairs(docs) + _tool_leads(docs, family)
     if family == "dead-code":
         dead = _inventory_where(
             docs,
             lambda e: e.get("fan_in_approx") == 0 and (_number(e.get("churn")) or 0.0) == 0,
             "fan_in=0 churn=0",
         )
-        return _band(docs) + dead + _pattern_leads(docs, "dead-code")
+        return (
+            _band(docs) + dead + _pattern_leads(docs, "dead-code")
+            + _tool_leads(docs, family)
+        )
     if family == "error-masking":
-        return _band(docs) + _pattern_leads(docs, "error-masking")
+        return (
+            _band(docs) + _pattern_leads(docs, "error-masking") + _tool_leads(docs, family)
+        )
     if family == "test-gaps":
-        return _band(docs) + _tests_leads(docs)
+        return _band(docs) + _tests_leads(docs) + _tool_leads(docs, family)
     if family == "half-finished":
-        return _band(docs) + _satd(docs) + _pattern_leads(docs, "half-finished")
+        return (_band(docs) + _satd(docs) + _pattern_leads(docs, "half-finished")
+                + _tool_leads(docs, family))
     if family == "migration":
-        moved = _inventory_where(docs, lambda e: (_number(e.get("migration_commits")) or 0.0) > 0,
-                                 "migration_commits={migration_commits}")
-        return _band(docs) + moved + _migration_rule_leads(docs) + _pairs(docs)
+        moved = _inventory_where(
+            docs, lambda e: (_number(e.get("migration_commits")) or 0.0) > 0,
+            "migration_commits={migration_commits}"
+        )
+        return (
+            _band(docs) + moved + _migration_rule_leads(docs) + _pairs(docs)
+            + _tool_leads(docs, family)
+        )
     if family == "dependency-debt":
-        return _artefacts(docs, ("manifest", "lockfile", "runtime_version", "governance"))
+        return (
+            _artefacts(docs, ("manifest", "lockfile", "runtime_version", "governance"))
+            + _tool_leads(docs, family)
+        )
     if family == "doc-drift":
-        return _docs_leads(docs)
+        return _docs_leads(docs) + _tool_leads(docs, family)
     if family == "architecture":
-        return _band(docs) + _cycles(docs) + _pairs(docs, cross_only=True) + _structure(docs)
+        return (_band(docs) + _cycles(docs) + _pairs(docs, cross_only=True) + _structure(docs)
+                + _tool_leads(docs, family))
     if family == "security":
-        return _pattern_leads(docs, "security")
+        return _pattern_leads(docs, "security") + _tool_leads(docs, family)
     if family == "test-quality":
-        return _pattern_leads(docs, "test-quality") + _test_quality_extras(docs)
+        return (
+            _pattern_leads(docs, "test-quality") + _test_quality_extras(docs)
+            + _tool_leads(docs, family)
+        )
     if family == "pipeline-infra":
-        return _pattern_leads(docs, "pipeline-infra") + _artefacts(docs, ("ci", "container", "iac"))
+        return (_pattern_leads(docs, "pipeline-infra")
+                + _artefacts(docs, ("ci", "container", "iac"))
+                + _tool_leads(docs, family))
     raise KeyError(family)
 
 
