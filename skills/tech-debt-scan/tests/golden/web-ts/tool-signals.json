@@ -41,6 +41,23 @@
   },
   "signals": [
     {
+      "tool": "jscpd",
+      "family": "duplication",
+      "kind": "clone",
+      "file": "src/util/receipt-legacy.ts",
+      "line_start": 1,
+      "line_end": 27,
+      "message": "27 duplicated lines shared with src/util/receipt.ts",
+      "fact": false,
+      "extra": {
+        "other_file": "src/util/receipt.ts",
+        "other_line_start": 1,
+        "other_line_end": 26,
+        "tokens": 111,
+        "format": "typescript"
+      }
+    },
+    {
       "tool": "knip",
       "family": "dependency-debt",
       "kind": "unused",
@@ -108,6 +125,34 @@
       "extra": {
         "issue": "exports",
         "symbol": "reserveCart"
+      }
+    },
+    {
+      "tool": "knip",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/util/receipt-legacy.ts",
+      "line_start": null,
+      "line_end": null,
+      "message": "unused file src/util/receipt-legacy.ts",
+      "fact": false,
+      "extra": {
+        "issue": "files",
+        "symbol": "src/util/receipt-legacy.ts"
+      }
+    },
+    {
+      "tool": "knip",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/util/receipt.ts",
+      "line_start": null,
+      "line_end": null,
+      "message": "unused file src/util/receipt.ts",
+      "fact": false,
+      "extra": {
+        "issue": "files",
+        "symbol": "src/util/receipt.ts"
       }
     },
     {

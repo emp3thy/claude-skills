@@ -1319,6 +1319,76 @@
         "in_hotspot_band": true
       },
       "tier": "A"
+    },
+    {
+      "fingerprint": "b82f6e5b7feabfe3",
+      "quote_hash": "0c23cc75500f938abe5ffa4d6eed3444960365ba",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "title": "Ownership gaps in src/util/receipt-legacy.ts",
+      "severity": 2,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "ownership.former-contributor",
+      "note": "hotspot whose top author is inactive",
+      "evidence": [
+        {
+          "file": "src/util/receipt-legacy.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/util/receipt-legacy.ts: top author has no commits in 288 days",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ownership.former-contributor"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A"
+    },
+    {
+      "fingerprint": "6b888fd3b5a2ecc6",
+      "quote_hash": "eba27234f929dfe049f0cc200ca8cc75f62ec93f",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "title": "Ownership gaps in src/util/receipt.ts",
+      "severity": 2,
+      "effort": "M",
+      "source": "rule",
+      "rule_id": "ownership.former-contributor",
+      "note": "hotspot whose top author is inactive",
+      "evidence": [
+        {
+          "file": "src/util/receipt.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/util/receipt.ts: top author has no commits in 288 days",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "rule:ownership.former-contributor"
+      ],
+      "signals_cited": [],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A"
     }
   ],
   "open_questions": [

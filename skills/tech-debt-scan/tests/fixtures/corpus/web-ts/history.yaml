@@ -32,6 +32,8 @@ commits:
       src/cart/stock.ts: "@final"
       src/util/format.ts: "@final"
       src/util/format-legacy.ts: "@final"
+      src/util/receipt.ts: "@final"
+      src/util/receipt-legacy.ts: "@final"
       src/__tests__/cart.test.ts: "@final"
       src/__tests__/pricing.spec.ts: "@final"
       src/generated/api-types.ts: |

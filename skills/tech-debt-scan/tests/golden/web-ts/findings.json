@@ -827,6 +827,100 @@
       "diff": "NEW"
     },
     {
+      "fingerprint": "6b888fd3b5a2ecc6",
+      "slug": "ownership-gaps-in-src-util-receipt-ts",
+      "title": "Ownership gaps in src/util/receipt.ts",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "severity": 2,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": "src/util/receipt.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/util/receipt.ts: top author has no commits in 288 days",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "rule:ownership.former-contributor"
+      ],
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "priority": 1.6612,
+      "terms": {
+        "severity": 2,
+        "H": 0.1075,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.1075,
+        "tier_weight": 1.0,
+        "tractability": 0.75,
+        "priority": 1.6612
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "b82f6e5b7feabfe3",
+      "slug": "ownership-gaps-in-src-util-receipt-legacy-ts",
+      "title": "Ownership gaps in src/util/receipt-legacy.ts",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "severity": 2,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": "src/util/receipt-legacy.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/util/receipt-legacy.ts: top author has no commits in 288 days",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "rule:ownership.former-contributor"
+      ],
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "priority": 1.6612,
+      "terms": {
+        "severity": 2,
+        "H": 0.1075,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.1075,
+        "tier_weight": 1.0,
+        "tractability": 0.75,
+        "priority": 1.6612
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
       "fingerprint": "b7396d04c3285472",
       "slug": "deprecated-legacyformat-still-the-only-caller-path-not-formatmon",
       "title": "Deprecated legacyFormat still the only caller path, not formatMoney",

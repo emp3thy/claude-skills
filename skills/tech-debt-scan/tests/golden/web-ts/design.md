@@ -2,8 +2,8 @@
 schema_version: 2
 scan_date: 2026-09-06
 root: <root>
-total_files: 16
-total_loc: 153
+total_files: 18
+total_loc: 228
 languages:
 - javascript
 - markdown
@@ -30,10 +30,10 @@ tools_run: []
 tools_absent: []
 git_available: true
 counts:
-  candidates: 31
+  candidates: 33
   quote_failed: 2
-  verified: 31
-  tier_a: 11
+  verified: 33
+  tier_a: 13
   tier_b: 9
   tier_c: 10
   unverified: 0
@@ -43,13 +43,13 @@ counts:
 
 # Tech-debt scan - 2026-09-06
 
-Scanned `<root>` - 16 files, 153 LOC across: javascript, markdown, typescript.
+Scanned `<root>` - 18 files, 228 LOC across: javascript, markdown, typescript.
 
 Review each finding below. To act on one, change its `status:` from `pending` to
 `approved`, `rejected`, or `accepted` (add a `reason:` and an optional `until:` ISO
 date), then run `/tech-debt-promote`.
 
-Top hotspots: `src/api/client-admin.ts` (80.0), `src/api/client.ts` (42.9), `src/__tests__/pricing.spec.ts` (5.7), `README.md` (2.9), `src/checkout/checkout.ts` (2.9).
+Top hotspots: `src/api/client-admin.ts` (80.0), `src/api/client.ts` (42.9), `src/util/receipt-legacy.ts` (8.6), `src/util/receipt.ts` (8.6), `src/__tests__/pricing.spec.ts` (5.7).
 
 Top coupled pairs: `src/api/client-admin.ts` <-> `src/api/client.ts` (shared 4, ratio 0.889).
 
@@ -574,6 +574,64 @@ verified by construction
 
 ```
 src/checkout/checkout.ts: top author has no commits in 188 days
+```
+
+## Ownership gaps in src/util/receipt.ts
+
+```yaml
+status: pending
+slug: ownership-gaps-in-src-util-receipt-ts
+fingerprint: 6b888fd3b5a2ecc6
+tier: A
+priority: 1.6612
+family: ownership
+category: ownership
+debt_type: knowledge-process
+type_id: TD-16
+severity: 2
+effort: M
+diff: NEW
+```
+
+### Proof
+
+verified by construction
+
+### Evidence
+
+- `src/util/receipt.ts` (whole file)
+
+```
+src/util/receipt.ts: top author has no commits in 288 days
+```
+
+## Ownership gaps in src/util/receipt-legacy.ts
+
+```yaml
+status: pending
+slug: ownership-gaps-in-src-util-receipt-legacy-ts
+fingerprint: b82f6e5b7feabfe3
+tier: A
+priority: 1.6612
+family: ownership
+category: ownership
+debt_type: knowledge-process
+type_id: TD-16
+severity: 2
+effort: M
+diff: NEW
+```
+
+### Proof
+
+verified by construction
+
+### Evidence
+
+- `src/util/receipt-legacy.ts` (whole file)
+
+```
+src/util/receipt-legacy.ts: top author has no commits in 288 days
 ```
 
 ## Deprecated legacyFormat still the only caller path, not formatMoney
