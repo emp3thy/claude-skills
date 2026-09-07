@@ -281,7 +281,12 @@ def _counts(inputs: RenderInputs) -> dict[str, int]:
         diff_counts = diff_counts if isinstance(diff_counts, dict) else {}
         counts["new"] = int(diff_counts.get("new", 0))
         counts["resolved"] = int(diff_counts.get("resolved", 0))
-        counts["suppressed"] += int(diff_counts.get("suppressed", 0))
+        # Count how many verified findings actually get suppressed by diff.json,
+        # not what diff.json claims. A hand-edited diff.json may list fingerprints
+        # that don't exist in verified findings; only count the ones that do.
+        suppressed_fps = _suppressed_fingerprints(inputs)
+        actual_suppressed = sum(1 for f in findings if str(f.get("fingerprint")) in suppressed_fps)
+        counts["suppressed"] += actual_suppressed
     return counts
 
 

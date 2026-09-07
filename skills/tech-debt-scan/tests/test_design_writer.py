@@ -1204,3 +1204,46 @@ class TestDiffInFrontmatter:
         parsed = parse_design(out)
         assert victim not in {f["fingerprint"] for f in parsed["findings"]}
         assert "  suppressed: 1\n" in out.read_text(encoding="utf-8")
+
+    def test_frontmatter_counts_actual_suppressed_findings_not_claimed_count(
+        self, tmp_path: Path
+    ) -> None:
+        """diff.json.counts.suppressed may claim a number; frontmatter counts
+        how many findings it actually hid. Hand-edited diff.json might list
+        fingerprints that don't exist; the count should match the body, not
+        the diff.json claim."""
+        victim = TOP_FP
+        # diff.json claims it suppressed 5, but only one actually exists in verified findings
+        diff = _diff_doc(
+            suppressed=[{"fingerprint": victim, "status": "rejected", "reason": "by design"}],
+            counts={"new": 0, "unchanged": 0, "moved": 0, "edited": 0,
+                    "resolved": 0, "suppressed": 5, "expired": 0},
+        )
+        text = render_design(_inputs(tmp_path, diff=diff), SCAN_DATE)
+        # stats contribution is 0 (from _candidates), so total should be 0 + 1 = 1
+        assert "  suppressed: 1\n" in text
+
+    def test_frontmatter_counts_only_suppressed_fingerprints_that_carry_findings(
+        self, tmp_path: Path
+    ) -> None:
+        """A suppressed array may name fingerprints that no verified finding carries.
+        Only count the ones that actually exist. The body hides only the ones that
+        exist, so the count must match."""
+        victim = TOP_FP
+        nonexistent_fp = "99999999" * 2  # a fingerprint with no corresponding finding
+        # suppressed array has 2 entries: one exists, one doesn't
+        diff = _diff_doc(
+            suppressed=[
+                {"fingerprint": victim, "status": "rejected", "reason": "by design"},
+                {"fingerprint": nonexistent_fp, "status": "rejected", "reason": "pruned"},
+            ],
+            counts={"new": 0, "unchanged": 0, "moved": 0, "edited": 0,
+                    "resolved": 0, "suppressed": 2, "expired": 0},
+        )
+        out = tmp_path / "design.md"
+        write_design(_inputs(tmp_path, diff=diff), SCAN_DATE, out)
+        parsed = parse_design(out)
+        # Only victim should be suppressed (it exists); nonexistent_fp doesn't hide anything
+        assert victim not in {f["fingerprint"] for f in parsed["findings"]}
+        # frontmatter must say 1 suppressed, not 2
+        assert "  suppressed: 1\n" in out.read_text(encoding="utf-8")
