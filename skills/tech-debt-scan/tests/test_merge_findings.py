@@ -26,6 +26,7 @@ SECRET = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"
 SWALLOW = "except Exception:\n        pass"
 AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
 CORPUS = Path(__file__).parent / "fixtures" / "corpus"
+CANNED_SIGNALS = Path(__file__).parent / "fixtures" / "tool-signals" / "producer-invariant.json"
 # A fixed clock for the corpus chain, the same reason test_chain_goldens pins one:
 # rules.py derives day counts (and so fingerprints) from "now", and an unpinned
 # clock would make TestTierProducerInvariant's candidate count drift by the day.
@@ -134,15 +135,22 @@ def _scout(
     write_json(workdir / "scouts" / f"{family}.json", doc)
 
 
-def merge_over_corpus_fixture(tmp_path: Path, name: str) -> dict[str, Any]:
+def merge_over_corpus_fixture(
+    tmp_path: Path, name: str, *, signals: list[Any] | None = None
+) -> dict[str, Any]:
     """``merge``'s document for a real corpus fixture, replayed and chain-built up to
     that step (inventory, patterns, rules), over an empty scan plan.
 
     No scout runs and no golden scout output is copied in: every test that uses this
-    helper cares only about the tier a candidate carries, which rule findings (and,
-    once wired, fact-class tool signals) supply without a scout ever running: dispatching
-    one and reading its golden reply here would only slow the test down for no
-    assertion it makes.
+    helper cares only about the tier a candidate carries, which rule findings and
+    fact-class tool signals supply without a scout ever running: dispatching one and
+    reading its golden reply here would only slow the test down for no assertion it
+    makes.
+
+    ``signals`` is written to the workdir as ``tool-signals.json`` so ``merge`` reads it
+    from disk exactly as a real scan does. No corpus fixture carries one of its own --
+    which is why the chain goldens do not move for any of this -- so a caller that
+    wants tool candidates over a corpus has to supply them here.
     """
     repo = replay_fixture(name, tmp_path / "repo")
     workdir = tmp_path / "wd"
@@ -159,7 +167,18 @@ def merge_over_corpus_fixture(tmp_path: Path, name: str) -> dict[str, Any]:
         {"schema_version": 2, "findings": findings, "leads": leads},
     )
     write_json(workdir / "scan-plan.json", {"schema_version": 2, "entries": []})
+    if signals is not None:
+        write_json(workdir / "tool-signals.json", {"schema_version": 2, "signals": signals})
     return merge(workdir, repo, DEFAULTS)
+
+
+def canned_signals() -> list[Any]:
+    """Spec 4.7's canned signals file: every fact route, and every route that might
+    forge a tier. Loaded from disk rather than built inline so the corpus half of the
+    invariant and its direct-dispatch half assert over exactly the same input."""
+    doc = json.loads(CANNED_SIGNALS.read_bytes())
+    signals: list[Any] = doc["signals"]
+    return signals
 
 
 def test_invented_quote_becomes_an_open_question_and_moved_quote_gets_real_range(
@@ -667,19 +686,63 @@ class TestToolTokenLiftsTheCap:
 class TestTierProducerInvariant:
     """Spec 4.7: rules.py and osv fact-class signals are the only producers of a
     non-None tier at merge time. select_candidates pools only candidates whose
-    tier is None, so any other class acquiring one skips verification silently."""
+    tier is None, so any other class acquiring one skips verification silently.
+
+    Spec 4.7 requires the producer set asserted over the corpus *and* over a canned
+    signals file, and both halves here are driven by ``canned_signals()``: no corpus
+    fixture carries a ``tool-signals.json``, so a corpus run with none exercises no
+    tool route at all, and every assertion below would survive deleting the feature
+    it guards. The first two tests read the canned file from disk through ``merge``
+    over the real service-py tree; the third dispatches the same rows directly, where
+    a rule finding cannot absorb one and every route is visible. Each fails if
+    ``tool_candidates`` stops producing candidates."""
 
     def test_only_rule_and_tool_sources_ever_carry_a_tier(self, tmp_path: Path) -> None:
-        document = merge_over_corpus_fixture(tmp_path, "service-py")
+        document = merge_over_corpus_fixture(tmp_path, "service-py", signals=canned_signals())
         tiered = [c for c in document["candidates"] if c.get("tier") is not None]
         assert tiered, "the fixture must produce at least one tiered candidate"
         assert {c["source"] for c in tiered} <= {"rule", "tool"}
+        tool_cands = [c for c in document["candidates"] if c["source"] == "tool"]
+        assert tool_cands, "the canned signals file must reach merge and raise candidates"
+        assert [c for c in tool_cands if c["tier"] == "A"], "no tier-A tool candidate was raised"
+        assert [c for c in tool_cands if c["tier"] is None], "no untiered tool candidate was raised"
 
     def test_every_tiered_tool_candidate_came_from_an_osv_fact(self, tmp_path: Path) -> None:
-        document = merge_over_corpus_fixture(tmp_path, "service-py")
-        for cand in document["candidates"]:
-            if cand.get("tier") is not None and cand["source"] == "tool":
-                assert any(t == "tool:osv-scanner" for t in cand["confirmed_by"])
+        document = merge_over_corpus_fixture(tmp_path, "service-py", signals=canned_signals())
+        tiered = [
+            c for c in document["candidates"]
+            if c.get("tier") is not None and c["source"] == "tool"
+        ]
+        assert tiered, "the canned signals file must raise a tiered tool candidate to check"
+        for cand in tiered:
+            assert any(t == "tool:osv-scanner" for t in cand["confirmed_by"])
+            assert cand["family"] == "dependency-debt"
+
+    def test_a_canned_signals_file_gives_a_tier_only_to_its_osv_facts(self) -> None:
+        """The canned half, dispatched directly. The file's own adversarial rows are
+        asserted first: without them the tier assertions below hold vacuously, and a
+        later edit that quietly drops a row would leave a test that proves nothing."""
+        from merge_findings import tool_candidates
+
+        signals = canned_signals()
+        dicts = [s for s in signals if isinstance(s, dict)]
+        assert any(isinstance(s.get("extra"), dict) and s["extra"].get("tier") == "A"
+                   for s in dicts), "no row tries to forge a tier through extra"
+        assert any(s.get("tier") == "A" for s in dicts), "no row carries a top-level tier"
+        assert any(s.get("tool") == "trivy" for s in dicts), "no unknown fact-class tool"
+        assert any(s.get("tool") == "osv-scanner" and s.get("fact") is False
+                   for s in dicts), "no inference row from a tool the dispatch knows"
+        assert any(not isinstance(s, dict) for s in signals), "no non-object row"
+
+        new, _ = tool_candidates(signals, {"files": []}, [])
+        assert new, "the canned signals file must produce candidates"
+        tiered = [c for c in new if c["tier"] is not None]
+        untiered = [c for c in new if c["tier"] is None]
+        assert tiered and untiered, "the file must exercise both the tiered and untiered routes"
+        for cand in tiered:
+            assert cand["confirmed_by"] == ["tool:osv-scanner"]
+            assert cand["family"] == "dependency-debt"
+            assert cand["type_id"] == "TD-02"
 
 
 class TestFactClassRoutings:
