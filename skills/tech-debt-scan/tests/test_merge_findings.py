@@ -549,6 +549,38 @@ class TestToolCorroboration:
         corroborate_with_tools([cand], [self._signal(file="src/other.ts")])
         assert cand["confirmed_by"] == ["scout:duplication"]
 
+    def test_a_signal_matching_a_later_evidence_file_still_corroborates(self) -> None:
+        """A tool that flags any evidence file the candidate cites is a second
+        opinion, not only the first: jscpd emits one signal per clone pair naming
+        only its own ``firstFile``, and a scout's evidence order need not agree
+        with jscpd's, so the match must not depend on which side either producer
+        happened to list first."""
+        from merge_findings import corroborate_with_tools
+
+        cand = self._candidate(
+            evidence=[
+                {"file": "src/other.ts", "line_start": 2, "line_end": 6,
+                 "quote": "x", "quote_verified": True},
+                {"file": "src/util/format.ts", "line_start": 20, "line_end": 24,
+                 "quote": "y", "quote_verified": True},
+            ]
+        )
+        corroborate_with_tools([cand], [self._signal()])
+        assert "tool:jscpd" in cand["confirmed_by"]
+
+    def test_a_candidate_with_no_evidence_corroborates_nothing(self) -> None:
+        """Every candidate reaching ``corroborate_with_tools`` via ``merge()`` has
+        already passed ``_verify``'s non-empty-evidence gate, so an empty list is
+        dead code on that path. It stays as a defensive guard for this function's
+        directly-tested unit surface, where an empty list is trivial to construct
+        by hand; pinned here so that guard cannot silently regress into an
+        ``IndexError``."""
+        from merge_findings import corroborate_with_tools
+
+        cand = self._candidate(evidence=[])
+        corroborate_with_tools([cand], [self._signal()])
+        assert cand["confirmed_by"] == ["scout:duplication"]
+
     def test_a_fact_class_signal_does_not_corroborate_here(self) -> None:
         """Fact-class signals become candidates; corroborating as well would let
         one signal both raise a finding and vouch for it."""
@@ -572,12 +604,17 @@ class TestToolCorroboration:
         corroborate_with_tools([cand], [self._signal()])
         assert cand["confirmed_by"] == sorted(cand["confirmed_by"])
 
-    def test_a_signal_with_no_file_corroborates_nothing(self) -> None:
-        from merge_findings import corroborate_with_tools
-
-        cand = self._candidate()
-        corroborate_with_tools([cand], [self._signal(file=None)])
-        assert cand["confirmed_by"] == ["scout:duplication"]
+    # No test asserts that a signal with ``file: None`` corroborates nothing: it can't
+    # be made to discriminate. The candidate-side lookup always runs its evidence file
+    # through ``str(...)`` (so a null file reads as the literal string ``"None"``) while
+    # the signal-side path is stored unstringified in ``by_family`` (so a null file is
+    # the key ``None``, not ``"None"``). ``None != "None"``, so a None-file signal can
+    # never coincide with a candidate's lookup key -- with or without the
+    # ``isinstance``/truthy guard that filters it out early, and even when the
+    # candidate's own evidence file is also ``None`` (confirmed by removing the guard
+    # and running both cases by hand). A test built on this scenario would pass against
+    # a broken implementation as readily as a correct one, so it was deleted rather than
+    # kept for the appearance of coverage.
 
 
 class TestToolTokenLiftsTheCap:

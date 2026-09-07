@@ -326,7 +326,13 @@ def corroborate_with_tools(
     architecture, test-quality, dependency-debt and security once it is
     present. Matching is same family, same file — a tool that flags the same
     file for the same reason is a second opinion, and line proximity is not
-    required because a tool's range and a scout's rarely coincide.
+    required because a tool's range and a scout's rarely coincide. A
+    candidate is checked against *every* evidence file it cites, not only the
+    first: jscpd emits one signal per clone pair naming only its own
+    ``firstFile``, and a scout's evidence order need not agree with jscpd's
+    (madge and architecture share this shape), so matching only the primary
+    evidence item would silently drop corroboration whenever the two
+    producers order the same pair's files differently.
 
     Fact-class signals are excluded: those become candidates in their own
     right, and letting one both raise a finding and vouch for it would make a
@@ -346,8 +352,10 @@ def corroborate_with_tools(
         evidence = cand.get("evidence") or []
         if not evidence:
             continue
-        key = (str(cand.get("family")), str(evidence[0].get("file")))
-        tools = by_family.get(key)
+        family = str(cand.get("family"))
+        tools: set[str] = set()
+        for ev in evidence:
+            tools |= by_family.get((family, str(ev.get("file"))), set())
         if not tools:
             continue
         cand["confirmed_by"] = sorted(set(cand["confirmed_by"]) | {f"tool:{t}" for t in tools})
@@ -506,6 +514,12 @@ def merge(
     # left it -- before any fact-class tool signal becomes a candidate of its own (a
     # later phase, appended to the candidate list after this point) and could be read as
     # vouching for the very finding it raised.
+    #
+    # ``rule_kept`` below is never passed to ``corroborate_with_tools``: a rule finding
+    # is already tier A by construction, so ``apply_verdicts.family_cap`` (which this
+    # token exists to unlock) is never reached for it. Fact-class tool signals get their
+    # own, narrower route into a rule finding's ``confirmed_by`` in a later phase (spec
+    # 4.7); this is not that mechanism.
     tool_signals = (_read_json(workdir / "tool-signals.json") or {}).get("signals") or []
     corroborate_with_tools(kept, tool_signals)
     rule_kept: list[dict[str, Any]] = []
