@@ -376,8 +376,14 @@ class TestToolLeads:
         _, workdir = corpus_workdirs["service-py"]
         docs = load_docs(workdir)
         band = docs.inventory["hotspot_band"][0]
+        # Decoys are named to sort *before* the real band paths (``src/pay/...``)
+        # alphabetically, so band-first survival here can only come from the
+        # ``path not in band`` tiebreaker in ``leads_for``, not from incidental
+        # alphabetical ordering (a prior version used ``src/z*`` decoys, which
+        # sorted after the band paths and passed identically with or without
+        # that tiebreaker -- see task-1-rereview-1.md, Finding 2).
         signals = [
-            self._signal(file=f"src/z{i}.py", line_start=1) for i in range(60)
+            self._signal(file=f"src/a{i:03d}.py", line_start=1) for i in range(60)
         ] + [self._signal(file=band, line_start=1)]
         inflated = ScanDocs(
             inventory=docs.inventory,
@@ -393,3 +399,26 @@ class TestToolLeads:
         in_band = [lead.path in set(docs.inventory["hotspot_band"]) for lead in tools]
         assert in_band == sorted(in_band, reverse=True)
         assert band in [lead.path for lead in tools]
+
+    def test_tool_signals_on_disk_reach_the_rendered_prompt(self, tmp_path: Path) -> None:
+        """Every other ``TestToolLeads`` test hand-builds a ``ScanDocs`` and bypasses
+        ``load_docs``'s read of ``tool-signals.json`` from the workdir. This test
+        writes a real ``tool-signals.json`` on disk beside the other phase 1
+        documents (following the ``_signals`` helper the other plan tests use), then
+        builds the plan the way ``_main`` would -- exercising the disk read, the
+        lead build, the cap and the sort, and the prompt render together."""
+        repo = tmp_path / "repo"
+        (repo / "src").mkdir(parents=True)
+        (repo / "src" / "legacy.py").write_text("def export_v1():\n    pass\n", encoding="utf-8")
+        workdir = tmp_path / "wd"
+        _signals(repo, workdir)
+        signal = self._signal(file="src/legacy.py", line_start=1)
+        (workdir / "tool-signals.json").write_bytes(json.dumps(
+            {"schema_version": 2, "tools": {}, "signals": [signal]}
+        ).encode("utf-8"))
+        plan, prompts = build_plan(workdir, DEFAULTS, families=["dead-code"], top=None)
+        assert "dead-code" in plan["families_run"]
+        text = prompts["prompts/scout-dead-code.md"]
+        section = text.split("Tool signals:")[1]
+        assert "src/legacy.py:1" in section
+        assert "vulture: unused function 'export_v1'" in section
