@@ -189,20 +189,24 @@ def _resolved(entry: dict[str, Any], root: Path) -> tuple[bool, str | None]:
 
     Spec 4.10's baseline schema lists ``quote_hash`` only, but a hash cannot be
     searched for; ``record`` (Task 3) writes an optional ``quote`` alongside it
-    so RESOLVED has text to look for. An entry with no usable quote cannot be
-    checked either way, so it is presumed resolved -- with ``note`` saying why
-    -- the same as one whose file is gone outright; only a quote that is
-    present in the entry AND still findable in the file keeps it open.
+    so RESOLVED has text to look for. Resolving means the code that carried
+    the debt is gone, not that we simply cannot look: an entry with no usable
+    quote is resolved only when its file is absent or is now a directory;
+    otherwise it stays open, with ``note`` saying why, so a suppressed entry
+    never loses its suppression just because a scan failed to reproduce its
+    fingerprint.
     """
     file = entry.get("file")
     if not isinstance(file, str):
         return True, "file unknown"
     path = root / file
+    if path.is_dir():
+        return True, "file is a directory"
     if not path.is_file():
         return True, "file absent"
     quote = entry.get("quote")
     if not isinstance(quote, str) or not quote:
-        return True, "quote unavailable"
+        return False, "quote unavailable"
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:

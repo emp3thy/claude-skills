@@ -325,16 +325,34 @@ class TestDiff:
         assert out["counts"] == {"new": 1, "unchanged": 0, "moved": 0, "edited": 0,
                                  "resolved": 0, "suppressed": 0, "expired": 0}
 
-    def test_an_unmatched_baseline_entry_whose_quote_is_gone_is_resolved(
+    def test_an_unmatched_entry_with_no_quote_and_file_present_stays_open(
         self, tmp_path: Path
     ) -> None:
+        """An entry with no usable quote cannot be searched for. Resolving means
+        the code that carried the debt is gone, not that we simply cannot look,
+        so with its file present the entry stays open -- absent from ``status``
+        and uncounted -- rather than being presumed resolved."""
         from baseline import diff
 
         root = _repo(tmp_path, {"src/pay/refund.py": "nothing here\n"})
         base = _baseline(aaaaaaaaaaaaaaaa=_entry())
         out = diff(self._verified(), base, root, TODAY)
-        assert out["status"]["aaaaaaaaaaaaaaaa"]["diff"] == "RESOLVED"
-        assert out["counts"]["resolved"] == 1
+        assert "aaaaaaaaaaaaaaaa" not in out["status"]
+        assert out["counts"]["resolved"] == 0
+
+    def test_an_unmatched_rejected_entry_with_no_quote_stays_suppressed(
+        self, tmp_path: Path
+    ) -> None:
+        """The RESOLVED loop runs over every unmatched entry, suppressed ones
+        included. A rejected entry with no quote must not silently lose its
+        suppression the first scan that fails to reproduce its fingerprint."""
+        from baseline import diff
+
+        root = _repo(tmp_path, {"src/pay/refund.py": "nothing here\n"})
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry(status="rejected", reason="by design"))
+        out = diff(self._verified(), base, root, TODAY)
+        assert "aaaaaaaaaaaaaaaa" not in out["status"]
+        assert out["counts"]["resolved"] == 0
 
     def test_an_unmatched_entry_whose_file_is_gone_is_resolved(self, tmp_path: Path) -> None:
         from baseline import diff
@@ -342,6 +360,19 @@ class TestDiff:
         out = diff(self._verified(), _baseline(aaaaaaaaaaaaaaaa=_entry()), tmp_path, TODAY)
         assert out["status"]["aaaaaaaaaaaaaaaa"]["diff"] == "RESOLVED"
         assert out["status"]["aaaaaaaaaaaaaaaa"]["note"] == "file absent"
+
+    def test_an_unmatched_entry_whose_file_is_a_directory_is_resolved(
+        self, tmp_path: Path
+    ) -> None:
+        """No quote can live in a directory, so this is resolved -- but the note
+        should say what actually happened rather than claiming absence."""
+        from baseline import diff
+
+        (tmp_path / "src" / "pay" / "refund.py").mkdir(parents=True)
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry())
+        out = diff(self._verified(), base, tmp_path, TODAY)
+        assert out["status"]["aaaaaaaaaaaaaaaa"]["diff"] == "RESOLVED"
+        assert out["status"]["aaaaaaaaaaaaaaaa"]["note"] == "file is a directory"
 
     def test_an_unmatched_entry_whose_quote_still_exists_is_not_resolved(
         self, tmp_path: Path
