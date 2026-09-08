@@ -82,7 +82,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "pattern:commented-out-code",
         "pattern:legacy-name",
         "satd",
@@ -95,12 +94,12 @@
         "pattern:dead-code:legacy-name"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": null
     },
@@ -169,6 +168,7 @@
         }
       ],
       "confirmed_by": [
+        "hotspot",
         "scout:dead-code"
       ],
       "signals_cited": [
@@ -180,7 +180,7 @@
         "coupling_degree": 0,
         "fan_in_approx": null,
         "path_class": "source",
-        "in_hotspot_band": false
+        "in_hotspot_band": true
       },
       "tier": null
     },
@@ -339,7 +339,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "satd",
         "scout:test-gaps",
         "signal:no-mapped-tests"
@@ -348,12 +347,12 @@
         "no-mapped-test"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": null
     },
@@ -734,7 +733,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "satd",
         "scout:migration"
       ],
@@ -744,12 +742,12 @@
         "satd"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": null
     },
@@ -1019,7 +1017,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "satd",
         "scout:architecture"
       ],
@@ -1029,12 +1026,12 @@
         "satd"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": null
     },
@@ -1160,7 +1157,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "pattern:dynamic-eval",
         "pattern:security-suppression",
         "pattern:string-sql",
@@ -1173,12 +1169,12 @@
         "satd"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": null
     },

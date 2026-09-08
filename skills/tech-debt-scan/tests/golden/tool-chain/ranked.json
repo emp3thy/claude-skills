@@ -384,16 +384,16 @@
     {
       "fingerprint": "d0af6b85d7b41fd1",
       "rank": 21,
-      "priority": 1.435,
+      "priority": 1.4,
       "terms": {
         "severity": 4,
-        "H": 0.025,
+        "H": 0.0,
         "C": 0.0,
         "F": 0.0,
-        "interest": 1.025,
+        "interest": 1.0,
         "tier_weight": 0.35,
         "tractability": 1.0,
-        "priority": 1.435
+        "priority": 1.4
       },
       "tier": "C",
       "in_top_n": false,
@@ -454,26 +454,8 @@
       "spread_capped": false
     },
     {
-      "fingerprint": "336fccbd19191237",
-      "rank": 25,
-      "priority": 1.0762,
-      "terms": {
-        "severity": 3,
-        "H": 0.025,
-        "C": 0.0,
-        "F": 0.0,
-        "interest": 1.025,
-        "tier_weight": 0.35,
-        "tractability": 1.0,
-        "priority": 1.0762
-      },
-      "tier": "C",
-      "in_top_n": false,
-      "spread_capped": false
-    },
-    {
       "fingerprint": "15f8d6f9f914c08f",
-      "rank": 26,
+      "rank": 25,
       "priority": 1.0542,
       "terms": {
         "severity": 3,
@@ -491,7 +473,7 @@
     },
     {
       "fingerprint": "37d90c120cb0525a",
-      "rank": 27,
+      "rank": 26,
       "priority": 1.0542,
       "terms": {
         "severity": 3,
@@ -509,6 +491,24 @@
     },
     {
       "fingerprint": "1f9c7d8ac03999e4",
+      "rank": 27,
+      "priority": 1.05,
+      "terms": {
+        "severity": 3,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 1.05
+      },
+      "tier": "C",
+      "in_top_n": false,
+      "spread_capped": false
+    },
+    {
+      "fingerprint": "336fccbd19191237",
       "rank": 28,
       "priority": 1.05,
       "terms": {
@@ -582,16 +582,16 @@
     {
       "fingerprint": "532b106d4a224260",
       "rank": 32,
-      "priority": 0.8072,
+      "priority": 0.7875,
       "terms": {
         "severity": 3,
-        "H": 0.025,
+        "H": 0.0,
         "C": 0.0,
         "F": 0.0,
-        "interest": 1.025,
+        "interest": 1.0,
         "tier_weight": 0.35,
         "tractability": 0.75,
-        "priority": 0.8072
+        "priority": 0.7875
       },
       "tier": "C",
       "in_top_n": false,
@@ -634,44 +634,8 @@
       "spread_capped": false
     },
     {
-      "fingerprint": "08dd9ba688d79fda",
-      "rank": 35,
-      "priority": 0.7175,
-      "terms": {
-        "severity": 2,
-        "H": 0.025,
-        "C": 0.0,
-        "F": 0.0,
-        "interest": 1.025,
-        "tier_weight": 0.35,
-        "tractability": 1.0,
-        "priority": 0.7175
-      },
-      "tier": "C",
-      "in_top_n": false,
-      "spread_capped": false
-    },
-    {
-      "fingerprint": "f3c6e048c6d5f4f6",
-      "rank": 36,
-      "priority": 0.7175,
-      "terms": {
-        "severity": 2,
-        "H": 0.025,
-        "C": 0.0,
-        "F": 0.0,
-        "interest": 1.025,
-        "tier_weight": 0.35,
-        "tractability": 1.0,
-        "priority": 0.7175
-      },
-      "tier": "C",
-      "in_top_n": false,
-      "spread_capped": false
-    },
-    {
       "fingerprint": "441a5776ddef0261",
-      "rank": 37,
+      "rank": 35,
       "priority": 0.7056,
       "terms": {
         "severity": 2,
@@ -689,7 +653,7 @@
     },
     {
       "fingerprint": "121bbdafc23ecebd",
-      "rank": 38,
+      "rank": 36,
       "priority": 0.7028,
       "terms": {
         "severity": 2,
@@ -706,8 +670,26 @@
       "spread_capped": false
     },
     {
+      "fingerprint": "08dd9ba688d79fda",
+      "rank": 37,
+      "priority": 0.7,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 0.7
+      },
+      "tier": "C",
+      "in_top_n": false,
+      "spread_capped": false
+    },
+    {
       "fingerprint": "7eb44fa443b9caee",
-      "rank": 39,
+      "rank": 38,
       "priority": 0.7,
       "terms": {
         "severity": 2,
@@ -725,6 +707,24 @@
     },
     {
       "fingerprint": "e4e3d0cfb7d0981c",
+      "rank": 39,
+      "priority": 0.7,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 0.7
+      },
+      "tier": "C",
+      "in_top_n": false,
+      "spread_capped": false
+    },
+    {
+      "fingerprint": "f3c6e048c6d5f4f6",
       "rank": 40,
       "priority": 0.7,
       "terms": {

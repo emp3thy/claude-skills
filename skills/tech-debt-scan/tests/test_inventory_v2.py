@@ -86,6 +86,17 @@ def test_service_py_path_classes(service_py_repo: Path) -> None:
     assert {e["language"] for e in result["files"]} == {"python", "markdown"}
 
 
+def test_legacy_export_has_zero_churn_and_zero_fan_in(service_py_repo: Path) -> None:
+    """Spec 6: the one genuinely zero-churn file, so the 2.3 dead-code cap can award B."""
+    from config import DEFAULTS
+    from inventory import build_all
+
+    inventory, _ = build_all(service_py_repo, churn_months=240, config=DEFAULTS)
+    entry = next(e for e in inventory["files"] if e["path"] == "src/pay/legacy_export.py")
+    assert entry["churn"] == 0 and entry["fan_in_approx"] == 0
+    assert entry["path_class"] == "source"
+
+
 def test_web_ts_path_classes(web_ts_repo: Path) -> None:
     result = walk_inventory(web_ts_repo)
     classes = {entry["path"]: entry["path_class"] for entry in result["files"]}
@@ -303,7 +314,7 @@ def test_git_pass_per_file_history_fields(service_py_repo: Path) -> None:
     assert gateway["migration_commits"] == 1
     assert gateway["mapped_tests"] == []
     assert files["tests/test_ledger.py"]["flaky_commits"] == 1
-    assert files["src/pay/legacy_export.py"]["churn"] == 1
+    assert files["src/pay/legacy_export.py"]["churn"] == 0
 
 
 def test_git_pass_authors_keyed_by_email_and_bots_dropped(service_py_repo: Path) -> None:

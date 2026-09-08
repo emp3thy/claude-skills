@@ -1,5 +1,10 @@
 commits:
   - author: "Ada Lovelace <ada@example.com>"
+    date: "2004-01-01T10:00:00+00:00"
+    subject: "chore: legacy export kept for the audit archive"
+    files:
+      src/pay/legacy_export.py: "@final"
+  - author: "Ada Lovelace <ada@example.com>"
     date: "2024-08-15T10:00:00+00:00"
     subject: "feat: initial payment service"
     files:
@@ -11,7 +16,6 @@ commits:
       .github/workflows/ci.yml: "@final"
       src/pay/__init__.py: "@final"
       src/pay/utils.py: "@final"
-      src/pay/legacy_export.py: "@final"
       src/pay/old_helper.py: |
         """Retired helper."""
 

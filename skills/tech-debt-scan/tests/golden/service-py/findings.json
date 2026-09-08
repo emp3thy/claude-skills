@@ -784,15 +784,14 @@
         }
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "confirmed_by": [
-        "hotspot",
         "pattern:dynamic-eval",
         "pattern:security-suppression",
         "pattern:string-sql",
@@ -805,16 +804,16 @@
       "tier": "B",
       "verdict": "confirm",
       "proof": "Line 11 interpolates refund_id directly into SQL via f-string with a bare '# nosec' (no justification text). Line 13 runs a shell command with shell=True and a bare '# noqa: S602'. Both are genuine injection-prone patterns; refund_id is a caller-supplied parameter with no validation. No in-repo caller exists (confirmed by grep), but the module docstring states it's kept for an active external v1 reporting job, so reachability cannot be ruled out. The suppressions are unexplained regardless of current reachability.",
-      "priority": 2.87,
+      "priority": 2.8,
       "terms": {
         "severity": 4,
-        "H": 0.025,
+        "H": 0.0,
         "C": 0.0,
         "F": 0.0,
-        "interest": 1.025,
+        "interest": 1.0,
         "tier_weight": 0.7,
         "tractability": 1.0,
-        "priority": 2.87
+        "priority": 2.8
       },
       "in_top_n": false,
       "spread_capped": false,
@@ -928,65 +927,6 @@
         "tier_weight": 0.7,
         "tractability": 1.0,
         "priority": 2.1882
-      },
-      "in_top_n": false,
-      "spread_capped": false,
-      "diff": "NEW"
-    },
-    {
-      "fingerprint": "336fccbd19191237",
-      "slug": "v1-csv-export-left-in-place-past-its-own-removal-ticket",
-      "title": "v1 CSV export left in place past its own removal ticket",
-      "family": "migration",
-      "debt_type": "design",
-      "type_id": null,
-      "severity": 3,
-      "effort": "S",
-      "evidence": [
-        {
-          "file": "src/pay/legacy_export.py",
-          "line_start": 1,
-          "line_end": 8,
-          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report\ndef export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:",
-          "quote_verified": true
-        },
-        {
-          "file": "src/pay/legacy_export.py",
-          "line_start": 17,
-          "line_end": 19,
-          "quote": "# def export_v0(refund_id):\n#     rows = fetch(refund_id)\n#     return rows",
-          "quote_verified": true
-        }
-      ],
-      "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": 0,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "confirmed_by": [
-        "hotspot",
-        "satd",
-        "scout:migration"
-      ],
-      "source": "scout",
-      "rule_id": null,
-      "tool": null,
-      "tier": "B",
-      "verdict": "confirm",
-      "proof": "export_v1 (legacy_export.py:8-14) has zero call sites confirmed by repo-wide grep for 'export_v1'/'legacy_export' outside its own definition. TODO(#42) at line 7 references a v2 report that doesn't exist anywhere in the repo (no export_v2, no mention in README/CHANGELOG/docs). Commented-out export_v0 stub at lines 17-19 confirms a prior migration was also never cleaned up. This is real orphaned migration debt.",
-      "priority": 2.1525,
-      "terms": {
-        "severity": 3,
-        "H": 0.025,
-        "C": 0.0,
-        "F": 0.0,
-        "interest": 1.025,
-        "tier_weight": 0.7,
-        "tractability": 1.0,
-        "priority": 2.1525
       },
       "in_top_n": false,
       "spread_capped": false,
@@ -1182,6 +1122,64 @@
       "tier": "B",
       "verdict": "confirm",
       "proof": "release.yml:2-4 only triggers on pushed 'v*' tags and has no step diffing the tag against pyproject.toml's version (lines 10-12 just build and upload). pyproject.toml:3 is already at 0.2.0 while CHANGELOG.md tops out at 0.1.0, meaning the 0.2.0 bump happened without a corresponding tag/release run or changelog update \u2014 a manual, unverified version bump. Real pipeline gap.",
+      "priority": 2.1,
+      "terms": {
+        "severity": 3,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 2.1
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "336fccbd19191237",
+      "slug": "v1-csv-export-left-in-place-past-its-own-removal-ticket",
+      "title": "v1 CSV export left in place past its own removal ticket",
+      "family": "migration",
+      "debt_type": "design",
+      "type_id": null,
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 1,
+          "line_end": 8,
+          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report\ndef export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 17,
+          "line_end": 19,
+          "quote": "# def export_v0(refund_id):\n#     rows = fetch(refund_id)\n#     return rows",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 0,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "satd",
+        "scout:migration"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "export_v1 (legacy_export.py:8-14) has zero call sites confirmed by repo-wide grep for 'export_v1'/'legacy_export' outside its own definition. TODO(#42) at line 7 references a v2 report that doesn't exist anywhere in the repo (no export_v2, no mention in README/CHANGELOG/docs). Commented-out export_v0 stub at lines 17-19 confirms a prior migration was also never cleaned up. This is real orphaned migration debt.",
       "priority": 2.1,
       "terms": {
         "severity": 3,
@@ -1712,6 +1710,66 @@
       "diff": "NEW"
     },
     {
+      "fingerprint": "08dd9ba688d79fda",
+      "slug": "export-v1-and-its-legacy-export-module-have-zero-callers",
+      "title": "export_v1 and its legacy_export module have zero callers",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-30",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 17,
+          "line_end": 19,
+          "quote": "# def export_v0(refund_id):\n#     rows = fetch(refund_id)\n#     return rows",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 1,
+          "line_end": 8,
+          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report\ndef export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 0,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "pattern:commented-out-code",
+        "pattern:legacy-name",
+        "satd",
+        "scout:dead-code"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.",
+      "priority": 1.4,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 1.4
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
       "fingerprint": "7eb44fa443b9caee",
       "slug": "changelog-has-no-entry-for-the-0-2-0-release-already-in-pyprojec",
       "title": "CHANGELOG has no entry for the 0.2.0 release already in pyproject.toml",
@@ -1861,15 +1919,14 @@
         }
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "confirmed_by": [
-        "hotspot",
         "satd",
         "scout:architecture"
       ],
@@ -1879,77 +1936,16 @@
       "tier": "C",
       "verdict": "unverified",
       "proof": "",
-      "priority": 0.8072,
+      "priority": 0.7875,
       "terms": {
         "severity": 3,
-        "H": 0.025,
+        "H": 0.0,
         "C": 0.0,
         "F": 0.0,
-        "interest": 1.025,
+        "interest": 1.0,
         "tier_weight": 0.35,
         "tractability": 0.75,
-        "priority": 0.8072
-      },
-      "in_top_n": false,
-      "spread_capped": false,
-      "diff": "NEW"
-    },
-    {
-      "fingerprint": "08dd9ba688d79fda",
-      "slug": "export-v1-and-its-legacy-export-module-have-zero-callers",
-      "title": "export_v1 and its legacy_export module have zero callers",
-      "family": "dead-code",
-      "debt_type": "code",
-      "type_id": "TD-30",
-      "severity": 2,
-      "effort": "S",
-      "evidence": [
-        {
-          "file": "src/pay/legacy_export.py",
-          "line_start": 17,
-          "line_end": 19,
-          "quote": "# def export_v0(refund_id):\n#     rows = fetch(refund_id)\n#     return rows",
-          "quote_verified": true
-        },
-        {
-          "file": "src/pay/legacy_export.py",
-          "line_start": 1,
-          "line_end": 8,
-          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report\ndef export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:",
-          "quote_verified": true
-        }
-      ],
-      "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": 0,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "confirmed_by": [
-        "hotspot",
-        "pattern:commented-out-code",
-        "pattern:legacy-name",
-        "satd",
-        "scout:dead-code"
-      ],
-      "source": "scout",
-      "rule_id": null,
-      "tool": null,
-      "tier": "C",
-      "verdict": "confirm",
-      "proof": "Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.",
-      "priority": 0.7175,
-      "terms": {
-        "severity": 2,
-        "H": 0.025,
-        "C": 0.0,
-        "F": 0.0,
-        "interest": 1.025,
-        "tier_weight": 0.35,
-        "tractability": 1.0,
-        "priority": 0.7175
+        "priority": 0.7875
       },
       "in_top_n": false,
       "spread_capped": false,
@@ -1979,9 +1975,10 @@
         "coupling_degree": 0,
         "fan_in_approx": null,
         "path_class": "source",
-        "in_hotspot_band": false
+        "in_hotspot_band": true
       },
       "confirmed_by": [
+        "hotspot",
         "scout:dead-code"
       ],
       "source": "scout",
@@ -2083,15 +2080,14 @@
         }
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "confirmed_by": [
-        "hotspot",
         "satd",
         "scout:test-gaps",
         "signal:no-mapped-tests"
@@ -2102,16 +2098,16 @@
       "tier": "C",
       "verdict": "downgrade",
       "proof": "Confirmed no test file or test references 'legacy_export' anywhere in tests/ (searched conftest.py, test_refund.py, test_ledger.py, fixtures/seed.py). However export_v1 is simultaneously flagged (candidate 1) as dead code slated for deletion under TODO(#42) with zero callers. Writing a test for code destined for removal is not a productive fix; the correct remediation is deletion, not coverage. Real gap, but low-value to act on.",
-      "priority": 0.3587,
+      "priority": 0.35,
       "terms": {
         "severity": 1,
-        "H": 0.025,
+        "H": 0.0,
         "C": 0.0,
         "F": 0.0,
-        "interest": 1.025,
+        "interest": 1.0,
         "tier_weight": 0.35,
         "tractability": 1.0,
-        "priority": 0.3587
+        "priority": 0.35
       },
       "in_top_n": false,
       "spread_capped": false,

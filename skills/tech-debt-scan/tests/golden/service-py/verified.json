@@ -91,7 +91,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "pattern:commented-out-code",
         "pattern:legacy-name",
         "satd",
@@ -104,15 +103,15 @@
         "pattern:dead-code:legacy-name"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
-      "tier": "C",
-      "tier_reason": "dead-code is capped at C without tool corroboration",
+      "tier": "B",
+      "tier_reason": "dead-code is capped at B without tool corroboration",
       "verdict": "confirm",
       "proof": "Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.",
       "checked": [
@@ -206,6 +205,7 @@
         }
       ],
       "confirmed_by": [
+        "hotspot",
         "scout:dead-code"
       ],
       "signals_cited": [
@@ -217,7 +217,7 @@
         "coupling_degree": 0,
         "fan_in_approx": null,
         "path_class": "source",
-        "in_hotspot_band": false
+        "in_hotspot_band": true
       },
       "tier": "C",
       "tier_reason": "dead-code is capped at C without tool corroboration",
@@ -425,7 +425,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "satd",
         "scout:test-gaps",
         "signal:no-mapped-tests"
@@ -434,12 +433,12 @@
         "no-mapped-test"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": "C",
       "tier_reason": "the verifier downgraded it",
@@ -934,7 +933,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "satd",
         "scout:migration"
       ],
@@ -944,12 +942,12 @@
         "satd"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": "B",
       "tier_reason": "migration is capped at B without coupling corroboration",
@@ -1246,7 +1244,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "satd",
         "scout:architecture"
       ],
@@ -1256,12 +1253,12 @@
         "satd"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": "C",
       "tier_reason": "selected for verification, but no verdict came back",
@@ -1373,7 +1370,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "pattern:dynamic-eval",
         "pattern:security-suppression",
         "pattern:string-sql",
@@ -1386,12 +1382,12 @@
         "satd"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": "B",
       "tier_reason": "security is capped at B without tool corroboration",
@@ -2100,8 +2096,8 @@
     "unknown_fingerprint": 1,
     "missing_verdict": 1,
     "tier_a": 16,
-    "tier_b": 13,
-    "tier_c": 6,
+    "tier_b": 14,
+    "tier_c": 5,
     "rejected": 2
   }
 }
