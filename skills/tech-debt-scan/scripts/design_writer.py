@@ -11,6 +11,15 @@ twin of the same finding list, which ``evaluate.py`` prefers over
 ``mark_promoted`` is stage 3 of /tech-debt-promote: it flips approved findings
 to ``promoted`` in place once their bundles have been emitted.
 
+When ``diff.json`` is present it does three things to the render: the
+frontmatter's ``new`` and ``resolved`` counts come from its own ``counts``
+block; its own ``suppressed`` count is added to the frontmatter's
+``suppressed`` count (candidates-stage suppressions and baseline suppressions
+are different things counted under the same key); and any fingerprint listed
+in its ``suppressed`` array -- a finding a human already rejected or accepted
+on a previous run -- is dropped from the document body entirely, not rendered
+again with a status it already has.
+
 ``notes-prompt`` renders the single remediation-note agent's prompt (spec
 4.11's Task 5) to ``<workdir>/prompts/notes.md``: the read-only rule, then per
 top-N finding its fingerprint, family, severity, effort, proof and evidence,
@@ -242,11 +251,37 @@ def _stat_sum(stats: Any, key: str) -> int:
     return total
 
 
+def _int_count(value: Any) -> int:
+    """One ``diff.json`` count as an integer, or 0 when it is not one.
+
+    The document is hand-editable and every other reader of it is
+    permissive, so a count someone typed as a word, left as null, or wrote
+    as a float must not be the one thing that takes the whole render down.
+    An integer is taken as it stands -- a bool never is, since ``True`` is
+    an ``int`` in Python but never a count -- and so is a string of digits,
+    which is how a count survives a round trip through a hand-edited
+    document; anything else counts as nothing.
+    """
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return 0
+
+
 def _counts(inputs: RenderInputs) -> dict[str, int]:
     """The frontmatter ``counts`` block, in spec 4.11's pinned key order.
 
     ``new`` and ``resolved`` are appended only when ``diff.json`` was present;
-    in phase 3 it never is, so the two keys are simply absent.
+    in phase 3 it never is, so the two keys are simply absent. ``suppressed``
+    is always present -- it starts as the candidates-stage suppression count
+    (``candidates.json``'s own ``stats``) and, when a diff document is
+    present, is widened by the baseline's own suppressed count: a finding a
+    human already rejected or accepted on a previous run. The two counters
+    are additive, not alternatives, because they suppress at different
+    stages for different reasons.
     """
     findings = _findings(inputs)
     stats = inputs.candidates.get("stats")
@@ -264,9 +299,37 @@ def _counts(inputs: RenderInputs) -> dict[str, int]:
     if inputs.diff is not None:
         diff_counts = inputs.diff.get("counts")
         diff_counts = diff_counts if isinstance(diff_counts, dict) else {}
-        counts["new"] = int(diff_counts.get("new", 0))
-        counts["resolved"] = int(diff_counts.get("resolved", 0))
+        counts["new"] = _int_count(diff_counts.get("new", 0))
+        counts["resolved"] = _int_count(diff_counts.get("resolved", 0))
+        # Count how many verified findings actually get suppressed by diff.json,
+        # not what diff.json claims. A hand-edited diff.json may list fingerprints
+        # that don't exist in verified findings; only count the ones that do.
+        suppressed_fps = _suppressed_fingerprints(inputs)
+        actual_suppressed = sum(1 for f in findings if str(f.get("fingerprint")) in suppressed_fps)
+        counts["suppressed"] += actual_suppressed
     return counts
+
+
+def _suppressed_fingerprints(inputs: RenderInputs) -> frozenset[str]:
+    """Fingerprints ``diff.json``'s ``suppressed`` list names.
+
+    Each entry is a finding a human already rejected or accepted on a
+    previous run; ``_ordered`` drops these before any finding reaches the
+    document body, so a rejected finding is never shown again with a status
+    it already has. Absent ``diff.json``, or a malformed ``suppressed`` list
+    or entry, contributes nothing here -- the same permissive reading
+    ``_counts`` and ``_diff_for`` already give a hand-editable document.
+    """
+    if inputs.diff is None:
+        return frozenset()
+    entries = inputs.diff.get("suppressed")
+    if not isinstance(entries, list):
+        return frozenset()
+    return frozenset(
+        str(entry["fingerprint"])
+        for entry in entries
+        if isinstance(entry, dict) and "fingerprint" in entry
+    )
 
 
 def _ordered(inputs: RenderInputs) -> list[tuple[dict[str, Any], dict[str, Any]]]:
@@ -275,8 +338,13 @@ def _ordered(inputs: RenderInputs) -> list[tuple[dict[str, Any], dict[str, Any]]
     A ranked fingerprint with no verified finding is skipped. A verified
     finding with no rank entry is appended after the ranked ones with a
     synthesised entry whose ``priority`` is null; it can never be in the top N.
+    A finding whose fingerprint is in ``_suppressed_fingerprints`` is dropped
+    before either pass runs, so it never reaches the document body (nor
+    ``findings.json``, ``_rows``'s other consumer) by either path.
     """
-    by_fingerprint = {str(f.get("fingerprint")): f for f in _findings(inputs)}
+    suppressed = _suppressed_fingerprints(inputs)
+    findings = [f for f in _findings(inputs) if str(f.get("fingerprint")) not in suppressed]
+    by_fingerprint = {str(f.get("fingerprint")): f for f in findings}
     pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     placed: set[str] = set()
     for entry in inputs.ranked.get("findings") or []:
@@ -288,7 +356,7 @@ def _ordered(inputs: RenderInputs) -> list[tuple[dict[str, Any], dict[str, Any]]
             continue
         placed.add(fingerprint)
         pairs.append((entry, finding))
-    for finding in _findings(inputs):
+    for finding in findings:
         fingerprint = str(finding.get("fingerprint"))
         if fingerprint in placed:
             continue

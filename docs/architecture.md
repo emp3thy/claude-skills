@@ -52,9 +52,8 @@ their behaviour.
 
 ## Two-command flow
 
-`/tech-debt-scan <repo>` runs a thirteen-step chain (the spec numbers the full
-fourteen; step 11 — the baseline diff — is inserted by phase 5 without
-renumbering the rest):
+`/tech-debt-scan <repo>` runs the full fourteen-step chain (step 4, the tool
+probe, landed in phase 4b; step 11, the baseline diff, lands in phase 5a):
 
 1. `inventory.py` writes `inventory.json` and `coupling.json`: churn,
    complexity, hotspots and change coupling.
@@ -90,6 +89,12 @@ renumbering the rest):
     fixed formula `priority = severity x interest x tier_weight x
     tractability` (the `rank.py` row below has every term) and taking the
     top N.
+11. `baseline.py diff` writes `diff.json`: every current finding is
+    classified against the committed baseline (`NEW`, `UNCHANGED`,
+    `UNCHANGED (moved)`, `UNCHANGED (edited)` or `RESOLVED` — see
+    [The baseline](#the-baseline) below), and every baseline entry no
+    current finding matched is checked on disk for `RESOLVED`. An absent
+    baseline marks every finding `NEW`.
 12. `design_writer.py notes-prompt` writes `prompts/notes.md`; one read-only
     remediation-note Agent writes `notes.json`.
 13. `design_writer.py render` writes `design.md` and `findings.json`,
@@ -106,7 +111,17 @@ The user edits `design.md`, flipping each finding's `status:` to `approved`,
 3. `promote.py` writes one `chore-<slug>-<date>/` bundle per `approved`
    finding via `bundle_writer.py`, then flips each to `promoted` via
    `design_writer.mark_promoted`.
-4. Reports the counts and the bundle location.
+4. With `--baseline <path>`, `baseline.py record` is called in process to
+   write every finding's decision — including `rejected` and `accepted`,
+   with their `reason` and `until` — back into the baseline, and to write a
+   `pending` entry for every verified finding that carried no decision (a
+   suppressed finding has none, by design), refresh an entry it sees again
+   against this scan, and migrate an entry whose code was edited onto the
+   finding's new fingerprint with its decision intact, then
+   `ensure_gitignore_triple` tracks the baseline the
+   first time git reports it ignored (see [The baseline](#the-baseline)
+   below).
+5. Reports the counts and the bundle location.
 
 All intermediate artefacts default to `.tech-debt/` under the scanned repo (the
 directory is gitignored and is itself in the inventory ignore list). Bundles
@@ -127,6 +142,8 @@ The scripts below (landed across v2 phases 1 to 3) are wired into
 | `verify_prompts.py --workdir .tech-debt [--top N]` | `candidates.json`, `inventory.json`, `coupling.json`, `.tech-debt.yaml` | `verify-plan.json`, `prompts/verify-<nn>.md`, an empty `verdicts/` for phase 3's replies | the budget rule of spec 4.8: every candidate with `tier: null` is ranked by provisional priority (the 4.9 formula at tier B, with `H`, `C` and `F` normalised against the candidate pool's own maxima, so a large raw signal such as a `coupling_degree` of 12 cannot outweigh severity in this provisional order), ties broken on fingerprint ascending; the first `max(top_multiple x N, min_candidates)` (3N or 30, whichever is larger) are selected, then every candidate at or above `always_min_severity` (5) and every candidate in `always_families` (`security`) is added, and the selection is truncated to `max_candidates` (72) in that same order; tier A candidates (rules and tool facts) are never sent to a verifier and appear in neither list, and every other unselected candidate is listed under `unverified`; batches of `batch_size` (6) sorted by primary file then fingerprint keep one file's candidates together; each prompt carries the read-only rule and an allowance of three further files the verifier may open and must name in `opened`, then per candidate its fingerprint, title, family, severity, effort, note, `confirmed_by`, the deterministic signals, every cited span read from disk with `context_lines` (30) lines of context either side and 1-based line numbers (the cited lines marked `>`), the change-coupled partners of the primary file from `coupling.pairs`, approximate referrers from the stem graph, built once per plan and passed to every prompt (`not computed` when the graph raises, so a graph failure never aborts a verification), the family's `verifier_questions`, the family block's own traps (the same list the scout prompt carries, under `known non-debt shapes for this family`) and then the `traps` from config whose `family` matches and whose `path_glob` fnmatches the primary file; every line of repository text passes through `redact`, and the prompt shares no text with the scout prompts beyond the read-only rule and that family trap list, restated on purpose so the verifier can match a known non-debt shape |
 | `apply_verdicts.py --workdir .tech-debt` | `candidates.json`, `verify-plan.json`, the `verdicts/verify-<nn>.json` files `verify-plan.json`'s batches name | `verified.json` | the tier table of spec 4.8: a candidate already `tier: "A"` (rule findings, tool facts) stays A with no verifier; `confirm` with every cited quote `quote_verified` and at least one `confirmed_by` entry beyond the scout's own `scout:<family>` (a `pattern:`, `rule:`, `tool:`, `signal:` prefix, `satd`, `coupling`, `hotspot`, or a second `scout:` family counts as corroboration) earns A, otherwise B; `downgrade` or `refer` earns C; `reject` keeps `tier: null` with `verified: true` and the verdict's `proof` for the report's considered-and-rejected section; a candidate that was never selected, or was selected but no batch returned a verdict for it, is C with `verdict: "unverified"` and `verified: false` — the two states share the tier and the verdict word but not the `tier_reason`, which reads `not selected for verification` for the first (raise `--top` or the verifier budget) and `selected for verification, but no verdict came back` for the second (re-dispatch that batch); the 2.3 family caps then weaken a confirmed tier (never strengthen it) — duplication and architecture (unless `tool:` or `coupling`), god-classes TD-20 (unless `coupling`), test-gaps (unless `signal:no-mapped-tests`), test-quality (severity also capped at 3), dependency-debt, security and migration (unless `coupling`) cap at B; dead-code caps at C unless churn and fan-in are both 0 and `path_class` is `source` (then B) or a `tool:` is present (then no cap); doc-drift and pipeline-infra scout candidates cap at B unconditionally; every other family is uncapped; where a verdict exists its `severity` (1-5) and validated `effort` replace the scout's, and its `checked`, `opened`, `proof` and `trap_matched` are copied onto the finding; a verdict whose `fingerprint` matches no candidate is counted `unknown_fingerprint` and ignored, and a batch whose output file is missing on disk prints a warning and leaves its candidates `unverified` rather than failing the run; every finding also carries `tier_reason`, the prose for why it landed on that tier, computed on the same branch as the tier itself (`_tier_and_reason`) and read off `_family_cap_and_lift` for a capped one so the wording cannot drift from `family_cap`'s own branching — a tool-raised candidate gets its own sentence there (the tool that raised it is not its own corroboration), because its `confirmed_by` is empty by design and the scout wording would read as "no tool corroborated this"; exits 2 (with an `error:` line to stderr) when `candidates.json` or `verify-plan.json` is missing or unreadable/malformed |
 | `rank.py --workdir .tech-debt [--preset balanced\|hotspot-first\|architecture\|quick-wins] [--top N]` | `verified.json`, `inventory.json`, `.tech-debt.yaml` | `ranked.json` | spec 4.9's priority formula: `priority = severity x interest x tier_weight x tractability`, `interest = 1 + wH*H + wC*C + wF*F` with `H`, `C` and `F` the finding's `hotspot_score`, `coupling_degree` and (`0` when the primary file's `fan_in_mode` is `anywhere`) `fan_in_approx`, each normalised against `repo_maxima(inventory)`; `tier_weight` is A 1.0, B 0.7, C 0.35; `tractability` is S 1.0, M 0.75, L 0.5 (`quick-wins`: 1.0, 0.5, 0.2); the four presets (`balanced`, `hotspot-first`, `architecture`, `quick-wins`) fix their own weights and tractability by name, `--preset` overrides `ranking.preset`, and only `balanced` reads `ranking.weights`/`ranking.tractability` from config; only tier A and B findings are eligible for the top N, and under `quick-wins` a duplication finding without `tool:` or `coupling` corroboration and every ownership finding are excluded from it too (still emitted with `in_top_n: false`); findings are walked in priority-descending, fingerprint-ascending order (the tie-break) filling the top N while each family holds fewer than `ceil(spread_cap x N)` (spread_cap 0.5) chosen entries, a finding a family cap displaces is marked `spread_capped: true` and keeps its priority-ordered `rank` (numbered over every finding, top or not); `formula_version` (1), every term, the preset name, weights and tractability are recorded on the document so any priority can be recomputed; the output is byte-identical across runs on identical inputs; exits 2 (with an `error:` line to stderr) when `verified.json` or `inventory.json` is missing, unreadable, malformed, of the wrong top-level shape, or `--preset` names an unknown preset |
+| `baseline.py diff [--workdir .tech-debt] [--root <repo>] [--baseline <path>] [--today <date>]` | `verified.json`, the committed baseline (default `.tech-debt/baseline.json`, resolved against `--root`) | `diff.json` | spec 4.10: `--root` is the scanned repository every entry's `file` is resolved against, and defaults to the `root` the workdir's own `inventory.json` recorded (else `.`), because the chain is run from the skill's directory rather than the repository and the wrong root reports every unmatched entry RESOLVED with `file absent`; every current finding classified against the baseline — `UNCHANGED` on a fingerprint match, `UNCHANGED (moved)` when that same match's recorded `line_start` differs from the finding's current line, `UNCHANGED (edited)` on the one heuristic (same family and file, a baseline entry within `EDIT_WINDOW` (40) lines with an integer `line_start` on both sides, sharing at least half the baseline entry's title tokens — the nearest by line distance is kept when more than one qualifies), `RESOLVED` for a baseline entry no finding matched once its `quote` can no longer be found in the file or the file itself is gone (`file absent`; an entry with no recorded `quote` stays open with the note `quote unavailable` rather than resolving without proof), otherwise `NEW`; a `rejected` entry suppresses its finding indefinitely and an unexpired `accepted` entry suppresses it until `until`, both counted under `suppressed` instead of `status`; an `accepted` entry past `until` (or with an unparseable `until`) returns under `status` with the note `acceptance expired` (or `until is not a date`) and counts under both its classification and `expired`; an absent baseline marks every finding `NEW` with `baseline_found: false`; see [The baseline](#the-baseline) below |
+| `baseline.py record --design <design.md> [--workdir .tech-debt] [--root <repo>] [--baseline <path>] [--today <date>]` | the edited `design.md`, `verified.json` | the baseline file, and (via `ensure_gitignore_triple`) possibly `<root>/.gitignore` | spec 4.10: writes every `design.md` finding's `status`, `reason`, `until` and (once promoted) `bundle` into the baseline, keyed by fingerprint and keeping entries this scan did not touch; also writes a `pending` entry for every `verified.json` finding with no decision and no prior entry, so a finding seen and undecided reads UNCHANGED rather than NEW next scan (ruling 25); an entry it sees again keeps only `status`, `reason`, `until`, `bundle` and `first_seen` and has every finding-derived field refreshed, and an entry whose code was edited since (matched by the same heuristic `diff` classifies with, over the whole baseline, with the result kept only when no current finding already owns it) migrates to the finding's new fingerprint with its decision intact and the old key removed (ruling 29); `--root` defaults the same way `diff`'s does; a decision with no fingerprint or an unrecognised status raises, and a `promoted` decision with no bundle on record raises; the write is atomic (`os.replace` via a `.tmp` file); then `ensure_gitignore_triple` appends the tracked-baseline triple to `.gitignore` the first time git reports the baseline path ignored, returning `appended`, `present` (already tracked, or the triple already there), `no-git`, or `still-ignored` (the triple was appended but an ancestor directory is itself wholly ignored, so the baseline stays ignored until the user un-ignores that ancestor by hand); called in process by `promote.py --baseline`, never run standalone in the chain |
 | `design_writer.py render --workdir .tech-debt --scan-date <date> [--out <path>]` | `ranked.json`, `verified.json`, `candidates.json`, `scan-plan.json`, `inventory.json`, `coupling.json`, and `notes.json`, `diff.json` and `tool-signals.json` when present | `design.md`, `findings.json` | spec 4.11's review document: literal-YAML frontmatter (`schema_version`, `scan_date`, `root`, `total_files`, `total_loc`, `languages`, `preset`, `families_run`, `families_skipped`, `tools_run`, `tools_absent`, `git_available`, `counts`), an empty list rendered as `key: []` on one line so it never reads back as `None` — the two tool lists come from `tool-signals.json`'s `tools` map, `ran` in `tools_run` and every other status in `tools_absent` with the status in parentheses, and are both `[]` when no signals file is present; the header with the review instructions and, only when `git_available`, the top five hotspots and coupled pairs (a `No git history` line instead); then the seven body sections in order — `# Top N` with one H2 per top-N finding, `# Below the cut`, `# Below the cut: tier C and unverified` (a `slug | family | file | reason` row per finding, the reason being `verified.json`'s `tier_reason`), `# Considered and rejected`, `# Looks bad but is fine`, `# Open questions for the maintainer` and `# Not assessed`. A finding is an H2 whose fenced `yaml` anchor carries `status`, `slug`, `fingerprint`, `tier`, `priority`, `family`, `category` (always the alias of `family`), `debt_type`, `type_id`, `severity`, `effort` and `diff`, followed by `### Proof`, `### Evidence` (one `` `file:start-end` `` line per item then its quote in an unlabelled fenced block), `### Signals` and, for a top-N finding, `### Remediation` and `### Acceptance criteria` (`remediation note not available` when the note agent has no entry). Slugs come from `slugs.unique_slugs` over the ranked order, so a finding's slug does not move when another is added below it; every title, proof and quote passes through `redact` at the point of writing; without `diff.json` every finding renders `diff: NEW` and the `new` and `resolved` counts are omitted; the output is LF-only and re-parsed through `design_parser.parse_design` as a write-time self-check |
 | `design_writer.py notes-prompt --workdir .tech-debt [--top N]` | the same six documents `render` requires (via `load_inputs`) | `prompts/notes.md` | spec 4.11's Task 5: one prompt for the single remediation-note agent, over the top N only, in `ranked.json`'s `top_n` priority order — a role sentence naming the repository root, the read-only rule, then per top-N finding `## <n>. <title>` with `fingerprint`, `family`, `severity`, `effort`, the free-text proof and each evidence item as `` `file:start-end` `` followed by its quote in a fenced block (the same fencing `render` uses), then `NOTES_CONTRACT` verbatim (the `notes.json` reply shape: `fingerprint`, a `remediation` of at most 120 words with no code, and two to five checkable `acceptance_criteria`); every title, proof and quote is redacted. `--top` narrows the prompt below `ranked.json`'s own top N and never widens it. The agent's reply, stored as `notes.json`, is read back by `render` — via `notes_by_fingerprint`, which keeps only an entry whose fingerprint is in `top_n`, whose `remediation` is a non-empty string and whose `acceptance_criteria` is a list of strings, dropping anything else silently — into each top-N finding's `### Remediation` and `### Acceptance criteria` sections; a missing or malformed `notes.json` renders `NOTE_PLACEHOLDER` in both instead of failing |
 | `evaluate.py --planted <planted.json> [--workdir <dir>] [--top N] [--json]` | `findings.json` (preferred) or `verified.json`, and `ranked.json` when present | stdout: the table, or the JSON report with `--json` | per-family precision, recall and decoy hits by tier, tier A precision, and decoys in tier A or the top N, against a fixture's `planted.json` |
@@ -371,6 +388,116 @@ finding should look at its `confirmed_by` and `source`: `rule:<id>` or
 `tool:osv-scanner` (or both, when a manifest also tripped a `rules.py`
 finding) means no verifier read it; anything else means one did.
 
+## The baseline
+
+`baseline.py` (spec 4.10) is two subcommands. `diff` (step 11) classifies
+every finding in `verified.json` against the committed baseline and writes
+`diff.json` for `design_writer.py` to render: a finding's own classification
+into its `diff` anchor key in `design.md`, and the tally of baseline entries
+no finding matched into the frontmatter's `resolved:` count, since a
+resolved entry has no finding left to carry it. `record` writes a human's
+decisions from an edited `design.md` back into the baseline, also writing a
+`pending` entry for every verified finding a decision never covered,
+refreshing every finding-derived field of an entry it sees again, and
+migrating an entry whose code was edited onto the finding's new fingerprint
+with its decision intact. It is never run standalone in the chain —
+`promote.py` calls it in process when given `--baseline`.
+
+**Classification.** Every current finding gets exactly one of four `diff`
+values — `UNCHANGED`, `UNCHANGED (moved)`, `UNCHANGED (edited)` or `NEW` —
+and those four are the only values `design.md` can carry on a finding.
+`RESOLVED` is the fifth classification and belongs to a baseline entry, not
+to a finding: it names an entry no current finding matched, so there is no
+finding in the document to hang it on. It appears in `diff.json`'s `status`
+map, keyed by the entry's own fingerprint, and is counted in the
+frontmatter's `resolved:` line; nothing else in `design.md` reports it:
+
+- `UNCHANGED` — its fingerprint matches a baseline entry. Also the answer
+  when that entry's recorded `line_start`, or the finding's own current
+  line, is not an integer: `UNCHANGED (moved)` compares two line numbers and
+  needs both, so a match against an entry with `line_start: null` reads
+  `UNCHANGED` however far the code has moved.
+- `UNCHANGED (moved)` — its fingerprint matches a baseline entry, but the
+  entry's recorded `line_start` differs from the finding's current line (a
+  fingerprint carries no line, so a quote that moved keeps its identity).
+- `UNCHANGED (edited)` — the one heuristic classification, and the only one
+  that can misfire in either direction. No baseline entry shares the
+  finding's fingerprint, but one does share its family and file, sits
+  within `EDIT_WINDOW` (40) lines of the finding's line (an integer line is
+  required on both sides — a manifest-level finding such as an osv-scanner
+  advisory, which always has none, can never match via this heuristic and
+  falls through to a direct fingerprint match or, failing that, `NEW`), and
+  shares at least half the baseline entry's title tokens; when more than
+  one baseline entry qualifies, the nearest by line distance is kept.
+- `RESOLVED` (an entry, never a finding) — a baseline entry no current
+  finding matched (by either route above), once its recorded `quote` can no
+  longer be found in the file, or
+  the file itself is gone (`file absent`) or is now a directory. An entry
+  with no recorded `quote` — every entry written before `record` started
+  writing one alongside `quote_hash` (this task) — fails closed instead: it
+  stays open with the note `quote unavailable` rather than resolving on the
+  mere absence of a way to check, so a suppressed entry is never dropped
+  from the baseline just because a scan failed to reproduce its fingerprint.
+- `NEW` — none of the above; also every finding when no baseline file
+  exists at all (`baseline_found: false` in `diff.json`).
+
+A direct fingerprint match and an edited match report expiry alike: whichever
+route matched, an entry with `status: accepted` whose acceptance has since
+expired carries the note `acceptance expired` (or `until is not a date` when
+`until` cannot be parsed), and both routes count it under `counts.expired`.
+An edited match's note is `suppressed by edited match` only while the match
+is still currently suppressing; once that acceptance expires, the note
+becomes whichever expiry note applies, exactly as a direct match's would.
+
+**Suppression and expiry.** A baseline entry with `status: rejected`
+suppresses its matched finding indefinitely; one with `status: accepted`
+suppresses it until its `until` date. Both are listed under `diff.json`'s
+`suppressed` array (with the entry's `reason`) instead of `status`, and
+`design_writer.py` hides them from `design.md`'s body entirely while
+counting them in the frontmatter's `suppressed` figure — a finding a human
+already rejected or accepted on a previous run is not rendered again with a
+status it already has. Once an `accepted` entry's `until` passes, the
+finding is no longer suppressed: a direct fingerprint match reappears under
+`status` with `diff: UNCHANGED` or `UNCHANGED (moved)` as the line
+comparison dictates, carrying the note `acceptance expired` (or
+`until is not a date` when `until` cannot be parsed as an ISO date) —
+both cases are also counted under `counts.expired`.
+
+**The gitignore triple.** The baseline lives inside the gitignored workdir
+(`.tech-debt/baseline.json` by default), so `record` (via
+`ensure_gitignore_triple`) tracks it the first time git reports the path as
+ignored, by appending a comment line and three lines to `<root>/.gitignore`
+— at the default location: `!.tech-debt/` (un-ignores the directory),
+`.tech-debt/*` (re-ignores everything in it), then
+`!.tech-debt/baseline.json` (un-ignores the baseline alone); the three
+lines are derived from wherever the baseline actually lives, each path
+segment escaped for gitignore's own metacharacters. It returns one of four
+outcomes: `appended` (the triple was just written); `present` (the
+baseline is already tracked, or the triple is already there — no edit
+needed); `no-git` (no `git` executable on the machine, so the check is
+skipped and the baseline is written regardless); or `still-ignored` (the
+triple was appended — it is the correct pattern for this location — but
+the baseline remains ignored, because an ancestor directory is itself
+wholly ignored and no per-child `!` rule can undo that; the user must
+un-ignore that ancestor by hand). `diff` never touches `.gitignore`; only
+`record` does, and only `promote.py --baseline` calls `record` outside of
+manual use.
+
+**Exit 6.** `promote.py --baseline <path>` writes every finding's decision
+back into the baseline after the bundles are emitted and `design.md` is
+marked promoted. When that write-back raises — `BaselineError` (including
+a malformed baseline file), a `ValueError` (including malformed JSON in
+`verified.json` or `ranked.json`), or an `OSError` — `promote.py` returns
+`promote.EXIT_WRITE_BACK` (6). By that point the bundles are already on
+disk and `design.md` already shows `promoted`: exit 6 means the write-back
+alone failed, never the promote itself. The fix is to address the cause and
+re-run promote; a finding this run already emitted, or that a prior run
+already marked `promoted`, is picked up by the `already_promoted` handling
+and its existing bundle directory reused rather than emitted twice. Given
+`--baseline` with a v1 `design.md` (no fingerprints), `promote.py` refuses
+before emitting anything, with exit 2 — a baseline keyed by fingerprint
+cannot record a decision that has none.
+
 ## Scout families
 
 `scripts/categories.py` defines fourteen language-agnostic debt families
@@ -422,7 +549,10 @@ no v1 path ever read a scout prompt.
 hand-rendered YAML frontmatter block (`schema_version`, `scan_date`, `root`,
 `total_files`, `total_loc`, `languages`, `preset`, `families_run`,
 `families_skipped`, `tools_run`, `tools_absent`, `git_available`, `counts`,
-plus `new`/`resolved` once a baseline exists; `tools_run` names each tool
+plus `new`/`resolved` once `diff.json` is present — step 11 always writes
+one, whether or not a baseline file exists yet, so this holds for every
+complete chain run and not only once a baseline has been committed;
+`tools_run` names each tool
 `tool-signals.json` records as `ran` and `tools_absent` every other one with
 its status in parentheses — `absent`, `failed`, `skipped`, or `unknown` for a
 status the four do not cover — which is spec 4.5's "names every absent tool"
@@ -477,7 +607,7 @@ v1 top-N picker it existed for (spec 8).
 
 ## Promotion
 
-`promote.py <design.md> --out <dir> [--force]`:
+`promote.py <design.md> --out <dir> [--force] [--baseline <path>]`:
 
 1. `design_parser.parse_design` parses the (human-edited) `design.md`.
 2. For each finding with `status: approved`, `bundle_writer.write_bundle` writes
@@ -495,15 +625,40 @@ v1 top-N picker it existed for (spec 8).
 3. `design_writer.mark_promoted` flips each emitted finding's status from
    `approved` to `promoted` in place (atomic `os.replace` via a `.tmp` file,
    `.bak` of the prior content), so a re-run is a no-op.
+4. With `--baseline <path>`, `baseline.py record` is called in process to
+   write every finding's decision — `promoted` with its bundle directory,
+   `rejected`, `accepted` with its `reason` and `until`, or still `pending`
+   or `approved` — back into the baseline; a verified finding with no
+   decision at all (suppressed and so absent from `design.md`, by design)
+   gets a fresh `pending` entry, one already recorded is refreshed against
+   this scan, and one whose code was edited since migrates to the finding's
+   new fingerprint keeping its decision, so each reads UNCHANGED rather than
+   NEW next scan;
+   then `ensure_gitignore_triple` tracks the baseline the first time git
+   reports it ignored. See
+   [The baseline](#the-baseline) above for the classification, suppression,
+   expiry and gitignore-triple mechanics this feeds.
 
 **Collision policy.** An existing bundle directory is treated as
 already-promoted (counted, not re-emitted) unless `--force` is given.
 
-**Exit codes.** `0` success; `2` on a parse / mark-promoted error; `4` on a
-bundle-write failure *after* at least one bundle was written (roll-forward — the
-succeeded bundles persist and their findings are still marked promoted); `6`
-(`promote.EXIT_WRITE_BACK`) is reserved for phase 5's baseline write-back — no
-code path returns it yet.
+**Exit codes.** `0` success; `2` on a parse / mark-promoted error, or a v1
+`design.md` (no fingerprints) given with `--baseline` — refused before
+anything is emitted, since a baseline without fingerprints is worse than
+none; a v2 document with no findings at all is not a v1 one and promotes
+normally, emitting and recording nothing; `4` on a bundle-write failure *after* at least one bundle was written
+(roll-forward — the succeeded bundles persist and their findings are still
+marked promoted); `6` (`promote.EXIT_WRITE_BACK`) when `--baseline` was
+given and the write-back to the baseline raised — `BaselineError`, a
+`DesignParseError` (the write-back re-parses `design.md` after the
+mark-promoted mutation, so a document that became unparseable in between
+fails here), a `ValueError` (including malformed JSON), or an `OSError` —
+after the bundles were already emitted and `design.md` already marked: the
+bundles and the status flips persist, only the baseline itself did not
+update.
+Re-running promote after fixing the cause is safe — a finding already
+emitted, or already `promoted` on disk, is picked up by the
+`already_promoted` handling rather than re-emitted.
 
 ## CI and testing
 
@@ -529,13 +684,18 @@ code path returns it yet.
 
 Human in the loop throughout: nothing is fixed automatically. The v2 delivery
 phases run from phase 1 (deterministic signals) to phase 5 (baseline and
-evaluation). Phases 1 to 3 have landed: `/tech-debt-scan` and
-`/tech-debt-promote` run the full detect-verify-rank chain end to end.
+evaluation, split into 5a and 5b). Phases 1 to 3 have landed: `/tech-debt-scan`
+and `/tech-debt-promote` run the full detect-verify-rank chain end to end.
 `--families deep` already selects the full fourteen-family set today
 (`plan_scan.py`, phase 2). **Phase 4 has landed:** `tools_probe.py` runs the
 ten first-cut external tools (phase 4a), and step 4's network notice, tool
 leads and corroboration, the fact-class tier route, module chunking and the
 halved deep thresholds are wired in (phase 4b) — see
-[External tool probe](#external-tool-probe). Phase 5 still adds the baseline,
-its `diff` reporting, and promote write-back. Autonomously applying fixes
+[External tool probe](#external-tool-probe). **Phase 5a has landed:**
+`baseline.py` diffs every finding against a committed baseline (step 11) and
+promote writes decisions back into it — plus a `pending` entry for every
+verified finding a decision never covered — appending the gitignore triple
+where needed — see [The baseline](#the-baseline). Phase 5b, the live harness
+run that repairs the corpus and sets a measured tier A precision bar in place of
+the provisional 0.80 figure, has not landed yet. Autonomously applying fixes
 without review is a separate follow-on, deferred and out of scope.

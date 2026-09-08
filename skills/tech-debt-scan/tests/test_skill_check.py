@@ -91,14 +91,14 @@ def test_real_skill_md_names_every_v2_script_and_no_deleted_one() -> None:
 
     ``tools_probe.py`` moved from the "not yet wired" list to the "must be present"
     list in phase 4b (this module's step 4 runs it after the network notice);
-    ``baseline.py`` stays in the "not yet wired" list until phase 5 inserts step 11.
+    ``baseline.py`` makes the same move in phase 5a, which inserts step 11.
     """
     skill = (Path(__file__).parent.parent / "SKILL.md").read_text(encoding="utf-8")
     for name in ("inventory.py", "patterns.py", "rules.py", "tools_probe.py", "plan_scan.py",
                  "merge_findings.py", "verify_prompts.py", "apply_verdicts.py", "rank.py",
-                 "design_writer.py", "design_parser.py", "promote.py"):
+                 "design_writer.py", "design_parser.py", "promote.py", "baseline.py"):
         assert f"scripts/{name}" in skill, name
-    for gone in ("build_synthesis_prompt.py", "baseline.py"):
+    for gone in ("build_synthesis_prompt.py",):
         assert gone not in skill, f"{gone} is not part of phase 4b"
     assert "--top5" not in skill and "raw-findings.json" not in skill
     assert "top5.json" not in skill and "synthesis" not in skill.lower()

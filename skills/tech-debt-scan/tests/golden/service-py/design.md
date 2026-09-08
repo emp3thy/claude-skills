@@ -37,6 +37,8 @@ counts:
   unverified: 1
   rejected: 2
   suppressed: 0
+  new: 37
+  resolved: 0
 ---
 
 # Tech-debt scan - 2026-09-06
