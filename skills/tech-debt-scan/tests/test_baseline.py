@@ -866,6 +866,58 @@ class TestRecord:
         assert entry["bundle"] == "chore-empty-catch-2026-01-05"
         assert entry["first_seen"] == "2026-01-05"
 
+    def test_record_matches_an_edited_finding_the_way_diff_does(self, tmp_path: Path) -> None:
+        """Ruling 29's reproduction: `fp1` is a direct match (owned by the
+        current finding of that same fingerprint) at line 10, `fp2` is
+        `rejected` at line 12 with no current finding of its own, and `fp3`
+        -- a new fingerprint at line 11 sharing `fp1` and `fp2`'s title -- is
+        the nearer-or-tied edited-match candidate for both. `_entry_for` must
+        run the heuristic over the whole baseline exactly as `classify`
+        does, and only check ownership of the *result*: since that result is
+        `fp1`, already owned, `fp3` gets a fresh `pending` entry rather than
+        stealing `fp2`'s rejection -- otherwise `record` would migrate an
+        entry `diff` never considered available, and the next scan would
+        silently suppress `fp3` with a rejection the user never gave it."""
+        from baseline import diff, record
+
+        root = _repo(tmp_path, {"src/a.py": "x\n" * 9 + "except Exception:\n" + "x\n" * 40})
+        path = tmp_path / "b.json"
+        path.write_text(json.dumps(_baseline(**{
+            "aaaaaaaaaaaaaaaa": _entry(file="src/a.py", line_start=10,
+                                       quote="except Exception:",
+                                       first_seen="2026-03-01", last_seen="2026-03-01"),
+            "bbbbbbbbbbbbbbbb": _entry(file="src/a.py", line_start=12, status="rejected",
+                                       reason="wontfix", quote="absent",
+                                       first_seen="2026-03-01", last_seen="2026-03-01"),
+        })), encoding="utf-8")
+
+        fp1 = _finding(
+            evidence=[{"file": "src/a.py", "line_start": 10, "line_end": 10,
+                       "quote": "except Exception:", "quote_verified": True}],
+        )
+        fp3 = _finding(
+            fingerprint="cccccccccccccccc", quote_hash="s" * 40,
+            evidence=[{"file": "src/a.py", "line_start": 11, "line_end": 11,
+                       "quote": "except Exception:", "quote_verified": True}],
+        )
+
+        doc = record(path, decisions=[], findings=[fp1, fp3], bundles={}, today=TODAY,
+                     preset="balanced")
+
+        assert doc["findings"]["cccccccccccccccc"]["status"] == "pending", \
+            "fp3 must not come back rejected -- fp1's entry is owned, not a free candidate"
+        assert doc["findings"]["cccccccccccccccc"]["first_seen"] == TODAY
+        assert doc["findings"]["cccccccccccccccc"]["reason"] is None
+        assert doc["findings"]["bbbbbbbbbbbbbbbb"]["status"] == "rejected"
+        assert doc["findings"]["bbbbbbbbbbbbbbbb"]["last_seen"] == "2026-03-01", \
+            "fp2 must be untouched -- it was never fp3's match"
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["status"] == "pending"
+
+        verified = {"schema_version": 2, "findings": [fp1, fp3]}
+        out = diff(verified, doc, root, TODAY)
+        assert out["suppressed"] == []
+        assert "cccccccccccccccc" not in {s["fingerprint"] for s in out["suppressed"]}
+
 
 class TestTriple:
     """Direct, git-free checks on the derived lines themselves."""

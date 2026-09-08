@@ -336,21 +336,24 @@ def _entry_for(
 
     A direct fingerprint match wins, and is left in place for the caller to
     overwrite. Failing that, the same edited-match heuristic ``diff``
-    classifies with is run over the entries no current finding carries, so an
-    entry another finding matches directly can never be taken by a
-    neighbouring one; a match there is popped from ``out``, which is what
-    migrates the entry to this finding's current fingerprint and removes the
-    old key (ruling 26). Returns an empty dict when the finding has no entry
-    by either route.
+    classifies with is run over the whole of ``out``, exactly as ``classify``
+    runs it, so ``record`` and ``diff`` always agree on which entry a finding
+    is an edit of. Only the result is checked for ownership, not the
+    candidates: a match already owned by a current finding (a key present in
+    ``by_fp``) is left alone -- an entry another finding matches directly can
+    never be taken by a neighbouring one -- and the finding gets a fresh
+    entry instead; only an unowned match is popped from ``out``, which is
+    what migrates the entry to this finding's current fingerprint and
+    removes the old key (ruling 29). Returns an empty dict when the finding
+    has no entry by either route, or its only match is already owned.
     """
     if fp in out:
         return dict(out[fp])
     file, line = _primary(finding)
     if file is None:
         return {}
-    unowned = {key: entry for key, entry in out.items() if key not in by_fp}
-    old_key = _edited_match(finding, {"findings": unowned}, file, line)
-    if old_key is None:
+    old_key = _edited_match(finding, {"findings": out}, file, line)
+    if old_key is None or old_key in by_fp:
         return {}
     return dict(out.pop(old_key))
 
@@ -391,14 +394,16 @@ def record(
     ``decisions`` already handled is left to that loop.
 
     Both loops find a finding's existing entry the same way (``_entry_for``,
-    ruling 26): its own fingerprint first, and failing that ``_edited_match``
-    over the entries no current finding carries, so an entry whose code was
-    edited since the last scan migrates to the finding's new fingerprint and
-    the old key is removed -- otherwise the decision would be orphaned under
-    a key nothing matches again, reported RESOLVED, while the edited finding
-    started over as ``pending``. Only five fields of an entry found either
-    way are preserved: ``status``, ``reason``, ``until``, ``bundle`` and
-    ``first_seen``. Everything ``_entry_fields`` builds -- family, file,
+    ruling 29): its own fingerprint first, and failing that ``_edited_match``
+    over the whole baseline, exactly as ``diff`` matches it, with the result
+    kept only when no current finding already owns it -- so an entry whose
+    code was edited since the last scan migrates to the finding's new
+    fingerprint and the old key is removed, while an entry another finding
+    matches directly is never taken from it. Otherwise the decision would be
+    orphaned under a key nothing matches again, reported RESOLVED, while the
+    edited finding started over as ``pending``. Only five fields of an entry
+    found either way are preserved: ``status``, ``reason``, ``until``,
+    ``bundle`` and ``first_seen``. Everything ``_entry_fields`` builds -- family, file,
     line, quote hash, quote, title and tier -- is refreshed from this scan,
     along with ``last_seen``, so a long-lived suppression's recorded line
     keeps up with the code it suppresses and the 40-line edited window is
