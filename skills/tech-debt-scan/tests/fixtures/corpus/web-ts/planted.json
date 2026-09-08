@@ -13,13 +13,13 @@
     {"id": "p10", "family": "pipeline-infra", "type_id": "TD-27", "path": null, "lines": [0, 0], "expect_tier": "A"}
   ],
   "decoys": [
-    {"id": "d1", "family": "pipeline-infra", "path": ".github/workflows/ci.yml", "why": "pinned SHAs, timeout, permissions, cache and a retry action: no CI rule fires"},
-    {"id": "d2", "family": "error-masking", "path": "src/api/client-admin.ts", "lines": [14, 17], "why": "catch logs the caught error e and returns; not a swallow"},
-    {"id": "d3", "family": "half-finished", "path": "src/api/client-admin.ts", "lines": [9, 12], "why": "fetch carries an AbortSignal timeout"},
-    {"id": "d4", "family": "dead-code", "path": "src/index.ts", "why": "entry point; index is a package and stoplist name, fan-in is never resolved"},
-    {"id": "d5", "family": "duplication", "path": "src/generated/api-types.ts", "why": "generated file; every family disabled by path class"},
-    {"id": "d6", "family": "dead-code", "path": "vendor/tiny-emitter.js", "why": "vendored; every family disabled by path class"},
-    {"id": "d7", "family": "security", "path": "src/api/client.ts", "why": "token is read from the environment, not a literal"},
-    {"id": "d8", "family": "pipeline-infra", "path": "src/api/client.ts", "why": "console.log with no logger library in the repository is not an observability lead"}
+    {"id": "d1", "family": "pipeline-infra", "path": ".github/workflows/ci.yml", "why": "pinned SHAs, timeout, permissions, cache and a retry action: no CI rule fires", "sources": ["scout:pipeline-infra", "rule:ci.*", "tool:actionlint"]},
+    {"id": "d2", "family": "error-masking", "path": "src/api/client-admin.ts", "lines": [14, 17], "why": "catch logs the caught error e and returns; not a swallow", "sources": ["scout:error-masking"]},
+    {"id": "d3", "family": "half-finished", "path": "src/api/client-admin.ts", "lines": [9, 12], "why": "fetch carries an AbortSignal timeout", "sources": ["scout:half-finished"]},
+    {"id": "d4", "family": "dead-code", "path": "src/index.ts", "why": "entry point; index is a package and stoplist name, fan-in is never resolved", "sources": ["scout:dead-code", "tool:knip"]},
+    {"id": "d5", "family": "duplication", "path": "src/generated/api-types.ts", "why": "generated file; every family disabled by path class", "sources": ["scout:duplication", "tool:jscpd"]},
+    {"id": "d6", "family": "dead-code", "path": "vendor/tiny-emitter.js", "why": "vendored; every family disabled by path class", "sources": ["scout:dead-code", "tool:knip"]},
+    {"id": "d7", "family": "security", "path": "src/api/client.ts", "why": "token is read from the environment, not a literal", "sources": ["scout:security", "tool:gitleaks", "rule:*"]},
+    {"id": "d8", "family": "pipeline-infra", "path": "src/api/client.ts", "why": "console.log with no logger library in the repository is not an observability lead", "sources": ["scout:pipeline-infra"]}
   ]
 }

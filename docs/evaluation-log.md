@@ -102,6 +102,8 @@ cycle candidate was the madge-corroborated one the verifier rejected above,
 and the no-tools arm's scout did not raise the cycle as a candidate at all
 this run, leaving nothing to compare a tier against there.
 
+**Rows recorded before 2026-09-08 were scored without `sources` on the decoys and without the `npm ci` step in web-ts's workflow.** From 2026-09-08 onward every decoy carries a `sources` list that restricts which producers can hit it, and the web-ts fixture installs dependencies before running tests, so the decoy columns are not directly comparable with earlier rows on web-ts.
+
 | date | fixture | model | churn_months | tier_a_precision | reported_precision | decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | 2026-09-05 | service-py | sonnet | 240 | 0.59 | 0.48 | 0 | 0 | dead-code=0.00 dependency-debt=1.00 doc-drift=1.00 error-masking=1.00 half-finished=1.00 ownership=1.00 pipeline-infra=1.00 security=0.80 test-gaps=1.00 test-quality=1.00 | 14 | 5 | 3.11 |

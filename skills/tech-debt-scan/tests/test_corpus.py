@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -74,3 +75,24 @@ def test_planted_paths_and_lines_exist(corpus: tuple[str, Path]) -> None:
     for decoy in planted["decoys"]:
         assert set(decoy) >= {"id", "family", "path", "why"}
         assert (repo / decoy["path"]).is_file(), decoy["id"]
+
+
+SOURCE_TOKEN = re.compile(r"^(scout:[a-z-]+|rule:([a-z]+\.[a-z0-9-]+|[a-z]+\.\*|\*)|tool:([a-z-]+|\*))$")
+
+
+def test_every_decoy_names_its_sources(corpus: tuple[str, Path]) -> None:
+    """Spec 6: a decoy without a sources list would match any producer, which the corpus never allows."""
+    name, _ = corpus
+    planted = json.loads((CORPUS_ROOT / name / "planted.json").read_text(encoding="utf-8"))
+    for decoy in planted["decoys"]:
+        sources = decoy.get("sources")
+        assert isinstance(sources, list) and sources, f"{name} {decoy['id']} has no sources"
+        for token in sources:
+            assert SOURCE_TOKEN.match(token), f"{name} {decoy['id']}: {token!r}"
+
+
+def test_web_ts_workflow_installs_before_it_tests(web_ts_repo: Path) -> None:
+    """Spec 6: decoy d1 is a decoy only once the workflow really is well configured."""
+    text = (web_ts_repo / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "run: npm ci" in text
+    assert text.index("run: npm ci") < text.index("nick-fields/retry@")

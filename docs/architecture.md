@@ -160,7 +160,7 @@ The fixture corpus under `skills/tech-debt-scan/tests/fixtures/corpus/`
 commit history in `history.yaml` and its planted debt and decoys in
 `planted.json`; `tests/helpers/make_history.py` replays a history into a
 temporary git repository at test time, so churn, coupling, blame and branches
-are exercised without committing a `.git` directory.
+are exercised without committing a `.git` directory. Every decoy carries a `sources` list and `test_every_decoy_names_its_sources` pins it.
 
 ### Live harness
 
