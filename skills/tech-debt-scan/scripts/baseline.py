@@ -317,6 +317,35 @@ def _entry_fields(finding: dict[str, Any], *, family: Any, title: Any, tier: Any
     }
 
 
+def _entry_for(
+    finding: dict[str, Any],
+    fp: str,
+    out: dict[str, Any],
+    by_fp: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """The baseline entry this finding already has, direct or across an edit.
+
+    A direct fingerprint match wins, and is left in place for the caller to
+    overwrite. Failing that, the same edited-match heuristic ``diff``
+    classifies with is run over the entries no current finding carries, so an
+    entry another finding matches directly can never be taken by a
+    neighbouring one; a match there is popped from ``out``, which is what
+    migrates the entry to this finding's current fingerprint and removes the
+    old key (ruling 26). Returns an empty dict when the finding has no entry
+    by either route.
+    """
+    if fp in out:
+        return dict(out[fp])
+    file, line = _primary(finding)
+    if file is None:
+        return {}
+    unowned = {key: entry for key, entry in out.items() if key not in by_fp}
+    old_key = _edited_match(finding, {"findings": unowned}, file, line)
+    if old_key is None:
+        return {}
+    return dict(out.pop(old_key))
+
+
 def record(
     baseline_path: Path,
     *,
@@ -345,14 +374,26 @@ def record(
     Every element of ``findings`` with no matching decision is remembered too
     (ruling 25): a suppressed finding is hidden from the design document and
     so absent from ``decisions`` by design, but its recorded decision must
-    survive, so a finding already in the baseline just has its ``last_seen``
-    refreshed -- status, reason, until, bundle and first_seen are left
-    untouched. A finding with no baseline entry yet is written fresh as
-    ``pending``, with both dates set to ``today``, so it reads UNCHANGED
-    rather than NEW on the next scan. A finding with no fingerprint is
-    skipped silently here -- unlike a fingerprint-less decision, which
-    raises. A decision always wins: any fingerprint ``decisions`` already
-    handled is left to that loop.
+    survive. A finding with no baseline entry by either route below is
+    written fresh as ``pending``, with both dates set to ``today``, so it
+    reads UNCHANGED rather than NEW on the next scan. A finding with no
+    fingerprint is skipped silently here -- unlike a fingerprint-less
+    decision, which raises. A decision always wins: any fingerprint
+    ``decisions`` already handled is left to that loop.
+
+    Both loops find a finding's existing entry the same way (``_entry_for``,
+    ruling 26): its own fingerprint first, and failing that ``_edited_match``
+    over the entries no current finding carries, so an entry whose code was
+    edited since the last scan migrates to the finding's new fingerprint and
+    the old key is removed -- otherwise the decision would be orphaned under
+    a key nothing matches again, reported RESOLVED, while the edited finding
+    started over as ``pending``. Only five fields of an entry found either
+    way are preserved: ``status``, ``reason``, ``until``, ``bundle`` and
+    ``first_seen``. Everything ``_entry_fields`` builds -- family, file,
+    line, quote hash, quote, title and tier -- is refreshed from this scan,
+    along with ``last_seen``, so a long-lived suppression's recorded line
+    keeps up with the code it suppresses and the 40-line edited window is
+    measured from where that code is now.
     """
     existing = load_baseline(baseline_path) or {"findings": {}}
     by_fp = {str(f.get("fingerprint")): f for f in findings if isinstance(f, dict)}
@@ -367,7 +408,7 @@ def record(
         if status not in STATUSES:
             raise BaselineError(f"{fp}: unknown status {status!r}")
         finding = by_fp.get(fp, {})
-        previous = out.get(fp, {})
+        previous = _entry_for(finding, fp, out, by_fp)
         bundle = bundles.get(fp, previous.get("bundle"))
         if status == "promoted" and bundle is None:
             raise BaselineError(f"{fp}: promoted with no bundle")
@@ -393,22 +434,20 @@ def record(
         fp = str(finding.get("fingerprint") or "")
         if not fp or fp in decision_fps:
             continue
-        if fp in out:
-            out[fp] = {**out[fp], "last_seen": today}
-        else:
-            fields = _entry_fields(
-                finding, family=finding.get("family"),
-                title=finding.get("title") or "", tier=finding.get("tier"),
-            )
-            out[fp] = {
-                **fields,
-                "status": "pending",
-                "first_seen": today,
-                "last_seen": today,
-                "reason": None,
-                "until": None,
-                "bundle": None,
-            }
+        previous = _entry_for(finding, fp, out, by_fp)
+        fields = _entry_fields(
+            finding, family=finding.get("family"),
+            title=finding.get("title") or "", tier=finding.get("tier"),
+        )
+        out[fp] = {
+            **fields,
+            "status": previous.get("status") or "pending",
+            "first_seen": previous.get("first_seen") or today,
+            "last_seen": today,
+            "reason": previous.get("reason"),
+            "until": previous.get("until"),
+            "bundle": previous.get("bundle"),
+        }
     doc = {"schema_version": SCHEMA_VERSION, "last_scan": today, "preset": preset,
            "findings": dict(sorted(out.items()))}
     baseline_path.parent.mkdir(parents=True, exist_ok=True)
@@ -488,8 +527,32 @@ def ensure_gitignore_triple(root: Path, baseline_path: Path) -> str:
     return "still-ignored" if recheck.returncode == 0 else "appended"
 
 
+def _scanned_root(args: argparse.Namespace) -> Path:
+    """The repository the baseline and its entries are relative to.
+
+    An explicit ``--root`` is always the answer. With none, the scanned
+    repository is read from the ``root`` ``inventory.py`` recorded in the
+    workdir's own ``inventory.json``, because SKILL.md runs every chain
+    command from the skill's directory and the workdir may name any path:
+    resolving an entry's ``file`` against the process working directory would
+    find nothing and report every unmatched entry RESOLVED with the note
+    ``file absent``. An absent inventory, one that is not JSON, or one whose
+    ``root`` is not a string leaves the working directory as the fallback --
+    the value this flag defaulted to before, and the right answer when the
+    chain really is being run from inside the scanned repository.
+    """
+    if args.root is not None:
+        return Path(args.root)
+    try:
+        inventory = json.loads((Path(args.workdir) / "inventory.json").read_bytes())
+    except (OSError, ValueError):
+        return Path(".")
+    root = inventory.get("root") if isinstance(inventory, dict) else None
+    return Path(root) if isinstance(root, str) else Path(".")
+
+
 def _run_record(args: argparse.Namespace) -> int:
-    root = Path(args.root)
+    root = _scanned_root(args)
     workdir = Path(args.workdir)
     verified_path = workdir / "verified.json"
     if not verified_path.is_file():
@@ -526,7 +589,7 @@ def _run_record(args: argparse.Namespace) -> int:
 
 
 def _run_diff(args: argparse.Namespace) -> int:
-    root = Path(args.root)
+    root = _scanned_root(args)
     workdir = Path(args.workdir)
     verified_path = workdir / "verified.json"
     if not verified_path.is_file():
@@ -559,7 +622,11 @@ def _main(argv: list[str] | None = None) -> int:
 
     p_diff = sub.add_parser("diff", help="classify verified.json against the baseline")
     p_diff.add_argument("--workdir", default=".tech-debt", help="directory holding verified.json")
-    p_diff.add_argument("--root", default=".", help="repository root the baseline is relative to")
+    p_diff.add_argument(
+        "--root", default=None,
+        help="repository root the baseline and its entries are relative to "
+             "(default: the scanned root recorded in the workdir's inventory.json, else '.')",
+    )
     p_diff.add_argument(
         "--baseline", default=None,
         help="baseline path (default: config's baseline, resolved against --root)",
@@ -569,7 +636,11 @@ def _main(argv: list[str] | None = None) -> int:
     p_record = sub.add_parser("record", help="write design.md decisions back into the baseline")
     p_record.add_argument("--workdir", default=".tech-debt", help="directory holding verified.json")
     p_record.add_argument("--design", required=True, help="path to the edited design.md")
-    p_record.add_argument("--root", default=".", help="repository root the baseline is relative to")
+    p_record.add_argument(
+        "--root", default=None,
+        help="repository root the baseline and its entries are relative to "
+             "(default: the scanned root recorded in the workdir's inventory.json, else '.')",
+    )
     p_record.add_argument(
         "--baseline", default=None,
         help="baseline path (default: config's baseline, resolved against --root)",

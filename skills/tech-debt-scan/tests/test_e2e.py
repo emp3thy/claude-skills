@@ -19,6 +19,7 @@ from baseline import load_baseline
 from config import DEFAULTS
 from design_parser import parse_design
 from design_writer import load_inputs, write_design
+from evidence import fingerprint
 from inventory import build_all, write_json, write_outputs
 from merge_findings import merge
 from patterns import run_patterns
@@ -198,12 +199,24 @@ _PAST_UNTIL = "2027-09-07"
 
 
 def test_scan_decide_rescan_baseline_sequence(service_py_repo: Path, tmp_path: Path) -> None:
-    """Phase 5a's promise as a sequence: a scan, a human decision, then three
-    re-scans that exercise every classification ``baseline.diff`` can produce.
+    """Phase 5a's promise as a sequence: a scan, a human decision, and four
+    re-scans.
 
-    Step 5 below deletes a file from the repository, so every step runs
-    against a private copy of the session-scoped ``service_py_repo`` fixture
-    (``shutil.copytree``), never the fixture path other tests share.
+    Four of the five classifications are exercised: ``NEW`` (step 1, no
+    baseline at all), ``UNCHANGED`` (step 3, and again in step 5 once the
+    edited entry has migrated), ``UNCHANGED (edited)`` (step 5, the finding's
+    quote is edited so its fingerprint changes) and ``RESOLVED`` (step 6, the
+    file is deleted). ``UNCHANGED (moved)`` is not: it needs the same
+    fingerprint recorded at a different line, which no edit of the corpus
+    produces without also changing the quote, so it is covered by
+    ``test_baseline.py``'s unit cases instead. Suppression (rejected and
+    accepted alike), expiry, and the suppression's survival across an edit
+    are exercised throughout.
+
+    Steps 5 and 6 edit and then delete a file in the repository, so every
+    step runs against a private copy of the session-scoped
+    ``service_py_repo`` fixture (``shutil.copytree``), never the fixture path
+    other tests share.
     """
     repo = tmp_path / "repo"
     shutil.copytree(service_py_repo, repo)
@@ -321,19 +334,97 @@ def test_scan_decide_rescan_baseline_sequence(service_py_repo: Path, tmp_path: P
     assert _FP_ACCEPTED in fps3  # back in the body
     assert _FP_REJECTED not in fps3  # still suppressed, and not time-limited
 
-    # Step 5: the rejected finding's code is deleted outright. It is also
-    # removed from this scan's own verified.json -- Ruling 3: a baseline entry
-    # is RESOLVED only when no *current* finding matches it, and simply
-    # replaying the same verified.json would still carry the same fingerprint
-    # and so still match (and so still be suppressed, never RESOLVED). The
-    # file is named by the finding's own primary evidence item, read before it
-    # is dropped from verified.json. Back at the scan's own date (an expired
-    # `until` plays no part in RESOLVED).
+    # Step 5: the rejected finding's code is edited. One line of its quote
+    # changes in the repository and in this scan's verified.json, so its
+    # fingerprint changes with it (recomputed by the pipeline's own
+    # `fingerprint`, never hand-rolled) while its file, family, line and
+    # title all hold. `diff` matches it against the entry it was recorded
+    # under through the edited heuristic, so the human's rejection still
+    # suppresses it; the next `record` migrates that entry onto the new
+    # fingerprint and drops the old key (ruling 26), and the diff after that
+    # matches it directly. Back at the scan's own date, so the acceptance
+    # suppresses again too.
     verified_path = workdir / "verified.json"
     verified = json.loads(verified_path.read_bytes())
     rejected_entry = next(f for f in verified["findings"] if f["fingerprint"] == _FP_REJECTED)
-    victim_file = repo / rejected_entry["evidence"][0]["file"]
-    verified["findings"] = [f for f in verified["findings"] if f["fingerprint"] != _FP_REJECTED]
+    primary = rejected_entry["evidence"][0]
+    victim_file = repo / primary["file"]
+    edited_quote = primary["quote"].replace("        pass", "        pass  # swallow", 1)
+    assert edited_quote != primary["quote"], "the corpus quote must actually change"
+    source = victim_file.read_text(encoding="utf-8")
+    assert primary["quote"] in source, "the quote is verbatim in the file it cites"
+    victim_file.write_text(source.replace(primary["quote"], edited_quote, 1), encoding="utf-8")
+    primary["quote"] = edited_quote
+    fp_edited, quote_hash = fingerprint(
+        rejected_entry["family"], primary["file"], edited_quote
+    )
+    assert fp_edited != _FP_REJECTED
+    rejected_entry["fingerprint"] = fp_edited
+    rejected_entry["quote_hash"] = quote_hash
+    verified_path.write_bytes(json.dumps(verified).encode("utf-8"))
+
+    assert baseline_main([
+        "diff", "--workdir", str(workdir), "--root", str(repo),
+        "--baseline", str(baseline_path), "--today", SCAN_DATE,
+    ]) == 0
+    diff_doc = json.loads((workdir / "diff.json").read_bytes())
+    assert {e["fingerprint"] for e in diff_doc["suppressed"]} == {fp_edited, _FP_ACCEPTED}
+    assert next(e for e in diff_doc["suppressed"] if e["fingerprint"] == fp_edited) == {
+        "fingerprint": fp_edited, "status": "rejected",
+        "reason": "flaky pipeline, tracked in a separate ticket",
+    }
+    assert diff_doc["counts"]["resolved"] == 0
+    assert _FP_REJECTED not in diff_doc["status"], "the old entry was matched, not resolved"
+
+    design5 = workdir / "design-5.md"
+    write_design(load_inputs(workdir), SCAN_DATE, design5)
+    parsed5 = parse_design(design5)
+    fps5 = {f["fingerprint"] for f in parsed5["findings"]}
+    assert fp_edited not in fps5 and _FP_REJECTED not in fps5  # still hidden
+    assert parsed5["metadata"]["counts"]["suppressed"] == 2
+    assert parsed5["metadata"]["counts"]["resolved"] == 0
+
+    # Promote against that regenerated document -- the one a user would edit
+    # next -- so `record` sees the edited finding with no decision (it is
+    # hidden) and migrates the rejection onto its new fingerprint. Every
+    # finding the regenerated document does carry reads `pending` again, as
+    # step 3 already noted, so the promoted finding's own status is not
+    # re-asserted after this point; its classification is.
+    assert promote_main(
+        [str(design5), "--out", str(out), "--baseline", str(baseline_path)]
+    ) == 0
+    doc = load_baseline(baseline_path)
+    assert doc is not None
+    assert _FP_REJECTED not in doc["findings"], "the old key is gone, not left to resolve"
+    migrated = doc["findings"][fp_edited]
+    assert migrated["status"] == "rejected"
+    assert migrated["reason"] == "flaky pipeline, tracked in a separate ticket"
+    assert doc["findings"][_FP_ACCEPTED]["status"] == "accepted"
+
+    assert baseline_main([
+        "diff", "--workdir", str(workdir), "--root", str(repo),
+        "--baseline", str(baseline_path), "--today", SCAN_DATE,
+    ]) == 0
+    diff_doc = json.loads((workdir / "diff.json").read_bytes())
+    assert {e["fingerprint"] for e in diff_doc["suppressed"]} == {fp_edited, _FP_ACCEPTED}
+    assert diff_doc["counts"]["resolved"] == 0
+    assert diff_doc["counts"]["new"] == 0
+
+    design6 = workdir / "design-6.md"
+    write_design(load_inputs(workdir), SCAN_DATE, design6)
+    parsed6 = parse_design(design6)
+    assert fp_edited not in {f["fingerprint"] for f in parsed6["findings"]}
+    assert parsed6["metadata"]["counts"]["suppressed"] == 2
+
+    # Step 6: the finding's code is deleted outright. It is also removed from
+    # this scan's own verified.json -- Ruling 3: a baseline entry is RESOLVED
+    # only when no *current* finding matches it, and simply replaying the same
+    # verified.json would still carry the same fingerprint and so still match
+    # (and so still be suppressed, never RESOLVED). The entry to resolve is
+    # the migrated one, under the edited fingerprint. Still at the scan's own
+    # date (an expired `until` plays no part in RESOLVED).
+    verified = json.loads(verified_path.read_bytes())
+    verified["findings"] = [f for f in verified["findings"] if f["fingerprint"] != fp_edited]
     verified_path.write_bytes(json.dumps(verified).encode("utf-8"))
     victim_file.unlink()
 
@@ -342,7 +433,7 @@ def test_scan_decide_rescan_baseline_sequence(service_py_repo: Path, tmp_path: P
         "--baseline", str(baseline_path), "--today", SCAN_DATE,
     ]) == 0
     diff_doc = json.loads((workdir / "diff.json").read_bytes())
-    assert diff_doc["status"][_FP_REJECTED] == {
+    assert diff_doc["status"][fp_edited] == {
         "diff": "RESOLVED", "note": "file absent", "matched": None,
     }
     assert diff_doc["counts"]["resolved"] == 1
@@ -360,5 +451,6 @@ def test_scan_decide_rescan_baseline_sequence(service_py_repo: Path, tmp_path: P
     parsed4 = parse_design(design4)
     assert parsed4["metadata"]["counts"]["resolved"] == 1
     fps4 = {f["fingerprint"] for f in parsed4["findings"]}
-    assert _FP_REJECTED not in fps4  # gone from verified.json entirely, not just suppressed
+    assert fp_edited not in fps4  # gone from verified.json entirely, not just suppressed
+    assert _FP_REJECTED not in fps4
     assert _FP_PROMOTED in fps4

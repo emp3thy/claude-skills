@@ -738,6 +738,130 @@ class TestRecord:
         assert out["counts"]["new"] == 0
         assert all(v["diff"] == "UNCHANGED" for v in out["status"].values())
 
+    # -- Ruling 26: an entry follows its finding across an edit ---------------
+
+    def test_a_rejection_follows_its_finding_across_an_edit(self, tmp_path: Path) -> None:
+        """Ruling 26: the code was edited, so the finding's fingerprint changed.
+        The entry carrying the human's rejection migrates to the new
+        fingerprint rather than being orphaned beside a fresh `pending` one --
+        which the next `diff` would find by direct lookup, losing the
+        rejection, while the old entry no finding matches reports a spurious
+        RESOLVED."""
+        from baseline import diff, record
+
+        path = tmp_path / "b.json"
+        path.write_text(json.dumps(_baseline(**{
+            "1" * 16: _entry(status="rejected", reason="flaky, tracked elsewhere",
+                             line_start=10, quote="except Exception:",
+                             first_seen="2026-01-05", last_seen="2026-01-05"),
+        })), encoding="utf-8")
+        edited = _finding(
+            fingerprint="2" * 16,
+            evidence=[{"file": "src/pay/refund.py", "line_start": 20, "line_end": 20,
+                       "quote": "except Exception:  # keep going", "quote_verified": True}],
+        )
+
+        doc = record(path, decisions=[], findings=[edited], bundles={}, today=TODAY,
+                     preset="balanced")
+        assert "1" * 16 not in doc["findings"], "the old key is removed, not left behind"
+        entry = doc["findings"]["2" * 16]
+        assert entry["status"] == "rejected"
+        assert entry["reason"] == "flaky, tracked elsewhere"
+        assert entry["first_seen"] == "2026-01-05"
+        assert entry["last_seen"] == TODAY
+        assert entry["line_start"] == 20
+
+        out = diff({"findings": [edited]}, doc, tmp_path, TODAY)
+        assert out["suppressed"] == [
+            {"fingerprint": "2" * 16, "status": "rejected", "reason": "flaky, tracked elsewhere"}
+        ]
+        assert out["counts"]["resolved"] == 0
+
+    def test_a_re_seen_entry_has_its_finding_fields_refreshed(self, tmp_path: Path) -> None:
+        """I2: the decision is preserved, but where the code is and what it is
+        called are re-read from this scan. A frozen `line_start` would leave
+        the 40-line edited window measuring from wherever the finding was
+        first seen, however far the code has since moved."""
+        from baseline import record
+
+        path = tmp_path / "b.json"
+        path.write_text(json.dumps(_baseline(**{
+            "aaaaaaaaaaaaaaaa": _entry(status="rejected", reason="by design", line_start=33,
+                                       title="old", first_seen="2026-01-05",
+                                       last_seen="2026-01-05"),
+        })), encoding="utf-8")
+        moved = _finding(
+            title="new",
+            evidence=[{"file": "src/pay/refund.py", "line_start": 500, "line_end": 500,
+                       "quote": "except Exception:", "quote_verified": True}],
+        )
+
+        doc = record(path, decisions=[], findings=[moved], bundles={}, today=TODAY,
+                     preset="balanced")
+        entry = doc["findings"]["aaaaaaaaaaaaaaaa"]
+        assert entry["line_start"] == 500
+        assert entry["title"] == "new"
+        assert entry["status"] == "rejected"
+        assert entry["reason"] == "by design"
+        assert entry["first_seen"] == "2026-01-05"
+        assert entry["last_seen"] == TODAY
+
+    def test_a_direct_match_is_never_taken_by_a_neighbour(self, tmp_path: Path) -> None:
+        """The migration only considers entries no current finding carries, so
+        the entry `fpA` matches directly cannot be migrated onto `fpB`, its
+        same-titled neighbour fifteen lines away. `fpB` is new here and must
+        be recorded as such."""
+        from baseline import record
+
+        path = tmp_path / "b.json"
+        path.write_text(json.dumps(_baseline(**{
+            "aaaaaaaaaaaaaaaa": _entry(status="rejected", reason="by design", line_start=10,
+                                       first_seen="2026-01-05", last_seen="2026-01-05"),
+        })), encoding="utf-8")
+        owner = _finding(
+            evidence=[{"file": "src/pay/refund.py", "line_start": 10, "line_end": 10,
+                       "quote": "except Exception:", "quote_verified": True}],
+        )
+        neighbour = _finding(
+            fingerprint="bbbbbbbbbbbbbbbb",
+            evidence=[{"file": "src/pay/refund.py", "line_start": 15, "line_end": 15,
+                       "quote": "except ValueError:", "quote_verified": True}],
+        )
+
+        doc = record(path, decisions=[_decision(status="pending")],
+                     findings=[owner, neighbour], bundles={}, today=TODAY, preset="balanced")
+        assert set(doc["findings"]) == {"aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"}
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["status"] == "pending"
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["first_seen"] == "2026-01-05"
+        assert doc["findings"]["bbbbbbbbbbbbbbbb"]["status"] == "pending"
+        assert doc["findings"]["bbbbbbbbbbbbbbbb"]["first_seen"] == TODAY, "fresh, not migrated"
+
+    def test_a_decided_finding_migrates_and_keeps_its_bundle(self, tmp_path: Path) -> None:
+        """The decisions loop resolves its entry the same way: a re-promote of a
+        finding whose code was edited since keeps the bundle the baseline
+        already recorded for it, rather than raising `promoted with no
+        bundle`."""
+        from baseline import record
+
+        path = tmp_path / "b.json"
+        path.write_text(json.dumps(_baseline(**{
+            "1" * 16: _entry(status="promoted", bundle="chore-empty-catch-2026-01-05",
+                             line_start=10, first_seen="2026-01-05", last_seen="2026-01-05"),
+        })), encoding="utf-8")
+        edited = _finding(
+            fingerprint="2" * 16,
+            evidence=[{"file": "src/pay/refund.py", "line_start": 20, "line_end": 20,
+                       "quote": "except Exception:  # keep going", "quote_verified": True}],
+        )
+
+        doc = record(path, decisions=[_decision(fingerprint="2" * 16, status="promoted")],
+                     findings=[edited], bundles={}, today=TODAY, preset="balanced")
+        assert "1" * 16 not in doc["findings"]
+        entry = doc["findings"]["2" * 16]
+        assert entry["status"] == "promoted"
+        assert entry["bundle"] == "chore-empty-catch-2026-01-05"
+        assert entry["first_seen"] == "2026-01-05"
+
 
 class TestTriple:
     """Direct, git-free checks on the derived lines themselves."""
@@ -1079,3 +1203,94 @@ class TestRunRecordCLI:
         ])
         assert exit_code == 2
         assert capsys.readouterr().err.startswith("error:")
+
+
+def _diff_cli_case(tmp_path: Path, *, inventory_root: Path | None) -> tuple[Path, Path, Path]:
+    """A repository, a workdir and a baseline for the `--root` CLI cases.
+
+    The repository holds the one file the baseline's single `rejected` entry
+    names, with that entry's quote still in it; `verified.json` is empty, so
+    no current finding matches the entry and `diff` must decide whether its
+    debt is gone by looking on disk. Against the right root the quote is
+    found and the entry stays open; against any other directory the file is
+    absent and the entry resolves. ``inventory_root`` writes the workdir's
+    ``inventory.json`` with that ``root`` (``None`` writes no inventory at all).
+    """
+    repo = _repo(tmp_path / "repo", {
+        "src/pay/refund.py": "def refund():\n    try:\n        post()\n    except Exception:\n"
+                             "        pass\n",
+    })
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    (workdir / "verified.json").write_text(json.dumps({"schema_version": 2, "findings": []}),
+                                           encoding="utf-8")
+    if inventory_root is not None:
+        (workdir / "inventory.json").write_text(json.dumps({"root": str(inventory_root)}),
+                                                encoding="utf-8")
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps(_baseline(**{
+        "aaaaaaaaaaaaaaaa": _entry(line_start=4, quote="except Exception:", status="rejected",
+                                   reason="by design"),
+    })), encoding="utf-8")
+    return repo, workdir, baseline
+
+
+class TestRunDiffCLI:
+    """`_run_diff` end to end, and above all its `--root` default (C1).
+
+    SKILL.md runs every chain command from the skill's own directory, which
+    is not the scanned repository, so a `--root` that defaults to the process
+    working directory resolved every baseline entry's `file` against the
+    wrong tree and reported it RESOLVED with the note `file absent` -- a
+    scan-wide false "the debt is gone". The default is the `root` the
+    workdir's own `inventory.json` recorded instead.
+    """
+
+    def test_the_root_defaults_to_the_inventory_s_scanned_repository(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from baseline import _main
+
+        repo, workdir, baseline = _diff_cli_case(tmp_path, inventory_root=tmp_path / "repo")
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        assert _main(["diff", "--workdir", str(workdir), "--baseline", str(baseline),
+                      "--today", CLI_TODAY]) == 0
+        doc = json.loads((workdir / "diff.json").read_bytes())
+        assert doc["counts"]["resolved"] == 0
+        assert doc["status"] == {}
+
+    def test_without_an_inventory_the_root_falls_back_to_the_working_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from baseline import _main
+
+        repo, workdir, baseline = _diff_cli_case(tmp_path, inventory_root=None)
+        monkeypatch.chdir(repo)
+
+        assert _main(["diff", "--workdir", str(workdir), "--baseline", str(baseline),
+                      "--today", CLI_TODAY]) == 0
+        doc = json.loads((workdir / "diff.json").read_bytes())
+        assert doc["counts"]["resolved"] == 0
+        assert doc["status"] == {}
+
+    def test_an_explicit_root_beats_the_inventory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The flag is the answer whenever it is given: the inventory names the
+        real repository here, and the explicit `--root` an empty directory, so
+        only a `--root` that wins can report the entry's file absent."""
+        from baseline import _main
+
+        repo, workdir, baseline = _diff_cli_case(tmp_path, inventory_root=tmp_path / "repo")
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        monkeypatch.chdir(repo)
+
+        assert _main(["diff", "--workdir", str(workdir), "--root", str(empty),
+                      "--baseline", str(baseline), "--today", CLI_TODAY]) == 0
+        doc = json.loads((workdir / "diff.json").read_bytes())
+        assert doc["counts"]["resolved"] == 1
+        assert doc["status"]["aaaaaaaaaaaaaaaa"]["note"] == "file absent"
