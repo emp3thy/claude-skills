@@ -77,11 +77,13 @@ def test_planted_paths_and_lines_exist(corpus: tuple[str, Path]) -> None:
         assert (repo / decoy["path"]).is_file(), decoy["id"]
 
 
-SOURCE_TOKEN = re.compile(r"^(scout:[a-z-]+|rule:([a-z]+\.[a-z0-9-]+|[a-z]+\.\*|\*)|tool:([a-z-]+|\*))$")
+SOURCE_TOKEN = re.compile(
+    r"^(scout:[a-z-]+|rule:([a-z]+\.[a-z0-9-]+|[a-z]+\.\*|\*)|tool:([a-z-]+|\*))$"
+)
 
 
 def test_every_decoy_names_its_sources(corpus: tuple[str, Path]) -> None:
-    """Spec 6: a decoy without a sources list would match any producer, which the corpus never allows."""
+    """Spec 6: decoy without sources would match any producer; corpus forbids this."""
     name, _ = corpus
     planted = json.loads((CORPUS_ROOT / name / "planted.json").read_text(encoding="utf-8"))
     for decoy in planted["decoys"]:
