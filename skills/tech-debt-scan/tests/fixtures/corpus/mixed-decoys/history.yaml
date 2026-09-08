@@ -38,6 +38,23 @@ commits:
         func IsEnabled(name string) bool {
         	return Flags[name]
         }
+      internal/units/units.go: |
+        package units
+
+        // Kilobytes converts a byte count to whole kilobytes.
+        func Kilobytes(n int64) int64 {
+        	return n / 1024
+        }
+      internal/units/labels.go: |
+        package units
+
+        // Label returns a short unit label.
+        func Label(plural bool) string {
+        	if plural {
+        		return "KBs"
+        	}
+        	return "KB"
+        }
       internal/build/builder.go: |
         package build
 
@@ -126,6 +143,8 @@ commits:
     subject: "feat: builder TLS option"
     branch: main
     files:
+      internal/units/units.go: "@final"
+      internal/units/labels.go: "@final"
       internal/build/builder.go: "@final"
     tag: v0.2.0
   - author: "renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>"

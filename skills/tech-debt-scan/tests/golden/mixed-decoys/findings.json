@@ -1384,20 +1384,6 @@
           "line_end": 3,
           "quote": "# app\n\nGo service with a lookup table, a string dispatcher and a fluent builder.",
           "quote_verified": true
-        },
-        {
-          "file": ".git/refs/tags/v0.1.0",
-          "line_start": 1,
-          "line_end": 1,
-          "quote": "1b1cd9e60605710db13483c7c69f885d9240a430",
-          "quote_verified": true
-        },
-        {
-          "file": ".git/refs/tags/v0.2.0",
-          "line_start": 1,
-          "line_end": 1,
-          "quote": "b57194e67971162f69e19cefd83afe453f8214d6",
-          "quote_verified": true
         }
       ],
       "signals": {

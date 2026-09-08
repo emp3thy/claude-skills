@@ -98,3 +98,17 @@ def test_web_ts_workflow_installs_before_it_tests(web_ts_repo: Path) -> None:
     text = (web_ts_repo / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "run: npm ci" in text
     assert text.index("run: npm ci") < text.index("nick-fields/retry@")
+
+
+def test_every_fixture_has_neutral_source_files(corpus: tuple[str, Path]) -> None:
+    """Spec 6: the correlation test needs source files that are neither planted nor decoys."""
+    from config import DEFAULTS
+    from inventory import build_all
+
+    name, repo = corpus
+    planted = json.loads((CORPUS_ROOT / name / "planted.json").read_text(encoding="utf-8"))
+    taken = {p["path"] for p in planted["planted"]} | {d["path"] for d in planted["decoys"]}
+    inventory, _ = build_all(repo, churn_months=240, config=DEFAULTS)
+    neutral = [e["path"] for e in inventory["files"]
+               if e["path_class"] == "source" and e["path"] not in taken]
+    assert len(neutral) >= 1, f"{name}: {neutral}"

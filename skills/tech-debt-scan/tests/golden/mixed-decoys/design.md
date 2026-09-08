@@ -2,8 +2,8 @@
 schema_version: 2
 scan_date: 2026-09-06
 root: <root>
-total_files: 13
-total_loc: 519
+total_files: 15
+total_loc: 534
 languages:
 - go
 - markdown
@@ -43,7 +43,7 @@ counts:
 
 # Tech-debt scan - 2026-09-06
 
-Scanned `<root>` - 13 files, 519 LOC across: go, markdown.
+Scanned `<root>` - 15 files, 534 LOC across: go, markdown.
 
 Review each finding below. To act on one, change its `status:` from `pending` to
 `approved`, `rejected`, or `accepted` (add a `reason:` and an optional `until:` ISO
@@ -817,18 +817,6 @@ README.md is 3 lines with no changelog/contributing pointers; globs for CHANGELO
 # app
 
 Go service with a lookup table, a string dispatcher and a fluent builder.
-```
-
-- `.git/refs/tags/v0.1.0:1-1`
-
-```
-1b1cd9e60605710db13483c7c69f885d9240a430
-```
-
-- `.git/refs/tags/v0.2.0:1-1`
-
-```
-b57194e67971162f69e19cefd83afe453f8214d6
 ```
 
 ## go.sum lists a module absent from go.mod requires
