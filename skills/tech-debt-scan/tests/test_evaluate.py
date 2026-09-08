@@ -23,6 +23,8 @@ def _finding(
         "fingerprint": fingerprint,
         "family": family,
         "tier": tier,
+        "source": "scout",
+        "confirmed_by": [f"scout:{family}"],
         "evidence": [{"file": file, "line_start": start, "line_end": end, "quote": "q",
                       "quote_verified": True}],
     }
@@ -30,6 +32,7 @@ def _finding(
 
 # A hand-written verified.json for service-py: six planted hits, two reported decoy hits,
 # one unplanted finding and one tier-C decoy hit that is never "reported".
+# These findings are scout findings so every decoy's sources list admits them.
 VERIFIED: list[dict[str, Any]] = [
     _finding("error-masking", "src/pay/refund.py", 31, 34, "A", "f01"),  # p1
     _finding("half-finished", "src/pay/refund.py", 35, 35, "B", "f02"),  # p2
@@ -242,7 +245,8 @@ def test_producers_names_the_findings_own_token_and_its_corroboration() -> None:
                              confirmed_by=[])
     assert producers(tool) == frozenset({"tool:gitleaks"})
     # No source at all (a hand-written finding): only confirmed_by survives.
-    bare = _producer_finding("security", "a.py", confirmed_by=["pattern:secret"])
+    bare: dict[str, Any] = {"fingerprint": "x", "family": "security", "tier": "A", "evidence": [],
+                            "confirmed_by": ["pattern:secret"]}
     assert producers(bare) == frozenset({"pattern:secret"})
 
 
