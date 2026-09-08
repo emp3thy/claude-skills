@@ -11,7 +11,7 @@ from make_history import CORPUS_ROOT, git_output
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
 
-EXPECTED_COMMITS = {"service-py": 17, "web-ts": 10, "mixed-decoys": 6}
+EXPECTED_COMMITS = {"service-py": 17, "web-ts": 10, "mixed-decoys": 7}
 EXPECTED_TAGS = {
     "service-py": ["v0.1.0", "v0.2.0"],
     "web-ts": ["v1.0.0", "v1.1.0"],

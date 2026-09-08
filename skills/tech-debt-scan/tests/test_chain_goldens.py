@@ -87,7 +87,7 @@ LIVE_QUOTE_MISSES: dict[str, dict[str, frozenset[str]]] = {
     },
     "mixed-decoys": {
         "diverted": frozenset(),
-        "partial": frozenset({"No CHANGELOG or CONTRIBUTING despite two tagged releases"}),
+        "partial": frozenset(),
     },
 }
 # Batches the plan asks for that no live run ever produced a verdict file for. A
