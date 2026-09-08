@@ -251,6 +251,26 @@ def _stat_sum(stats: Any, key: str) -> int:
     return total
 
 
+def _int_count(value: Any) -> int:
+    """One ``diff.json`` count as an integer, or 0 when it is not one.
+
+    The document is hand-editable and every other reader of it is
+    permissive, so a count someone typed as a word, left as null, or wrote
+    as a float must not be the one thing that takes the whole render down.
+    An integer is taken as it stands -- a bool never is, since ``True`` is
+    an ``int`` in Python but never a count -- and so is a string of digits,
+    which is how a count survives a round trip through a hand-edited
+    document; anything else counts as nothing.
+    """
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return 0
+
+
 def _counts(inputs: RenderInputs) -> dict[str, int]:
     """The frontmatter ``counts`` block, in spec 4.11's pinned key order.
 
@@ -279,8 +299,8 @@ def _counts(inputs: RenderInputs) -> dict[str, int]:
     if inputs.diff is not None:
         diff_counts = inputs.diff.get("counts")
         diff_counts = diff_counts if isinstance(diff_counts, dict) else {}
-        counts["new"] = int(diff_counts.get("new", 0))
-        counts["resolved"] = int(diff_counts.get("resolved", 0))
+        counts["new"] = _int_count(diff_counts.get("new", 0))
+        counts["resolved"] = _int_count(diff_counts.get("resolved", 0))
         # Count how many verified findings actually get suppressed by diff.json,
         # not what diff.json claims. A hand-edited diff.json may list fingerprints
         # that don't exist in verified findings; only count the ones that do.

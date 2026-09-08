@@ -1247,3 +1247,15 @@ class TestDiffInFrontmatter:
         assert victim not in {f["fingerprint"] for f in parsed["findings"]}
         # frontmatter must say 1 suppressed, not 2
         assert "  suppressed: 1\n" in out.read_text(encoding="utf-8")
+
+    def test_a_non_numeric_count_reads_zero_rather_than_aborting_the_render(
+        self, tmp_path: Path
+    ) -> None:
+        """`diff.json` is hand-editable, and the rest of the renderer reads it
+        permissively. A count that is a word or null must not be the one
+        thing that takes the whole document down with a ValueError or a
+        TypeError; it reads 0, like an absent key."""
+        diff = _diff_doc(counts={"new": "three", "resolved": None})
+        text = render_design(_inputs(tmp_path, diff=diff), SCAN_DATE)
+        assert "  new: 0\n" in text
+        assert "  resolved: 0\n" in text

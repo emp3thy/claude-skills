@@ -43,7 +43,8 @@ existed does not make record() raise. baseline.ensure_gitignore_triple then
 appends the tracked-baseline gitignore triple when the baseline is ignored.
 A v1 design.md carries no fingerprints, so --baseline refuses it (exit 2)
 before anything is emitted -- a baseline without fingerprints is worse than
-none.
+none. A v2 document with no findings at all is not refused: nothing is
+emitted and nothing is recorded, exit 0.
 
 Phase 1 is single-user: do not run two promotes against the same design.md
 concurrently (no file locking).
@@ -252,9 +253,11 @@ def _write_back(
     uses this run's own fresh bundle, since a bundle just written has no
     ambiguity to resolve.
 
-    Raises BaselineError, ValueError (includes json.JSONDecodeError, e.g. a
-    malformed verified.json/ranked.json) or OSError on any failure -- the
-    caller (_main) turns each into EXIT_WRITE_BACK. ``root`` for the
+    Raises BaselineError, DesignParseError (the re-parse can fail on a
+    document edited between the two parses), ValueError (includes
+    json.JSONDecodeError, e.g. a malformed verified.json/ranked.json) or
+    OSError on any failure -- the caller (_main) turns each into
+    EXIT_WRITE_BACK. ``root`` for the
     gitignore triple is derived from ``baseline_path`` itself
     (``_repo_root_for_baseline``), never from the process's cwd.
     """
@@ -304,14 +307,17 @@ def _main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     # A v1 design.md carries no fingerprints; refuse before run_promote emits
-    # anything, since a baseline without fingerprints is worse than none.
+    # anything, since a baseline without fingerprints is worse than none. A
+    # document with no findings at all answers that question the same way and
+    # is not a v1 document: a scan that found nothing promotes normally,
+    # emitting and recording nothing.
     if args.baseline is not None:
         try:
             precheck = parse_design(args.design)
         except DesignParseError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
-        if not any(f.get("fingerprint") for f in precheck["findings"]):
+        if precheck["findings"] and not any(f.get("fingerprint") for f in precheck["findings"]):
             print(
                 f"error: {args.design} has no fingerprints (a v1 design.md); "
                 "refusing to write a baseline without them",
@@ -337,7 +343,7 @@ def _main(argv: list[str] | None = None) -> int:
             outcome = _write_back(
                 args.design, args.baseline, result, scan_date, out_root=args.out
             )
-        except (BaselineError, ValueError, OSError) as exc:
+        except (BaselineError, DesignParseError, ValueError, OSError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return EXIT_WRITE_BACK
         print(f"wrote {args.baseline}")

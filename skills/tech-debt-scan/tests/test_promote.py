@@ -373,3 +373,66 @@ class TestWriteBack:
                       str(baseline_path)])
         assert code == 4
         assert not baseline_path.exists()
+
+    def test_a_design_parse_error_in_the_write_back_is_exit_6(
+        self, v2_design_workdir, monkeypatch
+    ) -> None:
+        """The write-back re-parses design.md after run_promote's own
+        mark-promoted mutation, so a DesignParseError is one of the failures
+        it can genuinely raise -- from a document that was edited between the
+        two parses, or a mutation that left it unparseable. It belongs with
+        the other write-back failures at exit 6: the bundles are on disk and
+        the previous baseline is untouched, which is exactly what exit 6
+        tells the user."""
+        import sys
+
+        import promote as pmod
+        from design_parser import DesignParseError
+        from promote import EXIT_WRITE_BACK, _main
+
+        design, workdir = v2_design_workdir
+        out = workdir / "pbis"
+        baseline_path = workdir / "baseline.json"
+        assert _main([str(design), "--out", str(out), "--baseline", str(baseline_path)]) == 0
+        before = baseline_path.read_bytes()
+        emitted = sorted(p.name for p in out.iterdir())
+        assert emitted
+
+        real = pmod.parse_design
+
+        def parse(path: Path) -> dict:
+            # Only the write-back's own call fails; the v1 precheck and
+            # run_promote must both parse normally, or the run would never
+            # reach the write-back at all.
+            if sys._getframe(1).f_code.co_name == "_write_back":
+                raise DesignParseError("simulated: unparseable after mark_promoted")
+            return real(path)
+
+        monkeypatch.setattr(pmod, "parse_design", parse)
+        code = _main([str(design), "--out", str(out), "--baseline", str(baseline_path)])
+        assert code == EXIT_WRITE_BACK == 6
+        assert sorted(p.name for p in out.iterdir()) == emitted
+        assert baseline_path.read_bytes() == before, "the previous baseline is intact"
+
+    def test_an_empty_v2_design_is_not_refused_as_a_v1_one(self, tmp_path: Path) -> None:
+        """The v1 refusal asks whether any finding carries a fingerprint, which
+        a v2 document with no findings at all also answers no. A scan that
+        found nothing is not a v1 document: it promotes, emits nothing and
+        records nothing, exit 0."""
+        from baseline import load_baseline
+        from promote import _main
+
+        design = tmp_path / "design.md"
+        design.write_text(
+            "---\nschema_version: 2\nscan_date: 2026-09-06\nroot: /repo\n"
+            "counts:\n  candidates: 0\n  verified: 0\n---\n\n"
+            "# Tech debt scan\n\nNo findings this run.\n",
+            encoding="utf-8",
+        )
+        out = tmp_path / "out"
+        baseline_path = tmp_path / "baseline.json"
+
+        assert _main([str(design), "--out", str(out), "--baseline", str(baseline_path)]) == 0
+        assert not out.exists() or not any(out.iterdir())
+        doc = load_baseline(baseline_path)
+        assert doc is not None and doc["findings"] == {}
