@@ -80,7 +80,11 @@ every tool is marked `skipped` and nothing reaches the network.
 ## Conventions
 
 - All intermediate artefacts live under `.tech-debt/` in the scanned repo (or
-  the current directory). The directory is gitignored.
+  the current directory). The directory is gitignored. The baseline is the
+  exception that must live in the scanned repository whatever directory
+  `--workdir` names, because that is the repository it is committed to;
+  pass the scanned repository to `--root` (step 11) and name the baseline
+  under it explicitly on promote.
 - All script commands below are run from the skill's `skills/tech-debt-scan/`
   directory so the `scripts/<name>.py` paths resolve. Each script is
   direct-path invocable (`python scripts/<name>.py`), no `-m`, no package
@@ -140,8 +144,14 @@ renumbers the rest.
    `verified.json`.
 10. `python scripts/rank.py --workdir .tech-debt --preset <p> --top <n>`
     writes `ranked.json`.
-11. `python scripts/baseline.py diff --workdir .tech-debt --baseline .tech-debt/baseline.json`
-    writes `diff.json`; an absent baseline marks everything NEW.
+11. `python scripts/baseline.py diff --workdir .tech-debt --root <repo>`
+    writes `diff.json`; an absent baseline marks everything NEW. The
+    baseline defaults to `<repo>/.tech-debt/baseline.json` — the config's
+    `baseline` key resolved against `--root` — so pass `--baseline <path>`
+    only when the config points somewhere else. `--root` is the scanned
+    repository every baseline entry's file is resolved against; omit it and
+    it is taken from the `root` step 1 recorded in the workdir's
+    `inventory.json`, which is the same repository.
 12. `python scripts/design_writer.py notes-prompt --workdir .tech-debt --top <n>`
     writes `prompts/notes.md`; dispatch one read-only Agent; write
     `notes.json`.
@@ -160,12 +170,14 @@ renumbers the rest.
    exit 5.
 2. Optional: `python scripts/design_parser.py .tech-debt/design.md` prints
    the parsed findings as JSON and mutates nothing.
-3. `python scripts/promote.py .tech-debt/design.md --out ./tech-debt-pbis --baseline .tech-debt/baseline.json`
+3. `python scripts/promote.py .tech-debt/design.md --out ./tech-debt-pbis --baseline <repo>/.tech-debt/baseline.json`
    writes one bundle per `approved` finding, flips them to `promoted` in
    `design.md` so a re-run is a no-op, then records every finding's decision
    (`promoted`, `rejected` or `accepted`, with its `reason` and `until`) back
    into the baseline — plus a `pending` entry for every verified finding a
-   decision never covered, with `last_seen` refreshed on one already there.
+   decision never covered. An entry it sees again is refreshed against this
+   scan, keeping only its decision; an entry whose code was edited since
+   migrates to the finding's new fingerprint, keeping that decision too.
    Writing back may append three lines to the
    repository's `.gitignore` the first time the baseline path is
    git-ignored — `!.tech-debt/`, `.tech-debt/*`, then
@@ -238,7 +250,10 @@ with `--skip-all`) brings it to 0.
   every other one with its status in parentheses — `absent`, `failed` or
   `skipped` — so a `--no-tools` run lists all ten as `skipped` and is not the
   same document as a full probe. Step 11 diffs every finding against the
-  committed baseline (`NEW`, `UNCHANGED`, `UNCHANGED (moved)`, `UNCHANGED
-  (edited)` or `RESOLVED`; see `docs/architecture.md`'s "The baseline"
-  section for what each means and how suppression and expiry work) and
-  promote's `--baseline` writes the human's decisions back into it.
+  committed baseline — `NEW`, `UNCHANGED`, `UNCHANGED (moved)` or
+  `UNCHANGED (edited)`, which are the four values a finding in `design.md`
+  can carry; the fifth, `RESOLVED`, names a baseline entry no current
+  finding matched and so appears only in `diff.json` and the frontmatter's
+  `resolved:` count (see `docs/architecture.md`'s "The baseline" section for
+  what each means and how suppression and expiry work) — and promote's
+  `--baseline` writes the human's decisions back into it.
