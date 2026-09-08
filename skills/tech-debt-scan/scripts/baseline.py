@@ -292,6 +292,31 @@ TRIPLE: Final[tuple[str, ...]] = ("!.tech-debt/", ".tech-debt/*", "!.tech-debt/b
 TRIPLE_COMMENT: Final[str] = "# tech-debt-scan: track the baseline, ignore the rest of the workdir"
 
 
+def _entry_fields(finding: dict[str, Any], *, family: Any, title: Any, tier: Any) -> dict[str, Any]:
+    """The finding-derived fields common to every baseline entry.
+
+    Shared by ``record``'s decisions loop and its fill-in loop so the two
+    cannot drift: ``family``, ``title`` and ``tier`` are supplied by the
+    caller (the decision's when a decision exists, the finding's own
+    otherwise), and everything else -- file, line, quote hash and redacted
+    quote and title -- always comes from ``finding`` itself.
+    """
+    file, line = _primary(finding)
+    quote = None
+    evidence = finding.get("evidence") or []
+    if evidence and isinstance(evidence[0], dict):
+        quote = evidence[0].get("quote")
+    return {
+        "family": family,
+        "file": file,
+        "line_start": line,
+        "quote_hash": finding.get("quote_hash"),
+        "quote": redact(quote) if isinstance(quote, str) else None,
+        "title": redact(str(title))[:120],
+        "tier": tier,
+    }
+
+
 def record(
     baseline_path: Path,
     *,
@@ -301,7 +326,7 @@ def record(
     today: str,
     preset: str,
 ) -> dict[str, Any]:
-    """Write every decision into the baseline and return the document (spec 4.10).
+    """Write every decision into the baseline, and remember every finding shown (spec 4.10).
 
     ``decisions`` are the parsed design.md findings; ``findings`` the matching
     ``verified.json`` entries, which carry the file, line and quote the design
@@ -316,10 +341,23 @@ def record(
     last. A ``promoted`` decision raises unless a bundle is in ``bundles`` or
     was already recorded for that fingerprint -- only ``promote`` can vouch
     for a bundle.
+
+    Every element of ``findings`` with no matching decision is remembered too
+    (ruling 25): a suppressed finding is hidden from the design document and
+    so absent from ``decisions`` by design, but its recorded decision must
+    survive, so a finding already in the baseline just has its ``last_seen``
+    refreshed -- status, reason, until, bundle and first_seen are left
+    untouched. A finding with no baseline entry yet is written fresh as
+    ``pending``, with both dates set to ``today``, so it reads UNCHANGED
+    rather than NEW on the next scan. A finding with no fingerprint is
+    skipped silently here -- unlike a fingerprint-less decision, which
+    raises. A decision always wins: any fingerprint ``decisions`` already
+    handled is left to that loop.
     """
     existing = load_baseline(baseline_path) or {"findings": {}}
     by_fp = {str(f.get("fingerprint")): f for f in findings if isinstance(f, dict)}
     out = dict(existing["findings"])
+    decision_fps: set[str] = set()
     for decision in decisions:
         fp = str(decision.get("fingerprint") or "")
         if not fp:
@@ -329,23 +367,18 @@ def record(
         if status not in STATUSES:
             raise BaselineError(f"{fp}: unknown status {status!r}")
         finding = by_fp.get(fp, {})
-        file, line = _primary(finding)
-        quote = None
-        evidence = finding.get("evidence") or []
-        if evidence and isinstance(evidence[0], dict):
-            quote = evidence[0].get("quote")
         previous = out.get(fp, {})
         bundle = bundles.get(fp, previous.get("bundle"))
         if status == "promoted" and bundle is None:
             raise BaselineError(f"{fp}: promoted with no bundle")
+        fields = _entry_fields(
+            finding,
+            family=decision.get("family") or finding.get("family"),
+            title=decision.get("title") or finding.get("title") or "",
+            tier=decision.get("tier") or finding.get("tier"),
+        )
         out[fp] = {
-            "family": decision.get("family") or finding.get("family"),
-            "file": file,
-            "line_start": line,
-            "quote_hash": finding.get("quote_hash"),
-            "quote": redact(quote) if isinstance(quote, str) else None,
-            "title": redact(str(decision.get("title") or finding.get("title") or ""))[:120],
-            "tier": decision.get("tier") or finding.get("tier"),
+            **fields,
             "status": status,
             "first_seen": previous.get("first_seen") or today,
             "last_seen": today,
@@ -353,6 +386,29 @@ def record(
             "until": decision.get("until"),
             "bundle": bundle,
         }
+        decision_fps.add(fp)
+    for finding in findings:
+        if not isinstance(finding, dict):
+            continue
+        fp = str(finding.get("fingerprint") or "")
+        if not fp or fp in decision_fps:
+            continue
+        if fp in out:
+            out[fp] = {**out[fp], "last_seen": today}
+        else:
+            fields = _entry_fields(
+                finding, family=finding.get("family"),
+                title=finding.get("title") or "", tier=finding.get("tier"),
+            )
+            out[fp] = {
+                **fields,
+                "status": "pending",
+                "first_seen": today,
+                "last_seen": today,
+                "reason": None,
+                "until": None,
+                "bundle": None,
+            }
     doc = {"schema_version": SCHEMA_VERSION, "last_scan": today, "preset": preset,
            "findings": dict(sorted(out.items()))}
     baseline_path.parent.mkdir(parents=True, exist_ok=True)

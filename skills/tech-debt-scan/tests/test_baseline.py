@@ -667,6 +667,77 @@ class TestRecord:
                      bundles={}, today=TODAY, preset="balanced")
         assert doc["findings"]["aaaaaaaaaaaaaaaa"]["bundle"] == "chore-empty-catch-2026-09-07"
 
+    def test_an_undecided_finding_is_recorded_as_pending(self, tmp_path: Path) -> None:
+        """Ruling 25: `record` remembers every finding it was shown, not only the
+        ones the design document carried a decision for -- otherwise a
+        suppressed-from-the-document, still-undecided finding classifies NEW on
+        every re-scan forever."""
+        from baseline import record
+
+        undecided = _finding(
+            fingerprint="bbbbbbbbbbbbbbbb", family="dead-code",
+            title="Unreachable branch after early return", tier="C", quote_hash="r" * 40,
+            evidence=[{"file": "src/pay/gateway.py", "line_start": 91, "line_end": 91,
+                       "quote": "if False:", "quote_verified": True}],
+        )
+        doc = record(tmp_path / "b.json", decisions=[_decision()],
+                     findings=[_finding(), undecided], bundles={}, today=TODAY, preset="balanced")
+        assert set(doc["findings"]) == {"aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"}
+        entry = doc["findings"]["bbbbbbbbbbbbbbbb"]
+        assert entry == {"family": "dead-code", "file": "src/pay/gateway.py", "line_start": 91,
+                         "quote_hash": "r" * 40, "quote": "if False:",
+                         "title": "Unreachable branch after early return", "tier": "C",
+                         "status": "pending", "first_seen": TODAY, "last_seen": TODAY,
+                         "reason": None, "until": None, "bundle": None}
+
+    def test_a_rejected_entry_survives_when_undecided_this_scan(self, tmp_path: Path) -> None:
+        """A finding still present in `findings` but with no decision this time
+        (it is suppressed and so absent from the design document) keeps its
+        recorded status, reason and first_seen; only last_seen refreshes."""
+        from baseline import record
+
+        path = tmp_path / "b.json"
+        record(path, decisions=[_decision(status="rejected", reason="flaky, tracked elsewhere")],
+               findings=[_finding()], bundles={}, today="2026-09-01", preset="balanced")
+        doc = record(path, decisions=[], findings=[_finding()], bundles={}, today=TODAY,
+                     preset="balanced")
+        entry = doc["findings"]["aaaaaaaaaaaaaaaa"]
+        assert entry["status"] == "rejected"
+        assert entry["reason"] == "flaky, tracked elsewhere"
+        assert entry["first_seen"] == "2026-09-01"
+        assert entry["last_seen"] == TODAY
+
+    def test_a_fingerprintless_finding_is_skipped_but_a_fingerprintless_decision_raises(
+        self, tmp_path: Path
+    ) -> None:
+        from baseline import BaselineError, record
+
+        no_fp_finding = _finding()
+        del no_fp_finding["fingerprint"]
+        doc = record(tmp_path / "b.json", decisions=[], findings=[no_fp_finding], bundles={},
+                     today=TODAY, preset="balanced")
+        assert doc["findings"] == {}
+
+        no_fp_decision = _decision()
+        del no_fp_decision["fingerprint"]
+        with pytest.raises(BaselineError, match="fingerprint"):
+            record(tmp_path / "c.json", decisions=[no_fp_decision], findings=[_finding()],
+                   bundles={}, today=TODAY, preset="balanced")
+
+    def test_round_trip_with_diff_leaves_nothing_new(self, tmp_path: Path) -> None:
+        """record then diff over the same findings: every finding -- decided or
+        not -- is UNCHANGED, and diff's `new` count is zero."""
+        from baseline import diff, record
+
+        undecided = _finding(fingerprint="bbbbbbbbbbbbbbbb", family="dead-code",
+                              title="Unreachable branch after early return", tier="C")
+        path = tmp_path / "b.json"
+        doc = record(path, decisions=[_decision()], findings=[_finding(), undecided],
+                     bundles={}, today=TODAY, preset="balanced")
+        out = diff({"findings": [_finding(), undecided]}, doc, tmp_path, TODAY)
+        assert out["counts"]["new"] == 0
+        assert all(v["diff"] == "UNCHANGED" for v in out["status"].values())
+
 
 class TestTriple:
     """Direct, git-free checks on the derived lines themselves."""

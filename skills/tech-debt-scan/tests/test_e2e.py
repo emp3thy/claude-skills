@@ -249,17 +249,26 @@ def test_scan_decide_rescan_baseline_sequence(service_py_repo: Path, tmp_path: P
     bundle_name = doc["findings"][_FP_PROMOTED]["bundle"]
     assert bundle_name and (out / bundle_name).is_dir()
 
+    # Ruling 25: `record` remembers every finding verified.json carried, not
+    # only the ones the design document had a decision for -- so step 2's
+    # baseline holds one entry per verified finding, tier-C and unverified
+    # ones (no yaml anchor, no decision) included. Not hardcoded: the golden
+    # corpus could change how many verified findings it carries.
+    verified_step2 = json.loads((workdir / "verified.json").read_bytes())
+    assert len(doc["findings"]) == len(verified_step2["findings"])
+
     # Step 3: diff the same verified.json against that baseline, still at the
     # scan's own date. The rejected and accepted findings are suppressed (and
-    # so absent from the rendered body); the promoted one is UNCHANGED (a
-    # fingerprint match against its own `promoted` entry); and so is every
-    # other finding the document actually renders (every `pending` baseline
-    # entry recorded in step 2 also matches by fingerprint, since nothing on
-    # disk or in verified.json has changed). diff.json's raw `status` also
-    # carries NEW entries for the tier-C/unverified findings that carry no
-    # yaml anchor and so were never recorded to the baseline in step 2 -- they
-    # are not "findings" a reader of the document can see, so they play no
-    # part in "every other finding is UNCHANGED".
+    # so absent from the rendered body); every other finding is UNCHANGED --
+    # the promoted one (a fingerprint match against its own `promoted`
+    # entry), every other finding the document actually renders (its
+    # `pending` baseline entry recorded in step 2 also matches by
+    # fingerprint), and, since the fix above, the tier-C/unverified findings
+    # that carry no yaml anchor and so never had a decision either: step 2's
+    # fill-in recorded each of those as `pending` too, so they now match by
+    # fingerprint instead of reading NEW. Nothing on disk or in verified.json
+    # has changed, so `new` is zero and no entry in the raw `status` map is
+    # anything but UNCHANGED.
     assert baseline_main([
         "diff", "--workdir", str(workdir), "--root", str(repo),
         "--baseline", str(baseline_path), "--today", SCAN_DATE,
@@ -269,10 +278,12 @@ def test_scan_decide_rescan_baseline_sequence(service_py_repo: Path, tmp_path: P
     assert diff_doc["counts"]["suppressed"] == 2
     assert diff_doc["counts"]["resolved"] == 0
     assert diff_doc["counts"]["expired"] == 0
+    assert diff_doc["counts"]["new"] == 0
     assert _FP_REJECTED not in diff_doc["status"] and _FP_ACCEPTED not in diff_doc["status"]
     assert diff_doc["status"][_FP_PROMOTED] == {
         "diff": "UNCHANGED", "note": None, "matched": _FP_PROMOTED,
     }
+    assert all(entry["diff"] == "UNCHANGED" for entry in diff_doc["status"].values())
 
     design2 = workdir / "design-2.md"
     write_design(load_inputs(workdir), SCAN_DATE, design2)
@@ -286,6 +297,7 @@ def test_scan_decide_rescan_baseline_sequence(service_py_repo: Path, tmp_path: P
     assert all(f["diff"] == "UNCHANGED" for f in parsed2["findings"])
     assert parsed2["metadata"]["counts"]["suppressed"] == 2
     assert parsed2["metadata"]["counts"]["resolved"] == 0
+    assert parsed2["metadata"]["counts"]["new"] == 0
 
     # Step 4: diff again, now past the acceptance's `until`. The accepted
     # finding is no longer suppressed -- it is back in the body -- and reports
