@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from evaluate import evaluate, hits, load_findings, render_table
+from evaluate import evaluate, hits, load_findings, producers, render_table, source_matches
 from inventory import write_json
 from make_history import CORPUS_ROOT
 
@@ -223,3 +223,72 @@ def test_finding_with_multiple_evidence_items_second_matches(
     p1 = next(item for item in report["planted"] if item["id"] == "p1")
     assert p1["found"] is True
     assert "A" in p1["tiers"]
+
+
+def _producer_finding(family: str, file: str, **fields: Any) -> dict[str, Any]:
+    finding = _finding(family, file, 1, 1, "A", "fp-" + family)
+    finding.update(fields)
+    return finding
+
+
+def test_producers_names_the_findings_own_token_and_its_corroboration() -> None:
+    scout = _producer_finding("dead-code", "a.py", source="scout",
+                              confirmed_by=["scout:dead-code", "tool:vulture"])
+    assert producers(scout) == frozenset({"scout:dead-code", "tool:vulture"})
+    rule = _producer_finding("ownership", "a.py", source="rule", rule_id="ownership.island",
+                             confirmed_by=["rule:ownership.island"])
+    assert producers(rule) == frozenset({"rule:ownership.island"})
+    tool = _producer_finding("security", "a.py", source="tool", tool="gitleaks",
+                             confirmed_by=[])
+    assert producers(tool) == frozenset({"tool:gitleaks"})
+    # No source at all (a hand-written finding): only confirmed_by survives.
+    bare = _producer_finding("security", "a.py", confirmed_by=["pattern:secret"])
+    assert producers(bare) == frozenset({"pattern:secret"})
+
+
+def test_source_matches_exact_and_prefix_patterns() -> None:
+    assert source_matches("rule:ci.no-timeout", ["rule:ci.*"])
+    assert source_matches("rule:ci.no-timeout", ["rule:*"])
+    assert source_matches("tool:jscpd", ["scout:duplication", "tool:jscpd"])
+    assert not source_matches("tool:jscpd", ["scout:duplication"])
+    assert not source_matches("rule:ci.no-timeout", ["rule:container.*"])
+    assert not source_matches("scout:security", ["scout:securit"])  # exact, not prefix
+
+
+def test_hits_honours_a_decoys_sources_list() -> None:
+    decoy = {"id": "d1", "family": "pipeline-infra", "path": ".github/workflows/ci.yml",
+             "why": "well configured", "sources": ["scout:pipeline-infra", "rule:ci.*"]}
+    scout = _producer_finding("pipeline-infra", ".github/workflows/ci.yml", source="scout",
+                              confirmed_by=["scout:pipeline-infra"])
+    rule = _producer_finding("pipeline-infra", ".github/workflows/ci.yml", source="rule",
+                             rule_id="ci.no-timeout", confirmed_by=["rule:ci.no-timeout"])
+    tool = _producer_finding("pipeline-infra", ".github/workflows/ci.yml", source="tool",
+                             tool="actionlint", confirmed_by=[])
+    assert hits(scout, decoy) and hits(rule, decoy)
+    assert not hits(tool, decoy), "actionlint is not in the decoy's sources"
+    # A family mismatch is still decided first.
+    other = _producer_finding("dead-code", ".github/workflows/ci.yml", source="scout",
+                              confirmed_by=["scout:dead-code"])
+    assert not hits(other, decoy)
+
+
+def test_a_decoy_without_sources_matches_any_producer() -> None:
+    decoy = {"id": "d9", "family": "security", "path": "a.py", "why": "old shape"}
+    tool = _producer_finding("security", "a.py", source="tool", tool="gitleaks", confirmed_by=[])
+    assert hits(tool, decoy)
+    assert hits(tool, {**decoy, "sources": []})
+
+
+def test_evaluate_scores_a_decoy_only_through_its_sources(planted: dict[str, Any]) -> None:
+    planted = json.loads(json.dumps(planted))
+    d1 = next(d for d in planted["decoys"] if d["id"] == "d1")  # duplication, seed.py
+    d1["sources"] = ["scout:duplication"]
+    by_scout = _producer_finding("duplication", "tests/fixtures/seed.py", source="scout",
+                                 confirmed_by=["scout:duplication"])
+    by_tool = _producer_finding("duplication", "tests/fixtures/seed.py", source="tool",
+                                tool="jscpd", confirmed_by=[])
+    by_tool["fingerprint"] = "fp-tool"
+    report = evaluate([by_scout, by_tool], planted, set(), top=5)
+    decoy = next(d for d in report["decoys"] if d["id"] == "d1")
+    assert decoy["hit_tiers"] == ["A"], "only the scout finding counts against d1"
+    assert report["families"]["duplication"]["decoy_hits"] == {"A": 1, "B": 0, "C": 0}
