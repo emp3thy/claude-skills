@@ -244,6 +244,7 @@ def test_fingerprint_cluster_and_corroboration(tmp_path: Path) -> None:
     assert "dropped_reasons" not in doc["stats"]["security"], "nothing dropped, key must be absent"
     cand = next(c for c in doc["candidates"] if c["source"] == "scout")
     assert cand["severity"] == 4 and cand["effort"] == "S" and cand["title"] == "b"
+    assert cand["tool"] is None
     assert len(cand["evidence"]) == 2
     fp = fingerprint("error-masking", "src/pay.py", "try:\n        order.refund()")[0]
     alt = fingerprint("error-masking", "src/pay.py", SWALLOW)[0]
@@ -252,7 +253,7 @@ def test_fingerprint_cluster_and_corroboration(tmp_path: Path) -> None:
     assert any(c.startswith("pattern:") for c in cand["confirmed_by"])
     assert cand["signals_cited"] == ["pattern:error-masking:swallowed-catch"]
     assert list(cand) == ["fingerprint", "quote_hash", "family", "debt_type", "type_id", "title",
-                          "severity", "effort", "source", "rule_id", "note", "evidence",
+                          "severity", "effort", "source", "rule_id", "tool", "note", "evidence",
                           "confirmed_by", "signals_cited", "signals", "tier"]
     assert list(cand["signals"]) == ["hotspot_score", "churn", "coupling_degree", "fan_in_approx",
                                      "path_class", "in_hotspot_band"]
@@ -923,6 +924,13 @@ class TestFactClassRoutings:
         new, _ = tool_candidates([self._gitleaks()], {"files": []}, [])
         assert new[0]["tier"] is None
         assert new[0]["source"] == "tool"
+
+    def test_a_tool_candidate_names_the_tool_that_raised_it(self) -> None:
+        from merge_findings import tool_candidates
+
+        new, _ = tool_candidates([self._gitleaks()], {"files": []}, [])
+        assert new and all(c["tool"] == "gitleaks" for c in new)
+        assert list(new[0]).index("tool") == list(new[0]).index("rule_id") + 1
 
     def test_hadolint_merges_into_a_same_file_rule_finding(self) -> None:
         from merge_findings import tool_candidates

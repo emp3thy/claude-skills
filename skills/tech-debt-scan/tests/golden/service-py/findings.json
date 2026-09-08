@@ -34,6 +34,9 @@
         "satd",
         "scout:error-masking"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "A",
       "verdict": "confirm",
       "proof": "refund.py:31-34 catches bare Exception from ledger.post and passes silently \u2014 no log, no re-raise, no cause preserved. Execution then proceeds unconditionally to gateway.refund at line 37, which moves money via the live v2 API (gateway.py) regardless of ledger write success. This means a ledger write failure produces no audit record and no operator visibility while the refund is still issued, a genuine financial-integrity error-masking bug.",
@@ -84,6 +87,9 @@
         "satd",
         "scout:half-finished"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "A",
       "verdict": "confirm",
       "proof": "FIXME at refund.py:35 names duplicate-refund risk from gateway-side retries. The only dedup guard is `_seen` (refund.py:14,27-29), an in-memory, per-process set keyed on order_id at the start of issue() -- it does not gate the actual gateway.refund() call from being retried by the gateway itself, and resets on process restart. No ticket reference found in code or tests. The named risk is genuinely still present: nothing in gateway.py (idempotency key, dedup header) mitigates it either. Severity 5 (money duplication) and effort M (needs idempotency key design, not a one-liner) both look right.",
@@ -131,6 +137,9 @@
       "confirmed_by": [
         "rule:ownership.knowledge-island"
       ],
+      "source": "rule",
+      "rule_id": "ownership.knowledge-island",
+      "tool": null,
       "tier": "A",
       "verdict": "rule",
       "proof": "verified by construction",
@@ -181,6 +190,9 @@
         "satd",
         "scout:test-gaps"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "Grep confirms no test calls issue_partial anywhere in tests/. Unlike test_issue_calls_gateway (explicitly marked @pytest.mark.skip), issue_partial has no test stub at all \u2014 not even a skipped placeholder. The fraction-to-cents conversion (refund.py:46) and full delegation to issue() are unguarded, so a rounding or scale regression would ship undetected.",
@@ -232,6 +244,9 @@
         "satd",
         "scout:pipeline-infra"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "refund.py:39-40 uses `log.exception` for the OSError path, but line 41 uses bare `print()` for the normal-outcome message in the same function, on the same code path a few lines later. There is no __main__ guard or CLI parsing in this module (it's a library import per refund.py:1), so the print goes to stdout uncontrolled by log level/handlers, breaking aggregation for a production refund outcome. Real, low-effort fix (swap to log.info).",
@@ -281,6 +296,9 @@
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "A",
       "verdict": "confirm",
       "proof": "tests/test_refund.py:19-21 has `test_issue_calls_gateway` marked `@pytest.mark.skip(reason=\"gateway stub not written yet\")` with body `raise NotImplementedError`. No other test file (tests/test_ledger.py, conftest.py, fixtures/seed.py) references Gateway or refund(). conftest.py:9-11 only provides a Refund fixture, no gateway stub. Gateway.refund is therefore fully unexercised, confirming zero coverage on a real refund-issuing HTTP call.",
@@ -330,6 +348,9 @@
         "pattern:no-timeout",
         "scout:half-finished"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "A",
       "verdict": "confirm",
       "proof": "gateway.py:20-25 `requests.post(...)` has no `timeout` kwarg. refund.py:37 calls `gateway.refund(...)` synchronously inside `issue()`, which is the real money-movement path (invoked as the Dockerfile CMD `python -m pay.refund`). An unresponsive gateway would block the caller indefinitely, matching the described risk exactly.",
@@ -395,6 +416,9 @@
         "pattern:tls-disabled",
         "scout:security"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "gateway.py:11 hardcodes `api_key = \"sk_l***\"`, matching Stripe's live-secret-key shape (sk_live_ prefix + random suffix). It's module-level in production source (not tests/fixtures), used directly as the Authorization bearer at line 23 for real POST refunds (line 20-25), with `verify=False` (TLS disabled) and a wildcard CORS header alongside it. No suppression comment or test/fixture context nearby. This is a genuine hardcoded live-looking credential in the money-movement path.",
@@ -442,6 +466,9 @@
       "confirmed_by": [
         "rule:ownership.knowledge-island"
       ],
+      "source": "rule",
+      "rule_id": "ownership.knowledge-island",
+      "tool": null,
       "tier": "A",
       "verdict": "rule",
       "proof": "verified by construction",
@@ -498,6 +525,9 @@
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "A",
       "verdict": "confirm",
       "proof": "issue() at refund.py:24-42 is untested (only test skipped at test_refund.py:19-21). Lines 31-34 wrap ledger.post in bare 'except Exception: pass', so a ledger write failure is swallowed and execution still proceeds to call the gateway at line 37 \u2014 money can move with no corresponding ledger entry. Line 35's FIXME confirms a known duplicate-post risk in the same unguarded path. No test asserts call order, exception handling, or the duplicate-refund guard (_seen set, line 27-29). This is a real financial-correctness gap, not just a style nit.",
@@ -545,6 +575,9 @@
       "confirmed_by": [
         "rule:ownership.knowledge-island"
       ],
+      "source": "rule",
+      "rule_id": "ownership.knowledge-island",
+      "tool": null,
       "tier": "A",
       "verdict": "rule",
       "proof": "verified by construction",
@@ -595,6 +628,9 @@
         "satd",
         "scout:dead-code"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "C",
       "verdict": "confirm",
       "proof": "Repo-wide grep for `issue_partial` (case-sensitive, all of src/ and tests/) returns only the definition at refund.py:45 -- no callers, no test coverage, no dynamic dispatch/reflection/string-based lookup found. tests/test_refund.py exercises validate, audit_trail, and has a skipped issue test, but nothing calls issue_partial. It is a plain function, not a plugin hook or serialized entry point.",
@@ -643,6 +679,9 @@
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "A",
       "verdict": "confirm",
       "proof": "ledger.py:29-30 shows reverse() returns a new Entry with amount_cents negated and reason='reversal'. tests/test_ledger.py:18-19 calls ledger.reverse(...) and discards the return value with no assert whatsoever. Grep for 'reverse' across the repo shows no other test references it, so this is genuinely the only coverage and it is assert-free. A regression that dropped the sign flip or hardcoded a different reason string would not be caught.",
@@ -698,6 +737,9 @@
         "rule:ci.no-cache",
         "rule:ci.no-permissions"
       ],
+      "source": "rule",
+      "rule_id": "ci.no-permissions",
+      "tool": null,
       "tier": "A",
       "verdict": "rule",
       "proof": "verified by construction",
@@ -757,6 +799,9 @@
         "satd",
         "scout:security"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "Line 11 interpolates refund_id directly into SQL via f-string with a bare '# nosec' (no justification text). Line 13 runs a shell command with shell=True and a bare '# noqa: S602'. Both are genuine injection-prone patterns; refund_id is a caller-supplied parameter with no validation. No in-repo caller exists (confirmed by grep), but the module docstring states it's kept for an active external v1 reporting job, so reachability cannot be ruled out. The suppressions are unexplained regardless of current reachability.",
@@ -806,6 +851,9 @@
         "pattern:stub",
         "scout:half-finished"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "A",
       "verdict": "confirm",
       "proof": "test_refund.py:19-21 skips test_issue_calls_gateway with reason='gateway stub not written yet' \u2014 no ticket, no owner, no date. refund.py:35 has an adjacent unresolved 'FIXME: the gateway retries on our behalf, so a duplicate refund can post twice' directly inside issue(), the function the skipped test targets. gateway.py:19-27 shows refund() is a real (non-stub) implementation already, so the stated skip reason is stale/inaccurate as well as vague.",
@@ -864,6 +912,9 @@
         "pattern:sleep",
         "scout:test-quality"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "test_ledger.py:18-19 calls `ledger.reverse(Entry(...))` and discards the return value with no assert. ledger.reverse (ledger.py:29-30) negates amount_cents and sets reason='reversal' -- real business logic, not a startup/import smoke check. A regression that flipped the sign or dropped the reason field would not fail this test. Not table-driven/parametrised, not a permission/kill-switch check.",
@@ -920,6 +971,9 @@
         "satd",
         "scout:migration"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "export_v1 (legacy_export.py:8-14) has zero call sites confirmed by repo-wide grep for 'export_v1'/'legacy_export' outside its own definition. TODO(#42) at line 7 references a v2 report that doesn't exist anywhere in the repo (no export_v2, no mention in README/CHANGELOG/docs). Commented-out export_v0 stub at lines 17-19 confirms a prior migration was also never cleaned up. This is real orphaned migration debt.",
@@ -996,6 +1050,9 @@
         "satd",
         "scout:doc-drift"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "README.md:10 names a path ('src/pay/exporter.py') that never appears in the repo (glob of src/pay/*.py shows legacy_export.py instead) and claims the job was removed in 0.1.0, but legacy_export.py:8 export_v1 still performs the same CSV-style export, still called nowhere else, still containing an f-string SQL query (line 11) and shell=True subprocess call (line 13). The README's removal claim is false; the job is live under a different name.",
@@ -1053,6 +1110,9 @@
         "satd",
         "scout:duplication"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": null,
       "verdict": "reject",
       "proof": "The 'duplication' is a single-expression pattern \u2014 negating amount_cents inside an Entry(...) construction \u2014 appearing once in refund.py:30 (building a fresh refund entry) and once in ledger.py:29-30 (reverse(), building a reversal entry from an existing one). These serve different domains (initial posting vs. explicit reversal) and are too trivial (one field negation) to warrant a shared abstraction; extracting it would add indirection for no real maintenance benefit. The file coupling (shared=5, ratio=0.714) reflects refund.py calling ledger.post/reverse generally, not copy-pasted logic.",
@@ -1116,6 +1176,9 @@
         "rule:manifest.no-lockfile",
         "scout:pipeline-infra"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "release.yml:2-4 only triggers on pushed 'v*' tags and has no step diffing the tag against pyproject.toml's version (lines 10-12 just build and upload). pyproject.toml:3 is already at 0.2.0 while CHANGELOG.md tops out at 0.1.0, meaning the 0.2.0 bump happened without a corresponding tag/release run or changelog update \u2014 a manual, unverified version bump. Real pipeline gap.",
@@ -1171,6 +1234,9 @@
         "rule:manifest.no-lockfile",
         "scout:dependency-debt"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "pyproject.toml:5 declares floating `requests>=2.31` while requirements.txt:1 pins `requests==2.32.3`. Dockerfile (lines 4-5) and ci.yml (line 11) both install only from requirements.txt, never from pyproject.toml, and no lockfile exists. setup.py is a bare setuptools shim pointing back at pyproject.toml, so the pyproject dependency spec is real but unused/unenforced metadata that has silently diverged from what's actually built and tested. Confusing but low-impact since it's never installed.",
@@ -1227,6 +1293,9 @@
         "rule:manifest.no-lockfile",
         "scout:test-gaps"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "ci.yml:12 runs bare `pytest -q` with no `--cov` flag or coverage invocation, so the `[tool.coverage.report] fail_under = 80` block (pyproject.toml:7-8) is dead configuration - coverage.report only enforces a threshold when preceded by `coverage run`/`--cov`. Neither pytest-cov nor coverage appear in requirements.txt. gateway.py (0 real tests, see candidate 4) and legacy_export.py (0 callers/tests) can merge untested with the gate never tripping.",
@@ -1274,6 +1343,9 @@
       "confirmed_by": [
         "rule:manifest.no-lockfile"
       ],
+      "source": "rule",
+      "rule_id": "manifest.no-lockfile",
+      "tool": null,
       "tier": "A",
       "verdict": "rule",
       "proof": "verified by construction",
@@ -1360,6 +1432,9 @@
         "rule:ci.no-timeout",
         "rule:ci.unpinned-action"
       ],
+      "source": "rule",
+      "rule_id": "ci.no-timeout",
+      "tool": null,
       "tier": "A",
       "verdict": "rule",
       "proof": "verified by construction",
@@ -1415,6 +1490,9 @@
         "rule:container.no-user",
         "rule:container.unversioned-install"
       ],
+      "source": "rule",
+      "rule_id": "container.unversioned-install",
+      "tool": null,
       "tier": "A",
       "verdict": "rule",
       "proof": "verified by construction",
@@ -1462,6 +1540,9 @@
       "confirmed_by": [
         "rule:ownership.no-codeowners"
       ],
+      "source": "rule",
+      "rule_id": "ownership.no-codeowners",
+      "tool": null,
       "tier": "A",
       "verdict": "rule",
       "proof": "verified by construction",
@@ -1509,6 +1590,9 @@
       "confirmed_by": [
         "rule:release.stale-env-branch"
       ],
+      "source": "rule",
+      "rule_id": "release.stale-env-branch",
+      "tool": null,
       "tier": "A",
       "verdict": "rule",
       "proof": "verified by construction",
@@ -1556,6 +1640,9 @@
       "confirmed_by": [
         "scout:half-finished"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "test_ledger.py:14 has `time.sleep(0.05)  # flaky on CI without this; retried in the workflow` -- a self-admitted race being masked by a fixed sleep plus workflow-level retries, matching commit 5334fe2 'test: retry flaky ledger test' in recent history. post() (ledger.py:12-15) and balance() (ledger.py:18-26) are synchronous file I/O with no async/threading, so the sleep is compensating for an unidentified race rather than a real inherent delay. No ticket reference in the code.",
@@ -1603,6 +1690,9 @@
       "confirmed_by": [
         "scout:architecture"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": null,
       "verdict": "reject",
       "proof": "README.md:10 says exporter.py 'was removed in 0.1.0', but src/pay/legacy_export.py exists and exports refund rows to CSV-equivalent output (export_v1), an equivalent job under a new name. No file imports it (grep found only the definition file), so it's dead-but-present code the docs claim doesn't exist. Real drift between documented and actual package contents; not an architectural cycle or layering issue, just a stale removal claim.",
@@ -1658,6 +1748,9 @@
         "rule:manifest.no-lockfile",
         "scout:doc-drift"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "pyproject.toml:3 declares version 0.2.0 but CHANGELOG.md:1-5 stops at '0.1.0 - 2024-10-05' with no 0.2.0 section. Git log shows gateway v2 migration and refund audit trail commits landed after that tag, none reflected in the changelog. Real, low-impact doc drift.",
@@ -1721,6 +1814,9 @@
         "rule:manifest.no-lockfile",
         "scout:migration"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "B",
       "verdict": "confirm",
       "proof": "setup.py:1 states 'pyproject.toml is the source of truth' for packaging, yet ci.yml:11 runs 'pip install -r requirements.txt' rather than installing the package's own dependencies. requirements.txt:1 pins requests==2.32.3 while pyproject.toml:5 declares requests>=2.31 \u2014 two manifests can drift silently since CI only ever installs from the former. No consolidation plan is stated anywhere in the repo. Real split-manifest debt.",
@@ -1777,6 +1873,9 @@
         "satd",
         "scout:architecture"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "C",
       "verdict": "unverified",
       "proof": "",
@@ -1835,6 +1934,9 @@
         "satd",
         "scout:dead-code"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "C",
       "verdict": "confirm",
       "proof": "Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.",
@@ -1882,6 +1984,9 @@
       "confirmed_by": [
         "scout:dead-code"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "C",
       "verdict": "confirm",
       "proof": "Repo-wide grep for `fingerprint` returns only the definition at utils.py:11 -- zero callers anywhere in src/ or tests/. Not referenced by name in serialization, routing, or DI. It also uses md5, a weak hash, compounding the dead-code concern, but the core claim (unused) is verified as stated.",
@@ -1938,6 +2043,9 @@
         "pattern:numeric-assert",
         "scout:test-quality"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "C",
       "verdict": "downgrade",
       "proof": "conftest.py:9-11 defines refund fixture (order_id='o-1', amount_cents=500); models.py sets reason_code default 'other'. test_refund.py:16 hardcodes 'o-1:500:other'. The note's premise that fixture drift 'silently breaks' the assertion is inaccurate: an equality assert fails loudly with a clear diff, it is not silent breakage, just a normal tightly-coupled test. Real minor duplication, not a hidden-failure risk.",
@@ -1988,6 +2096,9 @@
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
       "tier": "C",
       "verdict": "downgrade",
       "proof": "Confirmed no test file or test references 'legacy_export' anywhere in tests/ (searched conftest.py, test_refund.py, test_ledger.py, fixtures/seed.py). However export_v1 is simultaneously flagged (candidate 1) as dead code slated for deletion under TODO(#42) with zero callers. Writing a test for code destined for removal is not a productive fix; the correct remediation is deletion, not coverage. Real gap, but low-value to act on.",

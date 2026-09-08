@@ -64,11 +64,12 @@ def _finding(
     debt_type: str = "defect", type_id: str | None = "TD-13", proof: str = "",
     confirmed: list[str] | None = None, signals: dict[str, Any] | None = None,
     trap: str | None = None, verified: bool = True,
+    source: str = "scout", rule_id: str | None = None, tool: str | None = None,
 ) -> dict[str, Any]:
     return {
         "fingerprint": fingerprint, "quote_hash": "0" * 40, "family": family,
         "debt_type": debt_type, "type_id": type_id, "title": title, "severity": severity,
-        "effort": effort, "source": "scout", "rule_id": None, "note": "n",
+        "effort": effort, "source": source, "rule_id": rule_id, "tool": tool, "note": "n",
         "evidence": [{"file": file, "line_start": start, "line_end": end, "quote": quote,
                       "quote_verified": True}],
         "confirmed_by": confirmed if confirmed is not None else [f"scout:{family}"],
@@ -95,13 +96,15 @@ def _verified() -> dict[str, Any]:
                  proof="A credential-shaped literal sits in source, not in configuration.",
                  confirmed=["scout:security"],
                  signals={"hotspot_score": 45.0, "churn": 2, "coupling_degree": 1,
-                          "fan_in_approx": 0, "path_class": "source", "in_hotspot_band": False}),
+                          "fan_in_approx": 0, "path_class": "source", "in_hotspot_band": False},
+                 source="tool", tool="gitleaks"),
         _finding(TIER_C_FP, "dead-code", "Unused helper in the ledger module",
                  "src/pay/ledger.py", 40, 41, "def unused_helper():\n    return None",
                  tier="C", verdict="unverified", severity=2, effort="S",
                  debt_type="code", type_id="TD-09", verified=False,
                  signals={"hotspot_score": 0.0, "churn": 0, "coupling_degree": 0,
-                          "fan_in_approx": 0, "path_class": "source", "in_hotspot_band": False}),
+                          "fan_in_approx": 0, "path_class": "source", "in_hotspot_band": False},
+                 source="rule", rule_id="ci.no-timeout"),
     ], "stats": {"selected": 2, "verdicts": 2, "unknown_fingerprint": 0, "missing_verdict": 1,
                  "tier_a": 1, "tier_b": 1, "tier_c": 1, "rejected": 0}}
 
@@ -382,9 +385,9 @@ def test_findings_json_is_the_machine_readable_twin(tmp_path: Path) -> None:
     assert [f["fingerprint"] for f in doc["findings"]] == [TOP_FP, CUT_FP, TIER_C_FP]
     top = doc["findings"][0]
     assert list(top) == ["fingerprint", "slug", "title", "family", "debt_type", "type_id",
-                         "severity", "effort", "evidence", "signals", "confirmed_by", "tier",
-                         "verdict", "proof", "priority", "terms", "in_top_n", "spread_capped",
-                         "diff"]
+                         "severity", "effort", "evidence", "signals", "confirmed_by", "source",
+                         "rule_id", "tool", "tier", "verdict", "proof", "priority", "terms",
+                         "in_top_n", "spread_capped", "diff"]
     assert top["slug"] == "refund-failure-swallowed-by-a-bare-except"
     assert top["in_top_n"] is True and top["diff"] == "NEW" and top["priority"] == 6.3
     assert doc["findings"][2]["in_top_n"] is False
@@ -401,6 +404,18 @@ def test_findings_json_feeds_evaluate(tmp_path: Path) -> None:
     findings, name = load_findings(workdir)
     assert name == "findings.json" and len(findings) == 3
     assert {f["tier"] for f in findings} == {"A", "B", "C"}
+
+
+def test_findings_json_carries_the_producer_fields(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    write_design(inputs, "2026-04-15", tmp_path / "design.md")
+    rows = json.loads((inputs.workdir / "findings.json").read_bytes())["findings"]
+    verified = {f["fingerprint"]: f for f in inputs.verified["findings"]}
+    for row in rows:
+        source = verified[row["fingerprint"]]
+        assert row["source"] == source.get("source")
+        assert row["rule_id"] == source.get("rule_id")
+        assert row["tool"] == source.get("tool")
 
 
 # --- evidence fences (controller ruling, fix round 2) ---------------------------

@@ -40,7 +40,7 @@ def _finding(family: str, path: str, sev: int, effort: str, tier: str | None, *,
     return {
         "fingerprint": fp, "quote_hash": qh, "family": family, "debt_type": "code",
         "type_id": None, "title": "t", "severity": sev, "effort": effort, "source": "scout",
-        "rule_id": None, "note": "",
+        "rule_id": None, "tool": None, "note": "",
         "evidence": [{"file": path, "line_start": 1, "line_end": 1, "quote": "q",
                       "quote_verified": True}],
         "confirmed_by": confirmed or [f"scout:{family}"], "signals_cited": [],

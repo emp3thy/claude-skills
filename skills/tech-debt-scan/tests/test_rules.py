@@ -67,12 +67,13 @@ def test_finding_schema_source_tier_and_one_per_file(service_py: Repo) -> None:
     assert ci is not None
     assert list(ci) == [
         "fingerprint", "quote_hash", "family", "debt_type", "type_id", "title", "severity",
-        "effort", "source", "rule_id", "note", "evidence", "confirmed_by", "signals_cited",
-        "signals", "tier",
+        "effort", "source", "rule_id", "tool", "note", "evidence", "confirmed_by",
+        "signals_cited", "signals", "tier",
     ]
     assert (ci["source"], ci["tier"], ci["debt_type"], ci["type_id"]) == (
         "rule", "A", "build", "TD-14",
     )
+    assert ci["tool"] is None
     assert _rules(ci) == {
         "rule:ci.no-timeout", "rule:ci.no-permissions", "rule:ci.unpinned-action",
         "rule:ci.mutable-runner", "rule:ci.no-cache",

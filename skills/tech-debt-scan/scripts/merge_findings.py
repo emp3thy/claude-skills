@@ -518,9 +518,11 @@ def _fact_candidate(
     confirmed_by: list[str],
 ) -> dict[str, Any]:
     """One fact-class signal as a candidate, in the rule candidate shape (``rules.py``
-    645-671): same keys, same order. ``quote_verified`` is true unconditionally -- the
-    tool already found the exact site, and there is no disk text left to re-check it
-    against, the same reasoning ``rules.py`` uses for its own evidence.
+    645-671): same keys, same order, with ``tool`` carrying the signal's tool name
+    where a rule finding's is always ``None``. ``quote_verified`` is true
+    unconditionally -- the tool already found the exact site, and there is no disk
+    text left to re-check it against, the same reasoning ``rules.py`` uses for its
+    own evidence.
 
     The quote states the fact rather than quoting a file (spec 4.5's shape for a
     repository-level rule fact, reused here): a tool signal carries a message, not a
@@ -564,6 +566,7 @@ def _fact_candidate(
         "effort": effort,
         "source": "tool",
         "rule_id": None,
+        "tool": tool,
         "note": message[:NOTE_MAX],
         "evidence": [{
             "file": path,
@@ -755,6 +758,7 @@ def _candidate(
         "effort": finding["effort"],
         "source": "scout",
         "rule_id": None,
+        "tool": None,
         "note": finding["note"],
         "evidence": verified,
         "confirmed_by": [f"scout:{finding['family']}"],

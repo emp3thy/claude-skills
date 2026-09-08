@@ -658,6 +658,7 @@ def _candidate(
         "effort": effort,
         "source": "rule",
         "rule_id": primary.rule_id,
+        "tool": None,
         "note": redact("; ".join(h.note for h in hits))[:300],
         "evidence": [
             {"file": h.file, "line_start": h.line, "line_end": h.line, "quote": redact(h.quote),

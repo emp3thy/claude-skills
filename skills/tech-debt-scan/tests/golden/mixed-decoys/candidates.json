@@ -12,6 +12,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Fetch and FetchWithTimeout both implement the same GET-then-handle-response flow; the comment at httpc.go:11 says Fetch is deprecated in favor of FetchWithTimeout, yet main.go:28 still calls the deprecated copy, so both bodies remain live and must be kept in sync.",
       "evidence": [
         {
@@ -60,6 +61,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "All 290 map entries (lines 12-302) follow exactly the same 'data/'+name+'.json' pattern already computed by the fallback at line 8. The transformation is expressed twice: once as code, once as 290 hand-written literals that must stay consistent with it if the path scheme ever changes.",
       "evidence": [
         {
@@ -106,6 +108,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "WithTLS has no call sites in the repo and Config.TLS is never read anywhere, including in main.go's builder chain, so the TLS option added in the builder has no effect.",
       "evidence": [
         {
@@ -151,6 +154,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Checked for reflection, string dispatch, routes, DI and serialisation references to Fingerprint; found none. It is an exported function with zero fan-in in a 13-file repo.",
       "evidence": [
         {
@@ -188,6 +192,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "legacyHandler is wired into the string-dispatch table (checked: this is the only dispatch mechanism in the file) under the \"legacy\" command name, but its body is an unconditional panic, so invoking it can only crash the process. No caller in the repo passes \"legacy\" as an argument.",
       "evidence": [
         {
@@ -235,6 +240,7 @@
       "effort": "M",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Fetch carries a Deprecated marker pointing at FetchWithTimeout, yet main.go still calls the deprecated version rather than the replacement, so the deprecation has not been followed through anywhere in the codebase.",
       "evidence": [
         {
@@ -285,6 +291,7 @@
       "effort": "M",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Every entry in the 290-line paths map exactly matches the value the fallback branch (\"data/\"+name+\".json\") would compute anyway, so the map never changes PathFor's return value for any key it contains. The whole map has no observable effect and is the file's top hotspot.",
       "evidence": [
         {
@@ -331,6 +338,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Searched the module for any import of internal/shell; none exists. The only exported function in the package has zero fan-in, and the whole file/package is unreferenced.",
       "evidence": [
         {
@@ -368,6 +376,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Get() failure and ReadAll() failure both collapse to an empty-string return with no logging; the only call site (main.go:28) also discards the return value with '_ =', so a broken health check is completely invisible end to end.",
       "evidence": [
         {
@@ -408,6 +417,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "The printed message never includes err, so the underlying cause is lost. Load still returns the possibly-empty out map as if valid, with no error return path for callers to detect the failure.",
       "evidence": [
         {
@@ -455,6 +465,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "No mapped or unconventionally named test found for this package. Run() is the sole CLI dispatch entry point; its empty-args, unknown-command and success paths are unverified. The legacy command reaches an unconditional panic, reachable from user input, with no test guarding it.",
       "evidence": [
         {
@@ -502,6 +513,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "No test exercises flags.IsEnabled or asserts flipping payments.killswitch changes behaviour, despite the runbook naming it the on-call incident lever. untested_change_share=0.5. main.go only logs on it; a regression here would go uncaught.",
       "evidence": [
         {
@@ -549,6 +561,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Fetch is marked deprecated in favour of FetchWithTimeout, yet main.go still calls it and discards the result. No test exists for either function; the silent-empty-string error path is unverified.",
       "evidence": [
         {
@@ -598,6 +611,7 @@
       "effort": "M",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "TestLoadSmoke discards Load's return value, never asserting on parsed contents or error behaviour. Find() has no test at all despite untested_change_share=0.5 and a recent 'fix: store lookup query' commit touching this file.",
       "evidence": [
         {
@@ -644,6 +658,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "legacyHandler is registered in the live command dispatch table (reachable via Run/os.Args), not an abstract interface method, so invoking the \"legacy\" command crashes the process instead of returning an error.",
       "evidence": [
         {
@@ -692,6 +707,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "http.Get uses http.DefaultClient which has no Timeout set, so if the remote never responds this call in main() blocks indefinitely with no way to cancel.",
       "evidence": [
         {
@@ -749,6 +765,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "httpc.go carries a Deprecated annotation pointing at FetchWithTimeout in httpc_safe.go, but the sole call site (main.go) still uses the old Fetch. 1 of 1 call sites (100%) is on the deprecated side; no ticket or removal date is referenced.",
       "evidence": [
         {
@@ -797,6 +814,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "go.mod has no require block at all, yet go.sum records a checksum for github.com/example/dep v1.2.0, which is also unreferenced by any import in the codebase. Lockfile and manifest disagree on what is a dependency.",
       "evidence": [
         {
@@ -841,6 +859,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Repository has tagged releases v0.1.0 and v0.2.0 but no CHANGELOG.md, no CONTRIBUTING.md, and no ADR directory recording design decisions such as the builder TLS option or the kill switch.",
       "evidence": [
         {
@@ -894,6 +913,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Runbook tells on-call this is an operational kill switch that stops payments during an incident. The only code reading it logs a line; no payment-processing code exists anywhere in the repo for it to gate.",
       "evidence": [
         {
@@ -939,6 +959,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Fetch mutates the process-wide http.DefaultTransport to skip TLS verification, and is called unconditionally from main() against a live https URL, not a local/dev target. Every other consumer of http.DefaultTransport in the process is affected for the life of the process.",
       "evidence": [
         {
@@ -996,6 +1017,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "The gosec suppression is backed only by a comment asserting caller trust, with no enforcement mechanism (no allowlist, no escaping). No current in-repo caller was found, so the trust boundary is unverifiable from the code itself.",
       "evidence": [
         {
@@ -1037,6 +1059,7 @@
       "effort": "M",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Find is an exported method that concatenates its id parameter directly into a SQL string instead of using a parameterized query. No current in-repo caller was found, but the method is public API surface reachable by any future caller with unsanitized input.",
       "evidence": [
         {
@@ -1076,6 +1099,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Load() is synchronous file I/O with no goroutines or timers to wait on, so the 10ms sleep serves no synchronization purpose and only adds arbitrary latency/flakiness risk to the suite.",
       "evidence": [
         {
@@ -1124,6 +1148,7 @@
       "effort": "M",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "The only workflow (ci.yml) runs go test and nothing else; there is no job that builds the Dockerfile image, pushes it, or applies the k8s manifests. Release/deploy is therefore a manual, undocumented step outside version control (docs/runbook.md and README.md do not mention it).",
       "evidence": [
         {
@@ -1170,6 +1195,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "internal/store is library code (called from cmd/app/main.go), not a CLI entry point. main.go already uses the standard log package, so this fmt.Println bypasses the app's logging path and cannot be leveled, redirected, or captured in tests.",
       "evidence": [
         {
@@ -1209,6 +1235,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "release.stale-env-branch",
+      "tool": null,
       "note": "long-lived environment branch",
       "evidence": [
         {
@@ -1244,6 +1271,7 @@
       "effort": "S",
       "source": "rule",
       "rule_id": "ci.continue-on-error",
+      "tool": null,
       "note": "job build continues on error; job build runs on the mutable label ubuntu-latest; actions/checkout@v4 is not pinned to a commit SHA; actions/setup-go@v5 is not pinned to a commit SHA; commented-out job block",
       "evidence": [
         {
@@ -1310,6 +1338,7 @@
       "effort": "S",
       "source": "rule",
       "rule_id": "container.unversioned-install",
+      "tool": null,
       "note": "package install without a version pin",
       "evidence": [
         {
@@ -1345,6 +1374,7 @@
       "effort": "S",
       "source": "rule",
       "rule_id": "container.latest-image",
+      "tool": null,
       "note": "image postgres:latest is untagged or latest; image mailhog/mailhog:latest is untagged or latest",
       "evidence": [
         {
@@ -1387,6 +1417,7 @@
       "effort": "S",
       "source": "rule",
       "rule_id": "iac.no-resource-limits",
+      "tool": null,
       "note": "container app has no resources.limits; container app uses example/app:latest; container app is privileged",
       "evidence": [
         {

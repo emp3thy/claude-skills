@@ -18,7 +18,7 @@ def _cand(family: str, sev: int = 3, *, confirmed: list[str] | None = None, tier
         "fingerprint": fp, "quote_hash": qh, "family": family, "debt_type": "code",
         "type_id": type_id,
         "title": "t", "severity": sev, "effort": "M", "source": "rule" if tier == "A" else "scout",
-        "rule_id": None, "note": "",
+        "rule_id": None, "tool": None, "note": "",
         "evidence": [{"file": "src/a.py", "line_start": 1, "line_end": 1, "quote": "q",
                      "quote_verified": True}],
         "confirmed_by": confirmed if confirmed is not None else [f"scout:{family}"],

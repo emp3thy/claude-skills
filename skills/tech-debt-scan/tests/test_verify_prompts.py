@@ -33,7 +33,7 @@ def _cand(family: str, file: str, start: int, sev: int, *, tier: str | None = No
     return {
         "fingerprint": fp, "quote_hash": qh, "family": family, "debt_type": "code", "type_id": None,
         "title": f"{family} {file}:{start}", "severity": sev, "effort": effort, "source": "scout",
-        "rule_id": None, "note": "n",
+        "rule_id": None, "tool": None, "note": "n",
         "evidence": [{"file": file, "line_start": start, "line_end": start, "quote": quote,
                       "quote_verified": True}],
         "confirmed_by": [f"scout:{family}"], "signals_cited": [],
