@@ -547,7 +547,7 @@ Findings are emitted in priority order, tier C and rejected included with `in_to
 
 ### 4.10 `baseline.py`
 
-`baseline.py diff` compares `ranked.json` against the committed baseline and writes `diff.json`; `baseline.py record` (called in-process by `promote.py`) writes decisions back. Both are subparsers; `--baseline` defaults to the config `baseline` key, `.tech-debt/baseline.json`.
+`baseline.py diff` compares `ranked.json` against the committed baseline and writes `diff.json`; `baseline.py record` (called in-process by `promote.py`) writes decisions back, and also writes a `pending` entry for every verified finding that has no decision and no entry, and refreshes `last_seen` on entries it saw again, so a finding seen and undecided is UNCHANGED on the next scan rather than NEW. Both are subparsers; `--baseline` defaults to the config `baseline` key, `.tech-debt/baseline.json`.
 
 ```json
 .tech-debt/baseline.json

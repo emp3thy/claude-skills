@@ -164,7 +164,9 @@ renumbers the rest.
    writes one bundle per `approved` finding, flips them to `promoted` in
    `design.md` so a re-run is a no-op, then records every finding's decision
    (`promoted`, `rejected` or `accepted`, with its `reason` and `until`) back
-   into the baseline. Writing back may append three lines to the
+   into the baseline — plus a `pending` entry for every verified finding a
+   decision never covered, with `last_seen` refreshed on one already there.
+   Writing back may append three lines to the
    repository's `.gitignore` the first time the baseline path is
    git-ignored — `!.tech-debt/`, `.tech-debt/*`, then
    `!.tech-debt/baseline.json` — which un-ignore the workdir directory,
