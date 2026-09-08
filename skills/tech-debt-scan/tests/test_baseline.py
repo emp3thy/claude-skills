@@ -811,10 +811,10 @@ class TestRecord:
         assert entry["last_seen"] == TODAY
 
     def test_a_direct_match_is_never_taken_by_a_neighbour(self, tmp_path: Path) -> None:
-        """The migration only considers entries no current finding carries, so
-        the entry `fpA` matches directly cannot be migrated onto `fpB`, its
-        same-titled neighbour fifteen lines away. `fpB` is new here and must
-        be recorded as such."""
+        """The migration searches the whole baseline but keeps its result only
+        when no current finding owns it, so the entry `fpA` matches directly
+        cannot be migrated onto `fpB`, its same-titled neighbour fifteen lines
+        away (ruling 29). `fpB` is new here and must be recorded as such."""
         from baseline import record
 
         path = tmp_path / "b.json"
