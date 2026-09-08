@@ -214,6 +214,15 @@ def _resolved(entry: dict[str, Any], root: Path) -> tuple[bool, str | None]:
     otherwise it stays open, with ``note`` saying why, so a suppressed entry
     never loses its suppression just because a scan failed to reproduce its
     fingerprint.
+
+    The two missing fields are treated differently on purpose. An entry with
+    no ``file`` resolves (``file unknown``): it records a repository-level
+    fact -- a dependency advisory, a missing pipeline step -- which has no
+    file to look in, so the only evidence available is that this scan did not
+    reproduce it, and that is taken as the debt being gone. An entry with no
+    ``quote`` does not resolve (``quote unavailable``): it still names a file,
+    that file may well hold the code, and nothing has been read to say
+    otherwise -- so it stays open and says why.
     """
     file = entry.get("file")
     if not isinstance(file, str):

@@ -16,7 +16,11 @@ if str(SCRIPTS) not in sys.path:
 GOLDEN_DESIGN = Path(__file__).parent / "golden" / "service-py" / "design.md"
 GOLDEN_VERIFIED = Path(__file__).parent / "golden" / "service-py" / "verified.json"
 
-TODAY = "2026-09-07"
+# The pinned "now" for every classification and record below. Deliberately a
+# date in the past: when this file was written TODAY equalled the wall clock,
+# so a mutant reading date.today() instead of the `today` it was passed would
+# have passed every one of these tests on the day they were written.
+TODAY = "2026-04-15"
 
 # Distinct from TODAY on purpose: TestRunRecordCLI drives --today through argparse
 # and asserts it lands in the baseline, so its pin must differ from the real
@@ -41,7 +45,7 @@ def _entry(**over) -> dict:
     base = {
         "family": "error-masking", "file": "src/pay/refund.py", "line_start": 33,
         "quote_hash": "q" * 40, "title": "Empty catch swallows write failure", "tier": "A",
-        "status": "pending", "first_seen": "2026-09-01", "last_seen": "2026-09-01",
+        "status": "pending", "first_seen": "2026-04-01", "last_seen": "2026-04-01",
         "reason": None, "until": None, "bundle": None,
     }
     base.update(over)
@@ -49,7 +53,7 @@ def _entry(**over) -> dict:
 
 
 def _baseline(**entries) -> dict:
-    return {"schema_version": 2, "last_scan": "2026-09-01", "preset": "balanced",
+    return {"schema_version": 2, "last_scan": "2026-04-01", "preset": "balanced",
             "findings": entries}
 
 
@@ -79,7 +83,7 @@ class TestLoadBaseline:
         from baseline import load_baseline
 
         doc = _baseline(aaaaaaaaaaaaaaaa=_entry(status="accepted", reason="tracked in JIRA-1",
-                                                until="2027-01-01", bundle="chore-x-2026-09-01"))
+                                                until="2027-01-01", bundle="chore-x-2026-04-01"))
         path = tmp_path / "baseline.json"
         path.write_text(json.dumps(doc), encoding="utf-8")
         assert load_baseline(path) == doc
@@ -271,7 +275,7 @@ class TestClassify:
         from baseline import classify
 
         root = _repo(tmp_path, {"src/pay/refund.py": "x\n" * 32 + "except Exception:\n"})
-        base = _baseline(aaaaaaaaaaaaaaaa=_entry(status="accepted", until="2026-09-01"))
+        base = _baseline(aaaaaaaaaaaaaaaa=_entry(status="accepted", until="2026-04-01"))
         out = classify(_finding(), base, root, TODAY)
         assert out.suppressed_as is None
         assert out.diff == "UNCHANGED"
@@ -550,10 +554,10 @@ class TestRecord:
 
         path = tmp_path / ".tech-debt" / "baseline.json"
         record(path, decisions=[_decision()], findings=[_finding()], bundles={},
-               today="2026-09-01", preset="balanced")
+               today="2026-04-01", preset="balanced")
         doc = record(path, decisions=[_decision()], findings=[_finding()], bundles={},
                      today=TODAY, preset="balanced")
-        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["first_seen"] == "2026-09-01"
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["first_seen"] == "2026-04-01"
         assert doc["findings"]["aaaaaaaaaaaaaaaa"]["last_seen"] == TODAY
 
     def test_a_promoted_finding_records_its_bundle(self, tmp_path: Path) -> None:
@@ -561,9 +565,9 @@ class TestRecord:
 
         path = tmp_path / ".tech-debt" / "baseline.json"
         doc = record(path, decisions=[_decision(status="promoted")], findings=[_finding()],
-                     bundles={"aaaaaaaaaaaaaaaa": "chore-empty-catch-2026-09-07"},
+                     bundles={"aaaaaaaaaaaaaaaa": "chore-empty-catch-2026-04-01"},
                      today=TODAY, preset="balanced")
-        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["bundle"] == "chore-empty-catch-2026-09-07"
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["bundle"] == "chore-empty-catch-2026-04-01"
 
     def test_an_entry_absent_from_this_scan_is_kept(self, tmp_path: Path) -> None:
         """The baseline remembers decisions across scans; a finding the scan did
@@ -572,10 +576,10 @@ class TestRecord:
 
         path = tmp_path / ".tech-debt" / "baseline.json"
         record(path, decisions=[_decision(status="rejected", reason="by design")],
-               findings=[_finding()], bundles={}, today="2026-09-01", preset="balanced")
+               findings=[_finding()], bundles={}, today="2026-04-01", preset="balanced")
         doc = record(path, decisions=[], findings=[], bundles={}, today=TODAY, preset="balanced")
         assert doc["findings"]["aaaaaaaaaaaaaaaa"]["status"] == "rejected"
-        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["last_seen"] == "2026-09-01"
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["last_seen"] == "2026-04-01"
 
     def test_an_unknown_status_raises(self, tmp_path: Path) -> None:
         from baseline import BaselineError, record
@@ -601,7 +605,7 @@ class TestRecord:
 
         path = tmp_path / "b.json"
         mod.record(path, decisions=[_decision()], findings=[_finding()], bundles={},
-                   today="2026-09-01", preset="balanced")
+                   today="2026-04-01", preset="balanced")
         before = path.read_bytes()
 
         def boom(*a, **k):
@@ -661,11 +665,11 @@ class TestRecord:
 
         path = tmp_path / "b.json"
         record(path, decisions=[_decision(status="promoted")], findings=[_finding()],
-               bundles={"aaaaaaaaaaaaaaaa": "chore-empty-catch-2026-09-07"},
-               today="2026-09-01", preset="balanced")
+               bundles={"aaaaaaaaaaaaaaaa": "chore-empty-catch-2026-04-01"},
+               today="2026-04-01", preset="balanced")
         doc = record(path, decisions=[_decision(status="promoted")], findings=[_finding()],
                      bundles={}, today=TODAY, preset="balanced")
-        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["bundle"] == "chore-empty-catch-2026-09-07"
+        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["bundle"] == "chore-empty-catch-2026-04-01"
 
     def test_an_undecided_finding_is_recorded_as_pending(self, tmp_path: Path) -> None:
         """Ruling 25: `record` remembers every finding it was shown, not only the
@@ -698,13 +702,13 @@ class TestRecord:
 
         path = tmp_path / "b.json"
         record(path, decisions=[_decision(status="rejected", reason="flaky, tracked elsewhere")],
-               findings=[_finding()], bundles={}, today="2026-09-01", preset="balanced")
+               findings=[_finding()], bundles={}, today="2026-04-01", preset="balanced")
         doc = record(path, decisions=[], findings=[_finding()], bundles={}, today=TODAY,
                      preset="balanced")
         entry = doc["findings"]["aaaaaaaaaaaaaaaa"]
         assert entry["status"] == "rejected"
         assert entry["reason"] == "flaky, tracked elsewhere"
-        assert entry["first_seen"] == "2026-09-01"
+        assert entry["first_seen"] == "2026-04-01"
         assert entry["last_seen"] == TODAY
 
     def test_a_fingerprintless_finding_is_skipped_but_a_fingerprintless_decision_raises(

@@ -45,11 +45,18 @@ def v2_design_workdir(
 
     Copied from the ``service-py`` golden corpus (every finding carries a
     fingerprint). One finding's ``status`` is flipped from ``pending`` to
-    ``approved`` so a promote run has something to emit. The process cwd is
-    set to the workdir so a caller resolving a repo root via ``Path.cwd()``
-    (as promote.py's write-back does for ``ensure_gitignore_triple``) lands
-    on a directory that is actually an ancestor of the baseline path used in
-    these tests, rather than the pytest run's own working directory.
+    ``approved`` so a promote run has something to emit.
+
+    The process cwd is set to the workdir, which is where these tests put
+    their baselines and bundle directories, so relative paths and anything
+    the code under test writes beside the cwd stay inside the test's own
+    temporary tree rather than the pytest run's working directory. Nothing
+    in promote.py derives a repository root from the cwd any more (ruling 19
+    replaced that ``Path.cwd()`` call with a root derived from
+    ``--baseline``'s own path), so the chdir no longer stands in for a repo
+    root; ``test_root_is_derived_from_baseline_not_cwd`` is the one test
+    that overrides it, chdir-ing to an unrelated sibling directory precisely
+    to prove the cwd plays no part in that derivation.
     """
     golden = Path(__file__).parent / "golden" / "service-py"
     workdir = tmp_path
