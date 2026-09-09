@@ -167,27 +167,45 @@ are exercised without committing a `.git` directory. Every decoy carries a `sour
 `live_run.py <fixture-or-repo>` drives the whole chain with real agents. It is
 manual only and never runs in CI. Given a corpus fixture name it replays the
 fixture through `tests/helpers/make_history.py` into a temporary directory
-(any other argument is taken as a repository path), then runs the deterministic
-signals, `plan_scan.py`, one `claude -p` call per scout prompt,
-`merge_findings.py`, `verify_prompts.py`, one call per verifier batch,
-`apply_verdicts.py` and `rank.py`; when a `planted.json` is present it scores
-the run with `evaluate.py`, prints the table and appends one row to
-`docs/evaluation-log.md`: date, fixture, model, `churn_months`,
+(any other argument is taken as a repository path). It refuses to run at all
+when the workdir already holds a `diff.json` or a `baseline.json`: the harness
+never diffs against a baseline, and `design_writer` drops baseline-suppressed
+findings from `findings.json`, so a run scored there would set a bar from a
+filtered population. It then runs the deterministic signals, `plan_scan.py`,
+one `claude -p` call per scout prompt, `merge_findings.py`,
+`verify_prompts.py`, one call per verifier batch, `apply_verdicts.py` and
+`rank.py`. After ranking it renders the single remediation-note agent's
+prompt and, when the top N is non-empty, dispatches one more `claude -p` call
+under the same isolation and budget as the scouts, validating the reply
+against `NOTES_SCHEMA` (an empty top N skips the call); the reply is written
+to `notes.json`, and `design_writer.write_design` then renders `design.md`
+and `findings.json` from it, so a top-N finding the note agent answered for
+carries a real `### Remediation` and `### Acceptance criteria` rather than
+`NOTE_PLACEHOLDER`. When a `planted.json` is present it scores `findings.json`
+(not `verified.json`) with `evaluate.py`, prints the table and appends one row
+to `docs/evaluation-log.md`: date, fixture, model, `churn_months`,
 `tier_a_precision`, `reported_precision`, `decoys_tier_a`, `decoys_top_n`,
-per-family `recall`, `scouts`, `verifiers` and `cost_usd`. `tier_a_precision`
-comes from the report's `tier_a` block and counts tier A findings alone, which
-is the release bar; `reported_precision` is the per-family figure, which spans
+per-family `recall`, `scouts`, `verifiers`, `cost_usd` and `notes` —
+the trailing column, the count of top-N findings the note agent actually
+filled in over the top-N size, e.g. `3/5`. `tier_a_precision` comes from the
+report's `tier_a` block and counts tier A findings alone, which is the
+release bar; `reported_precision` is the per-family figure, which spans
 tiers A and B. The history window is the fixture's `planted.json`
 `churn_months` when present; a conflicting `--churn-months` is ignored, with a
 warning printed to stderr, so the logged `churn_months` always matches the
 window the run actually scored against. Without a planted value,
-`--churn-months` sets the window, else the config default.
+`--churn-months` sets the window, else the config default. `--keep <dir>`
+copies `evaluation.json`, `design.md`, `notes.json` and `findings.json` into
+`<dir>/<fixture-or-repo-name>` once scoring is done, so a run's documents can
+be audited later without re-running the chain; the path is resolved to
+absolute before anything else so it does not depend on the process's working
+directory at the time the copy happens.
 
 Every agent call is a list argv (never a shell string) in print mode:
 `--setting-sources project --strict-mcp-config --disable-slash-commands` keep
 the user's settings, MCP servers and slash commands out of the run,
 `--output-format json --json-schema <the contract>` pins the reply shape to
-`SCOUT_OUTPUT_SCHEMA` or `VERDICT_SCHEMA`, `--tools Read,Grep,Glob
+`SCOUT_OUTPUT_SCHEMA`, `VERDICT_SCHEMA` or `NOTES_SCHEMA`, `--tools Read,Grep,Glob
 --allowedTools Read,Grep,Glob` keep the agent read-only, `--max-budget-usd`
 caps each call and `cwd` is the repository so the read tools see the tree. The
 prompt itself is piped to the child's stdin and is never an argument:
@@ -199,12 +217,13 @@ verdict contract always reach the agent. The reply is the envelope's
 `structured_output` when it carries one and otherwise
 `result` with Markdown fences stripped; a payload that fails the contract is
 retried once with an appended re-emit instruction, and a second failure ends
-the run. `--skip-agents` reuses the scout and verdict files already in the
-workdir instead of calling out. Flags: `--workdir`, `--families`, `--top`,
+the run. `--skip-agents` reuses the scout, verdict and notes files already in
+the workdir instead of calling out. Flags: `--workdir`, `--families`, `--top`,
 `--preset`, `--churn-months`, `--model`, `--max-budget-usd`, `--claude`,
-`--timeout`, `--log`, `--skip-agents`; exit 2 on a bad target or malformed
+`--timeout`, `--log`, `--skip-agents`, `--keep`; exit 2 on a bad target or malformed
 input, 3 when `claude` is not on PATH (and `--skip-agents` is absent), 4 when
-an agent call fails after its retry or `--skip-agents` finds no cached reply.
+an agent call fails after its retry, `--skip-agents` finds no cached reply, or
+the workdir holds a stale `diff.json` or `baseline.json`.
 
 ## External tool probe
 

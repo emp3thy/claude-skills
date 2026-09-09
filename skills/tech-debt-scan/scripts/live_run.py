@@ -56,7 +56,8 @@ from typing import Any, Final
 from apply_verdicts import apply
 from categories import SCOUT_OUTPUT_SCHEMA
 from config import ConfigError, load_config
-from evaluate import evaluate, render_table
+from design_writer import NOTE_PLACEHOLDER, load_inputs, render_notes_prompt, write_design
+from evaluate import evaluate, load_findings, render_table
 from inventory import build_all, write_json, write_outputs
 from merge_findings import merge
 from patterns import run_patterns
@@ -78,10 +79,26 @@ RETRY_SUFFIX: Final[str] = (
 # the API rejects unless its type is ``object`` (400 tools.N.custom.input_schema.type).
 # The verifier contract is an array, so it travels wrapped under this key.
 WRAPPER_KEY: Final[str] = "verdicts"
+NOTES_SCHEMA: Final[dict[str, Any]] = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["fingerprint", "remediation", "acceptance_criteria"],
+        "properties": {
+            "fingerprint": {"type": "string"},
+            "remediation": {"type": "string", "minLength": 1, "maxLength": 1200},
+            "acceptance_criteria": {
+                "type": "array", "minItems": 2, "maxItems": 5,
+                "items": {"type": "string", "minLength": 1},
+            },
+        },
+    },
+}
 LOG_HEADER: Final[str] = (
     "| date | fixture | model | churn_months | tier_a_precision | reported_precision "
-    "| decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd |\n"
-    "|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+    "| decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd | notes |\n"
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
 )
 
 
@@ -198,10 +215,27 @@ def extract_reply(stdout: str) -> tuple[Any, float, str | None]:
         return None, cost, "result is not JSON"
 
 
+def _valid_note(item: Any) -> bool:
+    """One notes-array entry: the three required keys, a real remediation, 2-5 criteria."""
+    return (
+        isinstance(item, dict)
+        and all(key in item for key in ("fingerprint", "remediation", "acceptance_criteria"))
+        and isinstance(item.get("remediation"), str)
+        and len(item["remediation"]) > 0
+        and isinstance(item.get("acceptance_criteria"), list)
+        and 2 <= len(item["acceptance_criteria"]) <= 5
+        and all(isinstance(c, str) and len(c) > 0 for c in item["acceptance_criteria"])
+    )
+
+
 def _valid(payload: Any, schema: dict[str, Any]) -> bool:
     """A structural check of the payload against the contract the call was given."""
     if schema.get("type") == "array":
-        return isinstance(payload, list)
+        if not isinstance(payload, list):
+            return False
+        if schema is NOTES_SCHEMA:
+            return all(_valid_note(item) for item in payload)
+        return True
     return (
         isinstance(payload, dict)
         and all(key in payload for key in schema.get("required", []))
@@ -306,6 +340,7 @@ def log_row(
     scouts: int,
     verifiers: int,
     cost: float,
+    notes: str = "-",
 ) -> None:
     """Append one evaluation row (LF-only), creating the table header when absent."""
     families = report.get("families") or {}
@@ -326,7 +361,7 @@ def log_row(
         f"| {_ratio_cell(tier_a.get('precision'))} "
         f"| {_ratio_cell(precise / reported if reported else None)} "
         f"| {report.get('decoys_in_tier_a', 0)} | {report.get('decoys_in_top_n', 0)} "
-        f"| {recall or '-'} | {scouts} | {verifiers} | {cost:.2f} |\n"
+        f"| {recall or '-'} | {scouts} | {verifiers} | {cost:.2f} | {notes} |\n"
     )
     if not log_path.is_file():
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -377,10 +412,18 @@ def run_chain(
     planted: Path | None = None,
     log_path: Path | None = None,
     fixture_name: str = "",
+    keep: Path | None = None,
 ) -> dict[str, Any]:
     """Signals, scouts, merge, verifiers, tiers, ranking and (with planted.json) scoring."""
     repo = repo.resolve()
     workdir.mkdir(parents=True, exist_ok=True)
+    for stale in ("diff.json", "baseline.json"):
+        if (workdir / stale).is_file():
+            raise RuntimeError(
+                f"{workdir / stale} exists: the harness never diffs against a baseline, and "
+                "design_writer drops baseline-suppressed findings from findings.json, so a "
+                "run scored here would set a bar from a filtered population"
+            )
     config = load_config(repo)
     planted_doc = json.loads(planted.read_bytes()) if planted and planted.is_file() else None
     planted_churn = None
@@ -447,12 +490,36 @@ def run_chain(
     ranked = rank(verified, inventory, config, preset=chosen_preset, top=top_n)
     write_json(workdir / "ranked.json", ranked)
 
+    scan_date = datetime.now(UTC).date().isoformat()
+    inputs = load_inputs(workdir)
+    notes_prompt = workdir / "prompts" / "notes.md"
+    notes_prompt.parent.mkdir(parents=True, exist_ok=True)
+    notes_prompt.write_bytes(render_notes_prompt(inputs).encode("utf-8"))
+    notes_calls = 0
+    notes_output = workdir / "notes.json"
+    if ranked["top_n"] and _needs_call(notes_output, skip_agents=skip_agents, label="notes"):
+        res = dispatch(notes_prompt, notes_output, cwd=repo, model=model, budget=budget,
+                       schema=NOTES_SCHEMA, claude=claude, timeout=timeout)
+        cost += res.cost_usd
+        notes_calls += 1
+        if res.status != "ok":
+            raise RuntimeError(f"notes agent failed: {res.error}")
+    inputs = load_inputs(workdir)
+    write_design(inputs, scan_date, workdir / "design.md")
+    design_text = (workdir / "design.md").read_text(encoding="utf-8")
+    top_section = design_text.split("# Top ", 1)[1].split("\n# Below the cut", 1)[0] \
+        if "# Top " in design_text else ""
+    filled = len(ranked["top_n"]) - top_section.count(NOTE_PLACEHOLDER) // 2
+    notes_cell = f"{max(filled, 0)}/{len(ranked['top_n'])}"
+
     summary: dict[str, Any] = {
         "scout_calls": scout_calls, "verifier_calls": verifier_calls,
-        "cost_usd": cost, "top_n": ranked["top_n"],
+        "cost_usd": cost, "top_n": ranked["top_n"], "notes_calls": notes_calls,
     }
     if planted_doc is not None:
-        report = evaluate(verified["findings"], planted_doc, set(ranked["top_n"]), top=top_n)
+        findings, source_name = load_findings(workdir)
+        report = evaluate(findings, planted_doc, set(ranked["top_n"]), top=top_n)
+        report["source"] = source_name
         write_json(workdir / "evaluation.json", report)
         print(render_table(report))
         summary["report"] = report
@@ -461,9 +528,18 @@ def run_chain(
                 log_path, fixture_name or repo.name, model, report,
                 churn_months=churn_months,
                 scouts=scout_calls, verifiers=verifier_calls, cost=cost,
+                notes=notes_cell,
             )
+    if keep is not None:
+        dest = keep / (fixture_name or repo.name)
+        dest.mkdir(parents=True, exist_ok=True)
+        for name in ("evaluation.json", "design.md", "notes.json", "findings.json"):
+            src = workdir / name
+            if src.is_file():
+                shutil.copyfile(src, dest / name)
     print(
-        f"agent calls: {scout_calls} scouts, {verifier_calls} verifier batches; cost ${cost:.2f}"
+        f"agent calls: {scout_calls} scouts, {verifier_calls} verifier batches, "
+        f"{notes_calls} notes calls; cost ${cost:.2f}"
     )
     return summary
 
@@ -499,7 +575,13 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--skip-agents", action="store_true", help="reuse existing scout and verdict files"
     )
+    parser.add_argument(
+        "--keep", default=None,
+        help="directory to copy evaluation.json, design.md, notes.json and findings.json "
+             "into, under <fixture>/",
+    )
     args = parser.parse_args(argv)
+    keep = Path(args.keep).resolve() if args.keep else None
 
     corpus = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "corpus"
     planted: Path | None = None
@@ -534,7 +616,7 @@ def _main(argv: list[str] | None = None) -> int:
             repo, workdir, families=args.families, top=args.top, preset=args.preset,
             churn_months=args.churn_months, model=args.model, budget=args.max_budget_usd,
             claude=claude, timeout=args.timeout, skip_agents=args.skip_agents,
-            planted=planted, log_path=log, fixture_name=fixture_name,
+            planted=planted, log_path=log, fixture_name=fixture_name, keep=keep,
         )
     except (ConfigError, OSError, ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)

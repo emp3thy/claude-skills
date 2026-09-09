@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from categories import SCOUT_OUTPUT_SCHEMA
 from live_run import (
+    NOTES_SCHEMA,
     _main,
     _write_payload,
     claude_argv,
@@ -29,7 +30,12 @@ from pathlib import Path
 # `claude -p` reads a piped stdin as the prompt; the harness sends it that way, so
 # no prompt text may appear in argv (a Windows command line caps at 32 767 chars).
 prompt = sys.stdin.read()
-mode = "scout" if "read-only scout" in prompt else "verifier"
+if "remediation notes" in prompt:
+    mode = "notes"
+elif "read-only scout" in prompt:
+    mode = "scout"
+else:
+    mode = "verifier"
 state = Path(__file__).with_suffix(".state")
 Path(__file__).with_suffix(".prompt").write_text(str(len(prompt)), encoding="utf-8")
 if "--json-schema" not in sys.argv:
@@ -51,6 +57,11 @@ if mode == "scout":
     payload = {"family": family, "module": None, "findings": findings,
                "open_questions": [], "looks_bad_but_fine": [],
                "not_assessed": ["coverage numbers"]}
+elif mode == "notes":
+    fps = [line.split("fingerprint: ")[1].strip()
+           for line in prompt.splitlines() if line.startswith("fingerprint: ")]
+    payload = [{"fingerprint": fp, "remediation": "Extract the helper, then delete the copy.",
+                "acceptance_criteria": ["the copy is gone", "tests pass"]} for fp in fps]
 else:
     fps = [line.split("fingerprint: ")[1].strip()
            for line in prompt.splitlines() if line.startswith("fingerprint: ")]
@@ -70,8 +81,8 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": False,
 
 LOG_HEADER_TEXT = (
     "| date | fixture | model | churn_months | tier_a_precision | reported_precision "
-    "| decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd |\n"
-    "|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+    "| decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd | notes |\n"
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
 )
 
 
@@ -278,7 +289,7 @@ def test_run_chain_over_a_corpus_fixture_with_the_fake(
                         fixture_name="service-py")
     for name in ("inventory.json", "patterns.json", "rule-findings.json", "scan-plan.json",
                  "candidates.json", "verify-plan.json", "verified.json", "ranked.json",
-                 "evaluation.json"):
+                 "evaluation.json", "design.md", "findings.json"):
         assert (workdir / name).is_file(), name
     plan = json.loads((workdir / "scan-plan.json").read_bytes())
     for entry in plan["entries"]:
@@ -317,3 +328,77 @@ def test_cli_exit_codes(tmp_path: Path) -> None:
     assert _main([str(tmp_path / "missing-repo"), "--skip-agents"]) == 2
     (tmp_path / "repo").mkdir()
     assert _main([str(tmp_path / "repo"), "--claude", str(tmp_path / "no-such-binary")]) == 3
+
+
+def test_notes_schema_is_an_array_of_bounded_notes() -> None:
+    assert NOTES_SCHEMA["type"] == "array"
+    item = NOTES_SCHEMA["items"]
+    assert item["required"] == ["fingerprint", "remediation", "acceptance_criteria"]
+    assert item["properties"]["acceptance_criteria"]["minItems"] == 2
+    assert item["properties"]["acceptance_criteria"]["maxItems"] == 5
+    assert item["additionalProperties"] is False
+
+
+def test_run_chain_renders_the_design_with_notes_from_the_agent(
+    tmp_path: Path, fake_claude: str, service_py_repo: Path
+) -> None:
+    workdir = tmp_path / "wd"
+    log = tmp_path / "log.md"
+    log.write_text(LOG_HEADER_TEXT, encoding="utf-8")
+    planted = Path(__file__).parent / "fixtures" / "corpus" / "service-py" / "planted.json"
+    summary = run_chain(service_py_repo, workdir, families="quick", top=3, preset="balanced",
+                        churn_months=240, model="haiku", budget=0.1, claude=fake_claude,
+                        timeout=60, skip_agents=False, planted=planted, log_path=log,
+                        fixture_name="service-py")
+    for name in ("prompts/notes.md", "notes.json", "design.md", "findings.json"):
+        assert (workdir / name).is_file(), name
+    assert summary["notes_calls"] == 1
+    design = (workdir / "design.md").read_text(encoding="utf-8")
+    top = design.split("# Top ")[1].split("\n# Below the cut")[0]
+    assert "remediation note not available" not in top
+    assert "Extract the helper" in top
+    row = log.read_text(encoding="utf-8").splitlines()[-1]
+    top_n = json.loads((workdir / "ranked.json").read_bytes())["top_n"]
+    assert row.endswith(f"| {len(top_n)}/{len(top_n)} |")
+    report = json.loads((workdir / "evaluation.json").read_bytes())
+    assert report["source"] == "findings.json"
+
+
+def test_run_chain_refuses_to_score_when_a_baseline_or_diff_is_in_the_workdir(
+    tmp_path: Path, fake_claude: str, service_py_repo: Path
+) -> None:
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    (workdir / "diff.json").write_text("{}", encoding="utf-8")
+    planted = Path(__file__).parent / "fixtures" / "corpus" / "service-py" / "planted.json"
+    with pytest.raises(RuntimeError, match="baseline"):
+        run_chain(service_py_repo, workdir, families="quick", top=3, preset="balanced",
+                  churn_months=240, model="haiku", budget=0.1, claude=fake_claude,
+                  timeout=60, skip_agents=False, planted=planted, log_path=None,
+                  fixture_name="service-py")
+
+
+def test_run_chain_keeps_the_run_documents_under_keep(
+    tmp_path: Path, fake_claude: str, service_py_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)  # a foreign cwd: keep must not resolve against it
+    workdir = tmp_path / "wd"
+    keep = tmp_path / "runs" / "2026-04-15-test"
+    planted = Path(__file__).parent / "fixtures" / "corpus" / "service-py" / "planted.json"
+    run_chain(service_py_repo, workdir, families="quick", top=3, preset="balanced",
+              churn_months=240, model="haiku", budget=0.1, claude=fake_claude, timeout=60,
+              skip_agents=False, planted=planted, log_path=None, fixture_name="service-py",
+              keep=keep)
+    for name in ("evaluation.json", "design.md", "notes.json"):
+        assert (keep / "service-py" / name).is_file(), name
+
+
+def test_log_row_appends_the_notes_column_last(tmp_path: Path) -> None:
+    log = tmp_path / "log.md"
+    report = {"families": {}, "decoys_in_tier_a": 0, "decoys_in_top_n": 0,
+              "tier_a": {"reported": 0, "precise": 0, "precision": None}}
+    log_row(log, "service-py", "haiku", report, churn_months=None,
+            scouts=0, verifiers=0, cost=0.0, notes="3/5")
+    text = log.read_text(encoding="utf-8")
+    assert text.splitlines()[0].endswith("| cost_usd | notes |")
+    assert text.splitlines()[-1].endswith("| 0.00 | 3/5 |")

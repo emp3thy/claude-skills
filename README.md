@@ -179,16 +179,29 @@ than as code.
 ## Live evaluation
 
 `live_run.py` runs the whole scan chain against a corpus fixture (or any
-repository path) with real Claude scouts and verifiers, scores the result
-against the fixture's planted debt and decoys, and appends a row to
+repository path) with real Claude scouts and verifiers. It refuses to run at
+all when the workdir already holds a `diff.json` or a `baseline.json`, since
+scoring there would set a bar from a filtered population. After ranking it
+renders the remediation-note prompt and, when the top N is non-empty,
+dispatches one more agent call for the single note agent, validated against
+`NOTES_SCHEMA` and written to `notes.json`; it then renders `design.md` and
+`findings.json` with `design_writer.write_design`, so a top-N finding the note
+agent answered for carries a real remediation and acceptance criteria instead
+of the placeholder. It scores `findings.json` (not `verified.json`) against
+the fixture's planted debt and decoys, and appends a row to
 [`docs/evaluation-log.md`](docs/evaluation-log.md) — date, fixture, model,
 `churn_months` (the fixture's `planted.json` value when present, else
 `--churn-months`, else the config default; a conflicting `--churn-months` is
 ignored with a warning), `tier_a_precision` (tier A findings alone, the release
 bar), `reported_precision` (the same ratio over tiers A and B), decoys at tier
-A, decoys in the top N, per-family recall, the scout and verifier call counts
-and the run's cost. A decoy's `sources` list (exact tokens or a trailing-`*` prefix)
-restricts which producers can hit it; a family mismatch is still decided first.
+A, decoys in the top N, per-family recall, the scout and verifier call counts,
+the run's cost, and a trailing `notes` column: the count of top-N findings the
+note agent actually filled in over the top-N size, e.g. `3/5`. A decoy's
+`sources` list (exact tokens or a trailing-`*` prefix) restricts which
+producers can hit it; a family mismatch is still decided first. `--keep <dir>`
+copies `evaluation.json`, `design.md`, `notes.json` and `findings.json` into
+`<dir>/<fixture-or-repo-name>` once scoring is done, so a run's documents can
+be audited later without re-running the chain.
 
 ```
 python scripts/live_run.py service-py --model sonnet --max-budget-usd 1.00
