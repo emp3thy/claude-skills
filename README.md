@@ -272,8 +272,11 @@ tracks it while leaving the rest of the workdir ignored. A write-back
 failure after the bundles are already emitted exits 6; the bundles and the
 promoted statuses stay, and re-running promote picks up what it already
 emitted rather than duplicating it. Phase 5b — the live-run measurement
-that repairs the fixture corpus and sets a hard tier A precision bar in
-place of the provisional 0.80 figure — has not landed yet.
+that repairs the fixture corpus — has landed: the corpus repairs, the
+note agent in the harness, and a live run on 2026-09-09 over all three
+fixtures. That run set no bar, because a decoy reached tier A on
+web-ts, so the provisional 0.80 figure stays until a run clears the
+hard gate (see `docs/evaluation-log.md`).
 
 "Mow the lawn" autonomy — applying fixes without review — is a separate
 follow-on, deferred and out of scope.

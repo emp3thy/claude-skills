@@ -737,6 +737,9 @@ halved deep thresholds are wired in (phase 4b) — see
 promote writes decisions back into it — plus a `pending` entry for every
 verified finding a decision never covered — appending the gitignore triple
 where needed — see [The baseline](#the-baseline). Phase 5b, the live harness
-run that repairs the corpus and sets a measured tier A precision bar in place of
-the provisional 0.80 figure, has not landed yet. Autonomously applying fixes
+run that repairs the corpus, has landed: the corpus repairs, the note
+agent in the harness, and a run on 2026-09-09 over all three repaired
+fixtures. That run set no bar, because a decoy reached tier A on
+web-ts, so the provisional 0.80 figure stays until a run clears the
+hard gate (see `docs/evaluation-log.md`). Autonomously applying fixes
 without review is a separate follow-on, deferred and out of scope.

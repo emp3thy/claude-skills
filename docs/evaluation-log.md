@@ -102,9 +102,47 @@ cycle candidate was the madge-corroborated one the verifier rejected above,
 and the no-tools arm's scout did not raise the cycle as a candidate at all
 this run, leaving nothing to compare a tier against there.
 
-**Rows recorded before 2026-09-08 were scored without `sources` on the decoys and without the `npm ci` step in web-ts's workflow.** From 2026-09-08 onward every decoy carries a `sources` list that restricts which producers can hit it, and the web-ts fixture installs dependencies before running tests, so the decoy columns are not directly comparable with earlier rows on web-ts.
+**Rows recorded before 2026-09-08 were scored without `sources` on the decoys
+and without the `npm ci` step in web-ts's workflow.** From 2026-09-08 onward
+every decoy carries a `sources` list that restricts which producers can hit it,
+and the web-ts fixture installs dependencies before running tests, so the decoy
+columns are not directly comparable with earlier rows on web-ts.
 
-**From 2026-09-09 the harness renders the design document with the note agent's notes and scores `findings.json`.** After ranking, `live_run.py` dispatches the single remediation-note agent over the top N, renders `design.md` and `findings.json` with `design_writer.write_design`, and scores `findings.json` rather than `verified.json`. The trailing `notes` column is the count of top-N findings the note agent actually filled in over the top-N size, e.g. `3/5`; rows recorded before this date carry no `notes` column at all.
+**From 2026-09-09 the harness renders the design document with the note agent's
+notes and scores `findings.json`.** After ranking, `live_run.py` dispatches the
+single remediation-note agent over the top N, renders `design.md` and
+`findings.json` with `design_writer.write_design`, and scores `findings.json`
+rather than `verified.json`. The trailing `notes` column is the count of top-N
+findings the note agent actually filled in over the top-N size, e.g. `3/5`;
+rows recorded before this date carry no `notes` column at all.
+
+**The three `2026-09-09` rows are the phase 5b run over the repaired corpus**:
+`sonnet`, `--churn-months 240`, the deep family set, top 5, tools present
+(`live_run.py --tools`); the note agent rendered a real remediation note for
+`5/5` top-N findings on every fixture; total cost $10.61. Tier A precision:
+service-py 0.57 (12/21), web-ts 0.28 (5/18), mixed-decoys 0.50 (8/16). Decoys
+at tier A: 0, 1, 0; in the top 5: 0, 0, 0. The tier-A decoy is web-ts's `d2`
+(`error-masking`, `src/api/client-admin.ts` lines 8-17), hit by the producer
+its `sources` names (`scout:error-masking`) and confirmed by the verifier on
+the reading that a catch which logs the cause and returns `null` still leaves
+callers unable to tell a failure from an empty body. `categories.py`'s family
+definition names only "log-only catches that drop the cause"; this catch logs
+the cause (`console.error("admin request failed", e)`), which was the decoy
+author's premise, so the hit is a verifier false positive against the fixture
+as planted and the decoy's own premise is itself contestable against the
+rubric. Per spec section 11's second outcome, no bar is set from this run: the
+minimum the three rows would have given, 0.25 after rounding down, is recorded
+as measured but not adopted, and the provisional 0.80 stays; whether `d2` stays
+a decoy or becomes planted debt is the first decision of the next run, and
+raising or setting the bar still requires a run that clears the hard gate. Two
+more results worth noting: `dead-code` recall on service-py reached 1.00 for
+the first time, the zero-churn repair (task 4) finally making the family
+measurable; and web-ts's other decoy, `d1`, was hit at tier B by a
+release-process finding (manual version bumps with no CI release job) that
+cites the workflow as evidence — below the hard gate, so it is recorded as a
+hit, not ruled on. The run's `evaluation.json`, `design.md` and `notes.json`
+for all three fixtures are kept under
+`docs/research/tech-debt-scan-v2/runs/2026-09-09-5b/`.
 
 | date | fixture | model | churn_months | tier_a_precision | reported_precision | decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd | notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|

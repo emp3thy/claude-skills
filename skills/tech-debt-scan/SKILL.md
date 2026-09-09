@@ -65,8 +65,11 @@ If any expected output file from a numbered step is missing, abort with exit 5. 
 Human-in-the-loop throughout. There is no autonomous "fix it" step. Phase 4b
 folded the external tool probe (step 4) into leads, corroboration and tier
 assignment; phase 5a lands the baseline diff (step 11) and the promote
-write-back described below. Phase 5b — the live-run measurement that sets a
-hard tier A precision bar — has not landed yet.
+write-back described below. Phase 5b — the live-run measurement that
+repairs the fixture corpus and adds the note agent to the harness — has
+landed. Its run on 2026-09-09 set no bar, because a decoy reached tier A
+on web-ts, so the tier A precision bar stays the provisional 0.80 until a
+run clears the hard gate (see `docs/evaluation-log.md`).
 
 ## Flags
 
