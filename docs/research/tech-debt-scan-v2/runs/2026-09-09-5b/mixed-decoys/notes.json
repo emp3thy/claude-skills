@@ -1,0 +1,54 @@
+[
+  {
+    "fingerprint": "4ab7633f1331e12f",
+    "remediation": "Add internal/lookup/lookup_test.go. Write a table-driven test covering: (1) a known key already present in the paths map, asserting PathFor returns the exact mapped value; (2) an unknown key, asserting PathFor returns the constructed fallback string \"data/\" + name + \".json\" rather than just checking it fails elsewhere; (3) an empty-string name, asserting the fallback still constructs a sane path. Update or replace the existing Open(\"missing\") test in the caller package so it asserts on the returned path value, not just the resulting os.Stat error, so the fallback branch is actually verified rather than incidentally exercised.",
+    "acceptance_criteria": [
+      "lookup_test.go exists and calls PathFor with at least one key present in the paths map, asserting the exact returned string",
+      "lookup_test.go calls PathFor with a key absent from the paths map and asserts the returned string equals the fallback format",
+      "The existing TestOpenMissing (or equivalent) is updated to assert on the returned path value rather than only the os.Stat error",
+      "go test ./internal/lookup/... passes"
+    ]
+  },
+  {
+    "fingerprint": "a9f954d154719182",
+    "remediation": "Decide whether the legacy command is still needed. If not, remove the \"legacy\" entry from the handlers map in dispatch.go and delete legacyHandler, so unknown-command handling in Run returns the existing \"unknown command\" error instead of routing to a panic. If legacy support must remain available, replace the panic with a return of a typed, non-fatal error (e.g. errors.New(\"legacy command not implemented\")) so Run's normal error path handles it and main.go's exit path stays graceful. Either way, remove any dead code and keep the routing comment in Run accurate.",
+    "acceptance_criteria": [
+      "legacyHandler no longer contains panic(\"not implemented\")",
+      "Either the \"legacy\" map entry and legacyHandler are deleted, or legacyHandler returns an error instead of panicking",
+      "Running the built binary with `app legacy` exits with a non-zero status and an error message instead of a Go panic/stack trace",
+      "go build ./... succeeds with no dead references to a removed legacyHandler"
+    ]
+  },
+  {
+    "fingerprint": "b47c540bcdea4204",
+    "remediation": "Add internal/dispatch/dispatch_test.go covering all branches of Run: empty args returns the \"no command\" error; an unrecognized command returns \"unknown command: <name>\"; a known command (e.g. \"status\") dispatches to its handler and returns its result. Do not add a test that invokes the legacy path until finding a9f954d154719182 (the unconditional panic) is fixed \u2014 write that fix first, then add a case asserting legacyHandler's corrected (non-panicking) behavior. Sequence the work so the panic fix lands before or together with this test to avoid a test that documents a crash as expected behavior.",
+    "acceptance_criteria": [
+      "dispatch_test.go exists with cases for empty args, unknown command, and at least one known command",
+      "A test case exercises the \"legacy\" key only after legacyHandler no longer panics, and asserts its returned value/error",
+      "go test ./internal/dispatch/... passes with no recover()-wrapped panic assertions",
+      "Test coverage for dispatch.go's Run function reaches all three branches (no command, unknown command, dispatched command)"
+    ]
+  },
+  {
+    "fingerprint": "738155637b8b33d1",
+    "remediation": "Add internal/flags/flags_test.go with cases for IsEnabled: a name present in the Flags map with a true value, a name present with a false value, and a name absent from the map (verifying it returns false via Go's zero-value map lookup rather than panicking). Since docs/runbook.md documents payments.killswitch as an operational on-call control, include a test case using that exact key name so a future rename or logic inversion is caught. Keep the test isolated from any global mutable state in Flags by resetting or scoping the map per test case if Flags is package-level and mutable.",
+    "acceptance_criteria": [
+      "flags_test.go exists and asserts IsEnabled returns true for a key set to true in Flags",
+      "flags_test.go asserts IsEnabled returns false for a key set to false in Flags",
+      "flags_test.go asserts IsEnabled returns false for a key not present in Flags",
+      "A test case explicitly covers the \"payments.killswitch\" key referenced in docs/runbook.md",
+      "go test ./internal/flags/... passes"
+    ]
+  },
+  {
+    "fingerprint": "a8a0b3c16057f8e1",
+    "remediation": "Stop mutating http.DefaultTransport globally. Update main.go's health check to call the existing FetchWithTimeout in httpc_safe.go (which already uses a scoped *http.Client with a timeout and default TLS verification) instead of the deprecated Fetch. Remove the InsecureSkipVerify line and the DefaultTransport mutation from Fetch entirely; if Fetch must be kept for backward compatibility, have it delegate to a request-scoped *http.Client with default TLS settings rather than touching the process-wide transport. Also relocate the hardcoded apiToken constant out of source (env var or secret store) as part of the same cleanup pass, since it sits in the same file and is a related exposure.",
+    "acceptance_criteria": [
+      "No code path sets InsecureSkipVerify: true or otherwise mutates http.DefaultTransport",
+      "main.go's health check calls FetchWithTimeout (or an equivalent function using a scoped client with default TLS verification) instead of the deprecated Fetch",
+      "If Fetch is retained, it uses a request-scoped http.Client rather than modifying http.DefaultTransport",
+      "apiToken is no longer a hardcoded string literal in httpc.go",
+      "go build ./... succeeds and the health check request against https://example.com/health completes with TLS verification enabled"
+    ]
+  }
+]

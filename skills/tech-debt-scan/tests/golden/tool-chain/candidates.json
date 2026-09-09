@@ -12,6 +12,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Both files build a new Entry by negating amount_cents on an existing account/id; the two files are already change-coupled (shared=5, ratio=0.714) per history, so the sign convention has to be kept consistent by hand in two places.",
       "evidence": [
         {
@@ -62,6 +63,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "export_v1 is not imported or called anywhere in src/ or tests/. Module docstring and TODO mark it explicitly as legacy, superseded by a v2 report.",
       "evidence": [
         {
@@ -80,7 +82,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "pattern:commented-out-code",
         "pattern:legacy-name",
         "satd",
@@ -93,12 +94,12 @@
         "pattern:dead-code:legacy-name"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": null
     },
@@ -113,6 +114,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "issue_partial is unused anywhere in src/ or tests/, in the highest-churn file in this family (refund.py), so it accumulates unvetted surface area on every change to that file.",
       "evidence": [
         {
@@ -154,6 +156,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "fingerprint() is defined but never invoked by any module or test in the repository; zero fan-in.",
       "evidence": [
         {
@@ -165,6 +168,7 @@
         }
       ],
       "confirmed_by": [
+        "hotspot",
         "scout:dead-code"
       ],
       "signals_cited": [
@@ -176,7 +180,7 @@
         "coupling_degree": 0,
         "fan_in_approx": null,
         "path_class": "source",
-        "in_hotspot_band": false
+        "in_hotspot_band": true
       },
       "tier": null
     },
@@ -191,6 +195,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Any exception from ledger.post is caught and discarded: no log, no re-raise, no cause kept. Code then still calls gateway.refund, so money can move while the ledger has no record and nobody learns the write failed.",
       "evidence": [
         {
@@ -233,6 +238,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "The 80% fail_under gate in pyproject.toml is never exercised because ci.yml runs plain 'pytest -q' with no coverage plugin invocation, so untested code (e.g. gateway.py, legacy_export.py) can merge without the gate ever tripping.",
       "evidence": [
         {
@@ -279,6 +285,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "No tests/test_gateway.py or any test exercises Gateway.refund; searched tests/ for 'gateway' matches (only the skipped test_refund.py reference). untested_change_share=1.0 on this hotspot file. Regression here silently breaks/loses real refund calls to the live payment API.",
       "evidence": [
         {
@@ -320,6 +327,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "No test file maps to legacy_export.py; searched tests/ for 'legacy_export' with no hits. Blast radius is currently limited since this feeds a finance mail step, and its own hotspot/change-frequency score is the lowest of the five files, suggesting infrequent modification.",
       "evidence": [
         {
@@ -331,7 +339,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "satd",
         "scout:test-gaps",
         "signal:no-mapped-tests"
@@ -340,12 +347,12 @@
         "no-mapped-test"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": null
     },
@@ -360,6 +367,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "No test in tests/test_refund.py or elsewhere calls issue_partial; the fraction-to-cents conversion and delegation to issue() are unguarded, so a rounding or fraction-scale regression would ship undetected.",
       "evidence": [
         {
@@ -401,6 +409,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "test_reverse_smoke calls reverse() and asserts nothing on the return value, so a regression in the sign-flip or reason='reversal' behavior would pass this test silently. This is the only test touching reverse().",
       "evidence": [
         {
@@ -440,6 +449,7 @@
       "effort": "M",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "The only test targeting issue()'s ledger+gateway path is skipped with no implementation. A known duplicate-post bug (FIXME) sits directly in this unguarded path, and post() failures are silently swallowed (bare except: pass) with no test asserting ledger/gateway call ordering or failure handling.",
       "evidence": [
         {
@@ -488,6 +498,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "requests.post has no timeout kwarg; refund.issue() calls this synchronously in the money-movement path, so an unresponsive gateway blocks the caller indefinitely.",
       "evidence": [
         {
@@ -528,6 +539,7 @@
       "effort": "M",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "FIXME names a concrete money-duplication risk with no ticket, 751 days old. The nearby dedup (_seen, an in-memory per-process set) does not address gateway-side retries, so the named risk is still present.",
       "evidence": [
         {
@@ -569,6 +581,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Comment self-admits the test was flaky and is masked with a fixed sleep plus workflow-level retries rather than a fix to the underlying race; no ticket referenced.",
       "evidence": [
         {
@@ -606,6 +619,7 @@
       "effort": "M",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "The only test for refund.issue()'s gateway call is skipped with no ticket or date; the reason names no owner or plan, and the function it would cover sits next to an unresolved duplicate-refund FIXME.",
       "evidence": [
         {
@@ -646,6 +660,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "setup.py declares pyproject.toml the packaging source of truth, but CI still installs from requirements.txt rather than the package's own dependency list, leaving two places that state the requests version (>=2.31 vs ==2.32.3) with no stated plan to consolidate.",
       "evidence": [
         {
@@ -699,6 +714,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "export_v1 is tagged with a removal ticket (#42) pending a v2 report that does not exist anywhere in this repo, and has zero call sites in src/ or tests/. A commented-out export_v0 stub sits alongside it, showing a prior migration was never cleaned up either.",
       "evidence": [
         {
@@ -717,7 +733,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "satd",
         "scout:migration"
       ],
@@ -727,12 +742,12 @@
         "satd"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": null
     },
@@ -747,6 +762,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "pay-service is a deployed app (Docker/CI install via requirements.txt), yet pyproject.toml carries its own unpinned floating requests range with no lockfile, while requirements.txt separately pins an exact version actually used to build/test.",
       "evidence": [
         {
@@ -793,12 +809,14 @@
       "effort": "S",
       "source": "tool",
       "rule_id": null,
+      "tool": "osv-scanner",
       "note": "requests 2.32.3 (PyPI) is affected by GHSA-9hjb-9r6f-mvzc: header injection via crafted redirect",
       "evidence": [
         {
           "file": "requirements.txt",
           "line_start": null,
           "line_end": null,
+          "column": null,
           "quote": "requests 2.32.3 (PyPI) is affected by GHSA-9hjb-9r6f-mvzc: header injection via crafted redirect",
           "quote_verified": true
         }
@@ -828,6 +846,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "pyproject.toml declares version 0.2.0 but CHANGELOG.md only documents the 0.1.0 release; changes visible in git history (gateway v2 migration, refund audit trail) have no corresponding changelog entry.",
       "evidence": [
         {
@@ -873,6 +892,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "README says the export job at src/pay/exporter.py was removed in 0.1.0, but a functionally equivalent module (legacy_export.py, export_v1) still ships in src/pay under a different name; the named path never existed and the job it describes was not actually removed.",
       "evidence": [
         {
@@ -941,6 +961,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "README states the legacy exporter job was removed, but src/pay/legacy_export.py still exists in the package performing an equivalent v1 CSV export; the documented boundary no longer matches what is on disk.",
       "evidence": [
         {
@@ -978,6 +999,7 @@
       "effort": "M",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "ADR 0001 names ledger.py's JSON-lines file canonical, but legacy_export.py sits in the same pay package and reads refunds from a separate sqlite3 db, importing neither ledger nor models. Two divergent stores for one domain.",
       "evidence": [
         {
@@ -996,7 +1018,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "satd",
         "scout:architecture"
       ],
@@ -1006,12 +1027,12 @@
         "satd"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": null
     },
@@ -1026,6 +1047,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Module-level constant holds an sk_live_-prefixed key (Stripe live-key shape) used directly as the Authorization bearer token for real refund POSTs, not under a test/fixture path.",
       "evidence": [
         {
@@ -1083,12 +1105,14 @@
       "effort": "M",
       "source": "tool",
       "rule_id": null,
+      "tool": "gitleaks",
       "note": "generic-api-key: Detected a Generic API Key",
       "evidence": [
         {
           "file": "src/pay/ledger.py",
           "line_start": 9,
           "line_end": 9,
+          "column": null,
           "quote": "generic-api-key: Detected a Generic API Key",
           "quote_verified": true
         }
@@ -1116,6 +1140,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "refund_id is a caller-supplied string interpolated directly into SQL text; no in-repo caller exists but the file's own TODO says it is kept for the still-running v1 reporting job, implying external invocation. The # nosec has no comment explaining why the injection risk is not real.",
       "evidence": [
         {
@@ -1134,7 +1159,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "pattern:dynamic-eval",
         "pattern:security-suppression",
         "pattern:string-sql",
@@ -1147,12 +1171,12 @@
         "satd"
       ],
       "signals": {
-        "hotspot_score": 2.5,
-        "churn": 1,
+        "hotspot_score": 0.0,
+        "churn": 0,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": null
     },
@@ -1167,6 +1191,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Calls reverse(), which negates the amount and sets reason to 'reversal', but never checks the returned Entry. Unlike a startup-only smoke test, this drives real business logic and would pass even if reverse() returned garbage or the wrong sign.",
       "evidence": [
         {
@@ -1217,6 +1242,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "The expected literal 'o-1:500:other' duplicates the refund fixture's order_id, amount_cents and default reason_code by hand; changing the fixture in conftest.py silently breaks this assertion with no visible link between the two.",
       "evidence": [
         {
@@ -1264,12 +1290,14 @@
       "effort": "S",
       "source": "tool",
       "rule_id": null,
+      "tool": "hadolint",
       "note": "DL3006: Always tag the version of an image explicitly",
       "evidence": [
         {
           "file": "README.md",
           "line_start": 1,
           "line_end": 1,
+          "column": null,
           "quote": "DL3006: Always tag the version of an image explicitly",
           "quote_verified": true
         }
@@ -1297,6 +1325,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "release.yml only runs on a pushed v* tag and has no step checking that the tag matches pyproject.toml's version; pyproject.toml is already at 0.2.0 but the only tag (v0.1.0) and CHANGELOG stop at 0.1.0, indicating the version bump is a manual, unverified step outside the pipeline.",
       "evidence": [
         {
@@ -1350,6 +1379,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "issue() is a library function (no __main__ guard, module has no CLI parsing) that already uses `log` elsewhere in the same function; the print bypasses log level/formatting/aggregation for a production refund outcome.",
       "evidence": [
         {
@@ -1391,6 +1421,7 @@
       "effort": "S",
       "source": "rule",
       "rule_id": "manifest.no-lockfile",
+      "tool": null,
       "note": "no lockfile (poetry.lock, uv.lock, pdm.lock) beside pyproject.toml",
       "evidence": [
         {
@@ -1426,6 +1457,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "release.stale-env-branch",
+      "tool": null,
       "note": "long-lived environment branch",
       "evidence": [
         {
@@ -1461,6 +1493,7 @@
       "effort": "S",
       "source": "rule",
       "rule_id": "ci.no-timeout",
+      "tool": null,
       "note": "job test has no timeout-minutes; job test has no permissions block; job test runs on the mutable label ubuntu-latest; actions/checkout@v4 is not pinned to a commit SHA; actions/setup-python@v5 is not pinned to a commit SHA; job test has no cache step",
       "evidence": [
         {
@@ -1535,6 +1568,7 @@
       "effort": "S",
       "source": "rule",
       "rule_id": "ci.no-permissions",
+      "tool": null,
       "note": "job publish has no permissions block; job publish has no cache step",
       "evidence": [
         {
@@ -1578,6 +1612,7 @@
       "effort": "S",
       "source": "rule",
       "rule_id": "container.unversioned-install",
+      "tool": null,
       "note": "package install without a version pin; no USER instruction; the container runs as root",
       "evidence": [
         {
@@ -1621,6 +1656,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "ownership.no-codeowners",
+      "tool": null,
       "note": "no ownership map",
       "evidence": [
         {
@@ -1656,6 +1692,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "ownership.knowledge-island",
+      "tool": null,
       "note": "knowledge island on a hotspot-band file",
       "evidence": [
         {
@@ -1691,6 +1728,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "ownership.knowledge-island",
+      "tool": null,
       "note": "knowledge island on a hotspot-band file",
       "evidence": [
         {
@@ -1726,6 +1764,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "ownership.knowledge-island",
+      "tool": null,
       "note": "knowledge island on a hotspot-band file",
       "evidence": [
         {

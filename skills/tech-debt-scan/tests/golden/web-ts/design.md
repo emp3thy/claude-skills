@@ -431,7 +431,7 @@ ci.yml:15-19 wraps the entire `npm test` invocation in nick-fields/retry with ma
 
 ### Evidence
 
-- `.github/workflows/ci.yml:15-19`
+- `.github/workflows/ci.yml:16-20`
 
 ```
 - uses: nick-fields/retry@7152eba30c6575329ac0576536151aca5a72780e

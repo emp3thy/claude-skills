@@ -102,8 +102,54 @@ cycle candidate was the madge-corroborated one the verifier rejected above,
 and the no-tools arm's scout did not raise the cycle as a candidate at all
 this run, leaving nothing to compare a tier against there.
 
-| date | fixture | model | churn_months | tier_a_precision | reported_precision | decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd |
-|---|---|---|---|---|---|---|---|---|---|---|---|
+**Rows recorded before 2026-09-08 were scored without `sources` on the decoys
+and without the `npm ci` step in web-ts's workflow.** From 2026-09-08 onward
+every decoy carries a `sources` list that restricts which producers can hit it,
+and the web-ts fixture installs dependencies before running tests, so the decoy
+columns are not directly comparable with earlier rows on web-ts.
+
+**From 2026-09-09 the harness renders the design document with the note agent's
+notes and scores `findings.json`.** After ranking, `live_run.py` dispatches the
+single remediation-note agent over the top N, renders `design.md` and
+`findings.json` with `design_writer.write_design`, and scores `findings.json`
+rather than `verified.json`. The trailing `notes` column is the count of top-N
+findings the note agent actually filled in over the top-N size, e.g. `3/5`;
+rows recorded before this date carry no `notes` column at all.
+
+**The three `2026-09-09` rows are the phase 5b run over the repaired corpus**:
+`sonnet`, `--churn-months 240`, the deep family set, top 5, tools present
+(`live_run.py --tools`); the note agent rendered a real remediation note for
+`5/5` top-N findings on every fixture; total cost $10.61. Tier A precision:
+service-py 0.57 (12/21), web-ts 0.28 (5/18), mixed-decoys 0.50 (8/16). Decoys
+at tier A: 0, 1, 0; in the top 5: 0, 0, 0. The tier-A decoy is web-ts's `d2`
+(`error-masking`, `src/api/client-admin.ts` lines 8-17), hit by the producer
+its `sources` names (`scout:error-masking`) and confirmed by the verifier on
+the reading that a catch which logs the cause and returns `null` still leaves
+callers unable to tell a failure from an empty body. `categories.py:171-176`
+names four shapes under "failures caught and hidden, so nobody learns of
+them" — empty catch blocks, catch-everything variants, log-only catches that
+drop the cause, and disabled assertions. The decoy's `why` reads the site as
+the third shape (this catch logs the cause,
+`console.error("admin request failed", e)`); the verifier read the same site
+as the second, a catch-everything variant that hides every failure behind a
+`null` the caller cannot tell from an empty response. The rubric admits both
+readings, and which one the corpus adopts is the first decision of the next
+run. Per spec section 11's second outcome, no bar is set from this run: the
+minimum the three rows would have given, 0.25 after rounding down, is recorded
+as measured but not adopted, and the provisional 0.80 stays; whether `d2` stays
+a decoy or becomes planted debt is the first decision of the next run, and
+raising or setting the bar still requires a run that clears the hard gate. Two
+more results worth noting: `dead-code` recall on service-py reached 1.00 for
+the first time, the zero-churn repair (task 4) finally making the family
+measurable; and web-ts's other decoy, `d1`, was hit at tier B by a
+release-process finding (manual version bumps with no CI release job) that
+cites the workflow as evidence — below the hard gate, so it is recorded as a
+hit, not ruled on. The run's `evaluation.json`, `design.md`, `notes.json` and
+`findings.json` for all three fixtures are kept under
+`docs/research/tech-debt-scan-v2/runs/2026-09-09-5b/`.
+
+| date | fixture | model | churn_months | tier_a_precision | reported_precision | decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 2026-09-05 | service-py | sonnet | 240 | 0.59 | 0.48 | 0 | 0 | dead-code=0.00 dependency-debt=1.00 doc-drift=1.00 error-masking=1.00 half-finished=1.00 ownership=1.00 pipeline-infra=1.00 security=0.80 test-gaps=1.00 test-quality=1.00 | 14 | 5 | 3.11 |
 | 2026-09-05 | web-ts | sonnet | 240 | 0.31 | 0.27 | 0 | 0 | architecture=0.00 dead-code=0.00 dependency-debt=1.00 duplication=0.00 error-masking=1.00 half-finished=0.50 migration=1.00 pipeline-infra=1.00 | 13 | 4 | 2.49 |
 | 2026-09-05 | mixed-decoys | sonnet | 240 | 0.50 | 0.41 | 0 | 0 | dead-code=0.00 error-masking=0.00 half-finished=0.50 pipeline-infra=1.00 security=0.40 test-quality=1.00 | 14 | 5 | 3.17 |
@@ -117,3 +163,6 @@ this run, leaving nothing to compare a tier against there.
 | 2026-09-07 | web-ts | sonnet | 240 | 0.43 | 0.30 | 0 | 0 | architecture=0.00 dead-code=0.00 dependency-debt=1.00 duplication=1.00 error-masking=1.00 half-finished=1.00 migration=1.00 pipeline-infra=1.00 | 13 | 5 | 3.46 |
 | 2026-09-07 | mixed-decoys | sonnet | 240 | 0.53 | 0.43 | 1 | 0 | dead-code=0.00 error-masking=1.00 half-finished=1.00 pipeline-infra=1.00 security=0.40 test-quality=1.00 | 14 | 5 | 3.39 |
 | 2026-09-07 | mixed-decoys | sonnet | 240 | 0.64 | 0.52 | 1 | 1 | dead-code=0.00 error-masking=0.00 half-finished=1.00 pipeline-infra=1.00 security=0.80 test-quality=1.00 | 14 | 5 | 3.31 |
+| 2026-09-09 | service-py | sonnet | 240 | 0.57 | 0.50 | 0 | 0 | dead-code=1.00 dependency-debt=1.00 doc-drift=1.00 error-masking=1.00 half-finished=1.00 ownership=1.00 pipeline-infra=1.00 security=0.40 test-gaps=1.00 test-quality=1.00 | 14 | 5 | 3.43 | 5/5 |
+| 2026-09-09 | web-ts | sonnet | 240 | 0.28 | 0.19 | 1 | 0 | architecture=0.00 dead-code=0.00 dependency-debt=1.00 duplication=0.00 error-masking=1.00 half-finished=0.50 migration=0.00 pipeline-infra=1.00 | 13 | 5 | 3.36 | 5/5 |
+| 2026-09-09 | mixed-decoys | sonnet | 240 | 0.50 | 0.52 | 0 | 0 | dead-code=0.00 error-masking=1.00 half-finished=1.00 pipeline-infra=1.00 security=0.40 test-quality=1.00 | 14 | 5 | 3.82 | 5/5 |

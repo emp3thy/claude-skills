@@ -1,4 +1,15 @@
+# Editing an existing commit's `files` map re-hashes that commit and every
+# later commit and tag (make_history.py replays sequentially by content and
+# date); a canned scout reply may quote a tag-ref SHA (see LIVE_QUOTE_MISSES
+# in test_chain_goldens.py), so a moved hash can silently break a golden.
+# New files therefore go into a new trailing commit, not an edit of an
+# existing one, unless moving the goldens is the point (ruling 5).
 commits:
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2004-01-01T10:00:00+00:00"
+    subject: "chore: legacy export kept for the audit archive"
+    files:
+      src/pay/legacy_export.py: "@final"
   - author: "Ada Lovelace <ada@example.com>"
     date: "2024-08-15T10:00:00+00:00"
     subject: "feat: initial payment service"
@@ -11,7 +22,6 @@ commits:
       .github/workflows/ci.yml: "@final"
       src/pay/__init__.py: "@final"
       src/pay/utils.py: "@final"
-      src/pay/legacy_export.py: "@final"
       src/pay/old_helper.py: |
         """Retired helper."""
 

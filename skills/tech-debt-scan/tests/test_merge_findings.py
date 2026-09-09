@@ -244,6 +244,7 @@ def test_fingerprint_cluster_and_corroboration(tmp_path: Path) -> None:
     assert "dropped_reasons" not in doc["stats"]["security"], "nothing dropped, key must be absent"
     cand = next(c for c in doc["candidates"] if c["source"] == "scout")
     assert cand["severity"] == 4 and cand["effort"] == "S" and cand["title"] == "b"
+    assert cand["tool"] is None
     assert len(cand["evidence"]) == 2
     fp = fingerprint("error-masking", "src/pay.py", "try:\n        order.refund()")[0]
     alt = fingerprint("error-masking", "src/pay.py", SWALLOW)[0]
@@ -252,7 +253,7 @@ def test_fingerprint_cluster_and_corroboration(tmp_path: Path) -> None:
     assert any(c.startswith("pattern:") for c in cand["confirmed_by"])
     assert cand["signals_cited"] == ["pattern:error-masking:swallowed-catch"]
     assert list(cand) == ["fingerprint", "quote_hash", "family", "debt_type", "type_id", "title",
-                          "severity", "effort", "source", "rule_id", "note", "evidence",
+                          "severity", "effort", "source", "rule_id", "tool", "note", "evidence",
                           "confirmed_by", "signals_cited", "signals", "tier"]
     assert list(cand["signals"]) == ["hotspot_score", "churn", "coupling_degree", "fan_in_approx",
                                      "path_class", "in_hotspot_band"]
@@ -915,6 +916,20 @@ class TestFactClassRoutings:
         new, _ = tool_candidates([self._osv(), second], {"files": []}, [])
         assert len({c["fingerprint"] for c in new}) == 2
 
+    def test_two_secrets_on_one_line_stay_two_candidates(self) -> None:
+        """Two different gitleaks hits that agree on family, path, line range,
+        rule and message -- which real ``StartColumn``-bearing records do when the
+        same rule fires twice on one line -- must not collapse onto one
+        fingerprint the way two repeats of the same hit are meant to."""
+        from merge_findings import tool_candidates
+
+        base = {"tool": "gitleaks", "family": "security", "kind": "secret", "file": "a.py",
+                "line_start": 3, "line_end": 3, "message": "generic-api-key: d", "fact": True}
+        signals = [{**base, "extra": {"rule": "generic-api-key", "entropy": 4.0, "column": 5}},
+                   {**base, "extra": {"rule": "generic-api-key", "entropy": 4.1, "column": 40}}]
+        new, _ = tool_candidates(signals, {"files": []}, [])
+        assert len(new) == 2 and new[0]["fingerprint"] != new[1]["fingerprint"]
+
     def test_a_gitleaks_fact_becomes_a_candidate_with_no_tier(self) -> None:
         """Placeholders and test fixtures produce false positives, so gitleaks
         goes to the verifier (spec 4.5)."""
@@ -923,6 +938,13 @@ class TestFactClassRoutings:
         new, _ = tool_candidates([self._gitleaks()], {"files": []}, [])
         assert new[0]["tier"] is None
         assert new[0]["source"] == "tool"
+
+    def test_a_tool_candidate_names_the_tool_that_raised_it(self) -> None:
+        from merge_findings import tool_candidates
+
+        new, _ = tool_candidates([self._gitleaks()], {"files": []}, [])
+        assert new and all(c["tool"] == "gitleaks" for c in new)
+        assert list(new[0]).index("tool") == list(new[0]).index("rule_id") + 1
 
     def test_hadolint_merges_into_a_same_file_rule_finding(self) -> None:
         from merge_findings import tool_candidates
@@ -942,6 +964,40 @@ class TestFactClassRoutings:
         assert len(new) == 1
         assert new[0]["evidence"][0]["file"] == "Dockerfile"
         assert new[0]["tier"] is None
+
+    def test_a_hadolint_fact_with_no_range_still_merges_into_a_same_file_rule_finding(
+        self,
+    ) -> None:
+        """The merge is tried before the range guard: it reads no range at all, so a
+        fact with a null ``line_start``/``line_end`` still corroborates a rule
+        finding covering the same file, and never reaches the range guard that
+        exists for the untiered candidate route."""
+        from merge_findings import tool_candidates
+
+        rule = {"fingerprint": "a" * 16, "family": "pipeline-infra", "source": "rule",
+                "evidence": [{"file": "Dockerfile", "line_start": 3, "line_end": 3,
+                              "quote": "FROM python", "quote_verified": True}],
+                "confirmed_by": ["rule:container.image"], "tier": "A", "signals": {}}
+        sig = {"tool": "hadolint", "family": "pipeline-infra", "kind": "container",
+               "file": "Dockerfile", "line_start": None, "line_end": None,
+               "message": "DL3007: latest", "fact": True, "extra": {"level": "warning"}}
+        counts: list[tuple[str, str, str | None]] = []
+        new, rules = tool_candidates([sig], {"files": []}, [rule], counts=counts)
+        assert new == [] and "tool:hadolint" in rules[0]["confirmed_by"]
+        assert not any("no usable line range" in (c[2] or "") for c in counts)
+
+    def test_a_hadolint_fact_with_no_range_and_no_rule_finding_is_still_dropped(self) -> None:
+        """The other half of the reorder: with no rule finding to absorb it, the
+        same no-range fact still falls through to the range guard and is dropped,
+        exactly as before the reorder."""
+        from merge_findings import tool_candidates
+
+        sig = {"tool": "hadolint", "family": "pipeline-infra", "kind": "container",
+               "file": "Dockerfile", "line_start": None, "line_end": None,
+               "message": "DL3007: latest", "fact": True, "extra": {"level": "warning"}}
+        counts: list[tuple[str, str, str | None]] = []
+        new, _ = tool_candidates([sig], {"files": []}, [], counts=counts)
+        assert new == [] and any("no usable line range" in (c[2] or "") for c in counts)
 
     def test_an_inference_signal_never_becomes_a_candidate(self) -> None:
         """Two ways a signal can be inference-class, and the ``fact`` guard is only
@@ -1315,11 +1371,16 @@ class TestFactSignalValidation:
         assert [c for c in document["candidates"] if c["source"] == "tool"] == []
         assert document["stats"]["security"]["dropped"] == 1
 
-    def test_a_hadolint_signal_with_a_null_line_range_is_dropped(
+    def test_a_hadolint_signal_with_a_null_line_range_and_no_rule_finding_is_dropped(
         self, tmp_path: Path
     ) -> None:
         """The same guard on the other untiered route: hadolint with a real file but
-        no usable line range."""
+        no usable line range. ``src/util.py`` has no pipeline-infra rule finding in
+        this fixture's ``rule-findings.json``, so the merge tried ahead of the range
+        guard (this task's reorder) finds nothing to absorb the fact into either --
+        this stays the "no rule finding" end-to-end case; the "merges despite no
+        range" case is exercised directly against ``tool_candidates`` in
+        ``TestFactClassRoutings``."""
         from verify_prompts import build_verify_plan
 
         repo, workdir = _repo(tmp_path)

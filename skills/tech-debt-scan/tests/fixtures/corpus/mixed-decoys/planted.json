@@ -21,16 +21,16 @@
     {"id": "p18", "family": "pipeline-infra", "type_id": "TD-27", "path": null, "lines": [0, 0], "expect_tier": "A"}
   ],
   "decoys": [
-    {"id": "d1", "family": "complex-units", "path": "internal/lookup/lookup.go", "why": "300-line lookup table: large but cohesive data, not branching"},
-    {"id": "d2", "family": "dead-code", "path": "cmd/app/main.go", "why": "entry point with no importer; main is a stoplist name"},
-    {"id": "d3", "family": "dead-code", "path": "internal/dispatch/dispatch.go", "lines": [7, 12], "why": "handlers reached only through a string-dispatch map"},
-    {"id": "d4", "family": "god-classes", "path": "internal/build/builder.go", "why": "fluent builder: method chains are the idiom, not inappropriate intimacy"},
-    {"id": "d5", "family": "error-masking", "path": "cmd/app/main.go", "why": "main logs the error and exits non-zero: a process boundary"},
-    {"id": "d6", "family": "dead-code", "path": "internal/flags/flags.go", "why": "documented kill switch (docs/runbook.md), permanently false by design"},
-    {"id": "d7", "family": "pipeline-infra", "path": "docker-compose.yml", "why": "images pinned to tags"},
-    {"id": "d8", "family": "pipeline-infra", "path": "k8s/service.yaml", "why": "Service manifest has no containers; resource and privilege rules do not apply"},
-    {"id": "d9", "family": "half-finished", "path": "internal/httpc/httpc_safe.go", "why": "client carries a Timeout"},
-    {"id": "d10", "family": "error-masking", "path": "internal/store/store.go", "lines": [19, 21], "why": "return nil, err propagates the error"},
-    {"id": "d11", "family": "ownership", "path": "internal/store/store.go", "why": "two human authors in the repository: the ownership group is suppressed"}
+    {"id": "d1", "family": "complex-units", "path": "internal/lookup/lookup.go", "why": "300-line lookup table: large but cohesive data, not branching", "sources": ["scout:complex-units", "tool:lizard"]},
+    {"id": "d2", "family": "dead-code", "path": "cmd/app/main.go", "why": "entry point with no importer; main is a stoplist name", "sources": ["scout:dead-code"]},
+    {"id": "d3", "family": "dead-code", "path": "internal/dispatch/dispatch.go", "lines": [7, 12], "why": "handlers reached only through a string-dispatch map", "sources": ["scout:dead-code"]},
+    {"id": "d4", "family": "god-classes", "path": "internal/build/builder.go", "why": "fluent builder: method chains are the idiom, not inappropriate intimacy", "sources": ["scout:god-classes"]},
+    {"id": "d5", "family": "error-masking", "path": "cmd/app/main.go", "why": "main logs the error and exits non-zero: a process boundary", "sources": ["scout:error-masking"]},
+    {"id": "d6", "family": "dead-code", "path": "internal/flags/flags.go", "why": "documented kill switch (docs/runbook.md), permanently false by design", "sources": ["scout:dead-code"]},
+    {"id": "d7", "family": "pipeline-infra", "path": "docker-compose.yml", "why": "images pinned to tags", "sources": ["scout:pipeline-infra", "rule:container.*"]},
+    {"id": "d8", "family": "pipeline-infra", "path": "k8s/service.yaml", "why": "Service manifest has no containers; resource and privilege rules do not apply", "sources": ["scout:pipeline-infra", "rule:iac.*"]},
+    {"id": "d9", "family": "half-finished", "path": "internal/httpc/httpc_safe.go", "why": "client carries a Timeout", "sources": ["scout:half-finished"]},
+    {"id": "d10", "family": "error-masking", "path": "internal/store/store.go", "lines": [19, 21], "why": "return nil, err propagates the error", "sources": ["scout:error-masking"]},
+    {"id": "d11", "family": "ownership", "path": "internal/store/store.go", "why": "two human authors in the repository: the ownership group is suppressed", "sources": ["rule:ownership.*"]}
   ]
 }

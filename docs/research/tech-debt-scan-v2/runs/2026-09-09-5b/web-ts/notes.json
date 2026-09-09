@@ -1,0 +1,49 @@
+[
+  {
+    "fingerprint": "882069e3ebcd041d",
+    "remediation": "Add src/api/client-admin.ts to CODEOWNERS (or the team's existing ownership mapping) naming at least a second reviewer so future changes aren't gated on a single person. If the file is retired per finding cef81f7bb42878f2, resolve that removal first and drop this entry instead of assigning a second owner to dead code. If the file is kept, have the second owner do a walkthrough of getAdminJson/adminEnabled with the original author and record the rationale (token handling, retry header, timeout) in a short doc or PR description so knowledge isn't sited in one head.",
+    "acceptance_criteria": [
+      "CODEOWNERS (or equivalent ownership file) lists at least two owners for src/api/client-admin.ts, or the file no longer exists in the tree",
+      "If kept, a PR or doc exists showing a second engineer reviewed and can explain the file's retry/timeout/auth logic",
+      "No single-author-only ownership record remains for this path after the change"
+    ]
+  },
+  {
+    "fingerprint": "cef81f7bb42878f2",
+    "remediation": "Delete src/api/client-admin.ts entirely: getAdminJson has no callers and adminEnabled() guards a flag ('adminPanel') that doesn't exist in flags.ts, so it always evaluates false via the ?? false fallback. Confirm via grep that adminEnabled, getAdminJson, and ADMIN_TOKEN are not referenced anywhere else (env docs, deploy configs, tests) before removing. If the admin panel is a planned near-term feature rather than abandoned work, replace this deletion with adding the 'adminPanel' entry to flags.ts and wiring an actual import site instead.",
+    "acceptance_criteria": [
+      "src/api/client-admin.ts no longer exists in the repository",
+      "grep across the repo (src, tests, CI config, docs) for getAdminJson, adminEnabled, and ADMIN_TOKEN returns no remaining references",
+      "Build (tsc) and test suite pass after removal",
+      "No new 'adminPanel' flag or importer was left half-wired"
+    ]
+  },
+  {
+    "fingerprint": "39ff2c7e77aa20a8",
+    "remediation": "Delete src/api/client.ts. getJson is never imported; index.ts only wires ./cart/cart and ./checkout/checkout, and the only test file is src/__tests__/cart.test.ts. Confirm via grep that getJson and API_TOKEN have no other references (including CI env vars, deploy scripts, or docs) before deleting. If this client was meant to replace an existing fetch path, wire it into that call site instead of deleting; otherwise remove it outright.",
+    "acceptance_criteria": [
+      "src/api/client.ts no longer exists in the repository",
+      "grep across the repo (src, tests, CI config, docs) for getJson and API_TOKEN returns no remaining references",
+      "Build (tsc) and test suite pass after removal"
+    ]
+  },
+  {
+    "fingerprint": "3c1370050f312692",
+    "remediation": "Same treatment as the client-admin.ts ownership gap: this is moot if src/api/client.ts is deleted per finding 39ff2c7e77aa20a8, so resolve that removal first. If the file is retained for a concrete near-term use, add a second name to CODEOWNERS for this path and have that person review the fetch/error-handling logic (note the empty catch block at client.ts:11 swallows errors silently, worth flagging in that review) so the implementation isn't understood by only one engineer.",
+    "acceptance_criteria": [
+      "CODEOWNERS (or equivalent ownership file) lists at least two owners for src/api/client.ts, or the file no longer exists in the tree",
+      "If kept, a PR or doc exists showing a second engineer reviewed the file, including the empty catch block behavior",
+      "No single-author-only ownership record remains for this path after the change"
+    ]
+  },
+  {
+    "fingerprint": "9ead67e93821ff71",
+    "remediation": "Pick one package manager for this repo and remove the other lockfile. Given ci.yml already runs npm ci, keep package-lock.json and delete yarn.lock; regenerate package-lock.json from the current package.json with a real install (not an empty scaffold) so it lists tiny-emitter, typescript, jest, and eslint with resolved versions and integrity hashes. If yarn is actually the intended tool, switch ci.yml to yarn install --frozen-lockfile instead and delete package-lock.json. Commit the regenerated lockfile and confirm npm ci (or yarn install) succeeds locally and in CI.",
+    "acceptance_criteria": [
+      "Exactly one lockfile (package-lock.json or yarn.lock) remains in the repository, matching the install command used in ci.yml",
+      "The retained lockfile's package set matches package.json's declared dependencies and devDependencies (tiny-emitter, typescript, jest, eslint)",
+      "npm ci (or yarn install --frozen-lockfile, matching the chosen tool) completes successfully with no manifest/lockfile mismatch error",
+      "CI workflow run on the branch shows the install step passing"
+    ]
+  }
+]

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from make_history import CORPUS_ROOT, git_output
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
 
-EXPECTED_COMMITS = {"service-py": 16, "web-ts": 10, "mixed-decoys": 6}
+EXPECTED_COMMITS = {"service-py": 17, "web-ts": 10, "mixed-decoys": 7}
 EXPECTED_TAGS = {
     "service-py": ["v0.1.0", "v0.2.0"],
     "web-ts": ["v1.0.0", "v1.1.0"],
@@ -74,3 +75,42 @@ def test_planted_paths_and_lines_exist(corpus: tuple[str, Path]) -> None:
     for decoy in planted["decoys"]:
         assert set(decoy) >= {"id", "family", "path", "why"}
         assert (repo / decoy["path"]).is_file(), decoy["id"]
+
+
+SOURCE_TOKEN = re.compile(
+    r"^(scout:[a-z-]+|rule:([a-z]+\.[a-z0-9-]+|[a-z]+\.\*|\*)|tool:([a-z-]+|\*))$"
+)
+
+
+def test_every_decoy_names_its_sources(corpus: tuple[str, Path]) -> None:
+    """Spec 6: decoy without sources would match any producer; corpus forbids this."""
+    name, _ = corpus
+    planted = json.loads((CORPUS_ROOT / name / "planted.json").read_text(encoding="utf-8"))
+    for decoy in planted["decoys"]:
+        sources = decoy.get("sources")
+        assert isinstance(sources, list) and sources, f"{name} {decoy['id']} has no sources"
+        for token in sources:
+            assert SOURCE_TOKEN.match(token), f"{name} {decoy['id']}: {token!r}"
+
+
+def test_web_ts_workflow_installs_before_it_tests(web_ts_repo: Path) -> None:
+    """Spec 6: decoy d1 is a decoy only once the workflow really is well configured."""
+    text = (web_ts_repo / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "run: npm ci" in text
+    assert text.index("run: npm ci") < text.index("nick-fields/retry@")
+
+
+def test_every_fixture_has_neutral_source_files(corpus: tuple[str, Path]) -> None:
+    """Spec 6: the correlation test needs source files that are neither planted nor decoys."""
+    from config import DEFAULTS
+    from inventory import build_all
+
+    name, repo = corpus
+    planted = json.loads((CORPUS_ROOT / name / "planted.json").read_text(encoding="utf-8"))
+    taken = {p["path"] for p in planted["planted"]} | {d["path"] for d in planted["decoys"]}
+    inventory, _ = build_all(repo, churn_months=240, config=DEFAULTS)
+    neutral = {e["path"] for e in inventory["files"]
+               if e["path_class"] == "source" and e["path"] not in taken}
+    assert len(neutral) >= 1, f"{name}: {neutral}"
+    assert any(e["hotspot_score"] > 0 for e in inventory["files"] if e["path"] in neutral), \
+        f"{name}: every neutral file scores 0.0"

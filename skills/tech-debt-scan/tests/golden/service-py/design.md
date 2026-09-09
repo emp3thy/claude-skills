@@ -32,8 +32,8 @@ counts:
   quote_failed: 1
   verified: 36
   tier_a: 16
-  tier_b: 13
-  tier_c: 6
+  tier_b: 14
+  tier_c: 5
   unverified: 1
   rejected: 2
   suppressed: 0
@@ -579,7 +579,7 @@ status: pending
 slug: sql-f-string-interpolation-of-refund-id-nosec-with-no-justificat
 fingerprint: d0af6b85d7b41fd1
 tier: B
-priority: 2.87
+priority: 2.8
 family: security
 category: security
 debt_type: security
@@ -677,50 +677,6 @@ def test_reverse_smoke() -> None:
     ledger.post(Entry(account="a", amount_cents=100), path)
     time.sleep(0.05)  # flaky on CI without this; retried in the workflow
     assert ledger.balance("a", path) == 100
-```
-
-## v1 CSV export left in place past its own removal ticket
-
-```yaml
-status: pending
-slug: v1-csv-export-left-in-place-past-its-own-removal-ticket
-fingerprint: 336fccbd19191237
-tier: B
-priority: 2.1525
-family: migration
-category: migration
-debt_type: design
-type_id: null
-severity: 3
-effort: S
-diff: NEW
-```
-
-### Proof
-
-export_v1 (legacy_export.py:8-14) has zero call sites confirmed by repo-wide grep for 'export_v1'/'legacy_export' outside its own definition. TODO(#42) at line 7 references a v2 report that doesn't exist anywhere in the repo (no export_v2, no mention in README/CHANGELOG/docs). Commented-out export_v0 stub at lines 17-19 confirms a prior migration was also never cleaned up. This is real orphaned migration debt.
-
-### Evidence
-
-- `src/pay/legacy_export.py:1-8`
-
-```
-"""Legacy CSV export kept for the v1 reporting job."""
-from __future__ import annotations
-
-import sqlite3
-import subprocess
-
-# TODO(#42): delete once finance moves to the v2 report
-def export_v1(refund_id: str, db: str = "refunds.db") -> list[tuple[str, int]]:
-```
-
-- `src/pay/legacy_export.py:17-19`
-
-```
-# def export_v0(refund_id):
-#     rows = fetch(refund_id)
-#     return rows
 ```
 
 ## README claims exporter.py removed but legacy_export.py still exists
@@ -849,6 +805,50 @@ name: release
 on:
   push:
     tags: ["v*"]
+```
+
+## v1 CSV export left in place past its own removal ticket
+
+```yaml
+status: pending
+slug: v1-csv-export-left-in-place-past-its-own-removal-ticket
+fingerprint: 336fccbd19191237
+tier: B
+priority: 2.1
+family: migration
+category: migration
+debt_type: design
+type_id: null
+severity: 3
+effort: S
+diff: NEW
+```
+
+### Proof
+
+export_v1 (legacy_export.py:8-14) has zero call sites confirmed by repo-wide grep for 'export_v1'/'legacy_export' outside its own definition. TODO(#42) at line 7 references a v2 report that doesn't exist anywhere in the repo (no export_v2, no mention in README/CHANGELOG/docs). Commented-out export_v0 stub at lines 17-19 confirms a prior migration was also never cleaned up. This is real orphaned migration debt.
+
+### Evidence
+
+- `src/pay/legacy_export.py:1-8`
+
+```
+"""Legacy CSV export kept for the v1 reporting job."""
+from __future__ import annotations
+
+import sqlite3
+import subprocess
+
+# TODO(#42): delete once finance moves to the v2 report
+def export_v1(refund_id: str, db: str = "refunds.db") -> list[tuple[str, int]]:
+```
+
+- `src/pay/legacy_export.py:17-19`
+
+```
+# def export_v0(refund_id):
+#     rows = fetch(refund_id)
+#     return rows
 ```
 
 ## Application ships two divergent dependency declarations for requests
@@ -1137,6 +1137,50 @@ def test_post_then_balance(tmp_path: Path) -> None:
     assert ledger.balance("a", path) == 100
 ```
 
+## export_v1 and its legacy_export module have zero callers
+
+```yaml
+status: pending
+slug: export-v1-and-its-legacy-export-module-have-zero-callers
+fingerprint: 08dd9ba688d79fda
+tier: B
+priority: 1.4
+family: dead-code
+category: dead-code
+debt_type: code
+type_id: TD-30
+severity: 2
+effort: S
+diff: NEW
+```
+
+### Proof
+
+Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.
+
+### Evidence
+
+- `src/pay/legacy_export.py:17-19`
+
+```
+# def export_v0(refund_id):
+#     rows = fetch(refund_id)
+#     return rows
+```
+
+- `src/pay/legacy_export.py:1-8`
+
+```
+"""Legacy CSV export kept for the v1 reporting job."""
+from __future__ import annotations
+
+import sqlite3
+import subprocess
+
+# TODO(#42): delete once finance moves to the v2 report
+def export_v1(refund_id: str, db: str = "refunds.db") -> list[tuple[str, int]]:
+```
+
 ## CHANGELOG has no entry for the 0.2.0 release already in pyproject.toml
 
 ```yaml
@@ -1226,7 +1270,6 @@ requests==2.32.3
 | --- | --- | --- | --- |
 | refund-issue-partial-has-no-callers-in-production-or-tests | dead-code | src/pay/refund.py | dead-code is capped at C without tool corroboration |
 | legacy-export-bypasses-the-ledger-writing-refund-data-to-a-secon | architecture | src/pay/legacy_export.py | selected for verification, but no verdict came back |
-| export-v1-and-its-legacy-export-module-have-zero-callers | dead-code | src/pay/legacy_export.py | dead-code is capped at C without tool corroboration |
 | utils-fingerprint-has-no-callers-anywhere-in-the-repo | dead-code | src/pay/utils.py | dead-code is capped at C without tool corroboration |
 | audit-trail-assertion-hard-codes-a-string-built-from-fixture-val | test-quality | tests/test_refund.py | the verifier downgraded it |
 | legacy-export-export-v1-has-no-automated-test | test-gaps | src/pay/legacy_export.py | the verifier downgraded it |

@@ -1,0 +1,2240 @@
+{
+  "schema_version": 2,
+  "findings": [
+    {
+      "fingerprint": "882069e3ebcd041d",
+      "slug": "ownership-gaps-in-src-api-client-admin-ts",
+      "title": "Ownership gaps in src/api/client-admin.ts",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "severity": 4,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/api/client-admin.ts: 100% of lines by one author, 1 author(s) in the window",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 80.0,
+        "churn": 4,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "rule:ownership.knowledge-island"
+      ],
+      "source": "rule",
+      "rule_id": "ownership.knowledge-island",
+      "tool": null,
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "priority": 7.5,
+      "terms": {
+        "severity": 4,
+        "H": 1.0,
+        "C": 1.0,
+        "F": 0.0,
+        "interest": 2.5,
+        "tier_weight": 1.0,
+        "tractability": 0.75,
+        "priority": 7.5
+      },
+      "in_top_n": true,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "cef81f7bb42878f2",
+      "slug": "src-api-client-admin-ts-is-an-unused-file-including-an-undefined",
+      "title": "src/api/client-admin.ts is an unused file, including an undefined flag",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-09",
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 6,
+          "line_end": 9,
+          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {",
+          "quote_verified": true
+        },
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 20,
+          "line_end": 22,
+          "quote": "export function adminEnabled(): boolean {\n  return isEnabled(\"adminPanel\");\n}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 80.0,
+        "churn": 4,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:flag-sdk",
+        "scout:dead-code",
+        "tool:knip"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "Grepped src for getAdminJson/adminEnabled/client-admin: only declaration sites in client-admin.ts:6,20 match, no importers. index.ts only wires cart/checkout, no admin path. flags.ts:1-5 defines FLAGS = {newCheckout, betaBanner} only; 'adminPanel' is absent, so isEnabled('adminPanel') always falls through to the ?? false default at flags.ts:8. No comment or ticket marks this as a deliberate kill switch, and it isn't an entry point or test. Matches dead-code family cleanly.",
+      "priority": 7.5,
+      "terms": {
+        "severity": 3,
+        "H": 1.0,
+        "C": 1.0,
+        "F": 0.0,
+        "interest": 2.5,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 7.5
+      },
+      "in_top_n": true,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "39ff2c7e77aa20a8",
+      "slug": "src-api-client-ts-is-an-unused-file-with-zero-callers",
+      "title": "src/api/client.ts is an unused file with zero callers",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-09",
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 42.9,
+        "churn": 5,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:flag-sdk",
+        "scout:dead-code",
+        "tool:knip"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "Grep for getJson/client across src finds only the declaration at client.ts:6; index.ts:1-2 imports solely from ./cart/cart and ./checkout/checkout. No dynamic import, string-based dispatch, or route table exists in this small app. Not an entry point (index.ts is) and not a runner-discovered test (only src/__tests__/cart.test.ts exists, no client.ts reference). knip's finding is corroborated by manual search.",
+      "priority": 6.1089,
+      "terms": {
+        "severity": 3,
+        "H": 0.5363,
+        "C": 1.0,
+        "F": 0.0,
+        "interest": 2.0363,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 6.1089
+      },
+      "in_top_n": true,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "3c1370050f312692",
+      "slug": "ownership-gaps-in-src-api-client-ts",
+      "title": "Ownership gaps in src/api/client.ts",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "severity": 4,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/api/client.ts: 100% of lines by one author, 1 author(s) in the window",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 42.9,
+        "churn": 5,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "rule:ownership.knowledge-island"
+      ],
+      "source": "rule",
+      "rule_id": "ownership.knowledge-island",
+      "tool": null,
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "priority": 6.1089,
+      "terms": {
+        "severity": 4,
+        "H": 0.5363,
+        "C": 1.0,
+        "F": 0.0,
+        "interest": 2.0363,
+        "tier_weight": 1.0,
+        "tractability": 0.75,
+        "priority": 6.1089
+      },
+      "in_top_n": true,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "9ead67e93821ff71",
+      "slug": "two-lockfile-kinds-coexist-package-lock-json-is-empty-out-of-syn",
+      "title": "Two lockfile kinds coexist; package-lock.json is empty/out of sync",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "severity": 5,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "package-lock.json",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "{ \"name\": \"web-ts\", \"lockfileVersion\": 3, \"packages\": {} }",
+          "quote_verified": true
+        },
+        {
+          "file": "yarn.lock",
+          "line_start": 1,
+          "line_end": 4,
+          "quote": "# yarn lockfile v1\n\ntiny-emitter@2.1.0:\n  version \"2.1.0\"",
+          "quote_verified": true
+        },
+        {
+          "file": "package.json",
+          "line_start": 6,
+          "line_end": 7,
+          "quote": "\"dependencies\": { \"tiny-emitter\": \"2.1.0\" },\n  \"devDependencies\": { \"typescript\": \"5.4.5\", \"jest\": \"29.7.0\", \"eslint\": \"9.0.0\" },",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 15,
+          "line_end": 16,
+          "quote": "      - run: npm ci\n      - uses: nick-fields/retry@7152eba30c6575329ac0576536151aca5a72780e",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "rule:manifest.two-lockfiles",
+        "scout:dependency-debt",
+        "tool:knip"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "Read package-lock.json in full: `{ \"name\": \"web-ts\", \"lockfileVersion\": 3, \"packages\": {} }` \u2014 zero packages declared while package.json:6-7 declares 1 dependency + 3 devDependencies, and yarn.lock:1-4 independently locks tiny-emitter. ci.yml:15 runs `npm ci`, which requires package-lock.json to be in sync with package.json; an empty packages map for a manifest with 4 declared packages will fail npm ci. This is an application manifest (private:true), so the trap 'library without lockfile is normal' doesn't apply, and there's no sign of an in-progress migration between the two lockfiles.",
+      "priority": 5.0,
+      "terms": {
+        "severity": 5,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 5.0
+      },
+      "in_top_n": true,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "52673adee31bbc96",
+      "slug": "empty-catch-swallows-fetch-json-failures-with-no-log-no-rethrow",
+      "title": "Empty catch swallows fetch/JSON failures with no log, no rethrow",
+      "family": "error-masking",
+      "debt_type": "code",
+      "type_id": "TD-13",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 42.9,
+        "churn": 5,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:swallowed-catch",
+        "scout:error-masking"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "client.ts:11 `catch (e) {}` discards fetch/JSON failures with no log, no rethrow, then falls into unrelated flag-gated logging at lines 12-14 and returns null \u2014 indistinguishable from a genuine empty response. Not a boundary catch that reports (client-admin.ts's sibling catch at lines 14-15 does log, this one doesn't), and not a retry that re-raises. Confirmed as described; note correctly flags it as latent since getJson has no callers, which is why severity is already appropriately low.",
+      "priority": 4.0726,
+      "terms": {
+        "severity": 2,
+        "H": 0.5363,
+        "C": 1.0,
+        "F": 0.0,
+        "interest": 2.0363,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 4.0726
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "37123abc76b1359b",
+      "slug": "checkout-flag-branching-logic-has-no-test",
+      "title": "checkout() flag-branching logic has no test",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 6,
+          "line_end": 13,
+          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";\n  return `legacy:${label}`;\n}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 2.9,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "hotspot",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "Only two test files exist in the repo (src/__tests__/cart.test.ts, src/__tests__/pricing.spec.ts, per Glob), jest is the sole runner (package.json:5,8) with no e2e/integration config or directory. Neither covers checkout.ts:6-13. index.ts:6-7 calls checkout(cart) but is an entry point, not a test. No unconventionally named test file references checkout. Both the newCheckout branch (line 8) and legacy/empty-cart branch (lines 10-12) are unexercised.",
+      "priority": 3.4086,
+      "terms": {
+        "severity": 3,
+        "H": 0.0362,
+        "C": 0.0,
+        "F": 0.2,
+        "interest": 1.1362,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 3.4086
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "0e7744dd726d5b40",
+      "slug": "pricing-spec-ts-skips-bulk-pricing-assertion",
+      "title": "pricing.spec.ts skips bulk pricing assertion",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/__tests__/pricing.spec.ts",
+          "line_start": 7,
+          "line_end": 9,
+          "quote": "  it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 5.7,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "pricing.spec.ts:7-9 disables the bulk-pricing test via it.skip with no comment/ticket. checkout.ts:11 does call legacyFormat(priceOf(first.sku)) on the legacy path, confirming the note's coupling claim. No other test file exists (only cart.test.ts and pricing.spec.ts), and pricing.ts has no bulk logic to be covered elsewhere, so the integration-coverage trap does not apply.",
+      "priority": 3.2139,
+      "terms": {
+        "severity": 3,
+        "H": 0.0713,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0713,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 3.2139
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "08174bf5b156d429",
+      "slug": "admin-fetch-catch-logs-but-converts-every-failure-to-a-silent-nu",
+      "title": "Admin fetch catch logs but converts every failure to a silent null return",
+      "family": "error-masking",
+      "debt_type": "code",
+      "type_id": "TD-13",
+      "severity": 1,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 8,
+          "line_end": 17,
+          "quote": "  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),\n    });\n    return await response.json();\n  } catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 80.0,
+        "churn": 4,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "scout:error-masking"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "client-admin.ts:14-16 logs the cause then returns null for every failure branch (timeout, network error, bad JSON), losing the distinction from a genuine empty response. Grep across src finds zero callers of getAdminJson, and index.ts only wires addItem/checkout \u2014 confirming the note's 'latent' claim. Not a documented boundary/retry re-raise, so the traps don't apply; severity 1 matches the latent, uncalled status.",
+      "priority": 2.5,
+      "terms": {
+        "severity": 1,
+        "H": 1.0,
+        "C": 1.0,
+        "F": 0.0,
+        "interest": 2.5,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 2.5
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "495fb96e5dd2b600",
+      "slug": "bulk-pricing-test-skipped-feature-not-implemented-in-priceof",
+      "title": "Bulk pricing test skipped; feature not implemented in priceOf",
+      "family": "half-finished",
+      "debt_type": "requirement",
+      "type_id": "TD-32",
+      "severity": 3,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": "src/__tests__/pricing.spec.ts",
+          "line_start": 7,
+          "line_end": 9,
+          "quote": "it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });",
+          "quote_verified": true
+        },
+        {
+          "file": "src/cart/pricing.ts",
+          "line_start": 3,
+          "line_end": 8,
+          "quote": "const PRICES: Record<string, number> = { A1: 1000, B2: 2500 };\n\nexport function priceOf(sku: string): number {\n  reserve(sku, 0);\n  return PRICES[sku] ?? 0;\n}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 5.7,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "pattern:skip-marker",
+        "scout:half-finished"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "pricing.ts:3-8 is a flat PRICES lookup with reserve(sku,0) and no discount/quantity logic; priceOf takes no qty argument at all. The skip at pricing.spec.ts:7-9 has no comment, date, or ticket. No abstract contract or ticketed deferral is present, so neither trap applies. Implementing bulk pricing would touch priceOf's signature plus call sites in cart.ts:17 and checkout.ts:11, supporting M effort.",
+      "priority": 2.4104,
+      "terms": {
+        "severity": 3,
+        "H": 0.0713,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0713,
+        "tier_weight": 1.0,
+        "tractability": 0.75,
+        "priority": 2.4104
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "6b42429f28509865",
+      "slug": "legacyformat-s-deprecated-tag-contradicted-by-live-checkout-usag",
+      "title": "legacyFormat's @deprecated tag contradicted by live checkout usage",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/util/format-legacy.ts",
+          "line_start": 3,
+          "line_end": 6,
+          "quote": "/** @deprecated use formatMoney */\nexport function legacyFormat(cents: number): string {\n  return formatMoney(cents).replace(\"$\", \"USD \");\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 7,
+          "line_end": 12,
+          "quote": "  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }\n  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";\n  return `legacy:${label}`;",
+          "quote_verified": true
+        },
+        {
+          "file": "src/flags.ts",
+          "line_start": 1,
+          "line_end": 5,
+          "quote": "const FLAGS: Record<string, boolean> = {\n  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,\n  betaBanner: true,\n};",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "satd",
+        "scout:doc-drift"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "format-legacy.ts:3-5 tags legacyFormat @deprecated in favor of formatMoney, but grep shows formatMoney (format.ts:1) has zero direct callers in src outside format-legacy.ts itself. checkout.ts:4,11 imports and calls legacyFormat on every invocation; the newCheckout branch (checkout.ts:7-9) is dead since flags.ts:2-3 hardcodes newCheckout:false with a comment saying the new flow was never finished. So the deprecated function is the sole live formatter and its replacement is never called directly - the doc tag is misleading, not just stale.",
+      "priority": 2.31,
+      "terms": {
+        "severity": 3,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.2,
+        "interest": 1.1,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 2.31
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "aa20afe178c7ab9b",
+      "slug": "skipped-bulk-pricing-test-asserts-a-value-the-source-never-produ",
+      "title": "Skipped bulk-pricing test asserts a value the source never produces",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": null,
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/__tests__/pricing.spec.ts",
+          "line_start": 7,
+          "line_end": 9,
+          "quote": "  it.skip(\"applies bulk pricing\", () => {\n    expect(priceOf(\"A1\")).toBe(900);\n  });",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 5.7,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "pattern:numeric-assert",
+        "scout:test-quality"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "pricing.spec.ts:8 asserts priceOf(\"A1\")===900 inside an it.skip block. pricing.ts:3 fixes PRICES.A1=1000 with no bulk-discount branch, so the assertion would fail immediately if unskipped \u2014 confirming the mismatch has gone unnoticed only because the block never runs. Not a parametrised or smoke test.",
+      "priority": 2.2497,
+      "terms": {
+        "severity": 3,
+        "H": 0.0713,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0713,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 2.2497
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "72480e1ceca75a25",
+      "slug": "src-util-receipt-legacy-ts-is-an-unused-also-deprecated-file",
+      "title": "src/util/receipt-legacy.ts is an unused, also-deprecated file",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-17",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/util/receipt-legacy.ts",
+          "line_start": 26,
+          "line_end": 31,
+          "quote": "/** @deprecated use formatReceipt */\nexport function legacyFormatReceipt(lines: ReceiptLine[]): string {\n  const rows: string[] = [];\n  for (const line of lines) {\n    const lineTotal = line.quantity * line.unitCents;\n    rows.push(`${line.label} x${line.quantity} USD ${(lineTotal / 100).toFixed(2)}`);",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "hotspot",
+        "pattern:deprecation",
+        "pattern:legacy-name",
+        "satd",
+        "scout:dead-code",
+        "tool:knip"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "Grep across src for `from [\"'].*receipt` returns no matches, and a package-wide search for the string 'receipt' outside .tech-debt/ artifacts finds nothing - no index.ts export, no script, no test. receipt-legacy.ts:26-31's legacyFormatReceipt (and computeTotals/types) has zero in-repo callers, matching knip's unused-file flag. Not an entry point or runner-discovered test file (glob for *.test.ts found only src/__tests__/cart.test.ts). No documented kill-switch or plugin-surface rationale present.",
+      "priority": 2.215,
+      "terms": {
+        "severity": 2,
+        "H": 0.1075,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.1075,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 2.215
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "75599a6cb98b2ce8",
+      "slug": "src-util-receipt-ts-is-an-unused-file-with-zero-callers",
+      "title": "src/util/receipt.ts is an unused file with zero callers",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-09",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/util/receipt.ts",
+          "line_start": 26,
+          "line_end": 31,
+          "quote": "export function formatReceipt(lines: ReceiptLine[]): string {\n  const rows: string[] = [];\n  for (const line of lines) {\n    const lineTotal = line.quantity * line.unitCents;\n    rows.push(`${line.label} x${line.quantity} $${(lineTotal / 100).toFixed(2)}`);\n  }",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "hotspot",
+        "scout:dead-code",
+        "tool:knip"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "Grep for `from [\"'].*receipt` across src returns no matches; a broader search for 'receipt' outside .tech-debt/ artifacts finds nothing referencing receipt.ts. formatReceipt/computeTotals/types in receipt.ts:26-31 have zero callers, matching knip's unused-file flag. Not an entry point (no script or index export), not a runner-discovered test (only src/__tests__/cart.test.ts exists), and no documented kill-switch rationale.",
+      "priority": 2.215,
+      "terms": {
+        "severity": 2,
+        "H": 0.1075,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.1075,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 2.215
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "bee2a473c0afedc2",
+      "slug": "architecture-md-claims-pricing-stock-import-each-other-only-one",
+      "title": "architecture.md claims pricing/stock import each other; only one-way",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "docs/architecture.md",
+          "line_start": 3,
+          "line_end": 4,
+          "quote": "`src/cart` owns items and totals, `src/checkout` owns the flow. Pricing and\nstock currently import each other through `src/cart/stock.ts`.",
+          "quote_verified": true
+        },
+        {
+          "file": "src/cart/stock.ts",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "import type { Cart } from \"./cart\";",
+          "quote_verified": true
+        },
+        {
+          "file": "src/cart/pricing.ts",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "import { reserve } from \"./stock\";",
+          "quote_verified": true
+        },
+        {
+          "file": "docs/architecture.md",
+          "line_start": 1,
+          "line_end": 4,
+          "quote": "# Architecture\n\n`src/cart` owns items and totals, `src/checkout` owns the flow. Pricing and\nstock currently import each other through `src/cart/stock.ts`.",
+          "quote_verified": true
+        },
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 1,
+          "line_end": 4,
+          "quote": "import { isEnabled } from \"../flags\";\n\nconst BASE = \"https://admin.example.com\";\nconst token = process.env.ADMIN_TOKEN ?? \"\";",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "scout:doc-drift"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "docs/architecture.md:3-4 states pricing and stock 'import each other'. stock.ts:1 imports only `Cart` (type) from ./cart, never from pricing.ts. pricing.ts:1 imports `reserve` from ./stock. cart.ts:1 also imports priceOf from pricing, confirming cart->pricing->stock is a one-way chain with no cycle back into pricing. The doc's mutual-coupling claim is factually wrong.",
+      "priority": 2.1,
+      "terms": {
+        "severity": 3,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 2.1
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "035d3088827face4",
+      "slug": "newcheckout-flow-left-permanently-disabled-since-launch-never-fi",
+      "title": "newCheckout flow left permanently disabled since launch, never finished",
+      "family": "half-finished",
+      "debt_type": "code",
+      "type_id": "TD-32",
+      "severity": 3,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": "src/flags.ts",
+          "line_start": 1,
+          "line_end": 5,
+          "quote": "const FLAGS: Record<string, boolean> = {\n  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,\n  betaBanner: true,\n};",
+          "quote_verified": true
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 6,
+          "line_end": 9,
+          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 3,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "scout:half-finished"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "flags.ts:2 comment self-admits the new flow 'was never finished' with no date or ticket reference anywhere in the file or its referrers (client.ts, client-admin.ts, checkout.ts checked, none mention a tracking ID). checkout.ts:6-9 retains the guarded new-flow branch as unreachable code, not an abstract contract or interface. No compensating documentation of a deliberate deferral was found, so this doesn't match the 'ticketed deferral' non-debt shape.",
+      "priority": 2.0475,
+      "terms": {
+        "severity": 3,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.6,
+        "interest": 1.3,
+        "tier_weight": 0.7,
+        "tractability": 0.75,
+        "priority": 2.0475
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "2db65f2197f66c42",
+      "slug": "dependency-manifest-gaps-in-package-json",
+      "title": "Dependency manifest gaps in package.json",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "{",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "rule:manifest.two-lockfiles"
+      ],
+      "source": "rule",
+      "rule_id": "manifest.two-lockfiles",
+      "tool": null,
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "priority": 2.0,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 2.0
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "141175ed2e56d821",
+      "slug": "client-admin-ts-token-timeout-error-path-logic-untested",
+      "title": "client-admin.ts token/timeout/error-path logic untested",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 6,
+          "line_end": 18,
+          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),\n    });\n    return await response.json();\n  } catch (e) {\n    console.error(\"admin request failed\", e);\n    return null;\n  }\n}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 80.0,
+        "churn": 4,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "downgrade",
+      "proof": "The auth header, timeout, and error-to-null fallback in client-admin.ts:6-18 are indeed untested (no test file references getAdminJson or client-admin). But grep across src shows zero callers of getAdminJson (fan_in_approx=0 is accurate), matching candidate 08174bf5's own finding that this code is latent/unreachable from src. The claim 'a regression here would ship silently' overstates risk for code nothing currently invokes; the hotspot score reflects churn/complexity, not reachability.",
+      "priority": 1.75,
+      "terms": {
+        "severity": 2,
+        "H": 1.0,
+        "C": 1.0,
+        "F": 0.0,
+        "interest": 2.5,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 1.75
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "4d03b88d399c3996",
+      "slug": "ownership-gaps-in-src-checkout-checkout-ts",
+      "title": "Ownership gaps in src/checkout/checkout.ts",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "severity": 2,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/checkout/checkout.ts: top author has no commits in 193 days",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 2.9,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "rule:ownership.former-contributor"
+      ],
+      "source": "rule",
+      "rule_id": "ownership.former-contributor",
+      "tool": null,
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "priority": 1.7043,
+      "terms": {
+        "severity": 2,
+        "H": 0.0362,
+        "C": 0.0,
+        "F": 0.2,
+        "interest": 1.1362,
+        "tier_weight": 1.0,
+        "tractability": 0.75,
+        "priority": 1.7043
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "0a3f457edc0b28ce",
+      "slug": "ownership-gaps-in-src-util-receipt-legacy-ts",
+      "title": "Ownership gaps in src/util/receipt-legacy.ts",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "severity": 2,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": "src/util/receipt-legacy.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/util/receipt-legacy.ts: top author has no commits in 293 days",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "rule:ownership.former-contributor"
+      ],
+      "source": "rule",
+      "rule_id": "ownership.former-contributor",
+      "tool": null,
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "priority": 1.6612,
+      "terms": {
+        "severity": 2,
+        "H": 0.1075,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.1075,
+        "tier_weight": 1.0,
+        "tractability": 0.75,
+        "priority": 1.6612
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "d9213e79b7d2b121",
+      "slug": "ownership-gaps-in-src-util-receipt-ts",
+      "title": "Ownership gaps in src/util/receipt.ts",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-16",
+      "severity": 2,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": "src/util/receipt.ts",
+          "line_start": null,
+          "line_end": null,
+          "quote": "src/util/receipt.ts: top author has no commits in 293 days",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "rule:ownership.former-contributor"
+      ],
+      "source": "rule",
+      "rule_id": "ownership.former-contributor",
+      "tool": null,
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "priority": 1.6612,
+      "terms": {
+        "severity": 2,
+        "H": 0.1075,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.1075,
+        "tier_weight": 1.0,
+        "tractability": 0.75,
+        "priority": 1.6612
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "6a1f829fcc4126d8",
+      "slug": "release-process-gaps",
+      "title": "Release process gaps",
+      "family": "pipeline-infra",
+      "debt_type": "build",
+      "type_id": "TD-27",
+      "severity": 2,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": null,
+          "line_start": null,
+          "line_end": null,
+          "quote": "branch release/1.2 unmerged, last commit 2026-04-15 (147 days ago)",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 0,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": null,
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "rule:release.stale-env-branch"
+      ],
+      "source": "rule",
+      "rule_id": "release.stale-env-branch",
+      "tool": null,
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "priority": 1.5,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 1.0,
+        "tractability": 0.75,
+        "priority": 1.5
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "8fe7e5857c49c8ad",
+      "slug": "ownership-gaps",
+      "title": "Ownership gaps",
+      "family": "ownership",
+      "debt_type": "knowledge-process",
+      "type_id": "TD-23",
+      "severity": 2,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": null,
+          "line_start": null,
+          "line_end": null,
+          "quote": "no CODEOWNERS file with 3 human authors",
+          "quote_verified": true
+        },
+        {
+          "file": null,
+          "line_start": null,
+          "line_end": null,
+          "quote": "no ADR directory and no pull request template",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 0,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": null,
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "rule:ownership.no-adr-no-pr-template",
+        "rule:ownership.no-codeowners"
+      ],
+      "source": "rule",
+      "rule_id": "ownership.no-codeowners",
+      "tool": null,
+      "tier": "A",
+      "verdict": "rule",
+      "proof": "verified by construction",
+      "priority": 1.5,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 1.0,
+        "tractability": 0.75,
+        "priority": 1.5
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "fdb5fcca4c87f4b8",
+      "slug": "getjson-fetch-has-no-timeout-and-silently-swallows-failures",
+      "title": "getJson fetch has no timeout and silently swallows failures",
+      "family": "half-finished",
+      "debt_type": "defect",
+      "type_id": "TD-28",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 42.9,
+        "churn": 5,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:no-timeout",
+        "scout:half-finished"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "downgrade",
+      "proof": "Confirmed asymmetry: client.ts:9 fetch has no AbortSignal, while client-admin.ts:9-12 has signal: AbortSignal.timeout(5000); client.ts:11 catch is empty vs. admin's logged catch at lines 14-15. This is a real half-finished divergence, not an abstract contract or ticketed deferral (no comment/ticket found). But getJson is uncalled anywhere in src, so no live request can currently hang \u2014 the risk is dormant pending revival or deletion, so severity is lower than stated.",
+      "priority": 1.4254,
+      "terms": {
+        "severity": 2,
+        "H": 0.5363,
+        "C": 1.0,
+        "F": 0.0,
+        "interest": 2.0363,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 1.4254
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "3be7c52dfb951591",
+      "slug": "ci-retries-the-full-test-command-up-to-3-times",
+      "title": "CI retries the full test command up to 3 times",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 16,
+          "line_end": 20,
+          "quote": "      - uses: nick-fields/retry@7152eba30c6575329ac0576536151aca5a72780e\n        with:\n          timeout_minutes: 10\n          max_attempts: 3\n          command: npm test",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "scout:test-quality"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "ci.yml:16-20 wraps the entire `npm test` invocation in nick-fields/retry with max_attempts: 3 and no comment identifying a specific flaky test. This means any newly introduced flaky/order-dependent test is masked by up to 3 silent re-runs instead of failing the build. No table-driven/parametrised pattern or frozen-clock guard is present to explain the retry; it applies to the whole suite, not a targeted test.",
+      "priority": 1.4,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 1.4
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "f08436450c50e406",
+      "slug": "cart-total-test-asserts-unexplained-magic-number",
+      "title": "Cart total test asserts unexplained magic number",
+      "family": "test-quality",
+      "debt_type": "test",
+      "type_id": null,
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/__tests__/cart.test.ts",
+          "line_start": 3,
+          "line_end": 6,
+          "quote": "test(\"total sums items\", () => {\n  const cart = { items: [] as { sku: string; qty: number }[] };\n  addItem(cart, { sku: \"A1\", qty: 2 });\n  expect(total(cart)).toBe(2000);",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "tests",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "pattern:numeric-assert",
+        "scout:test-quality"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "cart.test.ts:6 asserts total(cart)===2000 as a bare literal. pricing.ts:3 sets PRICES.A1=1000, and cart.ts:17 computes priceOf(sku)*qty, so 1000*2=2000 is correct but derivable only by reading pricing.ts; nothing in the test itself shows the derivation. Not parametrised, not a smoke test \u2014 neither trap applies.",
+      "priority": 1.4,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 1.4
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "f96386b7dc024381",
+      "slug": "version-bump-and-tagging-done-manually-with-no-ci-release-job-or",
+      "title": "Version bump and tagging done manually with no CI release job or docs",
+      "family": "pipeline-infra",
+      "debt_type": "build",
+      "type_id": "TD-27",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line_start": 3,
+          "line_end": 5,
+          "quote": "  \"version\": \"1.1.0\",\n  \"private\": true,\n  \"scripts\": { \"build\": \"tsc -p tsconfig.json\", \"test\": \"jest\" },",
+          "quote_verified": true
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "line_start": 5,
+          "line_end": 9,
+          "quote": "jobs:\n  test:\n    runs-on: ubuntu-22.04\n    timeout-minutes: 15\n    steps:",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "rule:manifest.two-lockfiles",
+        "scout:pipeline-infra"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "ci.yml:5-9 defines only a `test` job; no bump/tag/publish step exists in the single workflow file. .git/refs/tags/v1.0.0 and v1.1.0 exist alongside package.json:3 version 1.1.0, confirming manual tagging, and no CONTRIBUTING/CHANGELOG/README documents this as intentional (consistent with candidate 2's findings). Small/no-op for a private, single-package repo, so severity stays low as scored.",
+      "priority": 1.4,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 1.4
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "dd952edd651fab31",
+      "slug": "newcheckout-flag-stalled-off-legacy-checkout-path-never-left",
+      "title": "newCheckout flag stalled off, legacy checkout path never left",
+      "family": "migration",
+      "debt_type": "design",
+      "type_id": "TD-06",
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/flags.ts",
+          "line_start": 1,
+          "line_end": 4,
+          "quote": "const FLAGS: Record<string, boolean> = {\n  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,\n  betaBanner: true,",
+          "quote_verified": true
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 6,
+          "line_end": 9,
+          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 3,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "scout:migration"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "unverified",
+      "proof": "",
+      "priority": 1.365,
+      "terms": {
+        "severity": 3,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.6,
+        "interest": 1.3,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 1.365
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "bfe97b540694664f",
+      "slug": "admin-and-api-fetch-clients-duplicate-auth-fetch-error-logic-dri",
+      "title": "Admin and API fetch clients duplicate auth/fetch/error logic, drifted",
+      "family": "duplication",
+      "debt_type": "code",
+      "type_id": "TD-05",
+      "severity": 2,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 6,
+          "line_end": 12,
+          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),\n    });",
+          "quote_verified": true
+        },
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 80.0,
+        "churn": 4,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "scout:duplication"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "downgrade",
+      "proof": "client.ts:6-11 and client-admin.ts:6-12 do build identical Authorization/X-Retry header logic with real drift (timeout at admin.ts:11, error logging at admin.ts:14-15 vs empty catch at client.ts:11). Duplication is real, not a trap match. But grep across src shows zero callers for getJson or getAdminJson (index.ts only imports cart/checkout), matching candidates 2/3's dead-code finding. With no live callers, the drift has no runtime blast radius; the correct fix is deletion of one/both files, which resolves the duplication as a side effect. Severity lowered to reflect null current impact.",
+      "priority": 1.3125,
+      "terms": {
+        "severity": 2,
+        "H": 1.0,
+        "C": 1.0,
+        "F": 0.0,
+        "interest": 2.5,
+        "tier_weight": 0.35,
+        "tractability": 0.75,
+        "priority": 1.3125
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "1a2cee62a043fa63",
+      "slug": "readme-omits-contributing-changelog-adr-despite-tagged-releases",
+      "title": "README omits CONTRIBUTING/CHANGELOG/ADR despite tagged releases",
+      "family": "doc-drift",
+      "debt_type": "documentation",
+      "type_id": "TD-08",
+      "severity": 2,
+      "effort": "M",
+      "evidence": [
+        {
+          "file": "README.md",
+          "line_start": 1,
+          "line_end": 5,
+          "quote": "# web-ts\n\nCart and checkout front end.\n\n    npm test",
+          "quote_verified": true
+        },
+        {
+          "file": "package.json",
+          "line_start": 1,
+          "line_end": 4,
+          "quote": "{\n  \"name\": \"web-ts\",\n  \"version\": \"1.1.0\",\n  \"private\": true,",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 2.9,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "docs",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "rule:manifest.two-lockfiles",
+        "scout:doc-drift"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "README.md:1-5 has only a title, one-line description, and `npm test`. Repo-wide glob confirms no CONTRIBUTING.md, CHANGELOG.md, CHANGES, HISTORY, or docs/adr/ exist. package.json:3 shows version 1.1.0 and git refs (.git/refs/tags/v1.0.0, v1.1.0) confirm tagged releases exist with no changelog recording what changed. This is a genuine absence, not a planned/external interface.",
+      "priority": 1.088,
+      "terms": {
+        "severity": 2,
+        "H": 0.0362,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0362,
+        "tier_weight": 0.7,
+        "tractability": 0.75,
+        "priority": 1.088
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "3336a2d929455dcd",
+      "slug": "flags-ts-isenabled-has-no-test-despite-gating-checkout-and-api-p",
+      "title": "flags.ts isEnabled() has no test despite gating checkout and API paths",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/flags.ts",
+          "line_start": 7,
+          "line_end": 9,
+          "quote": "export function isEnabled(name: string): boolean {\n  return FLAGS[name] ?? false;\n}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": 3,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "unverified",
+      "proof": "",
+      "priority": 0.91,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.6,
+        "interest": 1.3,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 0.91
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "47ddd41fa55d21ab",
+      "slug": "checkout-ts-newcheckout-branch-is-unreachable-flag-permanently-f",
+      "title": "checkout.ts newCheckout branch is unreachable (flag permanently false)",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-20",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 6,
+          "line_end": 9,
+          "quote": "export function checkout(cart: Cart): string {\n  if (isEnabled(\"newCheckout\")) {\n    return `new:${total(cart)}`;\n  }",
+          "quote_verified": true
+        },
+        {
+          "file": "src/flags.ts",
+          "line_start": 2,
+          "line_end": 3,
+          "quote": "  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 2.9,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "hotspot",
+        "pattern:flag-sdk",
+        "pattern:legacy-name",
+        "scout:dead-code"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "confirm",
+      "proof": "flags.ts:1-4 defines FLAGS as a static hardcoded object with no env override, remote config, or admin toggle anywhere in src (grep for FLAGS/betaBanner/adminPanel shows only static literals). isEnabled (flags.ts:7-9) is a plain lookup, not a permission/kill-switch (client-admin.ts:20-22 uses it for adminPanel, client.ts:12 for betaBanner, both similarly static). No reflection, string-dispatch, or serialization path could flip newCheckout at runtime. checkout.ts:7-8's new: branch is therefore dead in practice.",
+      "priority": 0.7953,
+      "terms": {
+        "severity": 2,
+        "H": 0.0362,
+        "C": 0.0,
+        "F": 0.2,
+        "interest": 1.1362,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 0.7953
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "10591360ed8e761a",
+      "slug": "receipt-legacy-ts-duplicate-money-logic-untested",
+      "title": "receipt-legacy.ts duplicate money logic untested",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 1,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/util/receipt-legacy.ts",
+          "line_start": 16,
+          "line_end": 24,
+          "quote": "export function computeTotals(lines: ReceiptLine[]): ReceiptTotals {\n  let subtotalCents = 0;\n  for (const line of lines) {\n    subtotalCents += line.quantity * line.unitCents;\n  }\n  const taxCents = Math.round(subtotalCents * TAX_RATE);\n  const totalCents = subtotalCents + taxCents;\n  return { subtotalCents, taxCents, totalCents };\n}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "hotspot",
+        "satd",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": null,
+      "verdict": "reject",
+      "proof": "The note claims receipt-legacy.ts is 'still reachable via legacyFormat/checkout.ts legacy path,' but checkout.ts (src/checkout/checkout.ts:1-4) imports only legacyFormat from ../util/format-legacy - a different file with a same-shaped but distinct function. A repo-wide grep for imports of 'receipt' found zero matches in src; only .tech-debt analysis artifacts mention 'receipt'. computeTotals/legacyFormatReceipt in receipt-legacy.ts have no caller at all, confirmed by candidates 3/5 (knip dead-file flags). Since the code is unreachable, this is dead-code territory, not a live test gap with money-correctness impact.",
+      "priority": 0.7752,
+      "terms": {
+        "severity": 1,
+        "H": 0.1075,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.1075,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 0.7752
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "681cbeb7b1005dd1",
+      "slug": "deprecated-legacyformat-is-checkout-s-only-live-money-formatter",
+      "title": "Deprecated legacyFormat is checkout's only live money formatter",
+      "family": "migration",
+      "debt_type": "design",
+      "type_id": "TD-17",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/util/format-legacy.ts",
+          "line_start": 1,
+          "line_end": 6,
+          "quote": "import { formatMoney } from \"./format\";\n\n/** @deprecated use formatMoney */\nexport function legacyFormat(cents: number): string {\n  return formatMoney(cents).replace(\"$\", \"USD \");\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/checkout/checkout.ts",
+          "line_start": 10,
+          "line_end": 12,
+          "quote": "  const first = cart.items[0];\n  const label = first ? legacyFormat(priceOf(first.sku)) : \"\";\n  return `legacy:${label}`;",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "satd",
+        "scout:migration"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "unverified",
+      "proof": "",
+      "priority": 0.77,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.2,
+        "interest": 1.1,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 0.77
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "5c2028957a872490",
+      "slug": "client-ts-silent-error-swallow-and-flag-gated-logging-untested",
+      "title": "client.ts silent error swallow and flag-gated logging untested",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 1,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 16,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}\n  if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");\n  }\n  return null;\n}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 42.9,
+        "churn": 5,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "downgrade",
+      "proof": "src/__tests__/cart.test.ts contains no reference to client/getJson, confirming no mapped test for client.ts:6-16. However getJson has zero callers anywhere in src (candidate 3), so this isn't glue/config exempt from testing, but genuinely dead code \u2014 the meaningful fix is deletion, not writing tests for unreachable code. Writing coverage for a function nothing calls provides no real defect-catching value until/unless the file is revived, so the debt is much lower priority than 'untested_change_share=1.0' implies.",
+      "priority": 0.7127,
+      "terms": {
+        "severity": 1,
+        "H": 0.5363,
+        "C": 1.0,
+        "F": 0.0,
+        "interest": 2.0363,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 0.7127
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "75a6675cbaf6ee0c",
+      "slug": "full-receipt-module-duplicated-between-receipt-ts-and-receipt-le",
+      "title": "Full receipt module duplicated between receipt.ts and receipt-legacy.ts",
+      "family": "duplication",
+      "debt_type": "code",
+      "type_id": "TD-05",
+      "severity": 1,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/util/receipt-legacy.ts",
+          "line_start": 1,
+          "line_end": 6,
+          "quote": "export interface ReceiptLine {\n  sku: string;\n  label: string;\n  quantity: number;\n  unitCents: number;\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/util/receipt.ts",
+          "line_start": 1,
+          "line_end": 6,
+          "quote": "export interface ReceiptLine {\n  sku: string;\n  label: string;\n  quantity: number;\n  unitCents: number;\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/util/receipt-legacy.ts",
+          "line_start": 27,
+          "line_end": 31,
+          "quote": "export function legacyFormatReceipt(lines: ReceiptLine[]): string {\n  const rows: string[] = [];\n  for (const line of lines) {\n    const lineTotal = line.quantity * line.unitCents;\n    rows.push(`${line.label} x${line.quantity} USD ${(lineTotal / 100).toFixed(2)}`);",
+          "quote_verified": true
+        },
+        {
+          "file": "src/util/receipt.ts",
+          "line_start": 26,
+          "line_end": 30,
+          "quote": "export function formatReceipt(lines: ReceiptLine[]): string {\n  const rows: string[] = [];\n  for (const line of lines) {\n    const lineTotal = line.quantity * line.unitCents;\n    rows.push(`${line.label} x${line.quantity} $${(lineTotal / 100).toFixed(2)}`);",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "hotspot",
+        "satd",
+        "scout:duplication",
+        "tool:jscpd"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "downgrade",
+      "proof": "The duplication is real: receipt.ts and receipt-legacy.ts declare identical ReceiptLine/ReceiptTotals/TAX_RATE/computeTotals and near-identical format functions differing only by currency prefix (confirmed by direct read of both files). But per candidates 3 and 5, neither file has any in-repo caller - both are dead. With no live consumer, the maintenance-burden framing overstates impact: the actual fix is deleting one or both dead files, not reconciling two maintained call paths. Not a documented fixture/generated/vendored exception, and not a case of two units with different reasons to change - they genuinely duplicate the same logic, just unused.",
+      "priority": 0.3876,
+      "terms": {
+        "severity": 1,
+        "H": 0.1075,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.1075,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 0.3876
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "bde7386349a8f33e",
+      "slug": "receipt-ts-tax-total-computation-and-formatting-untested",
+      "title": "receipt.ts tax/total computation and formatting untested",
+      "family": "test-gaps",
+      "debt_type": "test",
+      "type_id": "TD-04",
+      "severity": 1,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/util/receipt.ts",
+          "line_start": 16,
+          "line_end": 24,
+          "quote": "export function computeTotals(lines: ReceiptLine[]): ReceiptTotals {\n  let subtotalCents = 0;\n  for (const line of lines) {\n    subtotalCents += line.quantity * line.unitCents;\n  }\n  const taxCents = Math.round(subtotalCents * TAX_RATE);\n  const totalCents = subtotalCents + taxCents;\n  return { subtotalCents, taxCents, totalCents };\n}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "hotspot",
+        "scout:test-gaps",
+        "signal:no-mapped-tests"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "downgrade",
+      "proof": "computeTotals/formatReceipt in receipt.ts are indeed untested (only src/__tests__/cart.test.ts exists in the repo). But receipt.ts has zero in-repo callers (confirmed by grep and by candidate 5's knip finding), so the claim of 'direct money-correctness impact' is false - dead code cannot cause a production regression. The real issue is the file's dead status (candidate 5), not a live test gap; testing unreachable code is not meaningful debt until/unless it is wired in.",
+      "priority": 0.3876,
+      "terms": {
+        "severity": 1,
+        "H": 0.1075,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.1075,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 0.3876
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "14ef7ffe2242c44c",
+      "slug": "reservecart-export-in-stock-ts-has-no-callers",
+      "title": "reserveCart export in stock.ts has no callers",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-09",
+      "severity": 1,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/cart/stock.ts",
+          "line_start": 11,
+          "line_end": 13,
+          "quote": "export function reserveCart(cart: Cart): boolean {\n  return cart.items.every((item) => reserve(item.sku, item.qty));\n}",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 1,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "scout:dead-code",
+        "tool:knip"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "unverified",
+      "proof": "",
+      "priority": 0.385,
+      "terms": {
+        "severity": 1,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.2,
+        "interest": 1.1,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 0.385
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "3d5daf8fb72b00a9",
+      "slug": "tslint-json-left-in-place-after-eslint-replaced-it",
+      "title": "tslint.json left in place after ESLint replaced it",
+      "family": "migration",
+      "debt_type": "build",
+      "type_id": "TD-06",
+      "severity": 1,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "tslint.json",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "{ \"extends\": \"tslint:recommended\" }",
+          "quote_verified": true
+        },
+        {
+          "file": ".eslintrc.json",
+          "line_start": 1,
+          "line_end": 1,
+          "quote": "{ \"extends\": \"eslint:recommended\" }",
+          "quote_verified": true
+        },
+        {
+          "file": "package.json",
+          "line_start": 7,
+          "line_end": 7,
+          "quote": "  \"devDependencies\": { \"typescript\": \"5.4.5\", \"jest\": \"29.7.0\", \"eslint\": \"9.0.0\" },",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "rule:manifest.two-lockfiles",
+        "scout:migration"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "unverified",
+      "proof": "",
+      "priority": 0.35,
+      "terms": {
+        "severity": 1,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 0.35
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "8efea62cca61c09f",
+      "slug": "vendored-tiny-emitter-diverges-from-the-declared-npm-dependency",
+      "title": "Vendored tiny-emitter diverges from the declared npm dependency",
+      "family": "dependency-debt",
+      "debt_type": "dependency",
+      "type_id": "TD-02",
+      "severity": 1,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "\"dependencies\": { \"tiny-emitter\": \"2.1.0\" },",
+          "quote_verified": true
+        },
+        {
+          "file": "vendor/tiny-emitter.js",
+          "line_start": 1,
+          "line_end": 4,
+          "quote": "// tiny-emitter 2.1.0 (vendored)\nfunction E() {}\nE.prototype = { on: function (name, cb) { (this.e || (this.e = {}))[name] = cb; return this; } };\nmodule.exports = E;",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 2,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "rule:manifest.two-lockfiles",
+        "scout:dependency-debt",
+        "tool:knip"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "C",
+      "verdict": "downgrade",
+      "proof": "vendor/tiny-emitter.js exists and only implements `on` (confirmed), but grep across src/ for 'emitter'/'vendor' and for 'tiny-emitter' finds zero imports \u2014 src/index.ts:1-2 only imports from ./cart/cart and ./checkout/checkout. Nothing in the app actually requires either the npm package or the vendor shim (tool-signals.json independently flags tiny-emitter as an unused dependency). So there is no runtime divergence risk as framed \u2014 this is dead/orphaned vendor code plus an unused declared dependency, not an active stand-in diverging from upstream behavior.",
+      "priority": 0.35,
+      "terms": {
+        "severity": 1,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 0.35,
+        "tractability": 1.0,
+        "priority": 0.35
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    }
+  ]
+}

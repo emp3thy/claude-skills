@@ -19,8 +19,11 @@ see which window produced the numbers.
 A finding hits a planted item or decoy when the families match and one
 evidence item names the same file (a null path matches a repository-level
 finding with null evidence) and, when the item carries a non-zero line range
-and the evidence carries lines, the ranges overlap. The report never fails
-the process; the phase 5 live harness reads the counts.
+and the evidence carries lines, the ranges overlap. A decoy carrying a non-empty
+`sources` list (spec 6) is hit only by a finding whose producer tokens — its own
+`scout:`, `rule:` or `tool:` token plus its `confirmed_by` — match an entry, exactly
+or by a trailing-`*` prefix. The report never fails the process; the phase 5 live
+harness reads the counts.
 
 ``python scripts/evaluate.py --planted <planted.json> --workdir <dir> [--top N] [--json]``
 prints a table, or the JSON report with ``--json``.
@@ -70,9 +73,55 @@ def _ranges_overlap(start: int, end: int, item_lines: list[int]) -> bool:
     return not (end < item_lines[0] or start > item_lines[1])
 
 
+def producers(finding: dict[str, Any]) -> frozenset[str]:
+    """The producer tokens a finding carries: its own, then every ``confirmed_by`` token.
+
+    The own token is read from the candidate's ``source`` (spec 4.7): ``scout:<family>``
+    for a scout candidate, ``rule:<rule_id>`` for a rule finding, ``tool:<tool>`` for a
+    tool candidate. ``findings.json`` copies those fields (spec 4.11) so this reads the
+    same off either input. A finding with no ``source`` contributes only its
+    ``confirmed_by`` tokens.
+    """
+    tokens: set[str] = set()
+    source = finding.get("source")
+    if source == "scout" and finding.get("family"):
+        tokens.add(f"scout:{finding['family']}")
+    elif source == "rule" and finding.get("rule_id"):
+        tokens.add(f"rule:{finding['rule_id']}")
+    elif source == "tool" and finding.get("tool"):
+        tokens.add(f"tool:{finding['tool']}")
+    for token in finding.get("confirmed_by") or []:
+        if isinstance(token, str) and token:
+            tokens.add(token)
+    return frozenset(tokens)
+
+
+def source_matches(token: str, sources: list[str]) -> bool:
+    """True when ``token`` equals an entry, or matches an entry ending in ``*`` as a prefix."""
+    for entry in sources:
+        if not isinstance(entry, str):
+            continue
+        if entry.endswith("*"):
+            if token.startswith(entry[:-1]):
+                return True
+        elif token == entry:
+            return True
+    return False
+
+
+def _sources_allow(finding: dict[str, Any], item: dict[str, Any]) -> bool:
+    """A decoy with a non-empty ``sources`` list admits only findings one of its producers made."""
+    sources = item.get("sources")
+    if not isinstance(sources, list) or not sources:
+        return True
+    return any(source_matches(token, sources) for token in producers(finding))
+
+
 def hits(finding: dict[str, Any], item: dict[str, Any]) -> bool:
     """True when ``finding`` points at the planted item or decoy ``item``."""
     if finding.get("family") != item.get("family"):
+        return False
+    if not _sources_allow(finding, item):
         return False
     path = item.get("path")
     lines = item.get("lines")

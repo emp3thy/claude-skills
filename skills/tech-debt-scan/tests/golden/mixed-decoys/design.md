@@ -2,8 +2,8 @@
 schema_version: 2
 scan_date: 2026-09-06
 root: <root>
-total_files: 13
-total_loc: 519
+total_files: 15
+total_loc: 534
 languages:
 - go
 - markdown
@@ -43,7 +43,7 @@ counts:
 
 # Tech-debt scan - 2026-09-06
 
-Scanned `<root>` - 13 files, 519 LOC across: go, markdown.
+Scanned `<root>` - 15 files, 534 LOC across: go, markdown.
 
 Review each finding below. To act on one, change its `status:` from `pending` to
 `approved`, `rejected`, or `accepted` (add a `reason:` and an optional `until:` ISO

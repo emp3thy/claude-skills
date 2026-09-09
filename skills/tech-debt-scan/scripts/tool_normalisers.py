@@ -631,7 +631,11 @@ def normalise_gitleaks(payload: Any, root: Path) -> list[Signal]:
     dropped outright rather than redacted (spec 4.5): this file is read into
     prompts, and a redacted secret is still its own first four characters.
     The rule id, file, line range and entropy that remain are what the
-    verifier needs to tell a real leak from a fixture.
+    verifier needs to tell a real leak from a fixture. ``StartColumn`` is kept
+    too, in ``extra["column"]``: two different secrets matched by the same
+    rule on the same line otherwise agree on every field ``merge_findings``
+    fingerprints (family, path, line range, message), and would collapse into
+    one candidate a single verdict then decides for both.
     """
     if not isinstance(payload, list):
         return []
@@ -645,6 +649,9 @@ def normalise_gitleaks(payload: Any, root: Path) -> list[Signal]:
             continue
         end = record.get("EndLine")
         rule = str(record.get("RuleID", ""))
+        column = record.get("StartColumn")
+        if not isinstance(column, int) or isinstance(column, bool):
+            column = None
         out.append(
             signal(
                 "gitleaks", "security", "secret",
@@ -652,7 +659,7 @@ def normalise_gitleaks(payload: Any, root: Path) -> list[Signal]:
                 line_end=end if isinstance(end, int) else start,
                 message=f"{rule}: {record.get('Description', 'possible committed secret')}",
                 fact=True,
-                extra={"rule": rule, "entropy": record.get("Entropy")},
+                extra={"rule": rule, "entropy": record.get("Entropy"), "column": column},
             )
         )
     return out

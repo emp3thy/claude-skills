@@ -1,3 +1,9 @@
+# Editing an existing commit's `files` map re-hashes that commit and every
+# later commit and tag (make_history.py replays sequentially by content and
+# date); a canned scout reply may quote a tag-ref SHA (see LIVE_QUOTE_MISSES
+# in test_chain_goldens.py), so a moved hash can silently break a golden.
+# New files therefore go into a new trailing commit, not an edit of an
+# existing one, unless moving the goldens is the point (ruling 5).
 commits:
   - author: "Hal Finney <hal@example.com>"
     date: "2024-11-03T09:00:00+00:00"
@@ -133,3 +139,9 @@ commits:
     subject: "chore(deps): update go.sum"
     files:
       go.sum: "@final"
+  - author: "Ivy Lee <ivy@example.com>"
+    date: "2026-08-03T09:00:00+00:00"
+    subject: "chore: unit helpers for the report"
+    files:
+      internal/units/units.go: "@final"
+      internal/units/labels.go: "@final"

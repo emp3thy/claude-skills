@@ -23,13 +23,13 @@
     {"id": "p20", "family": "doc-drift", "type_id": "TD-08", "path": "README.md", "lines": [10, 10], "expect_tier": "B"}
   ],
   "decoys": [
-    {"id": "d1", "family": "duplication", "path": "tests/fixtures/seed.py", "why": "intentional fixture duplication in the tests path class"},
-    {"id": "d2", "family": "security", "path": "tests/fixtures/seed.py", "why": "placeholder credential (sk_test, placeholder, xxx) in a test fixture"},
-    {"id": "d3", "family": "dependency-debt", "path": "requirements.txt", "why": "a pinned requirements file has no lockfile ecosystem and must not be flagged"},
-    {"id": "d4", "family": "dead-code", "path": "src/pay/__init__.py", "why": "package file: fan-in is never resolved for it and it is not dead"},
-    {"id": "d5", "family": "dead-code", "path": "setup.py", "why": "harness file run by name; fan-in 0 is not dead"},
-    {"id": "d6", "family": "test-gaps", "path": "tests/conftest.py", "why": "harness file, not an untested module"},
-    {"id": "d7", "family": "ownership", "path": "src/pay/ledger.py", "why": "three human authors on the file across the fixture's full history; not a knowledge island"},
-    {"id": "d8", "family": "half-finished", "path": "src/pay/legacy_export.py", "why": "TODO carries ticket reference #42; not an untracked marker"}
+    {"id": "d1", "family": "duplication", "path": "tests/fixtures/seed.py", "why": "intentional fixture duplication in the tests path class", "sources": ["scout:duplication", "tool:jscpd"]},
+    {"id": "d2", "family": "security", "path": "tests/fixtures/seed.py", "why": "placeholder credential (sk_test, placeholder, xxx) in a test fixture", "sources": ["scout:security", "tool:gitleaks", "rule:*"]},
+    {"id": "d3", "family": "dependency-debt", "path": "requirements.txt", "why": "a pinned requirements file has no lockfile ecosystem and must not be flagged", "sources": ["scout:dependency-debt", "rule:manifest.*", "tool:osv-scanner"]},
+    {"id": "d4", "family": "dead-code", "path": "src/pay/__init__.py", "why": "package file: fan-in is never resolved for it and it is not dead", "sources": ["scout:dead-code", "tool:vulture"]},
+    {"id": "d5", "family": "dead-code", "path": "setup.py", "why": "harness file run by name; fan-in 0 is not dead", "sources": ["scout:dead-code", "tool:vulture"]},
+    {"id": "d6", "family": "test-gaps", "path": "tests/conftest.py", "why": "harness file, not an untested module", "sources": ["scout:test-gaps"]},
+    {"id": "d7", "family": "ownership", "path": "src/pay/ledger.py", "why": "three human authors on the file across the fixture's full history; not a knowledge island", "sources": ["rule:ownership.*"]},
+    {"id": "d8", "family": "half-finished", "path": "src/pay/legacy_export.py", "why": "TODO carries ticket reference #42; not an untracked marker", "sources": ["scout:half-finished"]}
   ]
 }

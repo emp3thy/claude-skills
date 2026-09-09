@@ -744,6 +744,22 @@ class TestNormaliseGitleaks:
     def test_gitleaks_signals_are_fact_class(self) -> None:
         assert all(s["fact"] is True for s in self._signals())
 
+    def test_gitleaks_keeps_the_start_column_in_extra(self) -> None:
+        from tool_normalisers import normalise_gitleaks
+
+        payload = [{"File": "a.py", "StartLine": 3, "EndLine": 3, "StartColumn": 17,
+                    "RuleID": "generic-api-key", "Description": "d", "Secret": "S", "Match": "M"}]
+        [sig] = normalise_gitleaks(payload, Path("."))
+        assert sig["extra"]["column"] == 17
+        assert "Secret" not in json.dumps(sig) and sig.get("message") != "M"
+
+    def test_gitleaks_without_a_column_records_none(self) -> None:
+        from tool_normalisers import normalise_gitleaks
+
+        payload = [{"File": "a.py", "StartLine": 3, "RuleID": "r", "Description": "d"}]
+        [sig] = normalise_gitleaks(payload, Path("."))
+        assert sig["extra"]["column"] is None
+
     def test_a_record_without_a_usable_file_is_dropped(self) -> None:
         from tool_normalisers import normalise_gitleaks
 

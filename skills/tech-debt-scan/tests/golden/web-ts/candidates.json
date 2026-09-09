@@ -12,6 +12,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Both build identical Authorization+X-Retry headers and repeat the fetch/json/try-catch shape, differing in BASE, token var, timeout, and error handling. Leads mark this pair change-coupled (shared=4, ratio=0.889); error handling already drifted (see fbf5b36).",
       "evidence": [
         {
@@ -60,6 +61,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "getAdminJson and adminEnabled have zero in-repo callers (highest hotspot score in repo) despite recent churn. adminPanel is not a key in FLAGS, so adminEnabled() falls through to '?? false' and can never return true even if called.",
       "evidence": [
         {
@@ -116,6 +118,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "No file in src imports getJson (checked index.ts, checkout, cart, tests). betaBanner is hardcoded true in flags.ts with no code path setting it false, so the isEnabled check inside this already-uncalled function can never take more than one value.",
       "evidence": [
         {
@@ -172,6 +175,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "FLAGS is a static object with no runtime configuration source, and the comment confirms the new flow was abandoned, so this branch cannot execute; it is dead code standing in for a feature that was never finished.",
       "evidence": [
         {
@@ -219,6 +223,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "legacyFormat is marked @deprecated in favor of formatMoney, but checkout.ts still calls it on its only live path (the legacy branch, since newCheckout is permanently off), so the deprecated unit is not actually unused.",
       "evidence": [
         {
@@ -268,6 +273,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Error is logged with cause preserved in the console, but is not rethrown or surfaced to the caller; getAdminJson returns null on both failure and any falsy JSON body, so callers cannot distinguish failure from a valid null/empty response.",
       "evidence": [
         {
@@ -307,6 +313,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Catch block is completely empty: network failures, non-JSON responses, and auth errors are silently discarded. Caller receives null indistinguishable from a legitimate empty result; no log, no rethrow, nothing to alert anyone the request failed.",
       "evidence": [
         {
@@ -348,6 +355,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "coverageThreshold is configured but the \"test\" script runs plain jest without --coverage, so the threshold is never evaluated during a normal `yarn test`/`npm test` run, letting untested hotspot files (client.ts, client-admin.ts, checkout.ts) go unflagged.",
       "evidence": [
         {
@@ -386,6 +394,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "The only test that would assert priceOf's bulk-discount behavior is disabled via .skip, so priceOf's pricing logic beyond the zero-sku case runs with no automated guard; a pricing regression would not be caught by the suite.",
       "evidence": [
         {
@@ -424,6 +433,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Highest-scored hotspot file (80.0), untested_change_share=1.0, no test file references client-admin.ts. Auth header construction, timeout, and error-swallow-to-null behavior are unguarded; a regression (e.g. wrong header name, timeout dropped) would silently break admin API access.",
       "evidence": [
         {
@@ -465,6 +475,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "untested_change_share=1.0 and no test references checkout.ts despite it composing cart total, pricing, and formatting behind a feature flag. Blast radius is direct: a regression here affects the checkout output customers/orders depend on, and neither branch (legacy or new) is asserted.",
       "evidence": [
         {
@@ -505,6 +516,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "untested_change_share=1.0 and no test file references flags.ts directly. isEnabled gates checkout.ts's legacy/new branch and both API clients' behavior, so an unguarded change to the lookup or defaults propagates untested into checkout and API paths.",
       "evidence": [
         {
@@ -543,6 +555,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "priceOf has no bulk-discount logic at all (flat PRICES lookup), so the skipped test documents a requirement that was never built, not a currently-flaky test; no ticket or date is attached to the skip.",
       "evidence": [
         {
@@ -589,6 +602,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "fetch call sets no AbortSignal/timeout, so a non-responding remote hangs the await indefinitely; the sibling client-admin.ts uses AbortSignal.timeout(5000) for the same pattern, and the catch block here is also empty, silently discarding failures.",
       "evidence": [
         {
@@ -630,6 +644,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Marker is 704 days old with no ticket reference; the deprecated function is still exercised whenever the newCheckout flag is off, so the replacement migration was never finished.",
       "evidence": [
         {
@@ -675,6 +690,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Old path (100% of call sites: the single checkout() caller) runs through the deprecated legacyFormat helper; the new path guarded by newCheckout is unreachable and, per the comment, was abandoned rather than scheduled. No ticket or date is present for finishing or removing it.",
       "evidence": [
         {
@@ -720,6 +736,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "The only call site of legacyFormat (checkout.ts:11) still uses the deprecated wrapper instead of formatMoney directly; formatMoney has no callers outside the wrapper, so 100% of live call sites sit on the old side.",
       "evidence": [
         {
@@ -766,6 +783,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "eslint is a devDependency and .eslintrc.json exists as the active successor config, but tslint.json (the superseded tool's config) is still checked in; tslint itself is absent from package.json and both lockfiles, and no lint script or CI step runs either config.",
       "evidence": [
         {
@@ -820,6 +838,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Repo carries both package-lock.json and yarn.lock for the same application manifest. CI (ci.yml) uses npm exclusively, and package-lock.json's packages map is empty, so the npm lockfile does not actually record the tiny-emitter dependency; the yarn.lock is unused by CI but still tracked.",
       "evidence": [
         {
@@ -864,6 +883,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Repository has no CONTRIBUTING, ADR directory, or CHANGELOG, and README does not mention or link to any; a reader has no guidance on contribution process or change history for a project already at v1.1.0 with a flag/feature history (see src/flags.ts).",
       "evidence": [
         {
@@ -903,6 +923,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Doc claims pricing and stock import each other (a cycle) through stock.ts. Code shows only a one-way import: pricing.ts imports reserve from stock.ts; stock.ts imports only a type from cart.ts, not from pricing.ts. No cycle exists between pricing and stock.",
       "evidence": [
         {
@@ -955,6 +976,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "docs/architecture.md declares cart as sole owner of totals, but checkout's legacy path imports cart/pricing directly and computes a price itself instead of going through cart's total(). Any change to pricing logic (e.g. discounts) must be replicated in checkout to keep the legacy path correct.",
       "evidence": [
         {
@@ -1000,12 +1022,13 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "The whole npm test command is retried up to 3 times at CI level; a failing test can pass on retry, so intermittent test failures are not surfaced as CI failures.",
       "evidence": [
         {
           "file": ".github/workflows/ci.yml",
-          "line_start": 15,
-          "line_end": 19,
+          "line_start": 16,
+          "line_end": 20,
           "quote": "- uses: nick-fields/retry@7152eba30c6575329ac0576536151aca5a72780e\n        with:\n          timeout_minutes: 10\n          max_attempts: 3\n          command: npm test",
           "quote_verified": true
         }
@@ -1037,6 +1060,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Asserts against the literal 2000 rather than deriving it from the priced sku/qty inputs used in the test, so a reader must cross-reference the pricing table to know the expectation is correct.",
       "evidence": [
         {
@@ -1075,6 +1099,7 @@
       "effort": "S",
       "source": "scout",
       "rule_id": null,
+      "tool": null,
       "note": "Test is permanently skipped and asserts 900 for A1, but pricing.ts has no bulk-pricing logic and PRICES[A1] is 1000; the skipped test cannot pass as written and provides no real coverage of the feature it names.",
       "evidence": [
         {
@@ -1113,6 +1138,7 @@
       "effort": "S",
       "source": "rule",
       "rule_id": "manifest.two-lockfiles",
+      "tool": null,
       "note": "two lockfile kinds beside package.json: package-lock.json, yarn.lock",
       "evidence": [
         {
@@ -1148,6 +1174,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "release.stale-env-branch",
+      "tool": null,
       "note": "long-lived environment branch",
       "evidence": [
         {
@@ -1183,6 +1210,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "ownership.no-codeowners",
+      "tool": null,
       "note": "no ownership map; decision and review process",
       "evidence": [
         {
@@ -1226,6 +1254,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "ownership.knowledge-island",
+      "tool": null,
       "note": "knowledge island on a hotspot-band file",
       "evidence": [
         {
@@ -1261,6 +1290,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "ownership.knowledge-island",
+      "tool": null,
       "note": "knowledge island on a hotspot-band file",
       "evidence": [
         {
@@ -1296,6 +1326,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "ownership.former-contributor",
+      "tool": null,
       "note": "hotspot whose top author is inactive",
       "evidence": [
         {
@@ -1331,6 +1362,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "ownership.former-contributor",
+      "tool": null,
       "note": "hotspot whose top author is inactive",
       "evidence": [
         {
@@ -1366,6 +1398,7 @@
       "effort": "M",
       "source": "rule",
       "rule_id": "ownership.former-contributor",
+      "tool": null,
       "note": "hotspot whose top author is inactive",
       "evidence": [
         {
