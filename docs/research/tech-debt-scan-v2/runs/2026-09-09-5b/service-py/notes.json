@@ -1,0 +1,50 @@
+[
+  {
+    "fingerprint": "2e969b3499636196",
+    "remediation": "Remove the bare except/pass around ledger.post in issue(). Log the exception with log.exception including refund.order_id, then decide and implement one explicit failure path: either re-raise so the caller aborts before calling gateway.refund, or set an explicit failure flag and skip the gateway call, returning False. Do not let execution fall through to gateway.refund when ledger.post has failed. Add a unit test that makes ledger.post raise and asserts gateway.refund is never called and the failure is logged/raised.",
+    "acceptance_criteria": [
+      "The except Exception: pass block around ledger.post is gone; the except clause calls log.exception (or equivalent) with refund.order_id",
+      "When ledger.post raises, gateway.refund is not invoked (verified by mock in a new/updated test)",
+      "issue() either re-raises or returns a value/flag reflecting the ledger failure, and this behavior is asserted in a test",
+      "Existing passing tests (test_validate_rejects_zero, test_audit_trail_format) still pass"
+    ]
+  },
+  {
+    "fingerprint": "b459099b48e0a272",
+    "remediation": "Replace the FIXME comment with a tracked ticket reference and an actual guard against gateway-side duplicate refunds. The in-process _seen set only covers calls within the same process, so add an idempotency mechanism that survives process restarts and gateway retries, e.g., pass an idempotency key derived from order_id to gateway.refund if the gateway API supports one, or persist processed order_ids (via the ledger or a dedicated store) and check that persisted record before calling gateway.refund. Update or remove the FIXME comment once the guard is implemented, replacing it with a reference to the ticket tracking any remaining follow-up.",
+    "acceptance_criteria": [
+      "FIXME comment at refund.py:35 is replaced with either removal (if fully fixed) or a ticket reference (e.g., '# TICKET-123') if follow-up work remains",
+      "A persistent or gateway-level idempotency mechanism exists that prevents duplicate refunds across process restarts, not just via the in-memory _seen set",
+      "A test demonstrates that calling issue() twice for the same order_id (including simulating a fresh process, i.e., empty _seen) does not result in two gateway.refund calls"
+    ]
+  },
+  {
+    "fingerprint": "c716d4382547d1ce",
+    "remediation": "Delete issue_partial() from refund.py since it has no callers, no test coverage, and is not exposed via __all__, package re-export, or entry points. Before deleting, run a final repo-wide search for 'issue_partial' to confirm no external callers were missed. Remove the function and its now-unused imports if cents or Refund construction become unused elsewhere in the file after deletion.",
+    "acceptance_criteria": [
+      "issue_partial() function is removed from src/pay/refund.py",
+      "Repo-wide grep for 'issue_partial' returns no remaining references",
+      "Any imports in refund.py that were only used by issue_partial are removed if no longer needed",
+      "Existing test suite still passes after removal"
+    ]
+  },
+  {
+    "fingerprint": "cad19db020b88f9f",
+    "remediation": "Add a second reviewer for src/pay/refund.py given it handles live money movement and currently has single-author coverage. Require at least one other engineer to review upcoming changes to this file (e.g., via CODEOWNERS entry or branch protection rule), and have that reviewer read through the current implementation to build familiarity before the next change lands, rather than reviewing cold.",
+    "acceptance_criteria": [
+      "A CODEOWNERS entry (or equivalent review-routing rule) is added for src/pay/refund.py naming at least one reviewer besides the current sole author",
+      "At least one additional engineer has read and can explain the current issue()/issue_partial()/validate() flow, confirmed via a brief written summary or review comment",
+      "The next merged change to refund.py shows an approving review from someone other than the original author"
+    ]
+  },
+  {
+    "fingerprint": "4b10ada7bef4b500",
+    "remediation": "Add test coverage for issue_partial() in tests/test_refund.py, exercising the fractional cents() rounding at refund.py:46. Cover a case with an exact fraction (no rounding needed), a fraction that requires rounding up, and a fraction that requires rounding down, asserting the resulting Refund.amount_cents matches the expected rounded value. Also add a fixture or parametrized case that verifies issue_partial() delegates to issue() with the computed partial Refund and returns its result, using a mock gateway.",
+    "acceptance_criteria": [
+      "tests/test_refund.py contains at least one test that calls issue_partial() directly",
+      "Test cases cover at least one fraction requiring rounding and assert the exact resulting amount_cents value",
+      "A test verifies issue_partial() passes a Refund with the correct order_id and reason_code through to issue()/gateway.refund (via mock)",
+      "New tests pass when run against the current implementation"
+    ]
+  }
+]

@@ -1,0 +1,424 @@
+{
+  "schema_version": 2,
+  "top": 5,
+  "churn_months": 240,
+  "families": {
+    "architecture": {
+      "planted": 0,
+      "found": 0,
+      "recall": null,
+      "reported": 1,
+      "precise": 0,
+      "precision": 0.0,
+      "decoy_hits": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    },
+    "dead-code": {
+      "planted": 2,
+      "found": 2,
+      "recall": 1.0,
+      "reported": 5,
+      "precise": 2,
+      "precision": 0.4,
+      "decoy_hits": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    },
+    "dependency-debt": {
+      "planted": 1,
+      "found": 1,
+      "recall": 1.0,
+      "reported": 2,
+      "precise": 2,
+      "precision": 1.0,
+      "decoy_hits": {
+        "A": 0,
+        "B": 1,
+        "C": 0
+      }
+    },
+    "doc-drift": {
+      "planted": 1,
+      "found": 1,
+      "recall": 1.0,
+      "reported": 2,
+      "precise": 1,
+      "precision": 0.5,
+      "decoy_hits": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    },
+    "duplication": {
+      "planted": 0,
+      "found": 0,
+      "recall": null,
+      "reported": 0,
+      "precise": 0,
+      "precision": null,
+      "decoy_hits": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    },
+    "error-masking": {
+      "planted": 1,
+      "found": 1,
+      "recall": 1.0,
+      "reported": 1,
+      "precise": 1,
+      "precision": 1.0,
+      "decoy_hits": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    },
+    "half-finished": {
+      "planted": 2,
+      "found": 2,
+      "recall": 1.0,
+      "reported": 4,
+      "precise": 2,
+      "precision": 0.5,
+      "decoy_hits": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    },
+    "migration": {
+      "planted": 0,
+      "found": 0,
+      "recall": null,
+      "reported": 1,
+      "precise": 0,
+      "precision": 0.0,
+      "decoy_hits": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    },
+    "ownership": {
+      "planted": 1,
+      "found": 1,
+      "recall": 1.0,
+      "reported": 4,
+      "precise": 1,
+      "precision": 0.25,
+      "decoy_hits": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    },
+    "pipeline-infra": {
+      "planted": 4,
+      "found": 4,
+      "recall": 1.0,
+      "reported": 5,
+      "precise": 4,
+      "precision": 0.8,
+      "decoy_hits": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    },
+    "security": {
+      "planted": 5,
+      "found": 2,
+      "recall": 0.4,
+      "reported": 1,
+      "precise": 1,
+      "precision": 1.0,
+      "decoy_hits": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    },
+    "test-gaps": {
+      "planted": 1,
+      "found": 1,
+      "recall": 1.0,
+      "reported": 5,
+      "precise": 1,
+      "precision": 0.2,
+      "decoy_hits": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    },
+    "test-quality": {
+      "planted": 2,
+      "found": 2,
+      "recall": 1.0,
+      "reported": 1,
+      "precise": 1,
+      "precision": 1.0,
+      "decoy_hits": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    }
+  },
+  "planted": [
+    {
+      "id": "p1",
+      "family": "error-masking",
+      "found": true,
+      "tiers": [
+        "A"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p2",
+      "family": "half-finished",
+      "found": true,
+      "tiers": [
+        "A"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p3",
+      "family": "security",
+      "found": true,
+      "tiers": [
+        "B"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p4",
+      "family": "security",
+      "found": true,
+      "tiers": [
+        "B"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p5",
+      "family": "half-finished",
+      "found": true,
+      "tiers": [
+        "A"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p6",
+      "family": "test-gaps",
+      "found": true,
+      "tiers": [
+        "A"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p7",
+      "family": "ownership",
+      "found": true,
+      "tiers": [
+        "A"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p8",
+      "family": "pipeline-infra",
+      "found": true,
+      "tiers": [
+        "A"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p9",
+      "family": "pipeline-infra",
+      "found": true,
+      "tiers": [
+        "A"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p10",
+      "family": "pipeline-infra",
+      "found": true,
+      "tiers": [
+        "A"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p11",
+      "family": "dependency-debt",
+      "found": true,
+      "tiers": [
+        "A",
+        "B"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p12",
+      "family": "security",
+      "found": false,
+      "tiers": [
+        "C"
+      ],
+      "tier_met": false
+    },
+    {
+      "id": "p13",
+      "family": "security",
+      "found": false,
+      "tiers": [
+        "C"
+      ],
+      "tier_met": false
+    },
+    {
+      "id": "p14",
+      "family": "dead-code",
+      "found": true,
+      "tiers": [
+        "A",
+        "A"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p15",
+      "family": "dead-code",
+      "found": true,
+      "tiers": [
+        "A"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p16",
+      "family": "security",
+      "found": false,
+      "tiers": [],
+      "tier_met": false
+    },
+    {
+      "id": "p17",
+      "family": "test-quality",
+      "found": true,
+      "tiers": [
+        "B"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p18",
+      "family": "test-quality",
+      "found": true,
+      "tiers": [
+        "B"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p19",
+      "family": "pipeline-infra",
+      "found": true,
+      "tiers": [
+        "A"
+      ],
+      "tier_met": true
+    },
+    {
+      "id": "p20",
+      "family": "doc-drift",
+      "found": true,
+      "tiers": [
+        "B"
+      ],
+      "tier_met": true
+    }
+  ],
+  "decoys": [
+    {
+      "id": "d1",
+      "family": "duplication",
+      "hit_tiers": [],
+      "in_top_n": false
+    },
+    {
+      "id": "d2",
+      "family": "security",
+      "hit_tiers": [],
+      "in_top_n": false
+    },
+    {
+      "id": "d3",
+      "family": "dependency-debt",
+      "hit_tiers": [
+        "B"
+      ],
+      "in_top_n": false
+    },
+    {
+      "id": "d4",
+      "family": "dead-code",
+      "hit_tiers": [],
+      "in_top_n": false
+    },
+    {
+      "id": "d5",
+      "family": "dead-code",
+      "hit_tiers": [],
+      "in_top_n": false
+    },
+    {
+      "id": "d6",
+      "family": "test-gaps",
+      "hit_tiers": [],
+      "in_top_n": false
+    },
+    {
+      "id": "d7",
+      "family": "ownership",
+      "hit_tiers": [],
+      "in_top_n": false
+    },
+    {
+      "id": "d8",
+      "family": "half-finished",
+      "hit_tiers": [],
+      "in_top_n": false
+    }
+  ],
+  "decoys_in_tier_a": 0,
+  "decoys_in_top_n": 0,
+  "tier_a": {
+    "reported": 21,
+    "precise": 12,
+    "precision": 0.571
+  },
+  "counts": {
+    "reported": 32,
+    "on_planted": 16,
+    "on_decoys": 0,
+    "unplanted": 16
+  },
+  "source": "findings.json"
+}
