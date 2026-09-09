@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import sys
 from pathlib import Path
 
 import pytest
 from categories import SCOUT_OUTPUT_SCHEMA
+from design_writer import NOTE_PLACEHOLDER, DesignWriteError
 from live_run import (
     NOTES_SCHEMA,
     _main,
@@ -60,6 +62,11 @@ if mode == "scout":
 elif mode == "notes":
     fps = [line.split("fingerprint: ")[1].strip()
            for line in prompt.splitlines() if line.startswith("fingerprint: ")]
+    # NOTES_PARTIAL simulates an agent that answers for fewer findings than the
+    # top N asked for, so the harness must count the notes it actually got back
+    # rather than assume every top-N slot was filled.
+    if "NOTES_PARTIAL" in prompt:
+        fps = fps[:1]
     payload = [{"fingerprint": fp, "remediation": "Extract the helper, then delete the copy.",
                 "acceptance_criteria": ["the copy is gone", "tests pass"]} for fp in fps]
 else:
@@ -123,16 +130,16 @@ def test_the_array_verdict_contract_travels_as_an_object_schema(tmp_path: Path) 
     way back (the first live run died with 400 input_schema.type on every verifier)."""
     wired = wire_schema(VERDICT_SCHEMA)
     assert wired["type"] == "object"
-    assert wired["properties"]["verdicts"] == VERDICT_SCHEMA
+    assert wired["properties"]["items"] == VERDICT_SCHEMA
     assert wire_schema(SCOUT_OUTPUT_SCHEMA) is SCOUT_OUTPUT_SCHEMA
 
     argv = claude_argv(model="sonnet", budget=1.0, schema=VERDICT_SCHEMA, claude="claude")
     assert json.loads(argv[argv.index("--json-schema") + 1])["type"] == "object"
 
     items = [{"fingerprint": "abc", "verdict": "confirm"}]
-    assert unwrap_payload({"verdicts": items}, VERDICT_SCHEMA) == items
+    assert unwrap_payload({"items": items}, VERDICT_SCHEMA) == items
     assert unwrap_payload(items, VERDICT_SCHEMA) == items
-    assert unwrap_payload({"verdicts": 1}, SCOUT_OUTPUT_SCHEMA) == {"verdicts": 1}
+    assert unwrap_payload({"items": 1}, SCOUT_OUTPUT_SCHEMA) == {"items": 1}
 
 
 def test_extract_reply_prefers_structured_output_then_fenced_result() -> None:
@@ -389,7 +396,7 @@ def test_run_chain_keeps_the_run_documents_under_keep(
               churn_months=240, model="haiku", budget=0.1, claude=fake_claude, timeout=60,
               skip_agents=False, planted=planted, log_path=None, fixture_name="service-py",
               keep=keep)
-    for name in ("evaluation.json", "design.md", "notes.json"):
+    for name in ("evaluation.json", "design.md", "notes.json", "findings.json"):
         assert (keep / "service-py" / name).is_file(), name
 
 
@@ -402,3 +409,107 @@ def test_log_row_appends_the_notes_column_last(tmp_path: Path) -> None:
     text = log.read_text(encoding="utf-8")
     assert text.splitlines()[0].endswith("| cost_usd | notes |")
     assert text.splitlines()[-1].endswith("| 0.00 | 3/5 |")
+
+
+def test_run_chain_counts_notes_exactly_not_by_placeholder_arithmetic(
+    tmp_path: Path, fake_claude: str, service_py_repo: Path
+) -> None:
+    """The notes cell must reflect ``notes.json`` itself, not a placeholder count
+    inferred from ``design.md``. The fake answers for only the first fingerprint
+    when the prompt carries ``NOTES_PARTIAL`` -- planted in the repo copy's
+    README first line, which the fake's own half-finished scout finding quotes
+    into evidence, so the marker reaches the notes prompt -- and the harness
+    must report a genuinely partial cell, not one inferred as full.
+
+    Edits a private copy of the session-scoped ``service_py_repo`` fixture
+    (``shutil.copytree``), never the fixture path other tests share.
+    """
+    repo = tmp_path / "repo"
+    shutil.copytree(service_py_repo, repo)
+    readme = repo / "README.md"
+    readme.write_text("NOTES_PARTIAL " + readme.read_text(encoding="utf-8"), encoding="utf-8")
+    workdir = tmp_path / "wd"
+    log = tmp_path / "log.md"
+    log.write_text(LOG_HEADER_TEXT, encoding="utf-8")
+    planted = Path(__file__).parent / "fixtures" / "corpus" / "service-py" / "planted.json"
+    # top=8 (not the usual 3): the fake's half-finished finding -- the only one
+    # whose evidence quotes README.md, so it is the only carrier of the marker --
+    # is tier B and ranks below nine tier-A rule findings on this fixture, so a
+    # small top would never pull it (or the marker) into the notes prompt at all.
+    run_chain(repo, workdir, families="quick", top=8, preset="balanced",
+              churn_months=240, model="haiku", budget=0.1, claude=fake_claude, timeout=60,
+              skip_agents=False, planted=planted, log_path=log, fixture_name="service-py")
+    top_n = json.loads((workdir / "ranked.json").read_bytes())["top_n"]
+    n = len(top_n)
+    assert n > 1, "need two or more top-N findings for a partial fill to be visible"
+    row = log.read_text(encoding="utf-8").splitlines()[-1]
+    assert row.endswith(f"| 1/{n} |")
+    design = (workdir / "design.md").read_text(encoding="utf-8")
+    top = design.split("# Top ")[1].split("\n# Below the cut")[0]
+    assert top.count(NOTE_PLACEHOLDER) == 2 * (n - 1)
+
+
+def test_main_exits_2_when_the_design_render_self_check_fails(
+    tmp_path: Path, fake_claude: str, service_py_repo: Path,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise DesignWriteError("boom")
+
+    monkeypatch.setattr("live_run.write_design", boom)
+    workdir = tmp_path / "wd"
+    rc = _main([
+        str(service_py_repo), "--workdir", str(workdir), "--families", "quick", "--top", "3",
+        "--preset", "balanced", "--churn-months", "240", "--model", "haiku",
+        "--max-budget-usd", "0.1", "--claude", fake_claude, "--timeout", "60",
+    ])
+    assert rc == 2
+    assert "error: boom" in capsys.readouterr().err
+
+
+def test_run_chain_probes_tools_when_requested(
+    tmp_path: Path, fake_claude: str, service_py_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from config import load_config
+
+    calls: list[tuple[Path, dict]] = []
+
+    def stub_probe(root: Path, config: dict) -> dict:
+        calls.append((root, config))
+        return {"schema_version": 2, "tools": {}, "signals": []}
+
+    monkeypatch.setattr("live_run.probe", stub_probe)
+    workdir = tmp_path / "wd"
+    planted = Path(__file__).parent / "fixtures" / "corpus" / "service-py" / "planted.json"
+    run_chain(service_py_repo, workdir, families="quick", top=3, preset="balanced",
+              churn_months=240, model="haiku", budget=0.1, claude=fake_claude, timeout=60,
+              skip_agents=False, planted=planted, log_path=None, fixture_name="service-py",
+              tools=True)
+    doc = json.loads((workdir / "tool-signals.json").read_bytes())
+    assert doc == {"schema_version": 2, "tools": {}, "signals": []}
+    assert calls == [(service_py_repo.resolve(), load_config(service_py_repo))]
+
+
+def test_main_planted_flag_overrides_the_repo_and_fixture_lookup(
+    tmp_path: Path, fake_claude: str, service_py_repo: Path
+) -> None:
+    """``--planted`` scores a plain repository against any fixture's planted file,
+    without a ``planted.json`` ever being added to the repo tree."""
+    assert not (service_py_repo / "planted.json").is_file()
+    planted = Path(__file__).parent / "fixtures" / "corpus" / "service-py" / "planted.json"
+    workdir = tmp_path / "wd"
+    log = tmp_path / "log.md"
+    rc = _main([
+        str(service_py_repo), "--workdir", str(workdir), "--families", "quick", "--top", "3",
+        "--preset", "balanced", "--churn-months", "240", "--model", "haiku",
+        "--max-budget-usd", "0.1", "--claude", fake_claude, "--timeout", "60",
+        "--log", str(log), "--planted", str(planted),
+    ])
+    assert rc == 0
+    assert (workdir / "evaluation.json").is_file()
+    rows = log.read_text(encoding="utf-8").splitlines()
+    # ``target`` was a bare repo path, not a corpus fixture name, so fixture_name
+    # stays "" and log_row falls back to the repo's own directory name -- proof
+    # the fixture-lookup branch played no part in resolving --planted.
+    assert rows[-1].startswith("| 20") and service_py_repo.name in rows[-1]
+    assert not (service_py_repo / "planted.json").is_file()

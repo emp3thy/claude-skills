@@ -56,7 +56,13 @@ from typing import Any, Final
 from apply_verdicts import apply
 from categories import SCOUT_OUTPUT_SCHEMA
 from config import ConfigError, load_config
-from design_writer import NOTE_PLACEHOLDER, load_inputs, render_notes_prompt, write_design
+from design_writer import (
+    DesignWriteError,
+    load_inputs,
+    notes_by_fingerprint,
+    render_notes_prompt,
+    write_design,
+)
 from evaluate import evaluate, load_findings, render_table
 from inventory import build_all, write_json, write_outputs
 from merge_findings import merge
@@ -66,6 +72,7 @@ from rank import rank
 from redaction import redact
 from rules import SCHEMA_VERSION as RULES_SCHEMA_VERSION
 from rules import run_rules
+from tools_probe import probe
 from verify_prompts import VERDICT_SCHEMA, build_verify_plan
 
 ISOLATION: Final[tuple[str, ...]] = (
@@ -77,8 +84,10 @@ RETRY_SUFFIX: Final[str] = (
 )
 # ``--json-schema`` wires the document straight into a tool's ``input_schema``, which
 # the API rejects unless its type is ``object`` (400 tools.N.custom.input_schema.type).
-# The verifier contract is an array, so it travels wrapped under this key.
-WRAPPER_KEY: Final[str] = "verdicts"
+# Every array contract travels wrapped under this key -- the verifier's VERDICT_SCHEMA
+# and the note agent's NOTES_SCHEMA alike -- so the name stays neutral between them
+# rather than naming one contract's items while wrapping the other's too.
+WRAPPER_KEY: Final[str] = "items"
 NOTES_SCHEMA: Final[dict[str, Any]] = {
     "type": "array",
     "items": {
@@ -413,6 +422,7 @@ def run_chain(
     log_path: Path | None = None,
     fixture_name: str = "",
     keep: Path | None = None,
+    tools: bool = False,
 ) -> dict[str, Any]:
     """Signals, scouts, merge, verifiers, tiers, ranking and (with planted.json) scoring."""
     repo = repo.resolve()
@@ -422,7 +432,8 @@ def run_chain(
             raise RuntimeError(
                 f"{workdir / stale} exists: the harness never diffs against a baseline, and "
                 "design_writer drops baseline-suppressed findings from findings.json, so a "
-                "run scored here would set a bar from a filtered population"
+                "run scored here would set a bar from a filtered population; run again with "
+                "a fresh --workdir, or remove the file"
             )
     config = load_config(repo)
     planted_doc = json.loads(planted.read_bytes()) if planted and planted.is_file() else None
@@ -440,6 +451,8 @@ def run_chain(
             )
         churn_months = planted_churn
     _signals(repo, workdir, config, churn_months)
+    if tools:
+        write_json(workdir / "tool-signals.json", probe(repo, config))
 
     plan, prompts = build_plan(workdir, config, families=families, top=top)
     write_plan(workdir, plan, prompts)
@@ -506,11 +519,8 @@ def run_chain(
             raise RuntimeError(f"notes agent failed: {res.error}")
     inputs = load_inputs(workdir)
     write_design(inputs, scan_date, workdir / "design.md")
-    design_text = (workdir / "design.md").read_text(encoding="utf-8")
-    top_section = design_text.split("# Top ", 1)[1].split("\n# Below the cut", 1)[0] \
-        if "# Top " in design_text else ""
-    filled = len(ranked["top_n"]) - top_section.count(NOTE_PLACEHOLDER) // 2
-    notes_cell = f"{max(filled, 0)}/{len(ranked['top_n'])}"
+    filled = len(notes_by_fingerprint(inputs))
+    notes_cell = f"{filled}/{len(ranked['top_n'])}"
 
     summary: dict[str, Any] = {
         "scout_calls": scout_calls, "verifier_calls": verifier_calls,
@@ -573,12 +583,22 @@ def _main(argv: list[str] | None = None) -> int:
         "--log", default=None, help="evaluation log to append to (default: docs/evaluation-log.md)"
     )
     parser.add_argument(
-        "--skip-agents", action="store_true", help="reuse existing scout and verdict files"
+        "--skip-agents", action="store_true",
+        help="reuse existing scout, verdict and notes files",
     )
     parser.add_argument(
         "--keep", default=None,
         help="directory to copy evaluation.json, design.md, notes.json and findings.json "
              "into, under <fixture>/",
+    )
+    parser.add_argument(
+        "--tools", action="store_true",
+        help="run the external tool probe before planning, writing tool-signals.json",
+    )
+    parser.add_argument(
+        "--planted", default=None,
+        help="planted.json to score against, overriding the fixture's own or "
+             "<repo>/planted.json",
     )
     args = parser.parse_args(argv)
     keep = Path(args.keep).resolve() if args.keep else None
@@ -600,6 +620,8 @@ def _main(argv: list[str] | None = None) -> int:
             return 2
         candidate = repo / "planted.json"
         planted = candidate if candidate.is_file() else None
+    if args.planted:
+        planted = Path(args.planted)
 
     claude = args.claude or shutil.which("claude") or ""
     if not args.skip_agents and resolve_claude(claude) is None:
@@ -617,8 +639,9 @@ def _main(argv: list[str] | None = None) -> int:
             churn_months=args.churn_months, model=args.model, budget=args.max_budget_usd,
             claude=claude, timeout=args.timeout, skip_agents=args.skip_agents,
             planted=planted, log_path=log, fixture_name=fixture_name, keep=keep,
+            tools=args.tools,
         )
-    except (ConfigError, OSError, ValueError, KeyError) as exc:
+    except (ConfigError, DesignWriteError, OSError, ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     except RuntimeError as exc:

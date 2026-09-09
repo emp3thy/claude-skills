@@ -147,7 +147,7 @@ The scripts below (landed across v2 phases 1 to 3) are wired into
 | `design_writer.py render --workdir .tech-debt --scan-date <date> [--out <path>]` | `ranked.json`, `verified.json`, `candidates.json`, `scan-plan.json`, `inventory.json`, `coupling.json`, and `notes.json`, `diff.json` and `tool-signals.json` when present | `design.md`, `findings.json` | spec 4.11's review document: literal-YAML frontmatter (`schema_version`, `scan_date`, `root`, `total_files`, `total_loc`, `languages`, `preset`, `families_run`, `families_skipped`, `tools_run`, `tools_absent`, `git_available`, `counts`), an empty list rendered as `key: []` on one line so it never reads back as `None` — the two tool lists come from `tool-signals.json`'s `tools` map, `ran` in `tools_run` and every other status in `tools_absent` with the status in parentheses, and are both `[]` when no signals file is present; the header with the review instructions and, only when `git_available`, the top five hotspots and coupled pairs (a `No git history` line instead); then the seven body sections in order — `# Top N` with one H2 per top-N finding, `# Below the cut`, `# Below the cut: tier C and unverified` (a `slug | family | file | reason` row per finding, the reason being `verified.json`'s `tier_reason`), `# Considered and rejected`, `# Looks bad but is fine`, `# Open questions for the maintainer` and `# Not assessed`. A finding is an H2 whose fenced `yaml` anchor carries `status`, `slug`, `fingerprint`, `tier`, `priority`, `family`, `category` (always the alias of `family`), `debt_type`, `type_id`, `severity`, `effort` and `diff`, followed by `### Proof`, `### Evidence` (one `` `file:start-end` `` line per item then its quote in an unlabelled fenced block), `### Signals` and, for a top-N finding, `### Remediation` and `### Acceptance criteria` (`remediation note not available` when the note agent has no entry). Slugs come from `slugs.unique_slugs` over the ranked order, so a finding's slug does not move when another is added below it; every title, proof and quote passes through `redact` at the point of writing; without `diff.json` every finding renders `diff: NEW` and the `new` and `resolved` counts are omitted; the output is LF-only and re-parsed through `design_parser.parse_design` as a write-time self-check |
 | `design_writer.py notes-prompt --workdir .tech-debt [--top N]` | the same six documents `render` requires (via `load_inputs`) | `prompts/notes.md` | spec 4.11's Task 5: one prompt for the single remediation-note agent, over the top N only, in `ranked.json`'s `top_n` priority order — a role sentence naming the repository root, the read-only rule, then per top-N finding `## <n>. <title>` with `fingerprint`, `family`, `severity`, `effort`, the free-text proof and each evidence item as `` `file:start-end` `` followed by its quote in a fenced block (the same fencing `render` uses), then `NOTES_CONTRACT` verbatim (the `notes.json` reply shape: `fingerprint`, a `remediation` of at most 120 words with no code, and two to five checkable `acceptance_criteria`); every title, proof and quote is redacted. `--top` narrows the prompt below `ranked.json`'s own top N and never widens it. The agent's reply, stored as `notes.json`, is read back by `render` — via `notes_by_fingerprint`, which keeps only an entry whose fingerprint is in `top_n`, whose `remediation` is a non-empty string and whose `acceptance_criteria` is a list of strings, dropping anything else silently — into each top-N finding's `### Remediation` and `### Acceptance criteria` sections; a missing or malformed `notes.json` renders `NOTE_PLACEHOLDER` in both instead of failing |
 | `evaluate.py --planted <planted.json> [--workdir <dir>] [--top N] [--json]` | `findings.json` (preferred) or `verified.json`, and `ranked.json` when present | stdout: the table, or the JSON report with `--json` | per-family precision, recall and decoy hits by tier, tier A precision, and decoys in tier A or the top N, against a fixture's `planted.json`. A decoy's `sources` list (exact tokens or a trailing-`*` prefix) restricts which producers can hit it; a family mismatch is still decided first. |
-| `live_run.py <fixture-or-repo> [--workdir <dir>] [--families <set>] [--top N] [--preset <name>] [--churn-months N] [--model <alias>] [--max-budget-usd <n>] [--claude <path>] [--timeout <seconds>] [--log <path>] [--skip-agents]` | a corpus fixture (replayed) or a repository, then each stage's own inputs | every file the chain writes plus `evaluation.json`, and one row appended to `docs/evaluation-log.md` | the whole chain with real agents: the signal scripts, `plan_scan.py`, one `claude -p` call per scout prompt, `merge_findings.py`, `verify_prompts.py`, one call per verifier batch, `apply_verdicts.py`, `rank.py` and, when a `planted.json` is present, `evaluate.py`; manual only, never CI — the [Live harness](#live-harness) section below has the argv, the retry rule and the exit codes |
+| `live_run.py <fixture-or-repo> [--workdir <dir>] [--families <set>] [--top N] [--preset <name>] [--churn-months N] [--model <alias>] [--max-budget-usd <n>] [--claude <path>] [--timeout <seconds>] [--log <path>] [--skip-agents] [--keep <dir>] [--tools] [--planted <path>]` | a corpus fixture (replayed) or a repository, then each stage's own inputs, plus a `planted.json` (the fixture's own, `<repo>/planted.json`, or `--planted`'s override) | every file the chain writes — `prompts/notes.md`, `notes.json`, `design.md`, `findings.json`, and (under `--tools`) `tool-signals.json` — plus `evaluation.json`, one row appended to `docs/evaluation-log.md`, and (under `--keep`) a copy of `evaluation.json`, `design.md`, `notes.json` and `findings.json` under `<dir>/<fixture-or-repo-name>` | the whole chain with real agents: the signal scripts, (`--tools`) the external tool probe, `plan_scan.py`, one `claude -p` call per scout prompt, `merge_findings.py`, `verify_prompts.py`, one call per verifier batch, `apply_verdicts.py`, `rank.py`, the single note agent's call, `design_writer.write_design`'s render of `design.md`/`findings.json` and, when a `planted.json` is present, scores `findings.json` with `evaluate.py` and logs a trailing `notes` column; refuses to run at all when the workdir already holds a `diff.json` or `baseline.json`; manual only, never CI — the [Live harness](#live-harness) section below has the argv, the retry rule and the exit codes |
 
 `config.py` loads `.tech-debt.yaml` with the spec defaults; `git_history.py`
 and `reference_graph.py` hold the git pass and the stem graph that
@@ -171,8 +171,13 @@ fixture through `tests/helpers/make_history.py` into a temporary directory
 when the workdir already holds a `diff.json` or a `baseline.json`: the harness
 never diffs against a baseline, and `design_writer` drops baseline-suppressed
 findings from `findings.json`, so a run scored there would set a bar from a
-filtered population. It then runs the deterministic signals, `plan_scan.py`,
-one `claude -p` call per scout prompt, `merge_findings.py`,
+filtered population; the error names the fix (a fresh `--workdir`, or removing
+the file). It then runs the deterministic signals, and, under `--tools`, the
+external tool probe (`tools_probe.probe`, writing `tool-signals.json` before
+`plan_scan.py` runs so a tool lead can reach a scout prompt and a tool
+candidate can reach a verifier the same as any other run with the file
+already present), then `plan_scan.py`, one `claude -p` call per scout prompt,
+`merge_findings.py`,
 `verify_prompts.py`, one call per verifier batch, `apply_verdicts.py` and
 `rank.py`. After ranking it renders the single remediation-note agent's
 prompt and, when the top N is non-empty, dispatches one more `claude -p` call
@@ -199,7 +204,13 @@ copies `evaluation.json`, `design.md`, `notes.json` and `findings.json` into
 `<dir>/<fixture-or-repo-name>` once scoring is done, so a run's documents can
 be audited later without re-running the chain; the path is resolved to
 absolute before anything else so it does not depend on the process's working
-directory at the time the copy happens.
+directory at the time the copy happens. `--planted <path>` overrides both the
+fixture's own `planted.json` and a `<repo>/planted.json` lookup (`fixture_name`
+is still derived the normal way), so a plain repository can be scored against
+any fixture's planted file, or a hand-written one, without copying it into the
+scanned tree. Together with `--tools` and `--keep`, a single paid invocation
+against a corpus fixture runs the probe, scores the result and keeps its
+documents in one command.
 
 Every agent call is a list argv (never a shell string) in print mode:
 `--setting-sources project --strict-mcp-config --disable-slash-commands` keep
@@ -220,10 +231,12 @@ retried once with an appended re-emit instruction, and a second failure ends
 the run. `--skip-agents` reuses the scout, verdict and notes files already in
 the workdir instead of calling out. Flags: `--workdir`, `--families`, `--top`,
 `--preset`, `--churn-months`, `--model`, `--max-budget-usd`, `--claude`,
-`--timeout`, `--log`, `--skip-agents`, `--keep`; exit 2 on a bad target or malformed
-input, 3 when `claude` is not on PATH (and `--skip-agents` is absent), 4 when
-an agent call fails after its retry, `--skip-agents` finds no cached reply, or
-the workdir holds a stale `diff.json` or `baseline.json`.
+`--timeout`, `--log`, `--skip-agents`, `--keep`, `--tools`, `--planted`; exit 2
+on a bad target, malformed input, or a failed design-render self-check
+(`DesignWriteError`, raised by `write_design`'s write-time re-parse), 3 when
+`claude` is not on PATH (and `--skip-agents` is absent), 4 when an agent call
+fails after its retry, `--skip-agents` finds no cached reply, or the workdir
+holds a stale `diff.json` or `baseline.json`.
 
 ## External tool probe
 
