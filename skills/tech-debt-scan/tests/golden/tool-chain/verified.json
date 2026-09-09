@@ -942,6 +942,7 @@
           "file": "requirements.txt",
           "line_start": null,
           "line_end": null,
+          "column": null,
           "quote": "requests 2.32.3 (PyPI) is affected by GHSA-9hjb-9r6f-mvzc: header injection via crafted redirect",
           "quote_verified": true
         }
@@ -1279,6 +1280,7 @@
           "file": "src/pay/ledger.py",
           "line_start": 9,
           "line_end": 9,
+          "column": null,
           "quote": "generic-api-key: Detected a Generic API Key",
           "quote_verified": true
         }
@@ -1491,6 +1493,7 @@
           "file": "README.md",
           "line_start": 1,
           "line_end": 1,
+          "column": null,
           "quote": "DL3006: Always tag the version of an image explicitly",
           "quote_verified": true
         }

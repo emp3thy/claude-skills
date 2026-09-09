@@ -524,6 +524,20 @@ def test_module_of_root_sentinel_is_not_confusable_with_a_real_root_directory() 
     assert _module_of("root/pay/refund.py") != _module_of("top.py")
 
 
+def test_module_display_names_the_sentinel_with_a_label_no_directory_can_equal() -> None:
+    """The repo-root sentinel (``None``) displays as ``"root"`` ordinarily. When
+    the repository also has a genuine top-level directory literally named
+    ``root``, the two would read as the same place in the rendered plan, so the
+    sentinel is given ``"/"`` instead -- a label no directory can equal, because a
+    path segment cannot be ``/`` (unlike the old ``"(repository root)"``, which
+    was merely unlikely to collide, not incapable of it)."""
+    from plan_scan import _module_display
+
+    assert _module_display(None, set()) == "root"
+    assert _module_display(None, {"root"}) == "/"
+    assert "/" not in {"root", "src"}
+
+
 def test_chunk_thresholds_halve_only_for_the_deep_set() -> None:
     """Spec 4.6: the halving follows from the selected set being ``deep``, not from
     argv spelling -- ``_resolve_set`` returns ``"deep"`` for both ``--families

@@ -260,6 +260,20 @@ class TestTierReason:
         out = _finding(cand, self._confirm(), selected=True)
         assert out["tier_reason"] == "doc-drift is capped at B for every scout-detected finding"
 
+    def test_a_test_quality_cap_names_ci_data_not_tool_corroboration(self) -> None:
+        """Spec 2.3: test-quality is "tier B max without CI data" -- this scan
+        reads no CI signal for the family, so a scout-only test-quality candidate
+        (no ``tool:`` token) should not be told it lacks "tool corroboration",
+        the wording dependency-debt and security keep."""
+        from apply_verdicts import _finding
+
+        cand = self._cand(family="test-quality", confirmed_by=["scout:test-quality"])
+        out = _finding(cand, self._confirm(), selected=True)
+        assert "CI data" in out["tier_reason"]
+        assert out["tier_reason"] == (
+            "test-quality is capped at B without CI data, which this scan never reads"
+        )
+
     def test_an_unverified_candidate_says_so(self) -> None:
         from apply_verdicts import _finding
 

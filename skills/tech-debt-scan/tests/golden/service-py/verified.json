@@ -1451,7 +1451,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "test-quality is capped at B without tool corroboration",
+      "tier_reason": "test-quality is capped at B without CI data, which this scan never reads",
       "verdict": "confirm",
       "proof": "test_ledger.py:18-19 calls `ledger.reverse(Entry(...))` and discards the return value with no assert. ledger.reverse (ledger.py:29-30) negates amount_cents and sets reason='reversal' -- real business logic, not a startup/import smoke check. A regression that flipped the sign or dropped the reason field would not fail this test. Not table-driven/parametrised, not a permission/kill-switch check.",
       "checked": [

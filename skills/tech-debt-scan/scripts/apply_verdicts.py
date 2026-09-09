@@ -101,7 +101,14 @@ def _family_cap_and_lift(cand: dict[str, Any]) -> tuple[str | None, str | None]:
     if family == "test-gaps":
         lifted = _token(cand, TEST_GAPS_LIFT_TOKEN)
         return (None if lifted else "B"), f"the {TEST_GAPS_LIFT_TOKEN} signal"
-    if family in ("test-quality", "dependency-debt", "security"):
+    if family == "test-quality":
+        # Spec 2.3: "tier B max without CI data" -- the cap still lifts on a
+        # ``tool:`` token like dependency-debt's and security's do (a family with
+        # no tool signals of its own in practice never exercises the lift), but the
+        # reason says what spec 2.3 actually names: this scan never reads CI data,
+        # not "tool corroboration", which this family gets no tool signals for.
+        return (None if tool else "B"), "CI data, which this scan never reads"
+    if family in ("dependency-debt", "security"):
         return (None if tool else "B"), "tool corroboration"
     if family == "migration":
         return (None if coupling else "B"), "coupling corroboration"

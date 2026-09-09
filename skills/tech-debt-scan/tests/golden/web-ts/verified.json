@@ -1329,7 +1329,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "test-quality is capped at B without tool corroboration",
+      "tier_reason": "test-quality is capped at B without CI data, which this scan never reads",
       "verdict": "confirm",
       "proof": "ci.yml:15-19 wraps the entire `npm test` invocation in nick-fields/retry with max_attempts: 3, timeout_minutes: 10. This retries the whole suite, not a single flaky assertion, so any intermittently-failing test can pass on attempt 2 or 3 and CI reports green. No test-level retry/quarantine mechanism exists to isolate which test was flaky.",
       "checked": [
@@ -1378,7 +1378,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "test-quality is capped at B without tool corroboration",
+      "tier_reason": "test-quality is capped at B without CI data, which this scan never reads",
       "verdict": "confirm",
       "proof": "pricing.ts:3 sets PRICES.A1=1000; cart.ts:17 total() sums priceOf(sku)*qty. Test adds A1 qty=2 (1000*2=2000) and asserts toBe(2000) with no reference to the 1000 unit price, so the reader must open pricing.ts to confirm correctness. Not table-driven, no fake timers, and this is the only assertion in the test (not assertion-free).",
       "checked": [
@@ -1431,7 +1431,7 @@
         "in_hotspot_band": false
       },
       "tier": "B",
-      "tier_reason": "test-quality is capped at B without tool corroboration",
+      "tier_reason": "test-quality is capped at B without CI data, which this scan never reads",
       "verdict": "confirm",
       "proof": "priceOf (pricing.ts:5-8) is PRICES[sku] ?? 0 with PRICES.A1=1000 and no discount logic; reserve(sku,0) in stock.ts has no side effect on price. So priceOf('A1') always returns 1000, never 900 as asserted at line 8. The skipped test is not merely disabled coverage but literally unpassable as written, confirming it never worked and documents nothing accurate about current behavior.",
       "checked": [

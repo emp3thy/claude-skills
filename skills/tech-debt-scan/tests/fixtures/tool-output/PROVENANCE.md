@@ -17,7 +17,7 @@ not installable on the development machine:
 | File | Tool | Schema source |
 |---|---|---|
 | `osv-scanner.json` | osv-scanner | documented `results[].packages[].vulnerabilities[]` shape, v1 JSON output |
-| `gitleaks.json` | gitleaks | documented report array with `RuleID`, `File`, `StartLine`, `Entropy` |
+| `gitleaks.json` | gitleaks | documented report array with `RuleID`, `File`, `StartLine`, `StartColumn`, `Entropy` |
 | `hadolint.json` | hadolint | documented array of `{file, line, column, level, code, message}` |
 | `actionlint.json` | actionlint | documented `-format '{{json .}}'` array of `{message, filepath, line, column, kind}` |
 

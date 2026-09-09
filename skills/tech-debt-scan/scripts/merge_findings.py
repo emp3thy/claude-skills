@@ -476,7 +476,9 @@ def _tool_severity(sig: dict[str, Any], tool: str) -> int:
     return _TOOL_SEVERITY.get(tool, 3)
 
 
-def _fingerprint_span(path: str | None, line_start: Any, line_end: Any) -> str:
+def _fingerprint_span(
+    path: str | None, line_start: Any, line_end: Any, *, column: int | None = None
+) -> str:
     """The path component ``evidence.fingerprint`` hashes, with the line range folded in.
 
     ``fingerprint`` hashes family, path and quote, and a fact-class tool emits one
@@ -489,13 +491,20 @@ def _fingerprint_span(path: str | None, line_start: Any, line_end: Any) -> str:
     placeholder's rejection and never reaches the report. The range is folded into the
     path rather than into the quote so the message a reader sees stays the tool's own.
 
-    The cost, accepted deliberately: a hit that moves by a line between two scans reads
-    as a new finding to phase 5's baseline. Sharing one id between two different hits is
-    the worse failure, because it loses one of them silently.
+    ``column`` folds gitleaks' ``StartColumn`` in the same way, when the caller has
+    one: two different secrets matched by the same rule on the same line otherwise
+    agree on family, path, line range and message too, and would collapse onto this
+    one fingerprint exactly as the line-range collision above does.
+
+    The cost, accepted deliberately: a hit that moves by a line (or, now, a column)
+    between two scans reads as a new finding to phase 5's baseline. Sharing one id
+    between two different hits is the worse failure, because it loses one of them
+    silently.
     """
     if line_start is None and line_end is None:
         return path or ""
-    return f"{path or ''}:{line_start}-{line_end}"
+    span = f"{path or ''}:{line_start}-{line_end}"
+    return span if column is None else f"{span}@{column}"
 
 
 def _usable_line(value: Any) -> int | None:
@@ -554,7 +563,10 @@ def _fact_candidate(
     message = redact(raw_message)
     line_start = _usable_line(sig.get("line_start"))
     line_end = _usable_line(sig.get("line_end"))
-    fp, quote_hash = fingerprint(family, _fingerprint_span(path, line_start, line_end), message)
+    column = _usable_line(extra.get("column")) if isinstance(extra, dict) else None
+    fp, quote_hash = fingerprint(
+        family, _fingerprint_span(path, line_start, line_end, column=column), message
+    )
     return {
         "fingerprint": fp,
         "quote_hash": quote_hash,
@@ -572,6 +584,7 @@ def _fact_candidate(
             "file": path,
             "line_start": line_start,
             "line_end": line_end,
+            "column": column,
             "quote": message,
             "quote_verified": True,
         }],
@@ -630,7 +643,12 @@ def tool_candidates(
     * a covered hadolint or actionlint (spec 4.4's rules.py already reported the same
       file) merges into that rule finding's ``confirmed_by`` instead of raising a
       second candidate for a fact already on the record; the finding stays tier A
-      either way, so the merge changes nothing but its provenance trail.
+      either way, so the merge changes nothing but its provenance trail. The merge is
+      tried before the range guard below, not after: it reads no range at all, only
+      the file the rule finding and the fact agree on, so a fact with no usable
+      ``line_start``/``line_end`` still corroborates a rule finding it covers -- the
+      guard exists for the untiered candidate route, which does need a range to build
+      evidence, and must not reject a fact that never reaches that route.
 
     Four things drop a signal that names one of the four tools, each counted through
     ``counts`` so a dropped fact is visible in ``stats`` rather than silent:
@@ -648,22 +666,24 @@ def tool_candidates(
       plain ``int`` once ``_usable_line`` coerces it -- the same reachability profile
       one field over: ``_span`` does ``int(ev["line_start"])`` right after the
       ``root / ev["file"]`` the file guard closed, so a null, a float or a string
-      range aborts the scan exactly as a null file did. The osv route is exempt for
+      range aborts the scan exactly as a null file did. Reached only when the merge
+      above did not already absorb the fact, since a merged fact raises no candidate
+      and so never reaches a verifier or ``_span`` at all. The osv route is exempt for
       the same reason as the file check -- it is decided by which branch a tool
       falls into (``tool == "osv-scanner"`` above), not by inspecting ``tier``, so a
       future tier change to either route cannot silently widen or narrow this guard.
       Spec 4.5's null osv range (a manifest path, not a line) is untouched;
     * a fingerprint already raised in this pass. Two signals that agree on family, path,
-      line range and message are almost always the same fact reported twice, and
-      duplicating them gives two candidates one verdict can no longer tell apart (see
-      ``_fingerprint_span``). This is the collapse ``_cluster`` gives scout candidates,
-      narrowed to exact identity because a tool's records are already deduplicated
-      within a file by everything except repetition. It is not a guarantee that only
-      repetition collapses: ``normalise_gitleaks`` drops ``StartColumn`` with the
-      matched value, so two *different* secrets on one line under one rule agree on
-      every field this compares and collapse into one candidate -- ruling 15's failure
-      one axis over (one verdict deciding two hits). Unreachable from a real probe on
-      this machine, where gitleaks cannot be installed; the fix belongs with the tool.
+      line range, column and message are almost always the same fact reported twice,
+      and duplicating them gives two candidates one verdict can no longer tell apart
+      (see ``_fingerprint_span``). This is the collapse ``_cluster`` gives scout
+      candidates, narrowed to exact identity because a tool's records are already
+      deduplicated within a file by everything except repetition.
+      ``normalise_gitleaks`` keeps ``StartColumn`` in ``extra["column"]``, and
+      ``_fact_candidate`` folds it into the fingerprint span, precisely so two
+      *different* secrets matched by the same rule on the same line -- which would
+      otherwise agree on every field this compares -- stay two candidates instead of
+      collapsing into one (ruling 15).
 
     ``counts`` collects ``(family, stat key, reason)`` for the caller to fold into
     ``stats`` and ``dropped_reasons``; the family is the tool's own registry family, so
@@ -701,6 +721,10 @@ def tool_candidates(
             if path is None:
                 record.append((family, "dropped", f"{tool} signal names no usable file"))
                 continue
+            if tool in _MERGE_INTO_RULE_TOOLS and _merge_into_rule(
+                rule_findings, tool=tool, family=family, path=path
+            ):
+                continue
             if (
                 _usable_line(sig.get("line_start")) is None
                 or _usable_line(sig.get("line_end")) is None
@@ -708,10 +732,6 @@ def tool_candidates(
                 record.append(
                     (family, "dropped", f"{tool} signal names no usable line range")
                 )
-                continue
-            if tool in _MERGE_INTO_RULE_TOOLS and _merge_into_rule(
-                rule_findings, tool=tool, family=family, path=path
-            ):
                 continue
             cand = _fact_candidate(sig, inventory, path=path, tier=None, confirmed_by=[])
         if cand["fingerprint"] in seen:

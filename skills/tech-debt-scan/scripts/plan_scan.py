@@ -639,11 +639,14 @@ def _module_display(module: str | None, real_modules: set[str]) -> str:
     plan *also* contains a genuine top-level directory literally named ``root``
     -- in which case the two would read as the same place in the rendered plan
     even though ``_module_of`` never confused their identities, so the sentinel
-    is given a distinguishable label instead.
+    needs a distinguishable label instead. That label is ``"/"``: a label no
+    directory can equal, because a path segment cannot be ``/`` -- unlike
+    ``"(repository root)"``, which was merely unlikely to collide with a real
+    directory name, not incapable of it.
     """
     if module is not None:
         return module
-    return "root" if "root" not in real_modules else "(repository root)"
+    return "root" if "root" not in real_modules else "/"
 
 
 def _leads_by_module(leads: list[Lead]) -> dict[str | None, list[Lead]]:
