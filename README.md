@@ -255,9 +255,9 @@ affected code; the other is a `rules.py` finding. Every other tool-raised
 candidate, including gitleaks and hadolint findings, still goes through a
 verifier before it can outrank anything. Long repositories are also chunked
 into per-directory module scouts as of phase 4b. A gitleaks finding's
-fingerprint now includes its column (phase 5b), so on the first scan after
-upgrading, an existing baseline's gitleaks entries read `UNCHANGED (edited)`
-rather than `UNCHANGED`; suppressions still carry across, because the tool's
+fingerprint now includes its column (phase 5b) when available, so on the first scan after
+upgrading, gitleaks entries with a usable column read `UNCHANGED (edited)`
+rather than `UNCHANGED`, while those without a usable column retain their pre-upgrade fingerprints and still read `UNCHANGED`; suppressions still carry across, because the tool's
 message is the title and the edited heuristic matches it.
 
 **Phase 5a is complete.** `baseline.py` (spec 4.10) diffs every current
