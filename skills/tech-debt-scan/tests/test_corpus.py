@@ -109,6 +109,8 @@ def test_every_fixture_has_neutral_source_files(corpus: tuple[str, Path]) -> Non
     planted = json.loads((CORPUS_ROOT / name / "planted.json").read_text(encoding="utf-8"))
     taken = {p["path"] for p in planted["planted"]} | {d["path"] for d in planted["decoys"]}
     inventory, _ = build_all(repo, churn_months=240, config=DEFAULTS)
-    neutral = [e["path"] for e in inventory["files"]
-               if e["path_class"] == "source" and e["path"] not in taken]
+    neutral = {e["path"] for e in inventory["files"]
+               if e["path_class"] == "source" and e["path"] not in taken}
     assert len(neutral) >= 1, f"{name}: {neutral}"
+    assert any(e["hotspot_score"] > 0 for e in inventory["files"] if e["path"] in neutral), \
+        f"{name}: every neutral file scores 0.0"

@@ -64,11 +64,22 @@ elif mode == "notes":
            for line in prompt.splitlines() if line.startswith("fingerprint: ")]
     # NOTES_PARTIAL simulates an agent that answers for fewer findings than the
     # top N asked for, so the harness must count the notes it actually got back
-    # rather than assume every top-N slot was filled.
+    # rather than assume every top-N slot was filled. It also appends two
+    # schema-valid entries for fingerprints outside ranked.json's top_n, so the
+    # notes cell and design.md must come from notes_by_fingerprint's top-N
+    # filter at render time, not from an unfiltered count of notes.json.
     if "NOTES_PARTIAL" in prompt:
         fps = fps[:1]
-    payload = [{"fingerprint": fp, "remediation": "Extract the helper, then delete the copy.",
-                "acceptance_criteria": ["the copy is gone", "tests pass"]} for fp in fps]
+        payload = [{"fingerprint": fp, "remediation": "Extract the helper, then delete the copy.",
+                    "acceptance_criteria": ["the copy is gone", "tests pass"]} for fp in fps]
+        payload += [
+            {"fingerprint": extra, "remediation": "Not a real finding; outside the top N.",
+             "acceptance_criteria": ["a", "b"]}
+            for extra in ("0000000000000000", "ffffffffffffffff")
+        ]
+    else:
+        payload = [{"fingerprint": fp, "remediation": "Extract the helper, then delete the copy.",
+                    "acceptance_criteria": ["the copy is gone", "tests pass"]} for fp in fps]
 else:
     fps = [line.split("fingerprint: ")[1].strip()
            for line in prompt.splitlines() if line.startswith("fingerprint: ")]
@@ -447,6 +458,11 @@ def test_run_chain_counts_notes_exactly_not_by_placeholder_arithmetic(
     design = (workdir / "design.md").read_text(encoding="utf-8")
     top = design.split("# Top ")[1].split("\n# Below the cut")[0]
     assert top.count(NOTE_PLACEHOLDER) == 2 * (n - 1)
+    # The fake's NOTES_PARTIAL reply also carries two schema-valid entries for
+    # fingerprints outside ranked.json's top_n; notes.json keeps all three (the
+    # raw reply), so the "1/{n}" cell above proves notes_by_fingerprint's top-N
+    # filter, not a smaller reply.
+    assert len(json.loads((workdir / "notes.json").read_bytes())) == 3
 
 
 def test_main_exits_2_when_the_design_render_self_check_fails(
@@ -513,3 +529,20 @@ def test_main_planted_flag_overrides_the_repo_and_fixture_lookup(
     # the fixture-lookup branch played no part in resolving --planted.
     assert rows[-1].startswith("| 20") and service_py_repo.name in rows[-1]
     assert not (service_py_repo / "planted.json").is_file()
+
+
+def test_main_planted_flag_with_a_missing_path_exits_2_before_anything_runs(
+    tmp_path: Path, fake_claude: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A ``--planted`` path that is not a file must fail fast: before ``resolve_claude``
+    and before any fixture replay, so a bad path costs nothing, not even a workdir."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    missing = tmp_path / "missing.json"
+    assert not missing.is_file()
+    workdir = tmp_path / "wd"
+    rc = _main([str(repo), "--planted", str(missing), "--claude", fake_claude,
+                "--workdir", str(workdir)])
+    assert rc == 2
+    assert f"error: --planted {missing} is not a file" in capsys.readouterr().err
+    assert not workdir.exists()

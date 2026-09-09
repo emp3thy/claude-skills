@@ -85,10 +85,7 @@ LIVE_QUOTE_MISSES: dict[str, dict[str, frozenset[str]]] = {
         "diverted": frozenset({"API client silently swallows fetch errors with no test"}),
         "partial": frozenset(),
     },
-    "mixed-decoys": {
-        "diverted": frozenset(),
-        "partial": frozenset(),
-    },
+    "mixed-decoys": {"diverted": frozenset(), "partial": frozenset()},
 }
 # Batches the plan asks for that no live run ever produced a verdict file for. A
 # verdict cannot be written by hand (it would be invented agent output), so such a

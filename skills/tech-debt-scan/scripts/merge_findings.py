@@ -512,9 +512,10 @@ def _usable_line(value: Any) -> int | None:
     carry: a plain ``int`` survives, everything else -- ``None``, a ``bool`` (a
     ``bool`` is an ``int`` subclass), a float, or a string like ``"12"`` a
     truncated or hand-edited ``tool-signals.json`` might carry -- becomes ``None``.
-    Shared by ``_fact_candidate`` (which builds the coerced shape) and
-    ``tool_candidates`` (which must reject that shape on the untiered route before
-    it reaches a verifier)."""
+    Shared by ``_fact_candidate`` (which builds the coerced shape for
+    ``line_start``/``line_end`` and, from ``extra["column"]``, the gitleaks column)
+    and ``tool_candidates`` (which must reject that shape on the untiered route
+    before it reaches a verifier)."""
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 

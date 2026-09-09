@@ -593,7 +593,9 @@ def _main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--tools", action="store_true",
-        help="run the external tool probe before planning, writing tool-signals.json",
+        help="run the external tool probe before planning, writing tool-signals.json"
+             "; osv-scanner reaches the network unless tools.network is false in "
+             ".tech-debt.yaml",
     )
     parser.add_argument(
         "--planted", default=None,
@@ -602,6 +604,11 @@ def _main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     keep = Path(args.keep).resolve() if args.keep else None
+    # Checked before resolve_claude and before any fixture replay, so a bad
+    # --planted path costs nothing -- not an agent call, not even a workdir.
+    if args.planted and not Path(args.planted).is_file():
+        print(f"error: --planted {args.planted} is not a file", file=sys.stderr)
+        return 2
 
     corpus = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "corpus"
     planted: Path | None = None
