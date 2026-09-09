@@ -2,11 +2,21 @@
 
 Manual only, never in CI. Given a corpus fixture name (replayed into a temporary
 directory through ``tests/helpers/make_history.py``) or any repository path, the
-harness runs the phase 1 signal scripts, ``plan_scan.py``, one ``claude -p``
-call per scout prompt, ``merge_findings.py``, ``verify_prompts.py``, one call
-per verifier batch, ``apply_verdicts.py`` and ``rank.py``; when a
-``planted.json`` exists it scores the result with ``evaluate.py`` and appends a
-row to ``docs/evaluation-log.md``.
+harness runs the phase 1 signal scripts and, under ``--tools``, the external
+tool probe, before ``plan_scan.py`` plans the scan; one ``claude -p`` call per
+scout prompt, ``merge_findings.py``, ``verify_prompts.py``, one call per
+verifier batch, ``apply_verdicts.py`` and ``rank.py``; then the single
+remediation-note agent's one paid call over the top N, its reply validated
+against ``NOTES_SCHEMA`` and written to ``notes.json``; then
+``design_writer.write_design`` renders ``design.md`` and ``findings.json``.
+When a ``planted.json`` is known it scores ``findings.json`` (not
+``verified.json``) with ``evaluate.py`` and appends a row -- including the
+trailing ``notes`` column, the top-N findings the note agent filled in over the
+top-N size -- to ``docs/evaluation-log.md``; ``--keep`` then copies
+``evaluation.json``, ``design.md``, ``notes.json`` and ``findings.json`` to a
+directory for later audit. The harness never runs ``baseline.py diff``
+(``SKILL.md`` step 11) and refuses to run at all when the workdir already holds
+a ``diff.json`` or ``baseline.json``.
 
 Every ``claude`` call is a list argv in print mode with JSON output, structured
 output from the contract's JSON schema (an array contract travels wrapped in a

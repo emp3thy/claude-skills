@@ -254,7 +254,11 @@ most-likely-to-rank-first claim — without a verifier agent ever reading the
 affected code; the other is a `rules.py` finding. Every other tool-raised
 candidate, including gitleaks and hadolint findings, still goes through a
 verifier before it can outrank anything. Long repositories are also chunked
-into per-directory module scouts as of phase 4b.
+into per-directory module scouts as of phase 4b. A gitleaks finding's
+fingerprint now includes its column (phase 5b), so on the first scan after
+upgrading, an existing baseline's gitleaks entries read `UNCHANGED (edited)`
+rather than `UNCHANGED`; suppressions still carry across, because the tool's
+message is the title and the edited heuristic matches it.
 
 **Phase 5a is complete.** `baseline.py` (spec 4.10) diffs every current
 finding against a committed `.tech-debt/baseline.json` and writes

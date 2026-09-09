@@ -125,12 +125,16 @@ at tier A: 0, 1, 0; in the top 5: 0, 0, 0. The tier-A decoy is web-ts's `d2`
 (`error-masking`, `src/api/client-admin.ts` lines 8-17), hit by the producer
 its `sources` names (`scout:error-masking`) and confirmed by the verifier on
 the reading that a catch which logs the cause and returns `null` still leaves
-callers unable to tell a failure from an empty body. `categories.py`'s family
-definition names only "log-only catches that drop the cause"; this catch logs
-the cause (`console.error("admin request failed", e)`), which was the decoy
-author's premise, so the hit is a verifier false positive against the fixture
-as planted and the decoy's own premise is itself contestable against the
-rubric. Per spec section 11's second outcome, no bar is set from this run: the
+callers unable to tell a failure from an empty body. `categories.py:171-176`
+names four shapes under "failures caught and hidden, so nobody learns of
+them" — empty catch blocks, catch-everything variants, log-only catches that
+drop the cause, and disabled assertions. The decoy's `why` reads the site as
+the third shape (this catch logs the cause,
+`console.error("admin request failed", e)`); the verifier read the same site
+as the second, a catch-everything variant that hides every failure behind a
+`null` the caller cannot tell from an empty response. The rubric admits both
+readings, and which one the corpus adopts is the first decision of the next
+run. Per spec section 11's second outcome, no bar is set from this run: the
 minimum the three rows would have given, 0.25 after rounding down, is recorded
 as measured but not adopted, and the provisional 0.80 stays; whether `d2` stays
 a decoy or becomes planted debt is the first decision of the next run, and
@@ -140,8 +144,8 @@ the first time, the zero-churn repair (task 4) finally making the family
 measurable; and web-ts's other decoy, `d1`, was hit at tier B by a
 release-process finding (manual version bumps with no CI release job) that
 cites the workflow as evidence — below the hard gate, so it is recorded as a
-hit, not ruled on. The run's `evaluation.json`, `design.md` and `notes.json`
-for all three fixtures are kept under
+hit, not ruled on. The run's `evaluation.json`, `design.md`, `notes.json` and
+`findings.json` for all three fixtures are kept under
 `docs/research/tech-debt-scan-v2/runs/2026-09-09-5b/`.
 
 | date | fixture | model | churn_months | tier_a_precision | reported_precision | decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd | notes |
