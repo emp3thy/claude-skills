@@ -134,7 +134,19 @@ The `.gitignore` triple stays: `baseline.json` must remain tracked while the res
 
 **Rewritten — `tests/test_promote.py`** (438 lines, all bundle-shaped): `--list-approved` JSON shape, ordering and empty case; `--select` writes all three effects; unknown slug and non-approved slug both exit 2; baseline write-back failure is exit 6 with `design.md` already marked.
 
-**Amended — `tests/test_baseline.py`** (1352 lines). The largest risk in this change: bundle vouching runs through much of it. Every test asserting the vouching guard, the `bundles` parameter or the `bundle` field is either deleted or restated, and one new test asserts a legacy entry carrying `bundle` still reads.
+**Amended — `tests/test_baseline.py`** (1352 lines, 77 tests). Measured rather than estimated, the coupling is shallow:
+
+| Kind | Count | Action |
+|---|---|---|
+| `bundles={}` passed to `record()` | 25 call sites | delete the kwarg |
+| `"bundle": None` in expected-dict literals | 3 (`:49`, `:549`, `:695`) | delete the key |
+| the `_entry()` fixture factory's `bundle` parameter | 1 | delete the parameter |
+| tests of the vouching guard itself | 3 (`:563`, `:651`, `:661`) | delete outright |
+| a behaviour test carrying a bundle assertion | 1 (`:843`) | amend |
+
+The three deletions test the guard this change removes, including `pytest.raises(BaselineError, match="bundle")`. The single amendment is `test_a_decided_finding_migrates_and_keeps_its_bundle`: its real subject — a finding whose code was edited migrates to the new fingerprint and keeps its decision — survives, so it drops the `bundle` fixture field and assertion, keeps the migration assertion, and is renamed `test_a_decided_finding_migrates_and_keeps_its_decision`. One new test asserts a legacy entry carrying `bundle` still reads.
+
+No test in this file covers behaviour that survives in changed form apart from that one.
 
 **Amended — `tests/test_e2e.py`, `tests/test_chain_goldens.py`**: the chain currently terminates in bundle output; it terminates at `evidence.md` instead.
 
@@ -160,7 +172,7 @@ There is no compatibility shim for the bundle format itself. Nothing outside thi
 
 1. **The brainstorming handoff cannot be tested.** Guardrail (e) forbids a live LLM in tests, so steps 4, 7 and 8 have no automated coverage — only `evidence.md`'s content is testable. *Decision:* accept, and keep the untested surface as thin as possible by putting every decision that can be deterministic into Python. *Residual risk:* a SKILL.md instruction can rot without CI noticing, exactly as the scan's step numbering could.
 2. **Question matching is a heuristic and will sometimes mislead.** Open questions carry `file` and `line_start` only, so a busy file yields questions belonging to other findings. *Decision:* match by file, order by line proximity, and label the section as coming from the scan rather than as belonging to this finding. *Residual risk:* a brainstorm opens by asking something adjacent. Cheap to skip, and the alternative — dropping the section — loses questions that are frequently the decisive ones.
-3. **`test_baseline.py` is 1352 lines and bundle vouching is woven through it.** *Decision:* task 2 in the build order does that surgery alone, before promote is touched, so a regression there is isolated from the rewrite. *Residual risk:* the amendment is larger than the feature.
+*(A third concern — that `test_baseline.py`'s 1352 lines made the bundle amendment larger than the feature — was withdrawn after measuring it: 3 deletions, 1 amendment and ~29 mechanical edits across 77 tests. It is recorded under minor below.)*
 
 **Verified safe**
 
@@ -172,6 +184,7 @@ There is no compatibility shim for the bundle format itself. Nothing outside thi
 
 **Minor or accepted**
 
+- `test_baseline.py`'s bundle coupling is shallow — 25 `bundles={}` call sites, 3 expected-dict keys, one fixture parameter, 3 guard tests to delete, 1 test to amend. Build order still does this surgery as its own task, before promote is rewritten, so any regression is isolated.
 - `evidence.md` is overwritten each run; the content is always re-derivable from `design.md`.
 - One finding per invocation is deliberate, for fresh context per design session.
 - Orphan bundle directories are left in place.
