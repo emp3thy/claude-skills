@@ -9,7 +9,7 @@ renders the single ``design.md`` the user reviews, plus ``findings.json`` into `
 twin of the same finding list, which ``evaluate.py`` prefers over
 ``verified.json`` because it carries the rank terms and the top-N flag.
 ``mark_promoted`` is stage 3 of /tech-debt-promote: it flips approved findings
-to ``promoted`` in place once their bundles have been emitted.
+to ``promoted`` in place once they are selected for a design session.
 
 When ``diff.json`` is present it does three things to the render: the
 frontmatter's ``new`` and ``resolved`` counts come from its own ``counts``
@@ -34,7 +34,7 @@ Document shape (``SECTION_ORDER``): the frontmatter, the ``# Tech-debt scan``
 header, ``# Top N`` with one H2 per top-N finding, then the six negative-space
 H1 sections. A finding is an H2 with a fenced ```yaml anchor; every other
 section is an H1, which ``design_parser`` treats as the end of a finding's
-body, so no negative-space section is ever copied into a PBI.
+body, so no negative-space section is ever copied into evidence.md.
 
 Format invariants (the round-trip partner is design_parser.parse_design):
   - Output is LF-only. The body is built as ``"\n".join(parts)`` and written via
@@ -385,11 +385,9 @@ def _rows(inputs: RenderInputs) -> list[Row]:
 
     The slug comes from ``heading_text(title)``, the same redacted string the
     document renders, never the raw one. A slug is not a display string that a
-    reader can be trusted to ignore: it is the anchor's ``slug:`` key,
-    ``findings.json``'s ``slug``, the PBI bundle's directory name and
-    ``PBI.md``'s ``id:`` -- and the bundle directory is committed into the
-    target repository. An AWS access key id is ``[A-Z0-9]{20}``, so a lowercase
-    slug segment gives one back exactly by uppercasing it. Every producer
+    reader can be trusted to ignore: it is the anchor's ``slug:`` key and
+    ``findings.json``'s ``slug``. An AWS access key id is ``[A-Z0-9]{20}``, so
+    a lowercase slug segment gives one back exactly by uppercasing it. Every producer
     reaching here today redacts the title before ``verified.json`` is written,
     so this moves nothing; it stops the writer from redacting the same string
     for one consumer and not the other.
@@ -421,7 +419,7 @@ def free_text(value: str) -> str:
 
     - A line that begins with ``#`` would read as a heading and end the
       finding's section (design_parser._ends_section), taking Evidence and the
-      note sections out of the body that bundle_writer copies into a PBI.
+      note sections out of the body that evidence_doc copies into evidence.md.
     - A line whose stripped text opens with a run of three or more backticks is
       a fence delimiter to both fence scanners on the write path -- ``_h1_names``
       here and design_parser's per-section scan -- each of which computes the run
@@ -475,7 +473,7 @@ def heading_text(value: str) -> str:
     heading of another level nor a fence to either scanner, whatever the title
     holds, and the heading still reads as the words the agent wrote -- where an
     escape would leave a backslash in the title that ``findings.json`` and a
-    promoted ``PBI.md`` would carry as part of the name.
+    rendered ``evidence.md`` would carry as part of the name.
     """
     return " ".join(redact(value).split())
 
@@ -615,8 +613,7 @@ def _header(inputs: RenderInputs, scan_date: str) -> list[str]:
 def _anchor(inputs: RenderInputs, row: Row) -> list[str]:
     """The finding's yaml anchor, in spec 4.11's pinned key order.
 
-    ``category`` is always the alias of ``family``: it is a required parser key
-    and ``bundle_writer.py`` reads it unconditionally.
+    ``category`` is always the alias of ``family``: it is a required parser key.
     """
     finding = row.finding
     family = finding.get("family")

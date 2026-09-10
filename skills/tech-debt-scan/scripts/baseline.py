@@ -4,7 +4,7 @@
 UNCHANGED, UNCHANGED (moved), UNCHANGED (edited), NEW -- and every baseline
 entry no current finding matched as RESOLVED, writing ``diff.json`` for
 ``design_writer`` to render. ``record`` is called in process by ``promote.py``
-and writes each finding's status, reason, expiry and bundle back, so a
+and writes each finding's status, reason and expiry back, so a
 ``rejected`` finding stops recurring and an ``accepted`` one returns when its
 expiry passes.
 
@@ -363,7 +363,6 @@ def record(
     *,
     decisions: list[dict[str, Any]],
     findings: list[dict[str, Any]],
-    bundles: dict[str, str],
     today: str,
     preset: str,
 ) -> dict[str, Any]:
@@ -371,17 +370,14 @@ def record(
 
     ``decisions`` are the parsed design.md findings; ``findings`` the matching
     ``verified.json`` entries, which carry the file, line and quote the design
-    document does not; ``bundles`` maps a promoted fingerprint to its bundle
-    directory name. Entries absent from this scan are kept: the baseline
+    document does not. Entries absent from this scan are kept: the baseline
     remembers decisions across scans. The write is atomic so a crash mid-write
     leaves the previous baseline intact.
 
     A decision with no fingerprint raises: the baseline is keyed by
     fingerprint, so an empty key would collide every fingerprint-less
     decision in one call onto the same entry, silently discarding all but the
-    last. A ``promoted`` decision raises unless a bundle is in ``bundles`` or
-    was already recorded for that fingerprint -- only ``promote`` can vouch
-    for a bundle.
+    last.
 
     Every element of ``findings`` with no matching decision is remembered too
     (ruling 25): a suppressed finding is hidden from the design document and
@@ -401,9 +397,9 @@ def record(
     fingerprint and the old key is removed, while an entry another finding
     matches directly is never taken from it. Otherwise the decision would be
     orphaned under a key nothing matches again, reported RESOLVED, while the
-    edited finding started over as ``pending``. Only five fields of an entry
-    found either way are preserved: ``status``, ``reason``, ``until``,
-    ``bundle`` and ``first_seen``. Everything ``_entry_fields`` builds -- family, file,
+    edited finding started over as ``pending``. Only four fields of an entry
+    found either way are preserved: ``status``, ``reason``, ``until`` and
+    ``first_seen``. Everything ``_entry_fields`` builds -- family, file,
     line, quote hash, quote, title and tier -- is refreshed from this scan,
     along with ``last_seen``, so a long-lived suppression's recorded line
     keeps up with the code it suppresses and the 40-line edited window is
@@ -423,9 +419,6 @@ def record(
             raise BaselineError(f"{fp}: unknown status {status!r}")
         finding = by_fp.get(fp, {})
         previous = _entry_for(finding, fp, out, by_fp)
-        bundle = bundles.get(fp, previous.get("bundle"))
-        if status == "promoted" and bundle is None:
-            raise BaselineError(f"{fp}: promoted with no bundle")
         fields = _entry_fields(
             finding,
             family=decision.get("family") or finding.get("family"),
@@ -439,7 +432,6 @@ def record(
             "last_seen": today,
             "reason": redact(str(decision["reason"])) if decision.get("reason") else None,
             "until": decision.get("until"),
-            "bundle": bundle,
         }
         decision_fps.add(fp)
     for finding in findings:
@@ -460,7 +452,6 @@ def record(
             "last_seen": today,
             "reason": previous.get("reason"),
             "until": previous.get("until"),
-            "bundle": previous.get("bundle"),
         }
     doc = {"schema_version": SCHEMA_VERSION, "last_scan": today, "preset": preset,
            "findings": dict(sorted(out.items()))}
@@ -584,7 +575,6 @@ def _run_record(args: argparse.Namespace) -> int:
             baseline_path,
             decisions=parsed["findings"],
             findings=verified.get("findings") or [],
-            bundles={},
             today=today,
             preset=str(config["ranking"]["preset"]),
         )

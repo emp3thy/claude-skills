@@ -45,10 +45,10 @@ def v2_design_workdir(
 
     Copied from the ``service-py`` golden corpus (every finding carries a
     fingerprint). One finding's ``status`` is flipped from ``pending`` to
-    ``approved`` so a promote run has something to emit.
+    ``approved`` so a promote run has something to select.
 
     The process cwd is set to the workdir, which is where these tests put
-    their baselines and bundle directories, so relative paths and anything
+    their baselines and evidence.md, so relative paths and anything
     the code under test writes beside the cwd stay inside the test's own
     temporary tree rather than the pytest run's working directory. Nothing
     in promote.py derives a repository root from the cwd any more (ruling 19

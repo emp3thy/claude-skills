@@ -1153,10 +1153,9 @@ def test_the_slug_is_built_from_the_redacted_title(tmp_path: Path) -> None:
     """``_rows`` slugified the raw title while the same string was redacted for the body.
 
     The slug is not a display string: it is the ``slug:`` key in the design.md
-    anchor, ``findings.json``'s ``slug``, the PBI bundle's directory name and
-    ``PBI.md``'s ``id:`` frontmatter -- and the bundle directory is committed
-    into the target repository. An AWS access key id is ``[A-Z0-9]{20}``, so a
-    lowercase slug segment recovers one exactly by uppercasing it.
+    anchor and ``findings.json``'s ``slug``. An AWS access key id is
+    ``[A-Z0-9]{20}``, so a lowercase slug segment recovers one exactly by
+    uppercasing it.
     """
     key = "AKIAIOSFODNN7EXAMPLE"
     verified = _verified()
