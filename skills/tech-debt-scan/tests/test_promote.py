@@ -437,3 +437,66 @@ def test_main_requires_a_mode(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit):
         _main([str(_v2_design(tmp_path))])
+
+
+# -- Fix round 1 --------------------------------------------------------------
+# _main's own initial parse (line ~243) can succeed while list_approved's and
+# select's own internal re-parse of the same design.md fails -- the design.md
+# on disk can change between the two calls, exactly like _write_back's own
+# re-parse already accounts for. Both re-parse call sites must degrade to the
+# documented "error: ...", exit 2, never an unhandled traceback.
+
+
+def test_main_list_approved_reports_a_reparse_failure_as_exit_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """list_approved() re-parses design.md internally; _main's own initial
+    parse succeeding must not paper over that second parse failing."""
+    import sys
+
+    import promote as pmod
+    from design_parser import DesignParseError
+    from promote import _main
+
+    src = _v2_design(tmp_path)
+    real = pmod.parse_design
+
+    def parse(path: Path) -> dict:
+        # Only list_approved's own re-parse fails; _main's initial parse must
+        # succeed, or the run would never reach --list-approved's branch.
+        if sys._getframe(1).f_code.co_name == "list_approved":
+            raise DesignParseError("simulated: unparseable on re-parse")
+        return real(path)
+
+    monkeypatch.setattr(pmod, "parse_design", parse)
+    assert _main([str(src), "--list-approved"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and "simulated: unparseable on re-parse" in err
+
+
+def test_main_select_reports_a_reparse_failure_as_exit_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """select() re-parses design.md internally; the same guarantee applies to
+    --select as to --list-approved."""
+    import sys
+
+    import promote as pmod
+    from design_parser import DesignParseError
+    from promote import _main, list_approved
+
+    src = _v2_design(tmp_path)
+    slug = list_approved(src)[0]["slug"]
+    real = pmod.parse_design
+
+    def parse(path: Path) -> dict:
+        # Only select's own re-parse fails; _main's initial parse must
+        # succeed, or the run would never reach the --select branch.
+        if sys._getframe(1).f_code.co_name == "select":
+            raise DesignParseError("simulated: unparseable on re-parse")
+        return real(path)
+
+    monkeypatch.setattr(pmod, "parse_design", parse)
+    assert _main([str(src), "--select", slug]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and "simulated: unparseable on re-parse" in err

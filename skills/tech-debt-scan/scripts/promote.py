@@ -246,7 +246,12 @@ def _main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.list_approved:
-        print(json.dumps(list_approved(args.design), indent=2))
+        try:
+            rows = list_approved(args.design)
+        except DesignParseError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(rows, indent=2))
         return 0
 
     # A v1 design.md carries no fingerprints; refuse before anything is written,
@@ -264,7 +269,7 @@ def _main(argv: list[str] | None = None) -> int:
 
     try:
         written = select(args.design, args.select)
-    except (SelectionError, DesignWriteError, OSError) as exc:
+    except (DesignParseError, SelectionError, DesignWriteError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(f"wrote {written}")
