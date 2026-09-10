@@ -497,3 +497,28 @@ def test_select_accepts_an_already_promoted_finding(tmp_path: Path) -> None:
     select(src, slug)
     written = select(src, slug)
     assert written.is_file()
+
+
+def test_select_wraps_a_mark_promoted_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """evidence.md is already on disk once mark_promoted is reached; the
+    caller must be told, and design.md must stay approved so a retry can
+    re-render and re-attempt the mark cleanly."""
+    import promote as pmod
+    from promote import SelectionError, list_approved, select
+
+    src = _v2_design(tmp_path)
+    slug = list_approved(src)[0]["slug"]
+
+    def boom(*_a: object, **_k: object) -> None:
+        raise pmod.DesignWriteError("simulated: permission denied")
+
+    monkeypatch.setattr(pmod, "mark_promoted", boom)
+
+    with pytest.raises(SelectionError) as excinfo:
+        select(src, slug)
+    assert str(tmp_path / "evidence.md") in str(excinfo.value)
+
+    assert (tmp_path / "evidence.md").is_file()
+    assert "status: approved" in src.read_text(encoding="utf-8")

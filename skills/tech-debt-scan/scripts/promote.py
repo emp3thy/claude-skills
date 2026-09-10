@@ -325,7 +325,12 @@ def select(design_path: Path, slug: str) -> Path:
     Writes beside ``design_path`` (the workdir), overwriting any previous
     evidence document: it seeds one design session and is always re-derivable.
     The design.md mark happens after the write, so a failed render never
-    consumes the finding.
+    consumes the finding. If the write succeeds but ``mark_promoted`` then
+    raises (e.g. a permission error), the finding's status is left
+    ``approved`` -- a retry re-renders and re-attempts the mark cleanly -- and
+    the failure is re-raised as SelectionError naming the evidence path
+    already on disk, so the caller is never told the mark failed without
+    knowing evidence.md exists.
     """
     parsed = parse_design(design_path)
     finding = next((f for f in parsed["findings"] if f.get("slug") == slug), None)
@@ -346,7 +351,12 @@ def select(design_path: Path, slug: str) -> Path:
     out_path.write_bytes(text.encode("utf-8"))
 
     if status == "approved":
-        mark_promoted(design_path, slugs=[slug])
+        try:
+            mark_promoted(design_path, slugs=[slug])
+        except DesignWriteError as exc:
+            raise SelectionError(
+                f"wrote {out_path} but could not mark {slug!r} promoted: {exc}"
+            ) from exc
     return out_path
 
 
