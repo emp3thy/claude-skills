@@ -343,6 +343,44 @@ def test_list_approved_orders_by_severity_descending(tmp_path: Path) -> None:
     assert rows[0]["slug"] == "hard-coded-credential-in-the-gateway-client"
 
 
+_WHOLE_FILE_DESIGN = """## Dead module left behind by the migration
+
+```yaml
+status: approved
+slug: dead-module-left-behind-by-the-migration
+severity: 3
+category: dead-code
+```
+
+### Proof
+
+Nothing imports this module any more.
+
+### Evidence
+
+- `pkg/dead_module.py` (whole file)
+
+```
+def unused(): ...
+```
+"""
+
+
+def test_list_approved_reports_a_primary_file_for_a_whole_file_citation(
+    tmp_path: Path,
+) -> None:
+    """Regression: a finding whose only evidence is a whole-file citation used
+    to make ``evidence_locations`` return ``[]``, so ``primary_file`` was
+    reported as ``None`` even though the finding does cite a file."""
+    from promote import list_approved
+
+    src = tmp_path / "design.md"
+    src.write_text(_WHOLE_FILE_DESIGN, encoding="utf-8")
+    rows = list_approved(src)
+    assert len(rows) == 1
+    assert rows[0]["primary_file"] == "pkg/dead_module.py"
+
+
 def test_select_writes_evidence_and_marks_promoted(tmp_path: Path) -> None:
     from promote import list_approved, select
 

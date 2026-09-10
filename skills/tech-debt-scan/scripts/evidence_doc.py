@@ -20,20 +20,33 @@ from __future__ import annotations
 import re
 from typing import Any, Final
 
-# design_writer renders each evidence item as ``- `path:start-end` `` (or
-# ``- `path:start` `` when the span is one line), so the location of every span
-# the finding cites can be read back out of body_md without verified.json.
+# design_writer's _evidence_item renders three citation shapes (design_writer.py:662-687):
+# ``- `path:start-end` `` (or ``- `path:start` `` for a one-line span), the
+# whole-file ``- `path` (whole file) `` when either bound is null, and the
+# repository-level ``- repository-level finding (no file or line range)``
+# when there is no file at all. The first two both name a file inside
+# backticks, so both match here; the third names no file and is deliberately
+# left unmatched. The colon-and-digits group is optional so a whole-file
+# citation still matches, with no line captured for it.
 _EVIDENCE_LINE: Final[re.Pattern[str]] = re.compile(
-    r"^- `([^`]+?):(\d+)(?:-\d+)?`\s*$", re.MULTILINE
+    r"^- `([^`]+?)(?::(\d+)(?:-\d+)?)?`(?: \(whole file\))?\s*$", re.MULTILINE
 )
 _ABSENT: Final[str] = "-"
 _QUESTIONS_HEADING: Final[str] = "### Open questions from the scan"
 _RULED_OUT_HEADING: Final[str] = "### Already ruled out"
 
 
-def evidence_locations(body_md: str) -> list[tuple[str, int]]:
-    """Every ``(file, line_start)`` the finding's body cites, in order."""
-    return [(match.group(1), int(match.group(2))) for match in _EVIDENCE_LINE.finditer(body_md)]
+def evidence_locations(body_md: str) -> list[tuple[str, int | None]]:
+    """Every ``(file, line)`` the finding's body cites, in order.
+
+    ``line`` is ``None`` for a whole-file citation: there is no line to
+    report, and ``0`` would be a lie that downstream code could mistake for a
+    real anchor.
+    """
+    return [
+        (match.group(1), int(match.group(2)) if match.group(2) is not None else None)
+        for match in _EVIDENCE_LINE.finditer(body_md)
+    ]
 
 
 def _field(finding: dict[str, Any], key: str) -> str:
@@ -65,7 +78,7 @@ def render_evidence(
     """The evidence.md text for ``finding``; LF-only, one trailing newline."""
     locations = evidence_locations(str(finding.get("body_md") or ""))
     files = {file for file, _ in locations}
-    anchor = locations[0][1] if locations else None
+    anchor = next((line for _, line in locations if line is not None), None)
 
     parts: list[str] = [
         f"# {finding.get('title') or ''}",
