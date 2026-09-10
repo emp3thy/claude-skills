@@ -1,7 +1,7 @@
 """Deterministic slugs for design findings.
 
-A finding's slug is its identity in ``design.md``, in a PBI bundle id and in
-``findings.json``. It is derived from the title so a reader can match the two,
+A finding's slug is its identity in ``design.md`` and in ``findings.json``. It
+is derived from the title so a reader can match the two,
 and it always satisfies ``validation.validate_slug`` (start with a lowercase
 letter, then at most 63 more of ``[a-z0-9-]``, never ending in a hyphen).
 

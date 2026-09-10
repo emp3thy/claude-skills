@@ -48,7 +48,7 @@ def v2_design_workdir(
     ``approved`` so a promote run has something to emit.
 
     The process cwd is set to the workdir, which is where these tests put
-    their baselines and bundle directories, so relative paths and anything
+    their baselines and evidence.md, so relative paths and anything
     the code under test writes beside the cwd stay inside the test's own
     temporary tree rather than the pytest run's working directory. Nothing
     in promote.py derives a repository root from the cwd any more (ruling 19

@@ -1,9 +1,9 @@
-"""End-to-end: canned scouts and verdicts through the whole v2 chain to a PBI bundle.
+"""End-to-end: canned scouts and verdicts through the whole v2 chain to evidence.md.
 
 No mocking and no agent: the scout and verdict files are the corpus goldens (real
 agent output from the phase 2 live runs), and every other stage is the real script
 in the order SKILL.md v2 prescribes. Covers the scan side (signals to design.md),
-a user edit, and the promote side (bundle, mark_promoted, idempotent re-run), plus
+a user edit, and the promote side (select, mark_promoted, idempotent re-run), plus
 phase 5a's baseline sequence (scan, decide, re-scan) in
 ``test_scan_decide_rescan_baseline_sequence``.
 """
@@ -25,7 +25,7 @@ from merge_findings import merge
 from patterns import run_patterns
 from plan_scan import build_plan, write_plan
 from promote import _main as promote_main
-from promote import run_promote
+from promote import _write_back
 from rank import rank
 from rules import run_rules
 from verify_prompts import build_verify_plan
@@ -33,7 +33,6 @@ from verify_prompts import build_verify_plan
 GOLDEN = Path(__file__).parent / "golden" / "service-py"
 CORPUS = Path(__file__).parent / "fixtures" / "corpus" / "service-py"
 SCAN_DATE = "2026-09-06"
-PROMOTE_DATE = "2026-09-06"
 
 
 def _copy_golden(relative: str, workdir: Path) -> None:
@@ -130,53 +129,42 @@ def test_scan_to_promote_over_the_corpus(service_py_repo: Path, tmp_path: Path) 
         lines.insert(anchor + 1, "reason: waiting for the payments rewrite")
     design.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
 
-    out = tmp_path / "pbis"
-    result = run_promote(design, out_root=out, date=PROMOTE_DATE)
-    assert result.exit_code == 0
-    assert result.emitted_count == 1 and result.accepted_count == 1
-    bundle = out / f"chore-{first}-{PROMOTE_DATE}"
-    pbi = (bundle / "PBI.md").read_text(encoding="utf-8")
-    assert "type: feature" in pbi and "status: inbox" in pbi and "target_repo:" in pbi
-    assert "fingerprint: " in pbi and "tier: " in pbi
-    assert (bundle / "PLAN.md").is_file() and (bundle / "HISTORY.md").is_file()
+    assert promote_main([str(design), "--select", first]) == 0
+    evidence = (workdir / "evidence.md").read_text(encoding="utf-8")
+    assert evidence.startswith("# ")
+    assert "Repository: " in evidence
+    text = design.read_text(encoding="utf-8")
+    assert "status: promoted" in text
+    assert "status: accepted" in text  # the second finding's decision is untouched
 
-    # A second promote is a no-op: the finding is now `promoted`.
-    again = run_promote(design, out_root=out, date=PROMOTE_DATE)
-    assert again.emitted_count == 0 and again.already_promoted_count == 1
-    assert again.accepted_count == 1 and again.exit_code == 0
+    # A second select is idempotent: the finding is now `promoted`, and
+    # SELECTABLE lets it be re-rendered rather than refused.
+    assert promote_main([str(design), "--select", first]) == 0
 
 
 def test_a_v1_design_still_promotes(tmp_path: Path) -> None:
     """Spec 8: the v1 document keeps working after the cut-over.
 
-    The bundle is asserted by content rather than against
-    ``golden/bundle/chore-finding-0-2026-05-31``: that golden belongs to
-    ``test_bundle_writer.test_v1_finding_still_writes_the_v1_golden_bytes``,
-    which builds a different synthetic finding (body ``- foo`` / ``bar``) and
-    passes a literal ``source_design`` of ``d.md``. Promoting the real
-    ``design-v1.md`` writes the v1 body through and stamps ``source_design``
-    with this run's own absolute temp path, so no byte comparison against a
-    checked-in bundle can hold for it. What matters here is the v1 shape: the
-    v1 anchor's four keys survive, the v2 anchor keys are absent rather than
-    invented, and the whole v1 body is copied across.
+    What matters here is the v1 shape surviving into evidence.md: a v1
+    finding carries none of the v2 anchor keys (fingerprint, tier, type_id,
+    debt_type, diff), so render_evidence must render each as its ``-``
+    placeholder rather than raising or inventing a value, while the whole v1
+    body is copied across untouched.
     """
     design = tmp_path / "design.md"
     shutil.copy(Path(__file__).parent / "golden" / "design-v1.md", design)
     text = design.read_bytes().decode("utf-8").replace("status: pending", "status: approved", 1)
     design.write_bytes(text.encode("utf-8"))
-    result = run_promote(design, out_root=tmp_path / "out", date="2026-05-31")
-    assert result.exit_code == 0 and result.emitted_count == 1
-    bundle = tmp_path / "out" / "chore-finding-0-2026-05-31"
-    assert (bundle / "PLAN.md").is_file() and (bundle / "HISTORY.md").is_file()
-    pbi = (bundle / "PBI.md").read_text(encoding="utf-8")
-    assert "id: chore-finding-0-2026-05-31" in pbi
-    assert "severity: critical" in pbi and "category: god-modules" in pbi
-    assert "fingerprint:" not in pbi and "tier:" not in pbi, "v1 has no v2 anchor keys"
-    for section in ("# Finding 0 title", "### Reasoning", "reasoning 0",
-                    "### Evidence", "### Suggested fix", "fix 0"):
-        assert section in pbi, section
-    plan = (bundle / "PLAN.md").read_text(encoding="utf-8")
-    assert "- [ ] 1. Address the tech-debt finding described in PBI.md." in plan
+    slug = parse_design(design)["findings"][0]["slug"]
+
+    assert promote_main([str(design), "--select", slug]) == 0
+    evidence = (tmp_path / "evidence.md").read_text(encoding="utf-8")
+    assert evidence.startswith("# Finding 0 title")
+    assert "Repository: " in evidence
+    assert "Finding: - | god-modules | - | -" in evidence, "v1 has no v2 anchor keys"
+    assert "Tier - | severity 5 | effort - | -" in evidence
+    for section in ("### Reasoning", "reasoning 0", "### Evidence", "### Suggested fix", "fix 0"):
+        assert section in evidence, section
     assert "status: promoted" in design.read_text(encoding="utf-8")
 
 
@@ -235,20 +223,23 @@ def test_scan_decide_rescan_baseline_sequence(service_py_repo: Path, tmp_path: P
     assert by_fp[_FP_PROMOTED]["slug"] == _SLUG_PROMOTED
 
     # Step 2: the user rejects one finding, accepts another (deferring past an
-    # expiry), and approves a third; `promote --baseline` emits the approved
-    # finding's bundle, flips it to `promoted` in design.md, and records every
-    # decision -- including every still-`pending` finding that carries a yaml
-    # anchor -- into a fresh baseline.
+    # expiry), and approves a third; `promote --select --baseline` writes the
+    # approved finding's evidence.md, flips it to `promoted` in design.md, and
+    # records every decision -- including every still-`pending` finding that
+    # carries a yaml anchor -- into a fresh baseline.
     _apply_decisions(design, [
         (_SLUG_REJECTED, "rejected", "flaky pipeline, tracked in a separate ticket", None),
         (_SLUG_ACCEPTED, "accepted", "waiting for the payments rewrite", _UNTIL),
         (_SLUG_PROMOTED, "approved", None, None),
     ])
-    out = tmp_path / "pbis"
     baseline_path = workdir / "baseline.json"
     assert promote_main(
-        [str(design), "--out", str(out), "--baseline", str(baseline_path)]
+        [str(design), "--select", _SLUG_PROMOTED, "--baseline", str(baseline_path)]
     ) == 0
+    evidence = (workdir / "evidence.md").read_text(encoding="utf-8")
+    assert evidence.startswith("# ")
+    assert "Repository: " in evidence
+    assert "status: promoted" in design.read_text(encoding="utf-8")
 
     doc = load_baseline(baseline_path)
     assert doc is not None
@@ -259,6 +250,7 @@ def test_scan_decide_rescan_baseline_sequence(service_py_repo: Path, tmp_path: P
     assert doc["findings"][_FP_ACCEPTED]["until"] == _UNTIL
     assert doc["findings"][_FP_ACCEPTED]["reason"] == "waiting for the payments rewrite"
     assert doc["findings"][_FP_PROMOTED]["status"] == "promoted"
+    assert "bundle" not in doc["findings"][_FP_PROMOTED]
 
     # Ruling 25: `record` remembers every finding verified.json carried, not
     # only the ones the design document had a decision for -- so step 2's
@@ -382,15 +374,17 @@ def test_scan_decide_rescan_baseline_sequence(service_py_repo: Path, tmp_path: P
     assert parsed5["metadata"]["counts"]["suppressed"] == 2
     assert parsed5["metadata"]["counts"]["resolved"] == 0
 
-    # Promote against that regenerated document -- the one a user would edit
+    # Record against that regenerated document -- the one a user would edit
     # next -- so `record` sees the edited finding with no decision (it is
     # hidden) and migrates the rejection onto its new fingerprint. Every
     # finding the regenerated document does carry reads `pending` again, as
     # step 3 already noted, so the promoted finding's own status is not
-    # re-asserted after this point; its classification is.
-    assert promote_main(
-        [str(design5), "--out", str(out), "--baseline", str(baseline_path)]
-    ) == 0
+    # re-asserted after this point; its classification is. Nothing in
+    # design5 is `approved` or `promoted` (everything pending, freshly
+    # regenerated), so there is nothing left to --select -- _write_back is
+    # called directly, exercising exactly the write-back promote_main's own
+    # --baseline branch would run.
+    _write_back(design5, baseline_path, SCAN_DATE)
     doc = load_baseline(baseline_path)
     assert doc is not None
     assert _FP_REJECTED not in doc["findings"], "the old key is gone, not left to resolve"

@@ -7,118 +7,20 @@ from pathlib import Path
 
 import pytest
 from design_parser import parse_design
-from promote import PromoteResult, run_promote
 
 # design-v1.md is the v1 compatibility document (spec 8), not the v2 golden Task 7 adds.
 GOLDEN = Path(__file__).parent / "golden" / "design-v1.md"
 
 
-def test_no_approved_returns_zero(tmp_path: Path):
-    src = tmp_path / "design.md"
-    src.write_text(GOLDEN.read_text())  # all pending
-    result = run_promote(src, out_root=tmp_path / "out")
-    assert result.emitted_count == 0
-    assert result.pending_count == 5
-    assert result.exit_code == 0
-
-
-def test_one_approved_emits_one_bundle(tmp_path: Path):
-    src = tmp_path / "design.md"
-    src.write_text(GOLDEN.read_text().replace("status: pending", "status: approved", 1))
-    result = run_promote(src, out_root=tmp_path / "out", date="2026-05-31")
-    assert result.emitted_count == 1
-    assert (tmp_path / "out" / "chore-finding-0-2026-05-31").exists()
-    # design.md mutated to promoted
-    assert "status: promoted" in src.read_text()
-    assert result.exit_code == 0
-
-
-def test_idempotent_rerun(tmp_path: Path):
-    src = tmp_path / "design.md"
-    src.write_text(GOLDEN.read_text().replace("status: pending", "status: approved", 1))
-    run_promote(src, out_root=tmp_path / "out", date="2026-05-31")
-    result = run_promote(src, out_root=tmp_path / "out", date="2026-05-31")
-    assert result.emitted_count == 0
-    assert result.already_promoted_count == 1
-    assert result.exit_code == 0
-
-
-def test_invalid_status_exits_2(tmp_path: Path):
-    src = tmp_path / "design.md"
-    src.write_text(GOLDEN.read_text().replace("status: pending", "status: yes", 1))
-    result = run_promote(src, out_root=tmp_path / "out")
-    assert result.exit_code == 2
-
-
-def test_two_approved_emits_two_bundles(tmp_path: Path):
-    src = tmp_path / "design.md"
-    src.write_text(GOLDEN.read_text().replace("status: pending", "status: approved", 2))
-    result = run_promote(src, out_root=tmp_path / "out", date="2026-05-31")
-    assert result.emitted_count == 2
-    assert len(result.emitted_paths) == 2
-    assert result.pending_count == 3
-    text = src.read_text()
-    assert text.count("status: promoted") == 2
-    assert text.count("status: pending") == 3
-    assert result.exit_code == 0
-
-
-def test_rejected_counted_not_emitted(tmp_path: Path):
-    src = tmp_path / "design.md"
-    src.write_text(GOLDEN.read_text().replace("status: pending", "status: rejected", 1))
-    result = run_promote(src, out_root=tmp_path / "out", date="2026-05-31")
-    assert result.emitted_count == 0
-    assert result.rejected_count == 1
-    assert result.pending_count == 4
-    assert result.exit_code == 0
-
-
-def test_default_result_emitted_paths_is_list():
-    # per [[462d13a7-grep-test-callsites]]: PromoteResult() constructs cleanly
-    # with a fresh list, not a shared mutable default.
-    assert PromoteResult().emitted_paths == []
-    a, b = PromoteResult(), PromoteResult()
-    a.emitted_paths.append(Path("x"))
-    assert b.emitted_paths == []
-
-
-def test_accepted_counted_separately_from_pending(tmp_path: Path) -> None:
-    src = tmp_path / "design.md"
-    src.write_text(GOLDEN.read_text().replace("status: pending", "status: accepted", 1))
-    result = run_promote(src, out_root=tmp_path / "out", date="2026-05-31")
-    assert result.exit_code == 0
-    assert result.emitted_count == 0
-    assert result.accepted_count == 1
-    assert result.pending_count == 4
-    assert result.rejected_count == 0
-    assert "status: accepted" in src.read_text()
-
-
-def test_summary_line_reports_accepted(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_invalid_status_exits_2(tmp_path: Path) -> None:
+    """An invalid status value fails parse_design itself -- there is no
+    run_promote status dispatch left to reach; _main's own initial parse call
+    is what turns this into exit 2."""
     from promote import _main
 
     src = tmp_path / "design.md"
-    src.write_text(GOLDEN.read_text().replace("status: pending", "status: accepted", 2))
-    assert _main([str(src), "--out", str(tmp_path / "out")]) == 0
-    out = capsys.readouterr().out
-    assert "accepted: 2" in out
-    assert "pending: 3" in out
-
-
-def test_accepted_is_counted_and_never_pending(tmp_path: Path) -> None:
-    design = tmp_path / "design.md"
-    design.write_bytes("\n".join([
-        "## Accepted finding", "", "```yaml", "status: accepted", "slug: accepted-finding",
-        "severity: 3", "category: security", "reason: waiting for the rewrite",
-        "until: 2027-01-31", "```", "", "body", "",
-        "## Pending finding", "", "```yaml", "status: pending", "slug: pending-finding",
-        "severity: 2", "category: security", "```", "", "body", "",
-    ]).encode("utf-8"))
-    result = run_promote(design, out_root=tmp_path / "out", date="2026-09-06")
-    assert result.accepted_count == 1 and result.pending_count == 1
-    assert result.emitted_count == 0 and result.exit_code == 0
+    src.write_text(GOLDEN.read_text().replace("status: pending", "status: yes", 1))
+    assert _main([str(src), "--list-approved"]) == 2
 
 
 def test_write_back_exit_code_is_reserved() -> None:
@@ -129,83 +31,79 @@ def test_write_back_exit_code_is_reserved() -> None:
 
 class TestWriteBack:
     def test_without_baseline_flag_nothing_is_written(self, v2_design_workdir) -> None:
-        from promote import _main
+        from promote import _main, list_approved
 
         design, workdir = v2_design_workdir
-        assert _main([str(design), "--out", str(workdir / "pbis")]) == 0
+        slug = list_approved(design)[0]["slug"]
+        assert _main([str(design), "--select", slug]) == 0
         assert not (workdir / "baseline.json").exists()
 
     def test_with_baseline_flag_every_decision_is_recorded(self, v2_design_workdir) -> None:
         from baseline import load_baseline
-        from promote import _main
+        from promote import _main, list_approved
 
         design, workdir = v2_design_workdir
-        baseline = workdir / "baseline.json"
-        code = _main([str(design), "--out", str(workdir / "pbis"), "--baseline", str(baseline)])
+        slug = list_approved(design)[0]["slug"]
+        baseline_path = workdir / "baseline.json"
+        code = _main([str(design), "--select", slug, "--baseline", str(baseline_path)])
         assert code == 0
-        doc = load_baseline(baseline)
+        doc = load_baseline(baseline_path)
         assert doc is not None
         statuses = {e["status"] for e in doc["findings"].values()}
-        assert "promoted" in statuses  # every approved finding was emitted, so is now promoted
+        assert "promoted" in statuses  # the selected finding is now promoted
 
-    def test_write_back_failure_is_exit_6_and_bundles_remain(
+    def test_write_back_failure_is_exit_6_and_evidence_remains(
         self, v2_design_workdir, monkeypatch
     ) -> None:
         import baseline as bmod
-        from promote import EXIT_WRITE_BACK, _main
+        from promote import EXIT_WRITE_BACK, _main, list_approved
 
         design, workdir = v2_design_workdir
+        slug = list_approved(design)[0]["slug"]
 
         def boom(*a, **k):
             raise bmod.BaselineError("simulated")
 
         monkeypatch.setattr(bmod, "record", boom)
-        code = _main([str(design), "--out", str(workdir / "pbis"), "--baseline",
-                      str(workdir / "baseline.json")])
+        code = _main(
+            [str(design), "--select", slug, "--baseline", str(workdir / "baseline.json")]
+        )
         assert code == EXIT_WRITE_BACK == 6
-        assert any((workdir / "pbis").iterdir()), "bundles emitted before the write-back remain"
-
-    def test_a_promote_failure_is_not_reported_as_write_back(self, v2_design_workdir) -> None:
-        """Exit 6 means the write-back failed and nothing else did."""
-        from promote import EXIT_WRITE_BACK, _main
-
-        design, workdir = v2_design_workdir
-        baseline = workdir / "b.json"
-        # A second run without --force hits the already-promoted path, which is not exit 6.
-        _main([str(design), "--out", str(workdir / "pbis"), "--baseline", str(baseline)])
-        code = _main([str(design), "--out", str(workdir / "pbis"), "--baseline", str(baseline)])
-        assert code != EXIT_WRITE_BACK
+        assert (workdir / "evidence.md").is_file(), "evidence written before the write-back remains"
 
     def test_v1_design_with_baseline_refuses_before_emitting(self, tmp_path: Path) -> None:
         from promote import _main
 
         design = tmp_path / "design.md"
         design.write_text(GOLDEN.read_text().replace("status: pending", "status: approved", 1))
-        code = _main([str(design), "--out", str(tmp_path / "out"), "--baseline",
-                      str(tmp_path / "baseline.json")])
+        slug = parse_design(design)["findings"][0]["slug"]
+        code = _main(
+            [str(design), "--select", slug, "--baseline", str(tmp_path / "baseline.json")]
+        )
         assert code == 2
-        assert not (tmp_path / "out").exists()
+        assert not (tmp_path / "evidence.md").exists()
         assert not (tmp_path / "baseline.json").exists()
 
-    def test_already_promoted_finding_with_no_baseline_history_is_exit_zero(
+    def test_already_selected_finding_with_no_baseline_history_is_exit_zero(
         self, v2_design_workdir
     ) -> None:
         """A finding promoted before --baseline existed has no baseline history;
-        run_promote's already-promoted path must not raise recording it."""
+        select's SELECTABLE ({"approved", "promoted"}) must let a later
+        --baseline run record it anyway."""
         from baseline import load_baseline
-        from promote import _main
+        from promote import _main, list_approved
 
         design, workdir = v2_design_workdir
-        out = workdir / "pbis"
-        # First run with no --baseline: emits the bundle and marks it promoted,
-        # exactly like every promote run before this task existed.
-        assert _main([str(design), "--out", str(out)]) == 0
+        slug = list_approved(design)[0]["slug"]
+        # First run with no --baseline: writes evidence.md and marks promoted,
+        # exactly like every select run before this task existed.
+        assert _main([str(design), "--select", slug]) == 0
         assert not (workdir / "baseline.json").exists()
 
-        baseline = workdir / "baseline.json"
-        code = _main([str(design), "--out", str(out), "--baseline", str(baseline)])
+        baseline_path = workdir / "baseline.json"
+        code = _main([str(design), "--select", slug, "--baseline", str(baseline_path)])
         assert code == 0
-        doc = load_baseline(baseline)
+        doc = load_baseline(baseline_path)
         assert doc is not None
         promoted = [e for e in doc["findings"].values() if e["status"] == "promoted"]
         assert promoted
@@ -222,9 +120,10 @@ class TestWriteBack:
         an ancestor of .tech-debt/ either. Reproduced (Finding #1) as an
         uncaught ValueError from Path.relative_to before this fix; root must be
         derived from --baseline's own path instead."""
-        from promote import _main
+        from promote import _main, list_approved
 
         design, workdir = v2_design_workdir
+        slug = list_approved(design)[0]["slug"]
         repo = workdir / "repo"
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         (repo / ".gitignore").write_text(".tech-debt/\n", encoding="utf-8")
@@ -240,44 +139,47 @@ class TestWriteBack:
         elsewhere.mkdir()
         monkeypatch.chdir(elsewhere)
 
-        code = _main([str(design), "--out", str(workdir / "pbis"), "--baseline",
-                      str(baseline_path)])
+        code = _main([str(design), "--select", slug, "--baseline", str(baseline_path)])
         assert code == 0
         text = (repo / ".gitignore").read_text(encoding="utf-8")
         assert text.endswith("!.tech-debt/\n.tech-debt/*\n!.tech-debt/baseline.json\n")
 
-    def test_malformed_ranked_json_is_exit_6_and_bundles_remain(
+    def test_malformed_ranked_json_is_exit_6_and_evidence_remains(
         self, v2_design_workdir
     ) -> None:
         """A malformed ranked.json raised json.JSONDecodeError uncaught before
         this fix (Finding #1, mode 2); the write-back must degrade to exit 6,
-        same as a BaselineError, with the bundles already emitted left intact."""
-        from promote import EXIT_WRITE_BACK, _main
+        same as a BaselineError, with evidence.md already written left intact."""
+        from promote import EXIT_WRITE_BACK, _main, list_approved
 
         design, workdir = v2_design_workdir
+        slug = list_approved(design)[0]["slug"]
         (workdir / "ranked.json").write_text("{not json", encoding="utf-8")
 
-        code = _main([str(design), "--out", str(workdir / "pbis"), "--baseline",
-                      str(workdir / "baseline.json")])
+        code = _main(
+            [str(design), "--select", slug, "--baseline", str(workdir / "baseline.json")]
+        )
         assert code == EXIT_WRITE_BACK == 6
-        assert any((workdir / "pbis").iterdir()), "bundles emitted before the write-back remain"
+        assert (workdir / "evidence.md").is_file(), "evidence written before the write-back remains"
         assert not (workdir / "baseline.json").exists()
 
     def test_preset_is_forwarded_from_ranked_json(self, v2_design_workdir) -> None:
         """A mutant hard-coding a wrong preset must fail this: the baseline's
         preset must equal ranked.json's actual value, not just its fallback."""
         from baseline import load_baseline
-        from promote import _main
+        from promote import _main, list_approved
 
         design, workdir = v2_design_workdir
+        slug = list_approved(design)[0]["slug"]
         ranked_path = workdir / "ranked.json"
         ranked = json.loads(ranked_path.read_bytes())
         ranked["preset"] = "hotspot-first"
         ranked_path.write_text(json.dumps(ranked), encoding="utf-8")
 
         baseline_path = workdir / "baseline.json"
-        assert _main([str(design), "--out", str(workdir / "pbis"), "--baseline",
-                      str(baseline_path)]) == 0
+        assert _main(
+            [str(design), "--select", slug, "--baseline", str(baseline_path)]
+        ) == 0
         doc = load_baseline(baseline_path)
         assert doc is not None
         assert doc["preset"] == "hotspot-first"
@@ -286,93 +188,84 @@ class TestWriteBack:
         self, v2_design_workdir
     ) -> None:
         from baseline import load_baseline
-        from promote import _main
+        from promote import _main, list_approved
 
         design, workdir = v2_design_workdir
+        slug = list_approved(design)[0]["slug"]
         (workdir / "ranked.json").unlink()
 
         baseline_path = workdir / "baseline.json"
-        assert _main([str(design), "--out", str(workdir / "pbis"), "--baseline",
-                      str(baseline_path)]) == 0
+        assert _main(
+            [str(design), "--select", slug, "--baseline", str(baseline_path)]
+        ) == 0
         doc = load_baseline(baseline_path)
         assert doc is not None
         assert doc["preset"] == "balanced"
 
-    def test_promote_failure_writes_no_baseline(self, v2_design_workdir, monkeypatch) -> None:
-        """A mutant deleting `and result.exit_code == 0` from _main's write-back
-        gate must fail this: when run_promote itself fails for a reason other
-        than the v1 precheck, no write-back may be attempted.
-
-        A pre-existing bundle without --force does not, on its own, produce
-        this: run_promote's approved branch treats a BundleWriteError whose
-        message contains "already exists" as an idempotent already-promoted
-        case (exit stays 0), by design -- verified directly against this
-        checkout before writing this test. A genuine bundle-write failure
-        (disk full, permission denied, ...) is simulated instead, since it is
-        the only way run_promote's exit_code actually becomes nonzero here.
-        """
-        import promote as pmod
+    def test_select_failure_writes_no_baseline(self, v2_design_workdir) -> None:
+        """A mutant that reaches the write-back even when select() failed must
+        fail this: _main returns immediately on a SelectionError, before the
+        --baseline write-back is ever attempted."""
         from promote import _main
 
         design, workdir = v2_design_workdir
-
-        def boom(*_a: object, **_k: object) -> None:
-            raise pmod.BundleWriteError("cannot write bundle: disk full")
-
-        monkeypatch.setattr(pmod, "write_bundle", boom)
         baseline_path = workdir / "baseline.json"
-        code = _main([str(design), "--out", str(workdir / "pbis"), "--baseline",
-                      str(baseline_path)])
-        assert code == 4
+        code = _main(
+            [str(design), "--select", "no-such-slug", "--baseline", str(baseline_path)]
+        )
+        assert code == 2
         assert not baseline_path.exists()
 
     def test_a_design_parse_error_in_the_write_back_is_exit_6(
         self, v2_design_workdir, monkeypatch
     ) -> None:
-        """The write-back re-parses design.md after run_promote's own
-        mark-promoted mutation, so a DesignParseError is one of the failures
-        it can genuinely raise -- from a document that was edited between the
-        two parses, or a mutation that left it unparseable. It belongs with
-        the other write-back failures at exit 6: the bundles are on disk and
-        the previous baseline is untouched, which is exactly what exit 6
-        tells the user."""
+        """The write-back re-parses design.md after select's own mark-promoted
+        mutation, so a DesignParseError is one of the failures it can genuinely
+        raise -- from a document that was edited between the two parses, or a
+        mutation that left it unparseable. It belongs with the other write-back
+        failures at exit 6: evidence.md is on disk and the previous baseline is
+        untouched, which is exactly what exit 6 tells the user."""
         import sys
 
         import promote as pmod
         from design_parser import DesignParseError
-        from promote import EXIT_WRITE_BACK, _main
+        from promote import EXIT_WRITE_BACK, _main, list_approved
 
         design, workdir = v2_design_workdir
-        out = workdir / "pbis"
+        slug = list_approved(design)[0]["slug"]
         baseline_path = workdir / "baseline.json"
-        assert _main([str(design), "--out", str(out), "--baseline", str(baseline_path)]) == 0
+        assert _main(
+            [str(design), "--select", slug, "--baseline", str(baseline_path)]
+        ) == 0
         before = baseline_path.read_bytes()
-        emitted = sorted(p.name for p in out.iterdir())
-        assert emitted
+        assert (workdir / "evidence.md").is_file()
 
         real = pmod.parse_design
 
         def parse(path: Path) -> dict:
-            # Only the write-back's own call fails; the v1 precheck and
-            # run_promote must both parse normally, or the run would never
+            # Only the write-back's own call fails; _main's own initial parse
+            # and select() must both parse normally, or the run would never
             # reach the write-back at all.
             if sys._getframe(1).f_code.co_name == "_write_back":
                 raise DesignParseError("simulated: unparseable after mark_promoted")
             return real(path)
 
         monkeypatch.setattr(pmod, "parse_design", parse)
-        code = _main([str(design), "--out", str(out), "--baseline", str(baseline_path)])
+        code = _main(
+            [str(design), "--select", slug, "--baseline", str(baseline_path)]
+        )
         assert code == EXIT_WRITE_BACK == 6
-        assert sorted(p.name for p in out.iterdir()) == emitted
+        assert (workdir / "evidence.md").is_file()
         assert baseline_path.read_bytes() == before, "the previous baseline is intact"
 
-    def test_an_empty_v2_design_is_not_refused_as_a_v1_one(self, tmp_path: Path) -> None:
-        """The v1 refusal asks whether any finding carries a fingerprint, which
-        a v2 document with no findings at all also answers no. A scan that
-        found nothing is not a v1 document: it promotes, emits nothing and
-        records nothing, exit 0."""
+    def test_write_back_records_an_empty_v2_design(self, tmp_path: Path) -> None:
+        """A v2 design.md with no findings at all carries no fingerprints
+        either, but is not a v1 document -- _write_back must record it as an
+        empty baseline rather than raising. The CLI can no longer reach this
+        case through --select (there is nothing to select), so this exercises
+        _write_back directly."""
         from baseline import load_baseline
-        from promote import _main
+        from promote import _write_back
 
         design = tmp_path / "design.md"
         design.write_text(
@@ -381,11 +274,8 @@ class TestWriteBack:
             "# Tech debt scan\n\nNo findings this run.\n",
             encoding="utf-8",
         )
-        out = tmp_path / "out"
         baseline_path = tmp_path / "baseline.json"
-
-        assert _main([str(design), "--out", str(out), "--baseline", str(baseline_path)]) == 0
-        assert not out.exists() or not any(out.iterdir())
+        _write_back(design, baseline_path, "2026-09-06")
         doc = load_baseline(baseline_path)
         assert doc is not None and doc["findings"] == {}
 
@@ -522,3 +412,28 @@ def test_select_wraps_a_mark_promoted_failure(
 
     assert (tmp_path / "evidence.md").is_file()
     assert "status: approved" in src.read_text(encoding="utf-8")
+
+
+def test_main_list_approved_prints_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from promote import _main
+
+    src = _v2_design(tmp_path)
+    assert _main([str(src), "--list-approved"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert len(rows) == 1 and rows[0]["slug"]
+
+
+def test_main_select_writes_evidence(tmp_path: Path) -> None:
+    from promote import _main, list_approved
+
+    src = _v2_design(tmp_path)
+    slug = list_approved(src)[0]["slug"]
+    assert _main([str(src), "--select", slug]) == 0
+    assert (tmp_path / "evidence.md").is_file()
+
+
+def test_main_requires_a_mode(tmp_path: Path) -> None:
+    from promote import _main
+
+    with pytest.raises(SystemExit):
+        _main([str(_v2_design(tmp_path))])
