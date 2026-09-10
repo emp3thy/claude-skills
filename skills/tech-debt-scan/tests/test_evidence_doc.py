@@ -98,6 +98,17 @@ def test_evidence_locations_reads_all_three_citation_shapes() -> None:
     ]
 
 
+def test_evidence_locations_does_not_match_a_bare_backtick_bullet() -> None:
+    """A bare ``- `path` `` line -- naming neither a line span nor "(whole
+    file)" -- is not one of the two citation shapes design_writer emits.
+    ``body_md`` is the finding's whole rendered body, including free-form
+    Proof/Remediation prose that ``free_text()`` only escapes for lines
+    starting with ``#`` or a backtick fence, so a prose bullet like
+    ``- `config.py` is the entry point`` must not be read as a citation."""
+    assert evidence_locations("- `config.py`\n") == []
+    assert evidence_locations("- `config.py` is the entry point\n") == []
+
+
 WHOLE_FILE_ONLY_BODY = """### Proof
 
 The whole module is dead code.

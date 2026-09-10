@@ -381,6 +381,50 @@ def test_list_approved_reports_a_primary_file_for_a_whole_file_citation(
     assert rows[0]["primary_file"] == "pkg/dead_module.py"
 
 
+_BARE_BULLET_BEFORE_EVIDENCE_DESIGN = """## Refund handler leaks a raw exception message
+
+```yaml
+status: approved
+slug: refund-handler-leaks-a-raw-exception-message
+severity: 3
+category: error-masking
+```
+
+### Proof
+
+- `notes.py`
+
+That file is background reading, not evidence. The handler at line 42
+returns the raw exception message to the caller.
+
+### Evidence
+
+- `pkg/refund.py:42-50`
+
+```
+except Exception as exc:
+    return str(exc)
+```
+"""
+
+
+def test_list_approved_ignores_a_bare_bullet_ahead_of_the_real_evidence_citation(
+    tmp_path: Path,
+) -> None:
+    """Regression: ``body_md`` is the finding's whole rendered body, and Proof
+    (free-form LLM prose) precedes Evidence. A bare ``- `path` `` bullet in
+    Proof must not be read as a citation -- if it were, being first in
+    ``body_md`` it would silently become ``primary_file``, displacing the
+    real Evidence citation with no error."""
+    from promote import list_approved
+
+    src = tmp_path / "design.md"
+    src.write_text(_BARE_BULLET_BEFORE_EVIDENCE_DESIGN, encoding="utf-8")
+    rows = list_approved(src)
+    assert len(rows) == 1
+    assert rows[0]["primary_file"] == "pkg/refund.py"
+
+
 def test_select_writes_evidence_and_marks_promoted(tmp_path: Path) -> None:
     from promote import list_approved, select
 

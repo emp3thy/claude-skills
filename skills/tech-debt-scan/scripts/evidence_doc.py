@@ -25,11 +25,15 @@ from typing import Any, Final
 # whole-file ``- `path` (whole file) `` when either bound is null, and the
 # repository-level ``- repository-level finding (no file or line range)``
 # when there is no file at all. The first two both name a file inside
-# backticks, so both match here; the third names no file and is deliberately
-# left unmatched. The colon-and-digits group is optional so a whole-file
-# citation still matches, with no line captured for it.
+# backticks, so both are matched here, as two ALTERNATIVES -- the line-span
+# group and the "(whole file)" annotation must never both be optional on one
+# branch, or a bare ``- `path` `` bullet with neither (reachable in practice:
+# ``body_md`` is the finding's whole rendered body, and Proof/Remediation are
+# free-form prose that ``free_text()`` does not escape for a line starting
+# with ``-``) would be misread as a whole-file citation. The third shape
+# names no file and is deliberately left unmatched by either alternative.
 _EVIDENCE_LINE: Final[re.Pattern[str]] = re.compile(
-    r"^- `([^`]+?)(?::(\d+)(?:-\d+)?)?`(?: \(whole file\))?\s*$", re.MULTILINE
+    r"^- `([^`]+?):(\d+)(?:-\d+)?`\s*$|^- `([^`]+?)` \(whole file\)\s*$", re.MULTILINE
 )
 _ABSENT: Final[str] = "-"
 _QUESTIONS_HEADING: Final[str] = "### Open questions from the scan"
@@ -43,10 +47,16 @@ def evidence_locations(body_md: str) -> list[tuple[str, int | None]]:
     report, and ``0`` would be a lie that downstream code could mistake for a
     real anchor.
     """
-    return [
-        (match.group(1), int(match.group(2)) if match.group(2) is not None else None)
-        for match in _EVIDENCE_LINE.finditer(body_md)
-    ]
+    locations: list[tuple[str, int | None]] = []
+    for match in _EVIDENCE_LINE.finditer(body_md):
+        file_span, line, file_whole = match.group(1), match.group(2), match.group(3)
+        if file_span is not None:
+            locations.append((file_span, int(line) if line is not None else None))
+        else:
+            # The alternation guarantees exactly one branch participated.
+            assert file_whole is not None
+            locations.append((file_whole, None))
+    return locations
 
 
 def _field(finding: dict[str, Any], key: str) -> str:
