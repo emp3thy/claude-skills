@@ -67,6 +67,7 @@ from baseline import BaselineError
 from bundle_writer import BundleWriteError, write_bundle
 from design_parser import DesignParseError, parse_design
 from design_writer import DesignWriteError, mark_promoted
+from evidence_doc import evidence_locations, render_evidence
 
 # Returned by _main when --baseline was given and baseline.record raised
 # after bundles were already written this run: the bundles on disk and the
@@ -266,6 +267,87 @@ def _write_back(
         preset=preset,
     )
     return baseline.ensure_gitignore_triple(_repo_root_for_baseline(baseline_path), baseline_path)
+
+
+# design.md statuses `--select` accepts. `promoted` is included so a failed
+# baseline write, or a second design session on the same finding, can be
+# re-run; `--list-approved` still offers only `approved`, so a re-run is
+# always deliberate rather than suggested.
+SELECTABLE: Final[frozenset[str]] = frozenset({"approved", "promoted"})
+
+
+class SelectionError(Exception):
+    """Raised when the requested slug is unknown or not selectable."""
+
+
+def _severity(finding: dict[str, Any]) -> int:
+    try:
+        return int(finding["severity"])
+    except (KeyError, TypeError, ValueError):
+        return 0
+
+
+def _priority(finding: dict[str, Any]) -> float:
+    try:
+        return float(finding.get("priority") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def list_approved(design_path: Path) -> list[dict[str, Any]]:
+    """The `approved` findings in ``design_path``, most severe first.
+
+    Ordered by severity then priority, both descending, so the row the user is
+    most likely to pick is first. Read-only: nothing is written and no status
+    changes.
+    """
+    findings = parse_design(design_path)["findings"]
+    approved = [f for f in findings if f.get("status") == "approved"]
+    approved.sort(key=lambda f: (-_severity(f), -_priority(f)))
+    rows: list[dict[str, Any]] = []
+    for finding in approved:
+        locations = evidence_locations(str(finding.get("body_md") or ""))
+        rows.append({
+            "slug": finding["slug"],
+            "title": finding["title"],
+            "family": finding.get("family") or finding["category"],
+            "severity": _severity(finding),
+            "effort": finding.get("effort"),
+            "primary_file": locations[0][0] if locations else None,
+            "fingerprint": finding.get("fingerprint"),
+        })
+    return rows
+
+
+def select(design_path: Path, slug: str) -> Path:
+    """Write ``evidence.md`` for ``slug`` and mark it promoted; return the path.
+
+    Writes beside ``design_path`` (the workdir), overwriting any previous
+    evidence document: it seeds one design session and is always re-derivable.
+    The design.md mark happens after the write, so a failed render never
+    consumes the finding.
+    """
+    parsed = parse_design(design_path)
+    finding = next((f for f in parsed["findings"] if f.get("slug") == slug), None)
+    if finding is None:
+        raise SelectionError(f"unknown slug: {slug}")
+    status = str(finding.get("status", ""))
+    if status not in SELECTABLE:
+        raise SelectionError(f"{slug} is {status}, not approved")
+
+    candidates = _read_json_object(design_path.parent / "candidates.json")
+    text = render_evidence(
+        finding,
+        metadata=parsed["metadata"],
+        open_questions=candidates.get("open_questions") or [],
+        looks_bad_but_fine=candidates.get("looks_bad_but_fine") or [],
+    )
+    out_path = design_path.parent / "evidence.md"
+    out_path.write_bytes(text.encode("utf-8"))
+
+    if status == "approved":
+        mark_promoted(design_path, slugs=[slug])
+    return out_path
 
 
 def _main(argv: list[str] | None = None) -> int:

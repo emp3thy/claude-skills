@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from design_parser import parse_design
 from promote import PromoteResult, run_promote
 
 # design-v1.md is the v1 compatibility document (spec 8), not the v2 golden Task 7 adds.
@@ -387,3 +388,112 @@ class TestWriteBack:
         assert not out.exists() or not any(out.iterdir())
         doc = load_baseline(baseline_path)
         assert doc is not None and doc["findings"] == {}
+
+
+# design-worked-example.md is the v2 golden: two findings, both `status: pending`,
+# both carrying fingerprints. Document order is severity 4 then severity 5.
+V2_GOLDEN = Path(__file__).parent / "golden" / "design-worked-example.md"
+
+
+def _v2_design(tmp_path: Path, *, approve: int = 1) -> Path:
+    src = tmp_path / "design.md"
+    src.write_text(
+        V2_GOLDEN.read_text(encoding="utf-8").replace(
+            "status: pending", "status: approved", approve
+        ),
+        encoding="utf-8",
+    )
+    return src
+
+
+def test_list_approved_returns_only_approved_rows(tmp_path: Path) -> None:
+    from promote import list_approved
+
+    rows = list_approved(_v2_design(tmp_path, approve=2))
+    assert len(rows) == 2
+    assert set(rows[0]) == {
+        "slug", "title", "family", "severity", "effort", "primary_file", "fingerprint",
+    }
+    assert all(isinstance(row["severity"], int) for row in rows)
+
+
+def test_list_approved_is_empty_when_nothing_is_approved(tmp_path: Path) -> None:
+    from promote import list_approved
+
+    src = tmp_path / "design.md"
+    src.write_text(V2_GOLDEN.read_text(encoding="utf-8"), encoding="utf-8")
+    assert list_approved(src) == []
+
+
+def test_list_approved_orders_by_severity_descending(tmp_path: Path) -> None:
+    """The golden's severity-4 finding precedes its severity-5 one in the
+    document, so a passing assertion here proves the sort, not the file order."""
+    from promote import list_approved
+
+    rows = list_approved(_v2_design(tmp_path, approve=2))
+    assert [row["severity"] for row in rows] == [5, 4]
+    assert rows[0]["slug"] == "hard-coded-credential-in-the-gateway-client"
+
+
+def test_select_writes_evidence_and_marks_promoted(tmp_path: Path) -> None:
+    from promote import list_approved, select
+
+    src = _v2_design(tmp_path)
+    slug = list_approved(src)[0]["slug"]
+    written = select(src, slug)
+
+    assert written == tmp_path / "evidence.md"
+    text = written.read_text(encoding="utf-8")
+    assert text.startswith("# ")
+    assert "Repository: " in text
+    assert "status: promoted" in src.read_text(encoding="utf-8")
+    assert list_approved(src) == []
+
+
+def test_select_folds_in_matching_open_questions(tmp_path: Path) -> None:
+    from promote import list_approved, select
+
+    src = _v2_design(tmp_path)
+    finding = list_approved(src)[0]
+    primary = finding["primary_file"]
+    (tmp_path / "candidates.json").write_text(
+        json.dumps({
+            "open_questions": [
+                {"file": primary, "line_start": 1, "question": "Is this deliberate?"}
+            ],
+            "looks_bad_but_fine": [],
+        }),
+        encoding="utf-8",
+    )
+    text = select(src, finding["slug"]).read_text(encoding="utf-8")
+    assert "### Open questions from the scan" in text
+    assert "Is this deliberate?" in text
+
+
+def test_select_rejects_an_unknown_slug(tmp_path: Path) -> None:
+    from promote import SelectionError, select
+
+    with pytest.raises(SelectionError, match="unknown"):
+        select(_v2_design(tmp_path), "no-such-slug")
+
+
+def test_select_rejects_a_pending_finding(tmp_path: Path) -> None:
+    from promote import SelectionError, select
+
+    src = tmp_path / "design.md"
+    src.write_text(V2_GOLDEN.read_text(encoding="utf-8"), encoding="utf-8")
+    slug = parse_design(src)["findings"][0]["slug"]
+    with pytest.raises(SelectionError, match="pending"):
+        select(src, slug)
+
+
+def test_select_accepts_an_already_promoted_finding(tmp_path: Path) -> None:
+    """A re-run after a failed baseline write, or a second design session on
+    the same finding, must be possible."""
+    from promote import list_approved, select
+
+    src = _v2_design(tmp_path)
+    slug = list_approved(src)[0]["slug"]
+    select(src, slug)
+    written = select(src, slug)
+    assert written.is_file()
