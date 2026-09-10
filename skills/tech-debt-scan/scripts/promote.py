@@ -34,12 +34,11 @@ deliberate deferral, spec 4.12) or ``promoted``; only ``approved`` findings
 are emitted here, and every other status is only tallied.
 
 With --baseline, every finding's edited status is written back to the
-baseline (baseline.record) after bundles are emitted: each finding emitted
-this run is recorded ``promoted`` with its bundle directory (PromoteResult
-.emitted), and a finding whose design.md already read ``promoted`` before
-this run has its existing bundle directory looked up on disk under out_root
-(PromoteResult.already_promoted) so a decision recorded before --baseline
-existed does not make record() raise. baseline.ensure_gitignore_triple then
+baseline (baseline.record) after bundles are emitted: the re-parsed
+design.md's decisions -- reflecting this run's own mark-promoted mutation, so
+a finding emitted this run and one whose design.md already read ``promoted``
+before this run are recorded the same way -- are written together with their
+matching ``verified.json`` findings. baseline.ensure_gitignore_triple then
 appends the tracked-baseline gitignore triple when the baseline is ignored.
 A v1 design.md carries no fingerprints, so --baseline refuses it (exit 2)
 before anything is emitted -- a baseline without fingerprints is worse than
@@ -233,10 +232,10 @@ def _read_json_object(path: Path) -> dict[str, Any]:
 def _write_back(
     design_path: Path,
     baseline_path: Path,
-    result: PromoteResult,
+    result: PromoteResult,  # unused: bundle vouching is gone; Task 4 drops this parameter
     today: str,
     *,
-    out_root: Path,
+    out_root: Path,  # unused: bundle vouching is gone; Task 4 drops this parameter
 ) -> str:
     """Record every decision in ``design_path`` into the baseline; return the outcome.
 

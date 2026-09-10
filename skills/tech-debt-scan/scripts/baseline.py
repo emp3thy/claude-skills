@@ -397,7 +397,7 @@ def record(
     fingerprint and the old key is removed, while an entry another finding
     matches directly is never taken from it. Otherwise the decision would be
     orphaned under a key nothing matches again, reported RESOLVED, while the
-    edited finding started over as ``pending``. Only five fields of an entry
+    edited finding started over as ``pending``. Only four fields of an entry
     found either way are preserved: ``status``, ``reason``, ``until`` and
     ``first_seen``. Everything ``_entry_fields`` builds -- family, file,
     line, quote hash, quote, title and tier -- is refreshed from this scan,
