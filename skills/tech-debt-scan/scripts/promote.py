@@ -243,15 +243,7 @@ def _write_back(
     Re-parses ``design_path`` so the decisions reflect run_promote's own
     mark-promoted mutation, reads the matching ``verified.json`` and
     ``ranked.json`` (Ruling 1: preset defaults to "balanced" when ranked.json
-    or its preset key is absent) from the design's own directory, and maps
-    ``already_promoted`` and ``emitted`` bundle directories (by name, not
-    path) into baseline.record's ``bundles`` argument (Ruling 2 and Ruling 3).
-    An ``already_promoted`` fingerprint prefers the bundle the *previous*
-    baseline already recorded for it over the fresh (possibly ambiguous, see
-    ``_existing_bundle_dir``) glob pick, whenever that directory still exists
-    on disk under ``out_root`` (Ruling 2); an ``emitted`` fingerprint always
-    uses this run's own fresh bundle, since a bundle just written has no
-    ambiguity to resolve.
+    or its preset key is absent) from the design's own directory.
 
     Raises BaselineError, DesignParseError (the re-parse can fail on a
     document edited between the two parses), ValueError (includes
@@ -267,24 +259,10 @@ def _write_back(
     ranked = _read_json_object(design_path.parent / "ranked.json")
     preset = str(ranked.get("preset") or "balanced")
 
-    prior = baseline.load_baseline(baseline_path)
-    prior_findings: dict[str, Any] = prior["findings"] if prior else {}
-
-    bundles: dict[str, str] = {}
-    for fp, path in result.already_promoted.items():
-        prior_bundle = prior_findings.get(fp, {}).get("bundle")
-        if prior_bundle and (out_root / prior_bundle).is_dir():
-            bundles[fp] = prior_bundle
-        else:
-            bundles[fp] = path.name
-    for fp, path in result.emitted.items():
-        bundles[fp] = path.name
-
     baseline.record(
         baseline_path,
         decisions=decisions,
         findings=findings,
-        bundles=bundles,
         today=today,
         preset=preset,
     )

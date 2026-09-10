@@ -46,7 +46,7 @@ def _entry(**over) -> dict:
         "family": "error-masking", "file": "src/pay/refund.py", "line_start": 33,
         "quote_hash": "q" * 40, "title": "Empty catch swallows write failure", "tier": "A",
         "status": "pending", "first_seen": "2026-04-01", "last_seen": "2026-04-01",
-        "reason": None, "until": None, "bundle": None,
+        "reason": None, "until": None,
     }
     base.update(over)
     return base
@@ -540,34 +540,53 @@ class TestRecord:
         path = tmp_path / ".tech-debt" / "baseline.json"
         doc = record(path, decisions=[_decision(status="accepted", reason="tracked",
                                                 until="2027-01-01")],
-                     findings=[_finding()], bundles={}, today=TODAY, preset="balanced")
+                     findings=[_finding()], today=TODAY, preset="balanced")
         entry = doc["findings"]["aaaaaaaaaaaaaaaa"]
         assert entry == {"family": "error-masking", "file": "src/pay/refund.py", "line_start": 33,
                          "quote_hash": "q" * 40, "quote": "except Exception:",
                          "title": "Empty catch swallows write failure", "tier": "A",
                          "status": "accepted", "first_seen": TODAY, "last_seen": TODAY,
-                         "reason": "tracked", "until": "2027-01-01", "bundle": None}
+                         "reason": "tracked", "until": "2027-01-01"}
         assert load_baseline(path) == doc
 
     def test_first_seen_survives_a_second_record(self, tmp_path: Path) -> None:
         from baseline import record
 
         path = tmp_path / ".tech-debt" / "baseline.json"
-        record(path, decisions=[_decision()], findings=[_finding()], bundles={},
+        record(path, decisions=[_decision()], findings=[_finding()],
                today="2026-04-01", preset="balanced")
-        doc = record(path, decisions=[_decision()], findings=[_finding()], bundles={},
+        doc = record(path, decisions=[_decision()], findings=[_finding()],
                      today=TODAY, preset="balanced")
         assert doc["findings"]["aaaaaaaaaaaaaaaa"]["first_seen"] == "2026-04-01"
         assert doc["findings"]["aaaaaaaaaaaaaaaa"]["last_seen"] == TODAY
 
-    def test_a_promoted_finding_records_its_bundle(self, tmp_path: Path) -> None:
+    def test_promoted_records_without_a_bundle(self, tmp_path: Path) -> None:
+        """`promoted` now means "selected for a design session"; there is no
+        bundle to vouch for, so recording one must simply work."""
         from baseline import record
 
         path = tmp_path / ".tech-debt" / "baseline.json"
         doc = record(path, decisions=[_decision(status="promoted")], findings=[_finding()],
-                     bundles={"aaaaaaaaaaaaaaaa": "chore-empty-catch-2026-04-01"},
                      today=TODAY, preset="balanced")
-        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["bundle"] == "chore-empty-catch-2026-04-01"
+        entry = doc["findings"]["aaaaaaaaaaaaaaaa"]
+        assert entry["status"] == "promoted"
+        assert "bundle" not in entry
+
+    def test_a_legacy_entry_carrying_a_bundle_still_reads(self, tmp_path: Path) -> None:
+        """A baseline written before this change carries `bundle` on every
+        entry; it is ignored on read, never an error."""
+        from baseline import load_baseline, record
+
+        path = tmp_path / ".tech-debt" / "baseline.json"
+        path.parent.mkdir(parents=True)
+        legacy = _baseline(**{"aaaaaaaaaaaaaaaa": _entry(
+            status="promoted", bundle="chore-empty-catch-2026-04-01")})
+        path.write_text(json.dumps(legacy), encoding="utf-8")
+
+        assert load_baseline(path) is not None
+        doc = record(path, decisions=[_decision(status="promoted")], findings=[_finding()],
+                     today=TODAY, preset="balanced")
+        assert "bundle" not in doc["findings"]["aaaaaaaaaaaaaaaa"]
 
     def test_an_entry_absent_from_this_scan_is_kept(self, tmp_path: Path) -> None:
         """The baseline remembers decisions across scans; a finding the scan did
@@ -576,8 +595,8 @@ class TestRecord:
 
         path = tmp_path / ".tech-debt" / "baseline.json"
         record(path, decisions=[_decision(status="rejected", reason="by design")],
-               findings=[_finding()], bundles={}, today="2026-04-01", preset="balanced")
-        doc = record(path, decisions=[], findings=[], bundles={}, today=TODAY, preset="balanced")
+               findings=[_finding()], today="2026-04-01", preset="balanced")
+        doc = record(path, decisions=[], findings=[], today=TODAY, preset="balanced")
         assert doc["findings"]["aaaaaaaaaaaaaaaa"]["status"] == "rejected"
         assert doc["findings"]["aaaaaaaaaaaaaaaa"]["last_seen"] == "2026-04-01"
 
@@ -586,7 +605,7 @@ class TestRecord:
 
         with pytest.raises(BaselineError, match="status"):
             record(tmp_path / "b.json", decisions=[_decision(status="maybe")],
-                   findings=[_finding()], bundles={}, today=TODAY, preset="balanced")
+                   findings=[_finding()], today=TODAY, preset="balanced")
 
     def test_title_and_reason_are_redacted(self, tmp_path: Path) -> None:
         from baseline import record
@@ -594,7 +613,7 @@ class TestRecord:
         doc = record(tmp_path / "b.json",
                      decisions=[_decision(reason='see token = "sk_live_51H8f2kL9mN3pQ7rS4tU6vW"')],
                      findings=[_finding(title='key "sk_live_51H8f2kL9mN3pQ7rS4tU6vW" leaks')],
-                     bundles={}, today=TODAY, preset="balanced")
+                     today=TODAY, preset="balanced")
         blob = json.dumps(doc)
         assert "sk_live_51H8f2kL9mN3pQ7rS4tU6vW" not in blob
         assert "sk_l***" in blob
@@ -604,7 +623,7 @@ class TestRecord:
         import baseline as mod
 
         path = tmp_path / "b.json"
-        mod.record(path, decisions=[_decision()], findings=[_finding()], bundles={},
+        mod.record(path, decisions=[_decision()], findings=[_finding()],
                    today="2026-04-01", preset="balanced")
         before = path.read_bytes()
 
@@ -614,7 +633,7 @@ class TestRecord:
         monkeypatch.setattr(mod.os, "replace", boom)
         with pytest.raises(mod.BaselineError):
             mod.record(path, decisions=[_decision(status="rejected")], findings=[_finding()],
-                       bundles={}, today=TODAY, preset="balanced")
+                       today=TODAY, preset="balanced")
         assert path.read_bytes() == before
 
     def test_missing_fingerprint_raises_naming_the_decision(self, tmp_path: Path) -> None:
@@ -624,7 +643,7 @@ class TestRecord:
         del decision["fingerprint"]
         with pytest.raises(BaselineError, match="Untracked finding with no fingerprint"):
             record(tmp_path / "b.json", decisions=[decision], findings=[_finding()],
-                   bundles={}, today=TODAY, preset="balanced")
+                   today=TODAY, preset="balanced")
 
     def test_two_fingerprintless_decisions_do_not_collide(self, tmp_path: Path) -> None:
         """Without a guard, both decisions key onto the empty string and the
@@ -637,7 +656,7 @@ class TestRecord:
         del second["fingerprint"]
         with pytest.raises(BaselineError):
             record(tmp_path / "b.json", decisions=[first, second], findings=[_finding()],
-                   bundles={}, today=TODAY, preset="balanced")
+                   today=TODAY, preset="balanced")
 
     def test_empty_string_fingerprint_raises(self, tmp_path: Path) -> None:
         """A hand-typed `fingerprint: ""` parses to an empty string, not a
@@ -646,30 +665,7 @@ class TestRecord:
 
         with pytest.raises(BaselineError, match="fingerprint"):
             record(tmp_path / "b.json", decisions=[_decision(fingerprint="")],
-                   findings=[_finding()], bundles={}, today=TODAY, preset="balanced")
-
-    def test_promoted_with_no_bundle_and_no_history_raises(self, tmp_path: Path) -> None:
-        """Only `promote` can vouch for a bundle; a hand-recorded `promoted`
-        decision with nothing in `bundles` and no prior entry must not write
-        `bundle: null` silently."""
-        from baseline import BaselineError, record
-
-        with pytest.raises(BaselineError, match="bundle"):
-            record(tmp_path / "b.json", decisions=[_decision(status="promoted")],
-                   findings=[_finding()], bundles={}, today=TODAY, preset="balanced")
-
-    def test_promoted_keeps_a_previously_recorded_bundle(self, tmp_path: Path) -> None:
-        """A later call for the same fingerprint need not repeat the bundle
-        map; the guard only fires when no bundle exists anywhere."""
-        from baseline import record
-
-        path = tmp_path / "b.json"
-        record(path, decisions=[_decision(status="promoted")], findings=[_finding()],
-               bundles={"aaaaaaaaaaaaaaaa": "chore-empty-catch-2026-04-01"},
-               today="2026-04-01", preset="balanced")
-        doc = record(path, decisions=[_decision(status="promoted")], findings=[_finding()],
-                     bundles={}, today=TODAY, preset="balanced")
-        assert doc["findings"]["aaaaaaaaaaaaaaaa"]["bundle"] == "chore-empty-catch-2026-04-01"
+                   findings=[_finding()], today=TODAY, preset="balanced")
 
     def test_an_undecided_finding_is_recorded_as_pending(self, tmp_path: Path) -> None:
         """Ruling 25: `record` remembers every finding it was shown, not only the
@@ -685,14 +681,14 @@ class TestRecord:
                        "quote": "if False:", "quote_verified": True}],
         )
         doc = record(tmp_path / "b.json", decisions=[_decision()],
-                     findings=[_finding(), undecided], bundles={}, today=TODAY, preset="balanced")
+                     findings=[_finding(), undecided], today=TODAY, preset="balanced")
         assert set(doc["findings"]) == {"aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"}
         entry = doc["findings"]["bbbbbbbbbbbbbbbb"]
         assert entry == {"family": "dead-code", "file": "src/pay/gateway.py", "line_start": 91,
                          "quote_hash": "r" * 40, "quote": "if False:",
                          "title": "Unreachable branch after early return", "tier": "C",
                          "status": "pending", "first_seen": TODAY, "last_seen": TODAY,
-                         "reason": None, "until": None, "bundle": None}
+                         "reason": None, "until": None}
 
     def test_a_rejected_entry_survives_when_undecided_this_scan(self, tmp_path: Path) -> None:
         """A finding still present in `findings` but with no decision this time
@@ -702,8 +698,8 @@ class TestRecord:
 
         path = tmp_path / "b.json"
         record(path, decisions=[_decision(status="rejected", reason="flaky, tracked elsewhere")],
-               findings=[_finding()], bundles={}, today="2026-04-01", preset="balanced")
-        doc = record(path, decisions=[], findings=[_finding()], bundles={}, today=TODAY,
+               findings=[_finding()], today="2026-04-01", preset="balanced")
+        doc = record(path, decisions=[], findings=[_finding()], today=TODAY,
                      preset="balanced")
         entry = doc["findings"]["aaaaaaaaaaaaaaaa"]
         assert entry["status"] == "rejected"
@@ -718,7 +714,7 @@ class TestRecord:
 
         no_fp_finding = _finding()
         del no_fp_finding["fingerprint"]
-        doc = record(tmp_path / "b.json", decisions=[], findings=[no_fp_finding], bundles={},
+        doc = record(tmp_path / "b.json", decisions=[], findings=[no_fp_finding],
                      today=TODAY, preset="balanced")
         assert doc["findings"] == {}
 
@@ -726,7 +722,7 @@ class TestRecord:
         del no_fp_decision["fingerprint"]
         with pytest.raises(BaselineError, match="fingerprint"):
             record(tmp_path / "c.json", decisions=[no_fp_decision], findings=[_finding()],
-                   bundles={}, today=TODAY, preset="balanced")
+                   today=TODAY, preset="balanced")
 
     def test_round_trip_with_diff_leaves_nothing_new(self, tmp_path: Path) -> None:
         """record then diff over the same findings: every finding -- decided or
@@ -737,7 +733,7 @@ class TestRecord:
                               title="Unreachable branch after early return", tier="C")
         path = tmp_path / "b.json"
         doc = record(path, decisions=[_decision()], findings=[_finding(), undecided],
-                     bundles={}, today=TODAY, preset="balanced")
+                     today=TODAY, preset="balanced")
         out = diff({"findings": [_finding(), undecided]}, doc, tmp_path, TODAY)
         assert out["counts"]["new"] == 0
         assert all(v["diff"] == "UNCHANGED" for v in out["status"].values())
@@ -765,7 +761,7 @@ class TestRecord:
                        "quote": "except Exception:  # keep going", "quote_verified": True}],
         )
 
-        doc = record(path, decisions=[], findings=[edited], bundles={}, today=TODAY,
+        doc = record(path, decisions=[], findings=[edited], today=TODAY,
                      preset="balanced")
         assert "1" * 16 not in doc["findings"], "the old key is removed, not left behind"
         entry = doc["findings"]["2" * 16]
@@ -800,7 +796,7 @@ class TestRecord:
                        "quote": "except Exception:", "quote_verified": True}],
         )
 
-        doc = record(path, decisions=[], findings=[moved], bundles={}, today=TODAY,
+        doc = record(path, decisions=[], findings=[moved], today=TODAY,
                      preset="balanced")
         entry = doc["findings"]["aaaaaaaaaaaaaaaa"]
         assert entry["line_start"] == 500
@@ -833,23 +829,22 @@ class TestRecord:
         )
 
         doc = record(path, decisions=[_decision(status="pending")],
-                     findings=[owner, neighbour], bundles={}, today=TODAY, preset="balanced")
+                     findings=[owner, neighbour], today=TODAY, preset="balanced")
         assert set(doc["findings"]) == {"aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"}
         assert doc["findings"]["aaaaaaaaaaaaaaaa"]["status"] == "pending"
         assert doc["findings"]["aaaaaaaaaaaaaaaa"]["first_seen"] == "2026-01-05"
         assert doc["findings"]["bbbbbbbbbbbbbbbb"]["status"] == "pending"
         assert doc["findings"]["bbbbbbbbbbbbbbbb"]["first_seen"] == TODAY, "fresh, not migrated"
 
-    def test_a_decided_finding_migrates_and_keeps_its_bundle(self, tmp_path: Path) -> None:
+    def test_a_decided_finding_migrates_and_keeps_its_decision(self, tmp_path: Path) -> None:
         """The decisions loop resolves its entry the same way: a re-promote of a
-        finding whose code was edited since keeps the bundle the baseline
-        already recorded for it, rather than raising `promoted with no
-        bundle`."""
+        finding whose code was edited since keeps the decision the baseline
+        already recorded for it."""
         from baseline import record
 
         path = tmp_path / "b.json"
         path.write_text(json.dumps(_baseline(**{
-            "1" * 16: _entry(status="promoted", bundle="chore-empty-catch-2026-01-05",
+            "1" * 16: _entry(status="promoted",
                              line_start=10, first_seen="2026-01-05", last_seen="2026-01-05"),
         })), encoding="utf-8")
         edited = _finding(
@@ -859,11 +854,10 @@ class TestRecord:
         )
 
         doc = record(path, decisions=[_decision(fingerprint="2" * 16, status="promoted")],
-                     findings=[edited], bundles={}, today=TODAY, preset="balanced")
+                     findings=[edited], today=TODAY, preset="balanced")
         assert "1" * 16 not in doc["findings"]
         entry = doc["findings"]["2" * 16]
         assert entry["status"] == "promoted"
-        assert entry["bundle"] == "chore-empty-catch-2026-01-05"
         assert entry["first_seen"] == "2026-01-05"
 
     def test_record_matches_an_edited_finding_the_way_diff_does(self, tmp_path: Path) -> None:
@@ -901,7 +895,7 @@ class TestRecord:
                        "quote": "except Exception:", "quote_verified": True}],
         )
 
-        doc = record(path, decisions=[], findings=[fp1, fp3], bundles={}, today=TODAY,
+        doc = record(path, decisions=[], findings=[fp1, fp3], today=TODAY,
                      preset="balanced")
 
         assert doc["findings"]["cccccccccccccccc"]["status"] == "pending", \

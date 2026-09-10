@@ -147,18 +147,6 @@ class TestWriteBack:
         statuses = {e["status"] for e in doc["findings"].values()}
         assert "promoted" in statuses  # every approved finding was emitted, so is now promoted
 
-    def test_an_emitted_finding_records_its_bundle_directory(self, v2_design_workdir) -> None:
-        from baseline import load_baseline
-        from promote import _main
-
-        design, workdir = v2_design_workdir
-        baseline = workdir / "baseline.json"
-        _main([str(design), "--out", str(workdir / "pbis"), "--baseline", str(baseline)])
-        doc = load_baseline(baseline)
-        promoted = [e for e in doc["findings"].values() if e["status"] == "promoted"]
-        assert promoted and all(e["bundle"] for e in promoted)
-        assert all((workdir / "pbis" / e["bundle"]).is_dir() for e in promoted)
-
     def test_write_back_failure_is_exit_6_and_bundles_remain(
         self, v2_design_workdir, monkeypatch
     ) -> None:
@@ -201,9 +189,8 @@ class TestWriteBack:
     def test_already_promoted_finding_with_no_baseline_history_is_exit_zero(
         self, v2_design_workdir
     ) -> None:
-        """A finding promoted before --baseline existed has no map entry and no
-        baseline history; run_promote's already-promoted path must supply its
-        existing bundle directory so record() does not raise."""
+        """A finding promoted before --baseline existed has no baseline history;
+        run_promote's already-promoted path must not raise recording it."""
         from baseline import load_baseline
         from promote import _main
 
@@ -220,8 +207,7 @@ class TestWriteBack:
         doc = load_baseline(baseline)
         assert doc is not None
         promoted = [e for e in doc["findings"].values() if e["status"] == "promoted"]
-        assert promoted and all(e["bundle"] for e in promoted)
-        assert all((out / e["bundle"]).is_dir() for e in promoted)
+        assert promoted
 
     # -- Fix round 1 --------------------------------------------------------
 
@@ -275,41 +261,6 @@ class TestWriteBack:
         assert code == EXIT_WRITE_BACK == 6
         assert any((workdir / "pbis").iterdir()), "bundles emitted before the write-back remain"
         assert not (workdir / "baseline.json").exists()
-
-    def test_prefers_previously_recorded_bundle_over_newest_glob_match(
-        self, v2_design_workdir
-    ) -> None:
-        """Three dated bundle directories exist for one slug: one older than the
-        recorded bundle, the recorded bundle itself, and one newer -- neither
-        "oldest" (pre-fix behavior) nor "newest" alone picks the recorded
-        directory here, so only Ruling 2's actual rule (prefer the baseline's
-        own record, else newest) can pass this."""
-        from baseline import load_baseline
-        from promote import _main
-
-        design, workdir = v2_design_workdir
-        out = workdir / "pbis"
-        baseline_path = workdir / "baseline.json"
-
-        assert _main([str(design), "--out", str(out)]) == 0
-        assert _main([str(design), "--out", str(out), "--baseline", str(baseline_path)]) == 0
-        doc1 = load_baseline(baseline_path)
-        promoted1 = [e for e in doc1["findings"].values() if e["status"] == "promoted"]
-        assert len(promoted1) == 1
-        recorded_bundle = promoted1[0]["bundle"]
-
-        # Neither fake directory is ever recorded in the baseline; they only
-        # simulate stray regenerations left on disk. One sorts before the
-        # recorded bundle, one sorts after it -- oldest-pick and newest-pick
-        # each land on a different wrong directory, never the recorded one.
-        slug = recorded_bundle.removeprefix("chore-")[:-11]
-        (out / f"chore-{slug}-2000-01-01").mkdir()
-        (out / f"chore-{slug}-9999-01-01").mkdir()
-
-        assert _main([str(design), "--out", str(out), "--baseline", str(baseline_path)]) == 0
-        doc2 = load_baseline(baseline_path)
-        promoted2 = [e for e in doc2["findings"].values() if e["status"] == "promoted"]
-        assert promoted2[0]["bundle"] == recorded_bundle, "must keep the baseline's own record"
 
     def test_preset_is_forwarded_from_ranked_json(self, v2_design_workdir) -> None:
         """A mutant hard-coding a wrong preset must fail this: the baseline's
