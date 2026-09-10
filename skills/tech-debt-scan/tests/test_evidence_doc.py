@@ -70,6 +70,130 @@ def test_evidence_locations_reads_every_cited_span() -> None:
     ]
 
 
+MIXED_SHAPES_BODY = """### Evidence
+
+- repository-level finding (no file or line range)
+
+- `pkg/whole.py` (whole file)
+
+```
+whole file quote
+```
+
+- `pkg/exact.py:42-50`
+
+```
+exact quote
+```
+"""
+
+
+def test_evidence_locations_reads_all_three_citation_shapes() -> None:
+    """The repository-level shape names no file, so it correctly yields no
+    location. The whole-file shape names a file but no line -- ``None``, not
+    ``0``, because ``0`` would read as a real anchor downstream."""
+    assert evidence_locations(MIXED_SHAPES_BODY) == [
+        ("pkg/whole.py", None),
+        ("pkg/exact.py", 42),
+    ]
+
+
+def test_evidence_locations_does_not_match_a_bare_backtick_bullet() -> None:
+    """A bare ``- `path` `` line -- naming neither a line span nor "(whole
+    file)" -- is not one of the two citation shapes design_writer emits.
+    ``body_md`` is the finding's whole rendered body, including free-form
+    Proof/Remediation prose that ``free_text()`` only escapes for lines
+    starting with ``#`` or a backtick fence, so a prose bullet like
+    ``- `config.py` is the entry point`` must not be read as a citation."""
+    assert evidence_locations("- `config.py`\n") == []
+    assert evidence_locations("- `config.py` is the entry point\n") == []
+
+
+WHOLE_FILE_ONLY_BODY = """### Proof
+
+The whole module is dead code.
+
+### Evidence
+
+- `pkg/dead_module.py` (whole file)
+
+```
+def unused(): ...
+```
+
+### Remediation
+
+Delete the file.
+
+### Acceptance criteria
+
+- [ ] grep confirms no importers.
+"""
+
+
+def test_render_evidence_matches_open_questions_for_a_whole_file_citation() -> None:
+    """Regression: a finding whose only evidence is a whole-file citation used
+    to make ``evidence_locations`` return ``[]``, which emptied ``files`` and
+    silently dropped every matching open question. This is the bug."""
+    questions = [
+        {"file": "pkg/dead_module.py", "line_start": 10,
+         "question": "Is dead_module.py referenced by a plugin loader?"},
+    ]
+    out = render_evidence(
+        _finding(body_md=WHOLE_FILE_ONLY_BODY),
+        metadata=_metadata(),
+        open_questions=questions,
+        looks_bad_but_fine=[],
+    )
+    assert "### Open questions from the scan" in out
+    assert "Is dead_module.py referenced by a plugin loader?" in out
+
+
+MIXED_WHOLE_THEN_LINE_BODY = """### Proof
+
+Related evidence spans two files.
+
+### Evidence
+
+- `pkg/whole.py` (whole file)
+
+```
+whole file marker
+```
+
+- `pkg/exact.py:135-135`
+
+```
+exact quote
+```
+
+### Remediation
+
+Fix it.
+
+### Acceptance criteria
+
+- [ ] done
+"""
+
+
+def test_anchor_skips_a_leading_whole_file_citation_for_proximity_ordering() -> None:
+    """A whole-file citation ahead of a ``file:start-end`` one must not become
+    the anchor (it has no line), so proximity ordering still works off the
+    real line."""
+    questions = [
+        {"file": "pkg/exact.py", "line_start": 900, "question": "far"},
+        {"file": "pkg/exact.py", "line_start": 140, "question": "near"},
+    ]
+    out = render_evidence(
+        _finding(body_md=MIXED_WHOLE_THEN_LINE_BODY),
+        metadata=_metadata(),
+        open_questions=questions,
+        looks_bad_but_fine=[],
+    )
+    assert out.index("near") < out.index("far")
+
+
 def test_header_carries_the_scan_and_classification_facts() -> None:
     out = render_evidence(
         _finding(), metadata=_metadata(), open_questions=[], looks_bad_but_fine=[]
