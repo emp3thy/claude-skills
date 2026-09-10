@@ -32,7 +32,7 @@ _RULED_OUT_HEADING: Final[str] = "### Already ruled out"
 
 
 def evidence_locations(body_md: str) -> list[tuple[str, int]]:
-    """Every ``(file, line_start)`` the finding's Evidence section cites, in order."""
+    """Every ``(file, line_start)`` the finding's body cites, in order."""
     return [(match.group(1), int(match.group(2))) for match in _EVIDENCE_LINE.finditer(body_md)]
 
 

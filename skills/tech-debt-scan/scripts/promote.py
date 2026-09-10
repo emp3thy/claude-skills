@@ -12,28 +12,37 @@ already-tested sub-modules:
 The orchestrator holds no parsing or rendering logic of its own; everything it
 does is covered by the sub-modules' own tests.
 
-Two subcommands: ``--list-approved`` prints the approved findings (most severe
-first) as JSON, read-only; ``--select SLUG`` renders ``evidence.md`` beside
-design.md for that finding and marks it promoted.
+Three modes; at least one is required. ``--list-approved`` prints the
+approved findings (most severe first) as JSON, read-only, and cannot be
+combined with --baseline. ``--select SLUG`` renders ``evidence.md`` beside
+design.md for that finding and marks it promoted. ``--baseline PATH`` given
+alone (neither of the above) is record-only: it records every finding's
+current decision into the baseline and exits, writing no ``evidence.md`` and
+marking nothing -- the spec's step 2, split out from --select's step 6 so a
+review session that approves nothing still gets its rejections and
+acceptances recorded. ``--baseline`` may also be combined with --select
+(unchanged: the write-back then runs after the mark, capturing that
+mutation).
 
-Exit codes: 0 success; 2 parse error, an unknown/non-selectable slug, an
-evidence-write failure, or a v1 design.md given with --baseline; 6
-(EXIT_WRITE_BACK) when --baseline was given and the write-back to the
-baseline failed after evidence.md was already written and design.md already
-marked. A v2 design.md finding's ``status`` is one of ``pending``,
-``approved``, ``rejected``, ``accepted`` (a deliberate deferral, spec 4.12) or
-``promoted``; only ``approved`` (or, for a re-run, ``promoted``) findings are
-selectable.
+Exit codes: 0 success; 2 no mode given, a parse error, an unknown/non-selectable
+slug, an evidence-write failure, or a v1 design.md given with --baseline; 6
+(EXIT_WRITE_BACK) when the baseline write-back failed -- either the
+record-only run, or (after --select) once evidence.md was already written and
+design.md already marked. A v2 design.md finding's ``status`` is one of
+``pending``, ``approved``, ``rejected``, ``accepted`` (a deliberate deferral,
+spec 4.12) or ``promoted``; only ``approved`` (or, for a re-run, ``promoted``)
+findings are selectable.
 
 With --baseline, every finding's edited status is written back to the
-baseline (baseline.record) after selection: the re-parsed design.md's
-decisions -- reflecting ``select``'s own mark-promoted mutation -- are written
-together with their matching ``verified.json`` findings.
-baseline.ensure_gitignore_triple then appends the tracked-baseline gitignore
-triple when the baseline is ignored. A v1 design.md carries no fingerprints,
-so --baseline refuses it (exit 2) before anything is written -- a baseline
-without fingerprints is worse than none. A v2 document with no findings at
-all is not refused.
+baseline (baseline.record): record-only reads design.md as it stands on
+disk; combined with --select, the re-parsed design.md's decisions --
+reflecting ``select``'s own mark-promoted mutation -- are written instead.
+Either way the decisions are written together with their matching
+``verified.json`` findings, and baseline.ensure_gitignore_triple then appends
+the tracked-baseline gitignore triple when the baseline is ignored. A v1
+design.md carries no fingerprints, so --baseline refuses it (exit 2) before
+anything is written -- a baseline without fingerprints is worse than none. A
+v2 document with no findings at all is not refused.
 
 Phase 1 is single-user: do not run two promotes against the same design.md
 concurrently (no file locking).
@@ -57,11 +66,12 @@ from design_parser import DesignParseError, parse_design
 from design_writer import DesignWriteError, mark_promoted
 from evidence_doc import evidence_locations, render_evidence
 
-# Returned by _main when --baseline was given and the write-back to the
-# baseline failed. The write-back runs after evidence.md was already written
-# and design.md was already marked promoted -- both of those persist -- so
-# exit 6 means only the baseline write-back failed, and the command is
-# re-runnable (SELECTABLE includes "promoted" for exactly this case).
+# Returned by _main when the baseline write-back failed: either a record-only
+# run (--baseline given alone), or --select's own write-back, which runs
+# after evidence.md was already written and design.md was already marked
+# promoted -- both of those persist -- so exit 6 means only the baseline
+# write-back failed, and the command is re-runnable (SELECTABLE includes
+# "promoted" for exactly this case).
 EXIT_WRITE_BACK: Final[int] = 6
 
 
@@ -129,6 +139,30 @@ def _write_back(design_path: Path, baseline_path: Path, today: str) -> str:
         preset=preset,
     )
     return baseline.ensure_gitignore_triple(_repo_root_for_baseline(baseline_path), baseline_path)
+
+
+def _run_write_back(design_path: Path, baseline_path: Path) -> int:
+    """Run the baseline write-back and print its outcome; return the exit code.
+
+    Shared by the record-only mode (--baseline given alone) and --select's
+    own post-mark write-back (--select combined with --baseline) -- both call
+    _write_back the same way and report the same three outcomes.
+    """
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    try:
+        outcome = _write_back(design_path, baseline_path, today)
+    except (BaselineError, DesignParseError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_WRITE_BACK
+    print(f"wrote {baseline_path}")
+    if outcome == "appended":
+        print("appended the gitignore triple")
+    elif outcome == "still-ignored":
+        print(
+            "appended the gitignore triple, but the baseline is still ignored; "
+            "an ancestor directory is ignored and must be un-ignored by hand"
+        )
+    return 0
 
 
 # design.md statuses `--select` accepts. `promoted` is included so a failed
@@ -227,7 +261,7 @@ def _main(argv: list[str] | None = None) -> int:
         description="Select one approved tech-debt finding and seed a design session"
     )
     parser.add_argument("design", type=Path, help="path to the edited design.md")
-    group = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_mutually_exclusive_group()
     group.add_argument(
         "--list-approved", action="store_true",
         help="print the approved findings as JSON and exit",
@@ -235,9 +269,22 @@ def _main(argv: list[str] | None = None) -> int:
     group.add_argument("--select", metavar="SLUG", help="write evidence.md for this finding")
     parser.add_argument(
         "--baseline", type=Path, default=None,
-        help="record every finding's decision into this baseline after selecting",
+        help=(
+            "record every finding's decision into this baseline. Given alone "
+            "(no --list-approved or --select), records every decision and "
+            "exits without writing evidence.md or marking anything; combined "
+            "with --select, records after the mark"
+        ),
     )
     args = parser.parse_args(argv)
+
+    if not args.list_approved and args.select is None and args.baseline is None:
+        parser.error(
+            "choose one of --list-approved, --select SLUG, or --baseline PATH "
+            "(given alone, to record every decision without selecting)"
+        )
+    if args.list_approved and args.baseline is not None:
+        parser.error("--list-approved is read-only; it cannot be combined with --baseline")
 
     try:
         parsed = parse_design(args.design)
@@ -267,28 +314,22 @@ def _main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    if args.select is None:
+        # --baseline given alone: the checks above guarantee it is set here.
+        # Record every finding's current decision and exit -- nothing is
+        # selected, so evidence.md is not written and no finding's status
+        # changes.
+        return _run_write_back(args.design, args.baseline)
+
     try:
         written = select(args.design, args.select)
-    except (DesignParseError, SelectionError, DesignWriteError, OSError) as exc:
+    except (DesignParseError, SelectionError, DesignWriteError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(f"wrote {written}")
 
     if args.baseline is not None:
-        today = datetime.now(UTC).strftime("%Y-%m-%d")
-        try:
-            outcome = _write_back(args.design, args.baseline, today)
-        except (BaselineError, DesignParseError, ValueError, OSError) as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return EXIT_WRITE_BACK
-        print(f"wrote {args.baseline}")
-        if outcome == "appended":
-            print("appended the gitignore triple")
-        elif outcome == "still-ignored":
-            print(
-                "appended the gitignore triple, but the baseline is still ignored; "
-                "an ancestor directory is ignored and must be un-ignored by hand"
-            )
+        return _run_write_back(args.design, args.baseline)
 
     return 0
 

@@ -34,7 +34,7 @@ Document shape (``SECTION_ORDER``): the frontmatter, the ``# Tech-debt scan``
 header, ``# Top N`` with one H2 per top-N finding, then the six negative-space
 H1 sections. A finding is an H2 with a fenced ```yaml anchor; every other
 section is an H1, which ``design_parser`` treats as the end of a finding's
-body, so no negative-space section is ever copied into a PBI.
+body, so no negative-space section is ever copied into evidence.md.
 
 Format invariants (the round-trip partner is design_parser.parse_design):
   - Output is LF-only. The body is built as ``"\n".join(parts)`` and written via
@@ -473,7 +473,7 @@ def heading_text(value: str) -> str:
     heading of another level nor a fence to either scanner, whatever the title
     holds, and the heading still reads as the words the agent wrote -- where an
     escape would leave a backslash in the title that ``findings.json`` and a
-    promoted ``PBI.md`` would carry as part of the name.
+    rendered ``evidence.md`` would carry as part of the name.
     """
     return " ".join(redact(value).split())
 

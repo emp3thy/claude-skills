@@ -175,23 +175,34 @@ renumbers the rest.
 2. Optional: `python scripts/design_parser.py <design.md>` prints the parsed
    findings as JSON and mutates nothing — useful for inspecting the document
    outside the promote flow.
-3. `python scripts/promote.py <design.md> --list-approved` prints the approved
+3. `python scripts/promote.py <design.md> --baseline <repo>/.tech-debt/baseline.json`
+   records every finding's current decision — `rejected` and `accepted` (with
+   their `reason` and `until`), `promoted`, or still `pending`/`approved` —
+   into the baseline and exits; `--baseline` given alone like this, with
+   neither `--list-approved` nor `--select`, writes nothing to `design.md` or
+   `evidence.md`. Run this unconditionally, before the list below, so a
+   session that rejects or accepts everything and approves nothing still has
+   those decisions recorded and suppressed on the next scan.
+4. `python scripts/promote.py <design.md> --list-approved` prints the approved
    findings as JSON: slug, title, family, severity, effort, primary file,
    fingerprint, most severe first. An empty list means nothing is approved —
-   say so, name the file to edit, and stop. Never approve on the user's behalf.
-4. Show the list and ask the user which single finding to work on. One per
+   say so and stop; step 3 already recorded every decision, so there is
+   nothing left to do. Never approve on the user's behalf.
+5. Show the list and ask the user which single finding to work on. One per
    invocation: a second finding is a second run, with fresh context.
-5. `python scripts/promote.py <design.md> --select <slug> --baseline <repo>/.tech-debt/baseline.json`
+6. `python scripts/promote.py <design.md> --select <slug> --baseline <repo>/.tech-debt/baseline.json`
    writes `.tech-debt/evidence.md`, flips that finding to `promoted` in
-   `design.md`, and records every finding's decision into the baseline. Exit 2
-   is a selection or parse failure and nothing was consumed; exit 6 means the
-   evidence document and the design.md mark both landed and only the baseline
-   write failed — fix the cause and re-run the same command, which is
-   idempotent because `--select` accepts an already-promoted slug.
-6. Read `.tech-debt/evidence.md` and invoke `superpowers:brainstorming`, seeded
+   `design.md`, and records every finding's decision into the baseline again
+   (capturing this mark). Exit 2 is a selection or parse failure and the
+   finding was not consumed; the message names any `evidence.md` already
+   written. Exit 6 means the evidence document and the design.md mark both
+   landed and only the baseline write failed — fix the cause and re-run the
+   same command, which is idempotent because `--select` accepts an
+   already-promoted slug.
+7. Read `.tech-debt/evidence.md` and invoke `superpowers:brainstorming`, seeded
    with it. Its `### Open questions from the scan` section is the scan's own
    unanswered questions about this code: ask those first.
-7. The brainstorm always ends by invoking `superpowers:writing-plans`, whatever
+8. The brainstorm always ends by invoking `superpowers:writing-plans`, whatever
    it classified the work as — a tech-debt finding must leave a plan behind.
    The plan is the deliverable; this skill does not execute it, queue it or
    commit it on the user's behalf.
@@ -223,15 +234,19 @@ with `--skip-all`) brings it to 0.
   missing, times out, or the path is not a repository, churn falls back to 0
   and `hotspots` is empty. This is never a fatal error.
 - **Exit codes.** `inventory.py`: 2 on a bad path. `promote.py`: 0 success, 2
-  on a parse or selection error (an unknown or non-selectable slug, an
-  evidence-write failure, or a v1 `design.md` given with `--baseline`,
-  refused before anything is written — a baseline keyed by fingerprint
-  cannot record a decision that has none), 6 (`EXIT_WRITE_BACK`) when
-  `--baseline` was given and the write-back to the baseline raised after
-  `evidence.md` was already written and `design.md` already marked — only
-  the baseline itself did not update. Fix the cause and re-run the same
-  `--select` command: a slug already `promoted` on disk is still
-  selectable, so the re-run re-renders `evidence.md` rather than failing.
+  on no mode given (none of `--list-approved`, `--select` or `--baseline`),
+  `--list-approved` combined with `--baseline` (rejected rather than silently
+  ignoring the baseline — `--list-approved` stays read-only), a parse or
+  selection error (an unknown or non-selectable slug, an evidence-write
+  failure), or a v1 `design.md` given with `--baseline`, refused before
+  anything is written — a baseline keyed by fingerprint cannot record a
+  decision that has none. 6 (`EXIT_WRITE_BACK`) when the baseline write-back
+  raised: either the record-only run (`--baseline` given alone), where
+  nothing else was written either, or after `--select`'s own `evidence.md`
+  was already written and `design.md` already marked — only the baseline
+  itself did not update. Fix the cause and re-run the same command: a slug
+  already `promoted` on disk is still selectable, so a re-run of `--select`
+  re-renders `evidence.md` rather than failing.
 - **Single-user.** Do not run two `--select` invocations against the same
   `design.md` concurrently; there is no file locking.
 - **Backwards compatibility.** A v1 `design.md` still parses and selects (no

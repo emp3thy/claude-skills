@@ -25,7 +25,6 @@ from merge_findings import merge
 from patterns import run_patterns
 from plan_scan import build_plan, write_plan
 from promote import _main as promote_main
-from promote import _write_back
 from rank import rank
 from rules import run_rules
 from verify_prompts import build_verify_plan
@@ -381,10 +380,8 @@ def test_scan_decide_rescan_baseline_sequence(service_py_repo: Path, tmp_path: P
     # step 3 already noted, so the promoted finding's own status is not
     # re-asserted after this point; its classification is. Nothing in
     # design5 is `approved` or `promoted` (everything pending, freshly
-    # regenerated), so there is nothing left to --select -- _write_back is
-    # called directly, exercising exactly the write-back promote_main's own
-    # --baseline branch would run.
-    _write_back(design5, baseline_path, SCAN_DATE)
+    # regenerated), so --baseline is given alone -- the record-only mode.
+    assert promote_main([str(design5), "--baseline", str(baseline_path)]) == 0
     doc = load_baseline(baseline_path)
     assert doc is not None
     assert _FP_REJECTED not in doc["findings"], "the old key is gone, not left to resolve"

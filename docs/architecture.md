@@ -107,25 +107,32 @@ The user edits `design.md`, flipping each finding's `status:` to `approved`,
 `rejected` or `accepted`. `/tech-debt-promote` then:
 
 1. Locates the edited `design.md`.
-2. `promote.py --list-approved` prints the `approved` findings as JSON
-   (read-only), most severe first, so the user can pick one.
-3. `promote.py --select <slug>` renders `evidence.md` beside `design.md` for
+2. `promote.py --baseline <path>`, given alone (neither `--list-approved` nor
+   `--select`), is the record-only mode: `baseline.py record` is called in
+   process to write every finding's decision — including `rejected` and
+   `accepted`, with their `reason` and `until` — back into the baseline, and
+   to write a `pending` entry for every verified finding that carried no
+   decision (a suppressed finding has none, by design), refresh an entry it
+   sees again against this scan, and migrate an entry whose code was edited
+   onto the finding's new fingerprint with its decision intact, then
+   `ensure_gitignore_triple` tracks the baseline the first time git reports
+   it ignored (see [The baseline](#the-baseline) below). Nothing is written
+   to `design.md` or `evidence.md`. This step runs unconditionally, before
+   the list below, so a session that rejects or accepts everything and
+   approves nothing still has those decisions recorded.
+3. `promote.py --list-approved` prints the `approved` findings as JSON
+   (read-only), most severe first, so the user can pick one — combined with
+   `--baseline` it is rejected rather than silently ignoring the baseline,
+   since `--list-approved` never has side effects.
+4. `promote.py --select <slug>` renders `evidence.md` beside `design.md` for
    that single finding — `evidence_doc.render_evidence` copies the finding's
    own `body_md` verbatim and appends any matching `### Open questions from
    the scan` and `### Already ruled out` sections from the scan's negative
    space — then flips it to `promoted` via `design_writer.mark_promoted`.
    `--select` accepts a slug that is `approved` or already `promoted`, so a
-   re-run re-renders rather than failing.
-4. With `--baseline <path>`, `baseline.py record` is called in process to
-   write every finding's decision — including `rejected` and `accepted`,
-   with their `reason` and `until` — back into the baseline, and to write a
-   `pending` entry for every verified finding that carried no decision (a
-   suppressed finding has none, by design), refresh an entry it sees again
-   against this scan, and migrate an entry whose code was edited onto the
-   finding's new fingerprint with its decision intact, then
-   `ensure_gitignore_triple` tracks the baseline the
-   first time git reports it ignored (see [The baseline](#the-baseline)
-   below).
+   re-run re-renders rather than failing. Combined with `--baseline <path>`,
+   step 2's write-back runs again afterward, this time against the re-parsed
+   `design.md` so the decisions reflect the mark.
 5. The skill reads `evidence.md` and hands it to `superpowers:brainstorming`,
    which always ends by invoking `superpowers:writing-plans` — a tech-debt
    finding must leave a plan behind. Promote does not execute, queue or
@@ -533,9 +540,11 @@ un-ignore that ancestor by hand). `diff` never touches `.gitignore`; only
 `record` does, and only `promote.py --baseline` calls `record` outside of
 manual use.
 
-**Exit 6.** `promote.py --select <slug> --baseline <path>` writes every
-finding's decision back into the baseline after `evidence.md` is written and
-`design.md` is marked promoted. When that write-back raises —
+**Exit 6.** `promote.py --baseline <path>` writes every finding's decision
+back into the baseline — given alone (the record-only mode), directly against
+`design.md` as it stands; combined with `--select <slug>`, after
+`evidence.md` is written and `design.md` is marked promoted. When that
+write-back raises —
 `BaselineError` (including a malformed baseline file), a `DesignParseError`
 (the write-back re-parses `design.md` after the mark-promoted mutation, so a
 document that became unparseable in between fails here), a `ValueError`
@@ -662,15 +671,31 @@ v1 top-N picker it existed for (spec 8).
 
 ## Promotion
 
-`promote.py <design.md> (--list-approved | --select SLUG) [--baseline <path>]`
+`promote.py <design.md> [--list-approved | --select SLUG] [--baseline <path>]`
 is a thin orchestrator over already-tested sub-modules — it holds no parsing
-or rendering logic of its own:
+or rendering logic of its own. At least one of `--list-approved`, `--select`
+or `--baseline` is required:
 
 1. `design_parser.parse_design` parses the (human-edited) `design.md`.
-2. `--list-approved` prints the `approved` findings as JSON — `list_approved`
+2. `--baseline <path>` given alone (neither `--list-approved` nor `--select`)
+   is the record-only mode: `baseline.py record` is called in process
+   (`_write_back`, reading `design.md` as it stands) to write every finding's
+   decision — `promoted`, `rejected`, `accepted` with its `reason` and
+   `until`, or still `pending` or `approved` — back into the baseline; a
+   verified finding with no decision at all (suppressed and so absent from
+   `design.md`, by design) gets a fresh `pending` entry, one already
+   recorded is refreshed against this scan, and one whose code was edited
+   since migrates to the finding's new fingerprint keeping its decision, so
+   each reads UNCHANGED rather than NEW next scan; then
+   `ensure_gitignore_triple` tracks the baseline the first time git reports
+   it ignored. Nothing is written to `design.md` or `evidence.md`, and the
+   command exits without reaching either mode below.
+3. `--list-approved` prints the `approved` findings as JSON — `list_approved`
    sorts them by severity then priority, both descending — and exits 0
-   without writing anything.
-3. `--select <slug>` calls `select`, which finds the finding with that slug,
+   without writing anything. Combined with `--baseline` it is rejected
+   (exit 2): `--list-approved` stays read-only rather than silently ignoring
+   the baseline or silently recording it.
+4. `--select <slug>` calls `select`, which finds the finding with that slug,
    confirms its status is in `SELECTABLE` (`approved` or `promoted` — the
    second lets a failed baseline write, or a second design session on the
    same finding, be re-run deliberately; `--list-approved` still only ever
@@ -682,34 +707,27 @@ or rendering logic of its own:
    happens before the mark, so a failed render never consumes the finding;
    if the write succeeds but the mark then raises, the status is left
    `approved` and the error names the `evidence.md` already on disk.
-4. With `--baseline <path>`, `baseline.py record` is called in process
-   (`_write_back`, re-parsing `design.md` so the decisions reflect
-   `select`'s own mark-promoted mutation) to write every finding's decision
-   — `promoted`, `rejected`, `accepted` with its `reason` and `until`, or
-   still `pending` or `approved` — back into the baseline; a verified
-   finding with no decision at all (suppressed and so absent from
-   `design.md`, by design) gets a fresh `pending` entry, one already
-   recorded is refreshed against this scan, and one whose code was edited
-   since migrates to the finding's new fingerprint keeping its decision, so
-   each reads UNCHANGED rather than NEW next scan; then
-   `ensure_gitignore_triple` tracks the baseline the first time git reports
-   it ignored. A v1 `design.md` (no fingerprints) is refused before anything
-   is written, since a baseline keyed by fingerprint cannot record a
-   decision that has none. See [The baseline](#the-baseline) above for the
-   classification, suppression, expiry and gitignore-triple mechanics this
-   feeds.
+   Combined with `--baseline <path>`, step 2's write-back runs again
+   afterward (re-parsing `design.md` so the decisions reflect `select`'s own
+   mark-promoted mutation). A v1 `design.md` (no fingerprints) given with
+   `--baseline`, in either mode, is refused before anything is written, since
+   a baseline keyed by fingerprint cannot record a decision that has none.
+   See [The baseline](#the-baseline) above for the classification,
+   suppression, expiry and gitignore-triple mechanics this feeds.
 
-**Exit codes.** `0` success; `2` on a parse or selection error (an unknown or
-non-selectable slug, an evidence-write failure, or a v1 `design.md` given
-with `--baseline`) — refused before anything is written, since a baseline
+**Exit codes.** `0` success; `2` when no mode is given, `--list-approved` is
+combined with `--baseline`, on a parse or selection error (an unknown or
+non-selectable slug, an evidence-write failure), or on a v1 `design.md` given
+with `--baseline` — refused before anything is written, since a baseline
 without fingerprints is worse than none; a v2 document with no findings at
-all is not a v1 one and selects normally; `6` (`promote.EXIT_WRITE_BACK`,
-see [Exit 6](#the-baseline) above) when `--baseline` was given and the
-write-back raised after `evidence.md` was already written and `design.md`
-already marked. Re-running the same `--select` command after fixing the
-cause is safe — `SELECTABLE` includes `promoted`, so a finding this run
-already selected, or that a prior run already marked `promoted`, is
-re-rendered rather than refused.
+all is not a v1 one and proceeds normally; `6` (`promote.EXIT_WRITE_BACK`,
+see [Exit 6](#the-baseline) above) when the baseline write-back raised —
+either the record-only run, where nothing else was written either, or after
+`--select`'s own `evidence.md` was already written and `design.md` already
+marked. Re-running the same command after fixing the cause is safe —
+`SELECTABLE` includes `promoted`, so a finding a `--select` run already
+selected, or that a prior run already marked `promoted`, is re-rendered
+rather than refused.
 
 ## CI and testing
 

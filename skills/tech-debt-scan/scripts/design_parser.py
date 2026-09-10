@@ -92,7 +92,8 @@ def _is_h1(line: str) -> bool:
     """True for a level-1 heading (``# ``), which never starts a finding (spec 4.11).
 
     A finding section therefore ends at the next H2 *or* the next H1, so the negative-space
-    sections that follow the last finding are not absorbed into its body and copied into a PBI.
+    sections that follow the last finding are not absorbed into its body and copied into
+    evidence.md.
     """
     return line.startswith("# ")
 

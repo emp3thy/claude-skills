@@ -27,7 +27,7 @@ def test_a_secret_restated_in_prose_is_redacted() -> None:
     ``CREDENTIAL_RE`` requires ``<name> = "value"``. A scout or verifier that
     *restates* a value in prose puts no operator between the key name and the
     quoted value, so ``redact`` was a no-op and the raw secret reached
-    ``design.md``, ``findings.json`` and the promoted ``PBI.md``. The branch's
+    ``design.md``, ``findings.json`` and the rendered ``evidence.md``. The branch's
     own goldens carry exactly this shape (a placeholder there, but the corpus
     proves the channel fires on a first live run).
 

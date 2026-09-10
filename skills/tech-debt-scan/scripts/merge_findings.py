@@ -141,7 +141,7 @@ def _validate(item: Any, family: str) -> dict[str, Any] | str:
     ``SECRET_TOKEN_RE`` is length-gated, so cutting first and redacting later
     hands the redactor a token already broken in half: it stops matching its
     own pattern and the fragment reaches ``candidates.json``, ``design.md``,
-    ``findings.json`` and a promoted ``PBI.md`` verbatim, because every
+    ``findings.json`` and a rendered ``evidence.md`` verbatim, because every
     write-time ``redact`` downstream is gated identically and misses it too.
     Cutting an already-redacted string can only shorten the ``value[:4] + "***"``
     stub, which carries nothing the stub had not already given away.

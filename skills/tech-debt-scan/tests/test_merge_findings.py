@@ -409,8 +409,8 @@ def test_a_secret_straddling_the_title_or_note_cut_is_redacted_before_truncation
     three steps later. Every branch of ``SECRET_TOKEN_RE`` is length-gated, so a
     token cut in half no longer matches its own pattern: the fragment reached
     ``candidates.json`` verbatim, and then ``design.md``, ``findings.json`` and a
-    promoted ``PBI.md``, whose own write-time ``redact`` is gated identically and
-    misses it too. ``rules.py`` has always done it the other way round.
+    rendered ``evidence.md``, whose own write-time ``redact`` is gated identically
+    and misses it too. ``rules.py`` has always done it the other way round.
     """
     repo, workdir = _repo(tmp_path)
     for value, cap in ((STRADDLING_TITLE, TITLE_MAX), (STRADDLING_NOTE, NOTE_MAX)):

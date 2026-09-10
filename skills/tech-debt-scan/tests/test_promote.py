@@ -163,6 +163,25 @@ class TestWriteBack:
         assert (workdir / "evidence.md").is_file(), "evidence written before the write-back remains"
         assert not (workdir / "baseline.json").exists()
 
+    def test_malformed_candidates_json_is_exit_2(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A malformed candidates.json raised json.JSONDecodeError (a ValueError)
+        uncaught through select() before this fix (Important #2); _main's own
+        except tuple must degrade it to the documented exit 2, with the error on
+        stderr, rather than an unhandled traceback."""
+        from promote import _main, list_approved
+
+        src = _v2_design(tmp_path)
+        slug = list_approved(src)[0]["slug"]
+        (tmp_path / "candidates.json").write_text("{not json", encoding="utf-8")
+
+        code = _main([str(src), "--select", slug])
+        assert code == 2
+        err = capsys.readouterr().err
+        assert err.startswith("error: ")
+        assert not (tmp_path / "evidence.md").exists()
+
     def test_preset_is_forwarded_from_ranked_json(self, v2_design_workdir) -> None:
         """A mutant hard-coding a wrong preset must fail this: the baseline's
         preset must equal ranked.json's actual value, not just its fallback."""
@@ -260,12 +279,11 @@ class TestWriteBack:
 
     def test_write_back_records_an_empty_v2_design(self, tmp_path: Path) -> None:
         """A v2 design.md with no findings at all carries no fingerprints
-        either, but is not a v1 document -- _write_back must record it as an
-        empty baseline rather than raising. The CLI can no longer reach this
-        case through --select (there is nothing to select), so this exercises
-        _write_back directly."""
+        either, but is not a v1 document -- --baseline given alone (the
+        record-only mode) must record it as an empty baseline rather than
+        refusing it as a v1 design.md."""
         from baseline import load_baseline
-        from promote import _write_back
+        from promote import _main
 
         design = tmp_path / "design.md"
         design.write_text(
@@ -275,7 +293,7 @@ class TestWriteBack:
             encoding="utf-8",
         )
         baseline_path = tmp_path / "baseline.json"
-        _write_back(design, baseline_path, "2026-09-06")
+        assert _main([str(design), "--baseline", str(baseline_path)]) == 0
         doc = load_baseline(baseline_path)
         assert doc is not None and doc["findings"] == {}
 
@@ -437,6 +455,41 @@ def test_main_requires_a_mode(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit):
         _main([str(_v2_design(tmp_path))])
+
+
+def test_main_rejects_list_approved_combined_with_baseline(tmp_path: Path) -> None:
+    """M2: --list-approved is read-only; combining it with --baseline must be
+    rejected rather than silently ignoring --baseline."""
+    from promote import _main
+
+    src = _v2_design(tmp_path)
+    baseline_path = tmp_path / "baseline.json"
+    with pytest.raises(SystemExit):
+        _main([str(src), "--list-approved", "--baseline", str(baseline_path)])
+    assert not baseline_path.exists()
+
+
+def test_baseline_alone_records_decisions_without_selecting(tmp_path: Path) -> None:
+    """I3: a review that rejects everything and approves nothing must still
+    get those rejections recorded -- --baseline given alone (no --select)
+    records every finding's current decision and writes no evidence.md."""
+    from baseline import load_baseline
+    from promote import _main
+
+    src = tmp_path / "design.md"
+    src.write_text(
+        V2_GOLDEN.read_text(encoding="utf-8").replace("status: pending", "status: rejected"),
+        encoding="utf-8",
+    )
+    baseline_path = tmp_path / "baseline.json"
+    assert _main([str(src), "--baseline", str(baseline_path)]) == 0
+    assert not (tmp_path / "evidence.md").exists()
+    assert "status: rejected" in src.read_text(encoding="utf-8")
+
+    doc = load_baseline(baseline_path)
+    assert doc is not None
+    statuses = {e["status"] for e in doc["findings"].values()}
+    assert statuses == {"rejected"}
 
 
 # -- Fix round 1 --------------------------------------------------------------

@@ -93,7 +93,8 @@ def test_parse_passes_through_classification_fields(tmp_path: Path):
 
 
 def test_a_finding_section_ends_at_an_h1(tmp_path: Path) -> None:
-    """Spec 4.11: negative-space sections must never land in a finding's body (and its PBI)."""
+    """Spec 4.11: negative-space sections must never land in a finding's body
+    (and its evidence.md)."""
     path = tmp_path / "design.md"
     path.write_bytes(
         "\n".join([

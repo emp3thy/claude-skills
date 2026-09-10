@@ -45,7 +45,7 @@ def v2_design_workdir(
 
     Copied from the ``service-py`` golden corpus (every finding carries a
     fingerprint). One finding's ``status`` is flipped from ``pending`` to
-    ``approved`` so a promote run has something to emit.
+    ``approved`` so a promote run has something to select.
 
     The process cwd is set to the workdir, which is where these tests put
     their baselines and evidence.md, so relative paths and anything
