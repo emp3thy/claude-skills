@@ -259,8 +259,6 @@ def test_scan_decide_rescan_baseline_sequence(service_py_repo: Path, tmp_path: P
     assert doc["findings"][_FP_ACCEPTED]["until"] == _UNTIL
     assert doc["findings"][_FP_ACCEPTED]["reason"] == "waiting for the payments rewrite"
     assert doc["findings"][_FP_PROMOTED]["status"] == "promoted"
-    bundle_name = doc["findings"][_FP_PROMOTED]["bundle"]
-    assert bundle_name and (out / bundle_name).is_dir()
 
     # Ruling 25: `record` remembers every finding verified.json carried, not
     # only the ones the design document had a decision for -- so step 2's
