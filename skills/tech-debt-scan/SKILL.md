@@ -1,6 +1,6 @@
 ---
 name: tech-debt-scan
-description: Scan a repo for top-N tech-debt findings via a hotspot-aware detect-verify-rank pipeline (churn x complexity, then family-scoped scouts, verification, and ranking); emit a design doc the user reviews, then convert approved findings to ralph-friendly PBI bundles.
+description: Scan a repo for top-N tech-debt findings via a hotspot-aware detect-verify-rank pipeline (churn x complexity, then family-scoped scouts, verification, and ranking); emit a design doc the user reviews, then open a design session on one approved finding.
 triggers:
   - /tech-debt-scan
   - /tech-debt-promote
@@ -15,12 +15,13 @@ family), **verify** (read-only verifier agents apply per-family questions and
 traps to the candidates a deterministic budget selects), **rank** (a fixed
 priority formula orders the survivors) — and renders a single `design.md`. The
 user edits `design.md` (flipping `status: pending` to `approved`, `rejected`,
-or `accepted`). `/tech-debt-promote` then parses the edited file and emits a
-ralph-ready PBI bundle per approved finding.
+or `accepted`). `/tech-debt-promote` then opens a design session on one
+approved finding.
 
 Deterministic work (file walk, churn mining, pattern and rule mining,
-candidate merging, verification prompts, ranking, prompt rendering, parsing,
-validation, bundle writing) lives in pure-Python scripts under `scripts/`. The
+candidate merging, verification prompts, ranking, prompt rendering,
+evidence-document rendering, parsing, validation) lives in pure-Python
+scripts under `scripts/`. The
 LLM does only three things: run each dispatched family's scout, verify a batch
 of candidates, and write one remediation note per top-N finding. No agent
 picks the final list or its order — the deterministic ranking formula does.
@@ -59,8 +60,8 @@ If any expected output file from a numbered step is missing, abort with exit 5. 
   debt in a repo. Run it against any language; the scripts and scout prompts
   are language-agnostic.
 - `/tech-debt-promote` — after a human has reviewed `design.md` and marked
-  findings `approved`, `rejected` or `accepted`, convert the approved ones
-  into PBI bundles you can paste into a ralph queue.
+  findings `approved`, `rejected` or `accepted`, pick one approved finding and
+  open a design session on it.
 
 Human-in-the-loop throughout. There is no autonomous "fix it" step. Phase 4b
 folded the external tool probe (step 4) into leads, corroboration and tier
@@ -171,33 +172,29 @@ renumbers the rest.
 
 1. Locate the edited `design.md` (default `.tech-debt/design.md`); missing is
    exit 5.
-2. Optional: `python scripts/design_parser.py .tech-debt/design.md` prints
-   the parsed findings as JSON and mutates nothing.
-3. `python scripts/promote.py .tech-debt/design.md --out ./tech-debt-pbis --baseline <repo>/.tech-debt/baseline.json`
-   writes one bundle per `approved` finding, flips them to `promoted` in
-   `design.md` so a re-run is a no-op, then records every finding's decision
-   (`promoted`, `rejected` or `accepted`, with its `reason` and `until`) back
-   into the baseline — plus a `pending` entry for every verified finding a
-   decision never covered. An entry it sees again is refreshed against this
-   scan, keeping only its decision; an entry whose code was edited since
-   migrates to the finding's new fingerprint, keeping that decision too.
-   Writing back may append three lines to the
-   repository's `.gitignore` the first time the baseline path is
-   git-ignored — `!.tech-debt/`, `.tech-debt/*`, then
-   `!.tech-debt/baseline.json` — which un-ignore the workdir directory,
-   re-ignore everything in it, then un-ignore the baseline file alone, so
-   the baseline is tracked while the rest of `.tech-debt/` stays out of
-   source control. Add `--force` to overwrite an existing bundle directory.
-4. Report the counts (emitted, already promoted, rejected, accepted,
-   pending), the bundle location under `./tech-debt-pbis`, and — when
-   `--baseline` was given — whether the gitignore triple was appended and
-   whether the baseline write-back itself succeeded. Exit code 6 means the
-   bundles were written and `design.md` was marked, but the write-back to
-   the baseline failed; fix the cause and re-run promote, which picks up
-   the already-emitted bundles rather than duplicating them. To queue a
-   bundle, copy its `chore-<slug>-<date>/` directory into the ralph inbox and
-   commit it as `chore(queue): add <id>`. This skill does not commit on the
-   user's behalf.
+2. Optional: `python scripts/design_parser.py <design.md>` prints the parsed
+   findings as JSON and mutates nothing — useful for inspecting the document
+   outside the promote flow.
+3. `python scripts/promote.py <design.md> --list-approved` prints the approved
+   findings as JSON: slug, title, family, severity, effort, primary file,
+   fingerprint, most severe first. An empty list means nothing is approved —
+   say so, name the file to edit, and stop. Never approve on the user's behalf.
+4. Show the list and ask the user which single finding to work on. One per
+   invocation: a second finding is a second run, with fresh context.
+5. `python scripts/promote.py <design.md> --select <slug> --baseline <repo>/.tech-debt/baseline.json`
+   writes `.tech-debt/evidence.md`, flips that finding to `promoted` in
+   `design.md`, and records every finding's decision into the baseline. Exit 2
+   is a selection or parse failure and nothing was consumed; exit 6 means the
+   evidence document and the design.md mark both landed and only the baseline
+   write failed — fix the cause and re-run the same command, which is
+   idempotent because `--select` accepts an already-promoted slug.
+6. Read `.tech-debt/evidence.md` and invoke `superpowers:brainstorming`, seeded
+   with it. Its `### Open questions from the scan` section is the scan's own
+   unanswered questions about this code: ask those first.
+7. The brainstorm always ends by invoking `superpowers:writing-plans`, whatever
+   it classified the work as — a tech-debt finding must leave a plan behind.
+   The plan is the deliverable; this skill does not execute it, queue it or
+   commit it on the user's behalf.
 
 ## Token budget
 
@@ -226,24 +223,24 @@ with `--skip-all`) brings it to 0.
   missing, times out, or the path is not a repository, churn falls back to 0
   and `hotspots` is empty. This is never a fatal error.
 - **Exit codes.** `inventory.py`: 2 on a bad path. `promote.py`: 0 success, 2
-  on a parse / mark-promoted error (or a v1 `design.md` given with
-  `--baseline`, refused before anything is emitted — a baseline keyed by
-  fingerprint cannot record a decision that has none), 4 on a bundle-write
-  failure after at least one bundle was written (roll-forward — the
-  succeeded bundles persist), 6 (`EXIT_WRITE_BACK`) when `--baseline` was
-  given and the write-back to the baseline raised after the bundles were
-  already emitted and `design.md` already marked — only the baseline itself
-  did not update. Fix the cause and re-run promote: a finding already
-  emitted, or already `promoted` on disk, is picked up by the
-  `already_promoted` handling rather than emitted twice.
-- **Single-user.** Do not run two promotes against the same `design.md`
-  concurrently; there is no file locking.
-- **Backwards compatibility.** A v1 `design.md` (no `fingerprint`, `tier`,
-  `priority` or `type_id` in its anchors) still parses, renders and promotes:
-  `category` is read as `family`, a v1 `confidence` value is parsed and
-  discarded, and `god-modules` as a category value still promotes. The v1
-  top-N picker step and its files are gone with no shim: they are never
-  produced or consumed, and nothing outside this repository reads them.
+  on a parse or selection error (an unknown or non-selectable slug, an
+  evidence-write failure, or a v1 `design.md` given with `--baseline`,
+  refused before anything is written — a baseline keyed by fingerprint
+  cannot record a decision that has none), 6 (`EXIT_WRITE_BACK`) when
+  `--baseline` was given and the write-back to the baseline raised after
+  `evidence.md` was already written and `design.md` already marked — only
+  the baseline itself did not update. Fix the cause and re-run the same
+  `--select` command: a slug already `promoted` on disk is still
+  selectable, so the re-run re-renders `evidence.md` rather than failing.
+- **Single-user.** Do not run two `--select` invocations against the same
+  `design.md` concurrently; there is no file locking.
+- **Backwards compatibility.** A v1 `design.md` still parses and selects (no
+  `fingerprint`, `tier`, `priority` or `type_id` in its anchors): `category`
+  is read as `family`, a v1 `confidence` value is parsed and discarded, and
+  `god-modules` as a category value still selects. The PBI bundle format is
+  gone with no shim, since ralph's own skills own queue packaging. The v1
+  top-N picker step and its files are gone with no shim either: neither is
+  ever produced or consumed, and nothing outside this repository reads them.
 - **Tools are wired in; so is the baseline.** Step 4 runs the external tool
   probe and folds its signals into leads, corroboration and tier assignment
   — an osv-scanner advisory can reach tier A on its own, the same way a
