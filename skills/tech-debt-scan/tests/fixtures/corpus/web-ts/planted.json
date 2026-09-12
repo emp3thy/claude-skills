@@ -10,7 +10,9 @@
     {"id": "p7", "family": "dependency-debt", "type_id": "TD-02", "path": "package.json", "lines": [1, 9], "expect_tier": "A"},
     {"id": "p8", "family": "migration", "type_id": "TD-06", "path": "tslint.json", "lines": [1, 1], "expect_tier": "B"},
     {"id": "p9", "family": "half-finished", "type_id": "TD-22", "path": "src/__tests__/pricing.spec.ts", "lines": [7, 9], "expect_tier": "B"},
-    {"id": "p10", "family": "pipeline-infra", "type_id": "TD-27", "path": null, "lines": [0, 0], "expect_tier": "A"}
+    {"id": "p10", "family": "pipeline-infra", "type_id": "TD-27", "path": null, "lines": [0, 0], "expect_tier": "A"},
+    {"id": "p11", "family": "performance", "type_id": "TD-36", "path": "src/report/export.ts", "lines": [6, 7], "expect_tier": "B"},
+    {"id": "p12", "family": "concerns", "type_id": "TD-10", "path": "src/report/format.ts", "lines": [1, 2], "expect_tier": "B"}
   ],
   "decoys": [
     {"id": "d1", "family": "pipeline-infra", "path": ".github/workflows/ci.yml", "why": "pinned SHAs, timeout, permissions, cache and a retry action: no CI rule fires", "sources": ["scout:pipeline-infra", "rule:ci.*", "tool:actionlint"]},
@@ -20,6 +22,8 @@
     {"id": "d5", "family": "duplication", "path": "src/generated/api-types.ts", "why": "generated file; every family disabled by path class", "sources": ["scout:duplication", "tool:jscpd"]},
     {"id": "d6", "family": "dead-code", "path": "vendor/tiny-emitter.js", "why": "vendored; every family disabled by path class", "sources": ["scout:dead-code", "tool:knip"]},
     {"id": "d7", "family": "security", "path": "src/api/client.ts", "why": "token is read from the environment, not a literal", "sources": ["scout:security", "tool:gitleaks", "rule:*"]},
-    {"id": "d8", "family": "pipeline-infra", "path": "src/api/client.ts", "why": "console.log with no logger library in the repository is not an observability lead", "sources": ["scout:pipeline-infra"]}
+    {"id": "d8", "family": "pipeline-infra", "path": "src/api/client.ts", "why": "console.log with no logger library in the repository is not an observability lead", "sources": ["scout:pipeline-infra"]},
+    {"id": "d9", "family": "performance", "path": "src/report/export.ts", "lines": [12, 18], "why": "a loop over a fixed three-member tuple has a bounded N", "sources": ["scout:performance"]},
+    {"id": "d10", "family": "concerns", "path": "src/report/parseCsv.ts", "why": "one parse<Format> per format is an adapter pattern, not scatter", "sources": ["scout:concerns"]}
   ]
 }

@@ -20,7 +20,9 @@
     {"id": "p17", "family": "test-quality", "type_id": "TD-12", "path": "tests/test_ledger.py", "lines": [14, 14], "expect_tier": "B"},
     {"id": "p18", "family": "test-quality", "type_id": "TD-18", "path": "tests/test_ledger.py", "lines": [18, 19], "expect_tier": "B"},
     {"id": "p19", "family": "pipeline-infra", "type_id": "TD-27", "path": null, "lines": [0, 0], "expect_tier": "A"},
-    {"id": "p20", "family": "doc-drift", "type_id": "TD-08", "path": "README.md", "lines": [10, 10], "expect_tier": "B"}
+    {"id": "p20", "family": "doc-drift", "type_id": "TD-08", "path": "README.md", "lines": [10, 10], "expect_tier": "B"},
+    {"id": "p21", "family": "performance", "type_id": "TD-36", "path": "src/pay/export.py", "lines": [16, 18], "expect_tier": "A"},
+    {"id": "p22", "family": "concerns", "type_id": "TD-10", "path": "src/billing/format.py", "lines": [4, 5], "expect_tier": "B"}
   ],
   "decoys": [
     {"id": "d1", "family": "duplication", "path": "tests/fixtures/seed.py", "why": "intentional fixture duplication in the tests path class", "sources": ["scout:duplication", "tool:jscpd"]},
@@ -30,6 +32,8 @@
     {"id": "d5", "family": "dead-code", "path": "setup.py", "why": "harness file run by name; fan-in 0 is not dead", "sources": ["scout:dead-code", "tool:vulture"]},
     {"id": "d6", "family": "test-gaps", "path": "tests/conftest.py", "why": "harness file, not an untested module", "sources": ["scout:test-gaps"]},
     {"id": "d7", "family": "ownership", "path": "src/pay/ledger.py", "why": "three human authors on the file across the fixture's full history; not a knowledge island", "sources": ["rule:ownership.*"]},
-    {"id": "d8", "family": "half-finished", "path": "src/pay/legacy_export.py", "why": "TODO carries ticket reference #42; not an untracked marker", "sources": ["scout:half-finished"]}
+    {"id": "d8", "family": "half-finished", "path": "src/pay/legacy_export.py", "why": "TODO carries ticket reference #42; not an untracked marker", "sources": ["scout:half-finished"]},
+    {"id": "d9", "family": "performance", "path": "src/pay/export.py", "lines": [22, 26], "why": "a loop over an enum has a bounded N; the regex is compiled once at import", "sources": ["scout:performance"]},
+    {"id": "d10", "family": "concerns", "path": "src/billing/parse.py", "why": "one parse_<format> per format is an adapter pattern, not scatter", "sources": ["scout:concerns"]}
   ]
 }

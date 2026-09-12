@@ -82,7 +82,7 @@ def test_service_py_path_classes(service_py_repo: Path) -> None:
     assert classes["README.md"] == "docs"
     assert classes["docs/adr/0001-ledger.md"] == "docs"
     assert classes["docs/übersicht.md"] == "docs"
-    assert result["total_files"] == 16
+    assert result["total_files"] == 21
     assert {e["language"] for e in result["files"]} == {"python", "markdown"}
 
 
@@ -106,7 +106,7 @@ def test_web_ts_path_classes(web_ts_repo: Path) -> None:
     assert classes["src/generated/api-types.ts"] == "generated"
     assert classes["vendor/tiny-emitter.js"] == "vendored"
     assert classes["docs/architecture.md"] == "docs"
-    assert result["total_files"] == 18
+    assert result["total_files"] == 23
 
 
 def test_service_py_artefact_classes(service_py_repo: Path) -> None:
@@ -323,10 +323,10 @@ def test_git_pass_authors_keyed_by_email_and_bots_dropped(service_py_repo: Path)
     assert [a["email"] for a in git["authors"]] == [
         "ada@example.com", "linus@example.com", "grace@example.com",
     ]
-    assert [a["commits"] for a in git["authors"]] == [7, 5, 3]
+    assert [a["commits"] for a in git["authors"]] == [8, 5, 3]
     assert git["authors"][0]["name"] == "Ada Lovelace"
-    assert git["authors"][0]["last_active"].startswith("2026-06-22")
-    assert git["commits_in_window"] == 16
+    assert git["authors"][0]["last_active"].startswith("2026-07-15")
+    assert git["commits_in_window"] == 17
     assert git["bulk_commits_excluded"] == 0
     assert git["mailmap_present"] is False
     req = next(e for e in result["artefacts"]["manifest"] if e["path"] == "requirements.txt")
@@ -338,7 +338,7 @@ def test_git_pass_authors_keyed_by_email_and_bots_dropped(service_py_repo: Path)
 def test_git_pass_head_join_drops_deleted_file(service_py_repo: Path) -> None:
     result = walk_inventory(service_py_repo, churn_months=240)
     assert "src/pay/old_helper.py" not in {e["path"] for e in result["files"]}
-    assert result["git"]["commits_in_window"] == 16  # the deletion commit is still counted
+    assert result["git"]["commits_in_window"] == 17  # the deletion commit is still counted
 
 
 def test_git_pass_non_ascii_path(service_py_repo: Path) -> None:
@@ -609,7 +609,7 @@ def test_fan_in_on_web_ts_matches_hand_count(web_ts_repo: Path) -> None:
         "src/cart/stock.ts": 1,  # pricing
         "src/checkout/checkout.ts": 1,  # index
         "src/util/format-legacy.ts": 1,  # checkout: the deprecated helper still has a caller
-        "src/util/format.ts": 1,  # format-legacy
+        "src/util/format.ts": None,  # ambiguous shared-stem: report/ and cart/ add a format.ts too
         "src/flags.ts": 3,  # checkout, client, client-admin
         "src/api/client.ts": 0,
         "src/api/client-admin.ts": 0,
@@ -871,12 +871,12 @@ def test_test_mapping_across_seven_conventions(tmp_path: Path) -> None:
 def test_tests_block_on_corpus(service_py_repo: Path, web_ts_repo: Path) -> None:
     service = walk_inventory(service_py_repo, churn_months=240)["tests"]
     assert service == {
-        "test_to_source_ratio": 0.5,
+        "test_to_source_ratio": 0.308,
         "coverage_gate": ["pyproject.toml"],
         "ci_retry_config": [],
     }
     web = walk_inventory(web_ts_repo, churn_months=240)["tests"]
-    assert web["test_to_source_ratio"] == 0.167
+    assert web["test_to_source_ratio"] == 0.118
     assert web["coverage_gate"] == ["package.json"]
     assert web["ci_retry_config"] == [".github/workflows/ci.yml"]
 
@@ -894,9 +894,9 @@ def test_docs_block_on_service_py(service_py_repo: Path) -> None:
     assert docs["dangling_refs"] == [
         {"file": "README.md", "line": 10, "token": "src/pay/exporter.py"}
     ]
-    # README last touched 2024-08-15, newest source (refund.py) 2026-06-22
-    assert docs["stale_vs_code_days"]["README.md"] == 676
-    assert docs["stale_vs_code_days"]["docs/adr/0001-ledger.md"] == 625
+    # README last touched 2024-08-15, newest source (src/pay/export.py et al.) 2026-07-15
+    assert docs["stale_vs_code_days"]["README.md"] == 699
+    assert docs["stale_vs_code_days"]["docs/adr/0001-ledger.md"] == 648
 
 
 def test_doc_newer_than_the_code_is_zero_days_stale(tmp_path: Path) -> None:
@@ -991,7 +991,7 @@ def test_cli_out_flag_keeps_v1_behaviour(service_py_repo: Path, tmp_path: Path) 
     assert _main([str(service_py_repo), "--out", str(out)]) == 0
     assert out.is_file()
     assert not (tmp_path / "v1" / "coupling.json").exists()
-    assert json.loads(out.read_bytes())["total_files"] == 16
+    assert json.loads(out.read_bytes())["total_files"] == 21
 
 
 def test_cli_reads_config_from_root(service_py_repo: Path, tmp_path: Path) -> None:
@@ -1006,7 +1006,7 @@ def test_cli_reads_config_from_root(service_py_repo: Path, tmp_path: Path) -> No
     assert _main([str(repo), "--workdir", str(workdir)]) == 0
     inventory = json.loads((workdir / "inventory.json").read_bytes())
     assert inventory["churn_window_months"] == 240
-    assert inventory["total_files"] == 16  # .tech-debt.yaml is neither a file nor an artefact
+    assert inventory["total_files"] == 21  # .tech-debt.yaml is neither a file nor an artefact
 
 
 # --- Task 2: graph-history join --------------------------------------------------
