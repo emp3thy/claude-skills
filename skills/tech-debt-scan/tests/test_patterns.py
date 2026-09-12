@@ -15,6 +15,7 @@ from patterns import (
     ARTEFACT_SCAN_CLASSES,
     RULES,
     Lead,
+    Rule,
     _logger_present,
     _scan_files,
     capped_leads,
@@ -73,8 +74,8 @@ def test_rule_table_is_data_with_family_scope_and_blame() -> None:
         assert isinstance(rule.regex, re.Pattern)
         assert rule.scope and isinstance(rule.scope, frozenset)
         assert rule.family in {
-            "half-finished", "error-masking", "dead-code", "security", "test-quality",
-            "pipeline-infra", "lint",
+            "half-finished", "error-masking", "dead-code", "security", "performance",
+            "test-quality", "pipeline-infra", "lint",
         }
     satd = next(r for r in RULES if r.rule == "satd-marker")
     assert satd.blame is True
@@ -186,8 +187,8 @@ def test_patterns_document_shape(service_py: tuple[Path, dict[str, Any]]) -> Non
     assert list(doc) == ["schema_version", "leads", "satd", "stats"]
     assert doc["schema_version"] == 2
     assert list(doc["leads"]) == [
-        "half-finished", "error-masking", "dead-code", "security", "test-quality",
-        "pipeline-infra",
+        "half-finished", "error-masking", "dead-code", "security", "performance",
+        "test-quality", "pipeline-infra",
     ]
     for item in (lead for leads in doc["leads"].values() for lead in leads):
         assert list(item) == ["rule", "file", "line", "quote", "path_class", "extra"]
@@ -781,3 +782,51 @@ def test_the_credential_rule_still_detects_only_the_assignment_shape(tmp_path: P
     leads = _leads(_run(repo, blame=False), "security", "credential")
     assert list(leads) == [("app.py", 2)], "the prose token on line 1 is not a detection"
     assert leads[("app.py", 2)]["quote"] == 'api_key = "sk_l***"'
+
+
+# --- D: performance (loop-body scans) --------------------------------------------
+
+
+def _perf_rule(name: str) -> Rule:
+    return next(r for r in RULES if r.family == "performance" and r.rule == name)
+
+
+def _scan(text: str, rule_name: str, language: str = "python") -> list[Lead]:
+    from patterns import _HANDLERS, DEFAULT_COMMENT, LANG_COMMENT, ScanContext, ScanFile
+
+    markers = LANG_COMMENT.get(language, DEFAULT_COMMENT)
+    sf = ScanFile(path="src/a.py", path_class="source", scope="source", language=language,
+                  text=text, lines=text.splitlines(), markers=markers)
+    rule = _perf_rule(rule_name)
+    return _HANDLERS[rule.kind](sf, rule, ScanContext(fan_in={}, logger_present=False))
+
+
+def test_io_call_inside_a_python_loop_is_a_lead() -> None:
+    text = "for row in rows:\n    data = open(row.path).read()\n    total += 1\n"
+    (lead,) = _scan(text, "io-in-loop")
+    assert lead.line == 2 and lead.extra["loop_line"] == 1
+
+
+def test_io_call_outside_the_loop_is_not_a_lead() -> None:
+    text = "handle = open(path)\nfor row in rows:\n    total += 1\n"
+    assert _scan(text, "io-in-loop") == []
+
+
+def test_brace_language_loop_body_is_scoped_by_braces() -> None:
+    text = ("for (const row of rows) {\n  const r = await fetch(row.url);\n}\n"
+            "const later = fetch(other);\n")
+    (lead,) = _scan(text, "io-in-loop", language="typescript")
+    assert lead.line == 2
+
+
+def test_regex_sort_and_membership_in_loop() -> None:
+    text = ("while pending:\n    pat = re.compile(r'x')\n    items = sorted(items)\n"
+            "    if x in [1, 2, 3]:\n        pass\n")
+    assert [lead.line for lead in _scan(text, "regex-in-loop")] == [2]
+    assert [lead.line for lead in _scan(text, "sort-in-loop")] == [3]
+    assert [lead.line for lead in _scan(text, "membership-in-loop")] == [4]
+
+
+def test_nested_loops_report_a_line_once() -> None:
+    text = "for a in xs:\n    for b in ys:\n        open(b)\n"
+    assert len(_scan(text, "io-in-loop")) == 1

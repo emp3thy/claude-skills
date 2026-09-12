@@ -73,7 +73,8 @@ LEAD_PROMPT_CAP: Final[int] = 40
 Markers = tuple[tuple[str, ...], tuple[tuple[str, str], ...]]
 
 FAMILIES: Final[tuple[str, ...]] = (
-    "half-finished", "error-masking", "dead-code", "security", "test-quality", "pipeline-infra",
+    "half-finished", "error-masking", "dead-code", "security", "performance", "test-quality",
+    "pipeline-infra",
 )
 
 SOURCE: Final[frozenset[str]] = frozenset({"source"})
@@ -416,6 +417,21 @@ def _brace_body(lines: list[str], index: int, from_col: int) -> tuple[list[str],
     return [c.strip() for c in chunks if c.strip()], len(lines) - 1
 
 
+# performance (spec 2026-09-12, section 3): a loop header, then four body smells.
+LOOP_HEADER_RE: Final[re.Pattern[str]] = re.compile(
+    r"^\s*(?:for\b|while\b|foreach\b|.*\.forEach\s*\()"
+)
+IO_IN_LOOP_RE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:open|subprocess\.(?:run|check_output|call|Popen)|requests\.(?:get|post|put|delete|head)"
+    r"|fetch|axios\.\w+|urlopen)\s*\(|\.(?:query|execute|fetchone|fetchall|find_one|find)\s*\("
+)
+REGEX_IN_LOOP_RE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:re\.compile|new\s+RegExp|Pattern\.compile|regexp\.MustCompile|Regex::new)\s*\("
+)
+SORT_IN_LOOP_RE: Final[re.Pattern[str]] = re.compile(r"\bsorted\s*\(|\.sort(?:ed|By)?\s*\(")
+MEMBERSHIP_IN_LOOP_RE: Final[re.Pattern[str]] = re.compile(r"\bin\s*\[|\.includes\s*\(\s*['\"]")
+
+
 def _classify_body(body: list[str], variable: str | None, markers: Markers) -> str | None:
     """empty | pass | return | log-only, or None when the catch handles the error."""
     code = [b for b in body if not is_comment_line(b, markers)]
@@ -467,6 +483,39 @@ def _scan_catches(sf: ScanFile, rule: Rule, _ctx: ScanContext) -> list[Lead]:
                 },
             )
         )
+    return leads
+
+
+def _scan_loops(sf: ScanFile, rule: Rule, _ctx: ScanContext) -> list[Lead]:
+    """``rule.regex`` matched over the body lines of every loop (spec 2026-09-12, 3).
+
+    The body is delimited the way ``_scan_catches`` delimits a catch body:
+    ``_indented_body`` for a header ending in ``:``, ``_brace_body`` for a
+    header carrying ``{`` or followed by one. A line inside two nested loops is
+    reported once, against the outermost header. Leads carry ``loop_line``.
+    """
+    leads: list[Lead] = []
+    seen: set[int] = set()
+    for index, line in enumerate(sf.lines):
+        if not LOOP_HEADER_RE.match(line):
+            continue
+        stripped = line.rstrip()
+        if stripped.endswith(":"):
+            _body, end = _indented_body(sf.lines, index)
+        elif "{" in line:
+            _body, end = _brace_body(sf.lines, index, line.find("{"))
+        elif index + 1 < len(sf.lines) and sf.lines[index + 1].lstrip().startswith("{"):
+            _body, end = _brace_body(sf.lines, index + 1, 0)
+        else:
+            continue
+        for j in range(index + 1, min(end, len(sf.lines) - 1) + 1):
+            if j in seen or not rule.regex.search(sf.lines[j]):
+                continue
+            if LOOP_HEADER_RE.match(sf.lines[j]):
+                continue  # a nested header is reported against its own body
+            seen.add(j)
+            leads.append(Lead(rule.rule, sf.path, j + 1, sf.lines[j].strip(), sf.path_class,
+                              {"loop_line": index + 1}))
     return leads
 
 
@@ -814,6 +863,11 @@ RULES: Final[tuple[Rule, ...]] = (
     Rule("security", "weak-hash", WEAK_HASH_RE, SOURCE),
     Rule("security", "permissive-cors", CORS_RE, SOURCE_CI_CONFIG),
     Rule("security", "security-suppression", SEC_SUPPRESS_RE, SOURCE_CI_CONFIG),
+    # performance (spec 2026-09-12)
+    Rule("performance", "io-in-loop", IO_IN_LOOP_RE, SOURCE, kind="loop"),
+    Rule("performance", "regex-in-loop", REGEX_IN_LOOP_RE, SOURCE, kind="loop"),
+    Rule("performance", "sort-in-loop", SORT_IN_LOOP_RE, SOURCE, kind="loop"),
+    Rule("performance", "membership-in-loop", MEMBERSHIP_IN_LOOP_RE, SOURCE, kind="loop"),
     # test-quality
     Rule("test-quality", "sleep", SLEEP_RE, TESTS),
     Rule("test-quality", "retry-marker", RETRY_RE, TESTS),
@@ -833,6 +887,7 @@ _HANDLERS: Final[dict[str, Handler]] = {
     "line": _scan_lines,
     "satd": _scan_satd,
     "catch": _scan_catches,
+    "loop": _scan_loops,
     "commented-code": _scan_commented_code,
     "legacy-name": _scan_legacy_names,
     "deprecation": _scan_deprecation,

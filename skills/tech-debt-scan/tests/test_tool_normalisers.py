@@ -165,6 +165,17 @@ class TestNormaliseRuff:
         assert len(normalise_ruff(payload, ROOT)) == 1
 
 
+@pytest.mark.parametrize("code", ["PERF101", "PERF102", "PERF203", "PERF401", "PERF402", "PERF403"])
+def test_ruff_perf_codes_map_to_the_performance_family(code: str, tmp_path: Path) -> None:
+    from tool_normalisers import normalise_ruff
+
+    payload = [{"code": code, "filename": str(tmp_path / "src" / "a.py"),
+                "location": {"row": 7}, "end_location": {"row": 7}, "message": "m"}]
+    (signal,) = normalise_ruff(payload, tmp_path)
+    assert signal["family"] == "performance" and signal["kind"] == "perf-smell"
+    assert signal["extra"]["code"] == code and signal["fact"] is False
+
+
 class TestNormaliseVulture:
     def _signals(self) -> list:
         from tool_normalisers import normalise_vulture

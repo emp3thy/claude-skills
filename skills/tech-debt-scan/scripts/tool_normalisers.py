@@ -46,14 +46,14 @@ class Signal(TypedDict):
 SIGNAL_FAMILIES: Final[frozenset[str]] = frozenset(
     {
         "complex-units", "dead-code", "dependency-debt", "duplication",
-        "error-masking", "architecture", "security", "pipeline-infra",
+        "error-masking", "architecture", "security", "pipeline-infra", "performance",
     }
 )
 
 KINDS: Final[frozenset[str]] = frozenset(
     {
         "vuln", "secret", "clone", "cycle", "unused", "deprecated",
-        "complexity", "error-masking", "dockerfile", "workflow",
+        "complexity", "error-masking", "dockerfile", "workflow", "perf-smell",
     }
 )
 
@@ -147,6 +147,12 @@ RUFF_KINDS: Final[dict[str, tuple[str, str]]] = {
     "PLR0915": ("complex-units", "complexity"),
     "F401": ("dead-code", "unused"),
     "UP035": ("dependency-debt", "deprecated"),
+    "PERF101": ("performance", "perf-smell"),
+    "PERF102": ("performance", "perf-smell"),
+    "PERF203": ("performance", "perf-smell"),
+    "PERF401": ("performance", "perf-smell"),
+    "PERF402": ("performance", "perf-smell"),
+    "PERF403": ("performance", "perf-smell"),
 }
 
 _VULTURE_LINE: Final[re.Pattern[str]] = re.compile(
