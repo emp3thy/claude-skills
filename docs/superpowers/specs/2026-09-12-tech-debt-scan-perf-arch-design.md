@@ -41,7 +41,7 @@ Fixed constraints, unchanged from the v2 design: Claude Code skill; SKILL.md orc
 
 **Where.** `inventory.py`, at the point it already holds the `GraphResult` from `reference_graph.build_reference_graph` and writes `coupling.json` from the git pass. No new script.
 
-**Persistence.** `inventory.json` gains `edges`: the reference graph's `(referrer, target)` list as root-relative path pairs. On a 5,000-file repository this is a few thousand short pairs; it is what makes the join and the concern index reproducible from the workdir without re-walking the tree.
+**Persistence.** `coupling.json` gains `edges`: the reference graph's `(referrer, target)` list as root-relative path pairs. It sits beside its siblings -- `cycles`, `directories` and `unstable_edges` are already written into `coupling.json`, not `inventory.json` (`inventory.py:888-895`), so the graph's outputs stay in one document. On a 5,000-file repository this is a few thousand short pairs; it is what makes the join and the concern index reproducible from the workdir without re-walking the tree.
 
 **Per pair**, for every entry in `coupling.json`'s `pairs` (already filtered by `min_shared: 3`, `min_ratio: 0.3`):
 
@@ -69,9 +69,9 @@ TD-36 covers allocation or I/O inside a loop, string concatenation in a loop, a 
 
 **Lead sources**, most precise first:
 
-1. `ruff PERF*`. `RUFF_SELECT` (`tools_probe.py`) gains `PERF101,PERF102,PERF203,PERF401,PERF402,PERF403`; `RUFF_KINDS` (`tool_normalisers.py`) maps each to `("performance", "perf-smell")`. The `tool:ruff` token these signals carry is what lifts the cap to A.
-2. `patterns.py`: a new `performance` table, language-agnostic, four regexes in the first cut, each scoped to a loop body -- a line whose indentation exceeds the nearest preceding `for`/`while`/`foreach`/`.forEach(` line, which `patterns.py`'s indentation tracking already supports: (i) an I/O or process call (`open(`, `subprocess.run(`, `requests.`, `fetch(`, `.query(`, `.execute(`); (ii) a regex compile (`re.compile(`, `new RegExp(`, `Pattern.compile(`); (iii) a sort call (`sorted(`, `.sort(`); (iv) a membership test against a list literal (`in [`). These are leads, not findings; each is verified.
-3. lizard nesting depth >= 4 on a hotspot-band file, reused from the `complex-units` signal.
+1. `ruff PERF*`. `RUFF_SELECT` (`tools_probe.py:326`) gains `PERF101,PERF102,PERF203,PERF401,PERF402,PERF403`; `RUFF_KINDS` (`tool_normalisers.py:138`) maps each to `("performance", "perf-smell")`. All six exist on the installed ruff 0.15.4 (`unnecessary-list-cast`, `incorrect-dict-iterator`, `try-except-in-loop`, `manual-list-comprehension`, `manual-list-copy`, `manual-dict-comprehension`). `tests/test_tools_probe.py:1332` asserts `set(RUFF_SELECT) == set(RUFF_KINDS)`, so both must change together. These are micro-smells: the normaliser assigns severity 2 and the verifier raises it only with a hot-path reason. The `tool:ruff` token these signals carry is what lifts the cap to A.
+2. `patterns.py`: a new `_scan_loops` scanner modelled on `_scan_catches` (`patterns.py:436`): a loop-header regex (`for`, `while`, `foreach`, `.forEach(`, `.map(`) finds the header line, then the body is delimited by the existing `_indented_body` for indentation languages or `_brace_body` for brace languages, and four body regexes run over it: (i) an I/O or process call (`open(`, `subprocess.run(`, `requests.`, `fetch(`, `.query(`, `.execute(`); (ii) a regex compile (`re.compile(`, `new RegExp(`, `Pattern.compile(`); (iii) a sort call (`sorted(`, `.sort(`); (iv) a membership test against a list literal (`in [`). These are leads, not findings; each is verified.
+3. A hotspot-band file whose `max_indent` (already in `inventory.json` per file) is 4 or more -- deep nesting where churn is. lizard is not a source here: its CSV carries NLOC, CCN and token counts but no nesting depth (`tool_normalisers.py:258-261`).
 4. The hotspot band itself. Interest is proportional to churn.
 
 **Scout block.** `FAMILY_BLOCKS["performance"]`: definition; the TD-36 / TD-37 rule; what to report and what not to -- no startup-only initialisation, no loop over an enum or a config list, no test or benchmark code, no generated or vendored code.
@@ -95,7 +95,7 @@ TD-36 covers allocation or I/O inside a loop, string concatenation in a loop, a 
 
 ## 4. Concern index and concern scout
 
-**`concern_index.py` -> `concern-index.json`.** A new deterministic step between `inventory.py` and `patterns.py`. Inputs: `inventory.json` (files, the `directories` aggregates already written there, hotspot band, `edges`) and `coupling.json`. Reads each `path_class: source` file once and extracts definition names with a per-language regex table:
+**`concern_index.py` -> `concern-index.json`.** A new deterministic step between `inventory.py` and `patterns.py`. Inputs: `inventory.json` (files with `path_class` and `hotspot_score`, the hotspot band) and `coupling.json` (the `directories` aggregates -- `path`, `files`, `loc`, `churn`, `fan_in`, `fan_out`, `instability` -- plus `pairs` and, after section 2, `edges`). Reads each `path_class: source` file once and extracts definition names with a per-language regex table:
 
 | Language | Definition line |
 |---|---|
@@ -113,7 +113,7 @@ Unknown language: aggregates only, no names.
 
 **Dispatch.** `plan_scan.py` adds one plan entry when `concern-index.json` has at least one candidate or the hotspot band is non-empty; otherwise `families_skipped` with reason `no leads`. Exactly one entry whether or not the plan is chunked -- the index is repository-wide, and scatter across modules is the point.
 
-**Prompt.** The scout receives the directory aggregates, the hotspot band, the coupling pairs and the candidates. It never receives file leads. It is instructed to read at most 60 files to confirm candidates and at most 10 more of its own choosing for drift, naming each of those with a reason, and to report `files_read` in its output. The budget is instructional and audited -- `merge_findings.py` copies `files_read` into `stats` -- because nothing can enforce a read-only agent's reads.
+**Prompt.** The scout receives the directory aggregates, the hotspot band, the coupling pairs and the candidates. It never receives file leads. It is instructed to read at most 60 files to confirm candidates and at most 10 more of its own choosing for drift, naming each of those with a reason, and to report `files_read` in its output. The budget is instructional and audited -- `merge_findings.py` copies `files_read` into `stats` -- because nothing can enforce a read-only agent's reads. This is additive: `merge_findings.py` reads only the `findings` key from a scout document (`merge_findings.py:881`), so an extra top-level key is ignored today and recording it changes no existing path.
 
 **Verifier questions.** Is the recurring name the same concept or a homonym? Would consolidating change behaviour? Is this a deliberate per-module implementation -- adapter, plugin, backend? For drift: which written convention does it contradict -- an ADR, README, CLAUDE.md, a `docs/` page -- cited by file and line, or is it the reader's taste?
 
@@ -131,7 +131,7 @@ Unknown language: aggregates only, no names.
 
 ## 5. Cross-cutting changes
 
-**Chain.** Scan steps become: 1 inventory (now writing `edges` and the coupling annotations), **1a `concern_index.py`**, then 2 patterns onward unchanged in order. `SKILL.md` documents the new step; `skill_check.py` verifies the command. Sixteen families; `plan_scan.py` renders two new prompt files; `verify_prompts.py` picks up the two families' question and trap blocks from `categories.py` as it does for the others; `apply_verdicts.py` gains the two cap branches; `merge_findings.py` records `files_read`.
+**Chain.** Scan steps become: 1 inventory (now writing `edges` and the coupling annotations into `coupling.json`), **1a `concern_index.py`**, then 2 patterns onward unchanged in order. `SKILL.md` documents the new step; `skill_check.py` verifies the command. Sixteen families: `categories.FAMILIES` (`categories.py:44`) gains both names -- `merge_findings.py` imports it and drops any tool fact naming a family outside it (`merge_findings.py:707`) -- and `FAMILY_SETS` (`config.py:100-118`) adds them to `default` and `deep`; `plan_scan.py` renders two new prompt files; `verify_prompts.py` picks up the two families' question and trap blocks from `categories.py` as it does for the others; `apply_verdicts.py` gains the two cap branches; `merge_findings.py` records `files_read`.
 
 **Budget.** Default scan: 14 scouts (12 + `performance` + `concerns`), at most one more verifier batch. The token-budget table in `SKILL.md` updates. The concern scout's cost is bounded by the 40-candidate cap and the 70-read instruction, not by repository size.
 
@@ -141,13 +141,15 @@ Unknown language: aggregates only, no names.
 
 ## 6. Tests
 
-- `test_inventory_v2.py`: `edges` persisted; `has_edge` / `edge_direction` / `lead_kind` on pairs; the fan-in decile computed over non-null values only; a pair with a direct edge in either direction is never a modularity violation; a same-directory violation is kept and flagged.
+- `test_inventory_v2.py`: `edges` persisted in `coupling.json`; `has_edge` / `edge_direction` / `lead_kind` on pairs; the fan-in decile computed over non-null values only; a pair with a direct edge in either direction is never a modularity violation; a same-directory violation is kept and flagged.
 - New `test_concern_index.py`: each language's regex table against a fixture line set; the normalisation (camel and snake to the same tuple); the stoplist; the two-files-two-directories rule; the top-40 cut and its ordering; `hotspot_touch` and `coupled`; byte-identical output on a second run; unknown language yields aggregates only.
 - `test_tool_normalisers.py`: each `PERF*` code maps to the performance family with a `tool:ruff` token.
 - `test_patterns.py`: the four performance regexes, each with a positive inside a loop body and a negative at loop level.
 - `test_apply_verdicts.py`: the performance ladder (all four rows) and the concerns ladder (all three rows), plus the TD-37 cap sentence.
 - `test_plan_scan.py`: the concerns entry dispatched once on a chunked plan; skipped with `no leads` on an empty index and empty band; `performance` and `concerns` present in `default` and `deep`, absent from `quick`.
-- `test_validation.py`: `performance` accepted as a debt type; `TD-36` and `TD-37` accepted; `TD-38` rejected.
+- `test_validation.py`: `performance` accepted as a debt type; `TD-36` and `TD-37` join the `good` parametrisation at `:91`; `TD-38` rejected.
+- `test_categories.py`: `FAMILIES` carries both new names; each new block has a definition, questions and traps.
+- `test_tools_probe.py:1332` parity test stays green with both sides extended.
 - `test_chain_goldens.py` / `test_e2e.py`: goldens regenerated for the two families' scout and verdict files on the fixtures that carry planted items; the corpus fixtures gain their planted items and decoys under `tests/fixtures/corpus`.
 - `test_skill_check.py`: the new step's command matches `concern_index.py`'s argparse.
 
@@ -164,22 +166,25 @@ Unknown language: aggregates only, no names.
 
 ## 8. Migration and compatibility
 
-A `coupling.json` from an earlier scan lacks the three new pair fields; `plan_scan.py` treats an absent `lead_kind` as `null`. An `inventory.json` without `edges` makes `concern_index.py` exit 5 with a message naming the missing key -- the chain is re-run from step 1, which is the no-improvisation rule applied. A baseline written before this change reads unchanged; new families produce new fingerprints and read as `NEW`. A `design.md` from an earlier scan parses unchanged: no anchor key is added. `quick` scans produce byte-identical `design.md` before and after.
+A `coupling.json` from an earlier scan lacks the three new pair fields and `edges`; `plan_scan.py` treats an absent `lead_kind` as `null`, and a `coupling.json` without `edges` makes `concern_index.py` exit 5 with a message naming the missing key -- the chain is re-run from step 1, which is the no-improvisation rule applied. A baseline written before this change reads unchanged; new families produce new fingerprints and read as `NEW`. A `design.md` from an earlier scan parses unchanged: no anchor key is added. `quick` scans produce byte-identical `design.md` before and after.
 
 ## 9. Assumptions
 
 **Real concerns**
 
-1. **The four performance regexes will fire on things that are not loops.** Loop-body detection by indentation is a heuristic: a multi-line call argument list indented under a `for` line looks like a loop body. *Decision:* they are leads, every one of which passes through a verifier whose first question is whether the call is actually inside the loop; and the corpus decoys measure the false-positive rate from the first run. *Residual risk:* lead noise consumes scout budget on repositories with unusual indentation.
+1. **The four performance regexes will fire on things that are not loops.** `_scan_loops` delimits a body with `_indented_body` for indentation languages and `_brace_body` for brace languages, the same pair `_scan_catches` uses, so formatted code in either family is handled; the heuristic failure is a multi-line call argument list indented under a loop header in code no formatter has touched, which reads as body. *Decision:* they are leads, every one of which passes through a verifier whose first question is whether the call is actually inside the loop; and the corpus decoys measure the false-positive rate from the first run. *Residual risk:* lead noise consumes scout budget on repositories with unformatted code.
 2. **The concern scout's read budget is unenforceable.** A read-only agent reads what it decides to read; the 60 + 10 instruction is audited through `files_read`, not enforced. *Decision:* accept, because the alternative -- pre-reading the 40 candidates' files into the prompt -- costs more tokens than it saves and removes the reader's judgment about which candidates deserve a look. *Residual risk:* an over-reading scout on a large repository; `files_read` in `stats` makes it visible.
 3. **Name recurrence is a weak proxy for scattered functionality.** Two `validate` functions in two directories are usually unrelated. *Decision:* the stoplist removes the commonest idioms, the verifier's first question is "same concept or homonym", and the tier ladder keeps unconfirmed candidates at C. *Residual risk:* a scan on a repository with a strong naming convention floods the 40 slots with homonyms; the corpus decoy (`parse_<format>`) is exactly this case and measures it.
 
 **Verified safe**
 
-- `GraphResult.edges` and `directories` already exist (`reference_graph.py:59-67`); `inventory.py` persists `cycles`, `directories`, `unstable_edges` (`inventory.py:892-894`) and drops `edges` -- persisting it is one line.
-- `_family_cap_and_lift` (`apply_verdicts.py:72`) is one function that returns both the cap and its lift description per family; the two new families are two more branches in the same shape, so the cap sentence in `design.md` cannot drift from the tier logic.
-- `RUFF_SELECT` (`tools_probe.py:326`) and `RUFF_KINDS` (`tool_normalisers.py:138`) are the existing mechanism for mapping a ruff code to a family; adding six codes touches nothing else.
-- `_TYPE_ID_MAX` (`validation.py:40`) is the only place the taxonomy ceiling lives.
+- `GraphResult.edges` and `directories` already exist (`reference_graph.py:59-67`); `inventory.py` writes `cycles`, `directories` and `unstable_edges` into the `coupling.json` document (`inventory.py:888-895`) and drops `edges` -- persisting it beside them is one line. Verified 2026-09-12: `edges` appears nowhere in `inventory.py`'s output.
+- `_family_cap_and_lift` (`apply_verdicts.py:72`) is one function that returns both the cap and its lift description per family; `family_cap` (`:120`) and `_tier_and_reason` (`:166`) both read off it, so the cap sentence in `design.md` cannot drift from the tier logic. The `hotspot` and `coupling` tokens the new ladders test for are already written into `confirmed_by` by `merge_findings.py` (`:338` for `hotspot`) and read by `_token` (`apply_verdicts.py:56`).
+- `RUFF_SELECT` (`tools_probe.py:326`) and `RUFF_KINDS` (`tool_normalisers.py:138`) are the existing mechanism for mapping a ruff code to a family; the normaliser drops any code outside `RUFF_KINDS` (`tool_normalisers.py:179-181`), and the parity test at `tests/test_tools_probe.py:1332` fails if only one side changes. All six `PERF` codes verified present on ruff 0.15.4.
+- `_TYPE_ID_MAX` (`validation.py:40`) is the only taxonomy ceiling: the only other `TD-35` in `scripts/` is `pipeline-infra`'s own type-id tuple (`categories.py:420`), not a bound. `tests/test_validation.py:91` parametrises `TD-35` as valid and needs `TD-36`, `TD-37` added and `TD-38` as the new rejection case.
+- `plan_scan._pairs` (`plan_scan.py:217`) already renders every coupled pair into the architecture lead block with `shared`, `ratio` and a `cross_only` switch; the join's `lead_kind` and direction extend that renderer rather than adding a lead source.
+- `verify_prompts.py` reads each family's questions and traps from `FAMILY_BLOCKS` (`verify_prompts.py:31`, `:247`); two new blocks are picked up with no change there.
+- `patterns.py` already has body-scoped scanning for both indentation and brace languages: `_scan_catches` (`:436`) with `_indented_body` (`:374`) and `_brace_body`; `_scan_loops` is the same shape with a different header regex.
 - `coupling.json` pairs already carry `a`, `b`, `shared_commits`, `ratio`, `cross_directory` and are filtered by `min_shared: 3`, `min_ratio: 0.3` (`config.py`); the join adds fields and removes nothing.
 - The v2 design's success criterion 8 ("a second scan classifies each finding NEW, UNCHANGED or RESOLVED") is unaffected: new families produce new fingerprints through the same `merge_findings` path.
 
