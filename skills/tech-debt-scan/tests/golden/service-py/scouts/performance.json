@@ -1,10 +1,38 @@
 {
   "family": "performance",
   "module": null,
-  "findings": [],
+  "findings": [
+    {
+      "title": "export_statements opens a file handle inside the loop for every path",
+      "family": "performance",
+      "debt_type": "performance",
+      "type_id": "TD-36",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": ["hotspot", "pattern:io-in-loop", "tool:ruff"],
+      "evidence": [
+        {
+          "file": "src/pay/export.py",
+          "line_start": 16,
+          "line_end": 18,
+          "quote": "handle = open(path)  # planted TD-36: I/O inside the loop\n        for line in handle:\n            lines.append(line.strip())"
+        }
+      ],
+      "note": "export_statements calls open() on every iteration of the outer loop, and the inner read loop is a manual list-build (ruff PERF401) rather than a comprehension. Real per-file I/O cost on a hot path (export.py is in the hotspot band), not a cosmetic linter hit -- a linter-only finding with no hot-path reason would be severity 2, but this one runs per statement export."
+    }
+  ],
   "open_questions": [],
-  "looks_bad_but_fine": [],
-  "not_assessed": [
-    "Repository is small (243 LOC); no loops with expensive operations detected by static analysis."
-  ]
+  "looks_bad_but_fine": [
+    {
+      "file": "src/pay/export.py",
+      "line_start": 24,
+      "why": "kind_labels loops over the Kind enum, a fixed two-member collection with a bounded N, not a data-dependent loop."
+    },
+    {
+      "file": "src/pay/export.py",
+      "line_start": 5,
+      "why": "HEADER_RE is compiled once at import time via re.compile; not a per-iteration cost."
+    }
+  ],
+  "not_assessed": []
 }

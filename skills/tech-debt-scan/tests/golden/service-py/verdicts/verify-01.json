@@ -43,25 +43,9 @@
     ]
   },
   {
-    "fingerprint": "30582a5d8e1e3f58",
-    "verdict": "confirm",
-    "proof": "ledger.py:9-15 implements the canonical JSON-lines store described in ADR 0001 (LEDGER_PATH ledger.jsonl, post/balance using models.Entry). legacy_export.py imports only sqlite3/subprocess, never pay.ledger or pay.models, and reads refund rows from a separate 'refunds.db' sqlite file (lines 4,9-11). Two divergent, unsynchronized stores for the same refund/ledger domain, contradicting the ADR's 'append-only ledger is canonical' statement. Real architecture debt.",
-    "severity": 3,
-    "effort": "M",
-    "trap_matched": null,
-    "checked": [
-      "ledger.py canonical store",
-      "legacy_export.py imports/data source"
-    ],
-    "opened": [
-      "src/pay/ledger.py",
-      "src/pay/models.py"
-    ]
-  },
-  {
     "fingerprint": "1f9c7d8ac03999e4",
     "verdict": "confirm",
-    "proof": "release.yml:2-4 only triggers on pushed 'v*' tags and has no step diffing the tag against pyproject.toml's version (lines 10-12 just build and upload). pyproject.toml:3 is already at 0.2.0 while CHANGELOG.md tops out at 0.1.0, meaning the 0.2.0 bump happened without a corresponding tag/release run or changelog update \u2014 a manual, unverified version bump. Real pipeline gap.",
+    "proof": "release.yml:2-4 only triggers on pushed 'v*' tags and has no step diffing the tag against pyproject.toml's version (lines 10-12 just build and upload). pyproject.toml:3 is already at 0.2.0 while CHANGELOG.md tops out at 0.1.0, meaning the 0.2.0 bump happened without a corresponding tag/release run or changelog update — a manual, unverified version bump. Real pipeline gap.",
     "severity": 3,
     "effort": "S",
     "trap_matched": null,
@@ -76,7 +60,7 @@
   {
     "fingerprint": "e4e3d0cfb7d0981c",
     "verdict": "confirm",
-    "proof": "setup.py:1 states 'pyproject.toml is the source of truth' for packaging, yet ci.yml:11 runs 'pip install -r requirements.txt' rather than installing the package's own dependencies. requirements.txt:1 pins requests==2.32.3 while pyproject.toml:5 declares requests>=2.31 \u2014 two manifests can drift silently since CI only ever installs from the former. No consolidation plan is stated anywhere in the repo. Real split-manifest debt.",
+    "proof": "setup.py:1 states 'pyproject.toml is the source of truth' for packaging, yet ci.yml:11 runs 'pip install -r requirements.txt' rather than installing the package's own dependencies. requirements.txt:1 pins requests==2.32.3 while pyproject.toml:5 declares requests>=2.31 — two manifests can drift silently since CI only ever installs from the former. No consolidation plan is stated anywhere in the repo. Real split-manifest debt.",
     "severity": 2,
     "effort": "S",
     "trap_matched": null,
@@ -88,6 +72,24 @@
     "opened": [
       "setup.py",
       ".github/workflows/ci.yml",
+      "requirements.txt"
+    ]
+  },
+  {
+    "fingerprint": "ecf0205d7d75e559",
+    "verdict": "confirm",
+    "proof": "pyproject.toml:5 declares floating `requests>=2.31` while requirements.txt:1 pins `requests==2.32.3`. Dockerfile (lines 4-5) and ci.yml (line 11) both install only from requirements.txt, never from pyproject.toml, and no lockfile exists. setup.py is a bare setuptools shim pointing back at pyproject.toml, so the pyproject dependency spec is real but unused/unenforced metadata that has silently diverged from what's actually built and tested. Confusing but low-impact since it's never installed.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "Lockfile missing or elsewhere (monorepo)? - none found anywhere",
+      "Duplicate-purpose pair is a migration? - no migration markers, setup.py explicitly defers to pyproject.toml",
+      "Floating range inside a library? - no, this is the deployed app itself per Dockerfile CMD"
+    ],
+    "opened": [
+      "Dockerfile",
+      "setup.py",
       "requirements.txt"
     ]
   }

@@ -189,7 +189,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "scout:dead-code"
       ],
       "signals_cited": [
@@ -201,7 +200,7 @@
         "coupling_degree": 0,
         "fan_in_approx": null,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": "C",
       "tier_reason": "selected for verification, but no verdict came back",
@@ -404,7 +403,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
-      "tier_reason": "selected for verification, but no verdict came back",
+      "tier_reason": "not selected for verification",
       "verdict": "unverified",
       "proof": "",
       "checked": [],
@@ -807,7 +806,7 @@
         "in_hotspot_band": false
       },
       "tier": "C",
-      "tier_reason": "selected for verification, but no verdict came back",
+      "tier_reason": "not selected for verification",
       "verdict": "unverified",
       "proof": "",
       "checked": [],
@@ -1348,6 +1347,107 @@
       "signals": {
         "hotspot_score": 0.0,
         "churn": 0,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": false
+    },
+    {
+      "fingerprint": "4433f7e50d5b7145",
+      "quote_hash": "7dc284b046705bf9d3b897ed5143d879beca0f37",
+      "family": "performance",
+      "debt_type": "performance",
+      "type_id": "TD-36",
+      "title": "export_statements opens a file handle inside the loop for every path",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "note": "export_statements calls open() on every iteration of the outer loop, and the inner read loop is a manual list-build (ruff PERF401) rather than a comprehension. Real per-file I/O cost on a hot path (export.py is in the hotspot band), not a cosmetic linter hit -- a linter-only finding with no hot-path",
+      "evidence": [
+        {
+          "file": "src/pay/export.py",
+          "line_start": 16,
+          "line_end": 18,
+          "quote": "handle = open(path)  # planted TD-36: I/O inside the loop\n        for line in handle:\n            lines.append(line.strip())",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:io-in-loop",
+        "scout:performance"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:io-in-loop",
+        "tool:ruff"
+      ],
+      "signals": {
+        "hotspot_score": 7.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "C",
+      "tier_reason": "selected for verification, but no verdict came back",
+      "verdict": "unverified",
+      "proof": "",
+      "checked": [],
+      "opened": [],
+      "trap_matched": null,
+      "verified": false
+    },
+    {
+      "fingerprint": "0f695a82f79107b0",
+      "quote_hash": "c541e49eeae57538c5fac9a940e86e3ee56a846e",
+      "family": "concerns",
+      "debt_type": "architecture",
+      "type_id": "TD-10",
+      "title": "format_amount reimplemented separately in src/billing and src/pay",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "note": "format_amount is defined identically in src/billing/format.py and src/pay/export.py: the same cents-to-string conversion under the same name in two directories, neither importing the other. Consolidating into one shared helper would not change behaviour, and this is not a per-adapter pattern -- ther",
+      "evidence": [
+        {
+          "file": "src/billing/format.py",
+          "line_start": 4,
+          "line_end": 5,
+          "quote": "def format_amount(cents):\n    return f\"{cents / 100:.2f}\"",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/export.py",
+          "line_start": 29,
+          "line_end": 30,
+          "quote": "def format_amount(cents):\n    return f\"{cents / 100:.2f}\"",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:concerns"
+      ],
+      "signals_cited": [
+        "candidate:format_amount"
+      ],
+      "signals": {
+        "hotspot_score": 0.4,
+        "churn": 1,
         "coupling_degree": 0,
         "fan_in_approx": 0,
         "path_class": "source",
@@ -2077,7 +2177,7 @@
     "missing_verdict": 30,
     "tier_a": 10,
     "tier_b": 0,
-    "tier_c": 30,
+    "tier_c": 32,
     "rejected": 0
   }
 }

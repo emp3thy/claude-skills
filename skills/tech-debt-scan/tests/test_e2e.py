@@ -16,6 +16,7 @@ from pathlib import Path
 from apply_verdicts import apply
 from baseline import _main as baseline_main
 from baseline import load_baseline
+from concern_index import build_concern_index
 from config import DEFAULTS
 from design_parser import parse_design
 from design_writer import load_inputs, write_design
@@ -51,6 +52,9 @@ def _scan(repo: Path, workdir: Path) -> None:
     inventory, coupling = build_all(repo, churn_months=int(planted["churn_months"]),
                                     config=DEFAULTS)
     write_outputs(inventory, coupling, workdir)
+    # Step 1a (after inventory, before patterns): the concerns scout's definition-name
+    # index, mirroring _chain() in test_chain_goldens.py.
+    write_json(workdir / "concern-index.json", build_concern_index(repo, inventory, coupling))
     patterns, inline = run_patterns(repo, inventory, DEFAULTS, blame=False)
     for entry in inventory["files"]:
         entry["inline_disables"] = inline.get(entry["path"], 0)
@@ -59,6 +63,10 @@ def _scan(repo: Path, workdir: Path) -> None:
     findings, leads = run_rules(repo, inventory, DEFAULTS)
     write_json(workdir / "rule-findings.json",
                {"schema_version": 2, "findings": findings, "leads": leads})
+    # The golden tool-signals.json, copied in exactly as _chain() does: an inference
+    # signal on a planted file earns the tool: corroboration token the performance
+    # family's cap requires.
+    _copy_golden("tool-signals.json", workdir)
     plan, prompts = build_plan(workdir, DEFAULTS, families="deep", top=5)
     write_plan(workdir, plan, prompts)
     for entry in plan["entries"]:

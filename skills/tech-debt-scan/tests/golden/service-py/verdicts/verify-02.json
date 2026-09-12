@@ -1,23 +1,5 @@
 [
   {
-    "fingerprint": "ecf0205d7d75e559",
-    "verdict": "confirm",
-    "proof": "pyproject.toml:5 declares floating `requests>=2.31` while requirements.txt:1 pins `requests==2.32.3`. Dockerfile (lines 4-5) and ci.yml (line 11) both install only from requirements.txt, never from pyproject.toml, and no lockfile exists. setup.py is a bare setuptools shim pointing back at pyproject.toml, so the pyproject dependency spec is real but unused/unenforced metadata that has silently diverged from what's actually built and tested. Confusing but low-impact since it's never installed.",
-    "severity": 3,
-    "effort": "S",
-    "trap_matched": null,
-    "checked": [
-      "Lockfile missing or elsewhere (monorepo)? - none found anywhere",
-      "Duplicate-purpose pair is a migration? - no migration markers, setup.py explicitly defers to pyproject.toml",
-      "Floating range inside a library? - no, this is the deployed app itself per Dockerfile CMD"
-    ],
-    "opened": [
-      "Dockerfile",
-      "setup.py",
-      "requirements.txt"
-    ]
-  },
-  {
     "fingerprint": "fac69799ae0e21ac",
     "verdict": "confirm",
     "proof": "ci.yml:12 runs bare `pytest -q` with no `--cov` flag or coverage invocation, so the `[tool.coverage.report] fail_under = 80` block (pyproject.toml:7-8) is dead configuration - coverage.report only enforces a threshold when preceded by `coverage run`/`--cov`. Neither pytest-cov nor coverage appear in requirements.txt. gateway.py (0 real tests, see candidate 4) and legacy_export.py (0 callers/tests) can merge untested with the gate never tripping.",
@@ -28,6 +10,35 @@
       "Which test paths were searched? - tests/test_refund.py, tests/test_ledger.py, tests/conftest.py, tests/fixtures/seed.py",
       "Is there an unconventionally named test? - no other test files found via glob **/*.py",
       "Does the mapped test assert behaviour? - n/a, no coverage invocation exists to check"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "0f695a82f79107b0",
+    "verdict": "confirm",
+    "proof": "format_amount is defined identically in src/billing/format.py:4-5 and src/pay/export.py:29-30 (same body: f\"{cents / 100:.2f}\"), with neither file importing the other. Same concept, not a homonym or per-adapter pattern -- there is one representation of a money amount, not one per backend.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "both definitions byte-for-byte",
+      "no import between the two files"
+    ],
+    "opened": [
+      "src/billing/format.py",
+      "src/pay/export.py"
+    ]
+  },
+  {
+    "fingerprint": "4433f7e50d5b7145",
+    "verdict": "confirm",
+    "proof": "export.py:16 opens a new file handle per path inside the outer loop, and the inner loop (line 18) builds `lines` with .append() in a for-loop instead of a comprehension -- ruff flags this PERF401. Called from export_statements, which runs once per statement export, not once at startup. No cache, batch or index exists on this path.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "loop body for hoistable work",
+      "call frequency (per export, not startup)"
     ],
     "opened": []
   },
@@ -77,23 +88,6 @@
     ],
     "opened": [
       "src/pay/refund.py"
-    ]
-  },
-  {
-    "fingerprint": "08dd9ba688d79fda",
-    "verdict": "confirm",
-    "proof": "Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.",
-    "severity": 2,
-    "effort": "S",
-    "trap_matched": null,
-    "checked": [
-      "Which dynamic-reference patterns were checked? - grepped whole repo for the function/module name; no reflection, string dispatch, route registration, DI container, or serialization references found",
-      "Entry point, script run by name, or runner-discovered test? - not referenced in Dockerfile CMD, ci.yml, or any test file",
-      "Public or plugin surface? - no __init__.py re-export or package public API exposure found",
-      "Flag is permission or kill-switch? - n/a, not a flag"
-    ],
-    "opened": [
-      "src/pay/legacy_export.py"
     ]
   }
 ]

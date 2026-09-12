@@ -3,7 +3,13 @@
   "module": null,
   "findings": [],
   "open_questions": [],
-  "looks_bad_but_fine": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/report/parse_csv.go",
+      "line_start": 6,
+      "why": "ParseCSV reads CSV text; ParseJSON (internal/report/parse_json.go) reads JSON text. One adapter per input format is a pattern, not scattered functionality."
+    }
+  ],
   "not_assessed": [
     "Repository is small; no scattered functionality or semantic duplication detected."
   ]

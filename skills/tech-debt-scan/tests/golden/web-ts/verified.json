@@ -105,7 +105,8 @@
         "coupling",
         "hotspot",
         "pattern:flag-sdk",
-        "scout:dead-code"
+        "scout:dead-code",
+        "tool:knip"
       ],
       "signals_cited": [
         "coupling",
@@ -120,8 +121,8 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "C",
-      "tier_reason": "dead-code is capped at C without tool corroboration",
+      "tier": "A",
+      "tier_reason": "confirmed and corroborated by coupling, hotspot, pattern:flag-sdk, tool:knip",
       "verdict": "confirm",
       "proof": "grep across src for 'getAdminJson', 'adminEnabled', 'client-admin' finds only the definitions in client-admin.ts:6,20 \u2014 zero callers anywhere, including index.ts (the only entry point) and the sole test file. flags.ts:1-5 lists only newCheckout and betaBanner; 'adminPanel' is absent, so adminEnabled() at line 21 always falls through isEnabled's '?? false' at flags.ts:8. No dynamic dispatch, route table, or DI container exists in this repo to invoke it indirectly.",
       "checked": [
@@ -179,7 +180,8 @@
         "coupling",
         "hotspot",
         "pattern:flag-sdk",
-        "scout:dead-code"
+        "scout:dead-code",
+        "tool:knip"
       ],
       "signals_cited": [
         "coupling",
@@ -194,8 +196,8 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "C",
-      "tier_reason": "dead-code is capped at C without tool corroboration",
+      "tier": "A",
+      "tier_reason": "confirmed and corroborated by coupling, hotspot, pattern:flag-sdk, tool:knip",
       "verdict": "confirm",
       "proof": "grep for 'getJson' repo-wide returns only the definition at client.ts:6; index.ts (sole entry, checked) never imports it, and the only test file (cart.test.ts) tests cart.ts, not client.ts. betaBanner is hardcoded true at flags.ts:4 with no setter anywhere, so line 12's isEnabled check is dead-in-a-dead-function. No dynamic reference patterns exist in this small repo.",
       "checked": [
@@ -619,7 +621,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -633,10 +634,10 @@
         "coupling_degree": 0,
         "fan_in_approx": 1,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": "A",
-      "tier_reason": "confirmed and corroborated by hotspot, signal:no-mapped-tests",
+      "tier_reason": "confirmed and corroborated by signal:no-mapped-tests",
       "verdict": "confirm",
       "proof": "The only test file in the repo is src/__tests__/cart.test.ts, which tests cart.ts's addItem/total and never imports checkout.ts, priceOf, or legacyFormat. Repo-wide search for 'checkout' finds no *.test.ts, *.spec.ts, or e2e references \u2014 only checkout.ts itself, index.ts (which calls checkout(cart) at index.ts:7 but discards the return value), and docs/CI mentions. Both the legacy branch (checkout.ts:10-12) and the newCheckout branch (line 7-8) are unasserted.",
       "checked": [
@@ -1293,6 +1294,115 @@
       "verified": true
     },
     {
+      "fingerprint": "acc2afedb12fe299",
+      "quote_hash": "5a786663cb2abd01876e50503b6433290d8241dd",
+      "family": "performance",
+      "debt_type": "performance",
+      "type_id": "TD-36",
+      "title": "exportRows awaits a fetch call inside the loop for every row",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "note": "exportRows awaits fetch(row.url) once per row inside the loop, with no batching or concurrency. Real per-request cost on a hot path (export.ts is in the hotspot band); no ruff-equivalent linter covers TypeScript here, so this is a scout-only finding without tool corroboration.",
+      "evidence": [
+        {
+          "file": "src/report/export.ts",
+          "line_start": 6,
+          "line_end": 7,
+          "quote": "const response = await fetch(row.url); // planted TD-36: I/O inside the loop\n    out.push(await response.text());",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:io-in-loop",
+        "scout:performance"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:io-in-loop"
+      ],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "B",
+      "tier_reason": "performance is capped at B without tool corroboration",
+      "verdict": "confirm",
+      "proof": "export.ts:6 awaits fetch(row.url) inside the for...of loop, once per row, with no batching or Promise.all. exportRows runs once per export request, not at startup. No cache or index on this path.",
+      "checked": [
+        "loop body for hoistable work",
+        "call frequency"
+      ],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "c02580a81c6e0590",
+      "quote_hash": "dc6fe3eb0ea6e98dbcf35b28a1c93d9d7f337381",
+      "family": "concerns",
+      "debt_type": "architecture",
+      "type_id": "TD-10",
+      "title": "formatAmount reimplemented separately in src/report and src/cart",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "note": "formatAmount is defined identically in src/report/format.ts and src/cart/format.ts: the same cents-to-string conversion under the same name in two directories, neither importing the other. Consolidating would not change behaviour.",
+      "evidence": [
+        {
+          "file": "src/report/format.ts",
+          "line_start": 1,
+          "line_end": 2,
+          "quote": "export function formatAmount(cents: number): string {\n  return (cents / 100).toFixed(2);",
+          "quote_verified": true
+        },
+        {
+          "file": "src/cart/format.ts",
+          "line_start": 1,
+          "line_end": 2,
+          "quote": "export function formatAmount(cents: number): string {\n  return (cents / 100).toFixed(2);",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:concerns"
+      ],
+      "signals_cited": [
+        "candidate:format_amount"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "B",
+      "tier_reason": "confirmed, with no independent corroboration",
+      "verdict": "confirm",
+      "proof": "formatAmount is defined identically in src/report/format.ts:1-2 and src/cart/format.ts:1-2 (same body: (cents / 100).toFixed(2)), with neither file importing the other. Same concept, not a per-adapter pattern.",
+      "checked": [
+        "both definitions byte-for-byte",
+        "no import between the two files"
+      ],
+      "opened": [
+        "src/report/format.ts",
+        "src/cart/format.ts"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
       "fingerprint": "3be7c52dfb951591",
       "quote_hash": "f11897c638472ff1229ffc602605d690fc819b06",
       "family": "test-quality",
@@ -1667,145 +1777,16 @@
       "opened": [],
       "trap_matched": null,
       "verified": true
-    },
-    {
-      "fingerprint": "d96ff883dbafb64f",
-      "quote_hash": "b9996ebfc497e5adddaec80ef0f57ca8beebd7e5",
-      "family": "ownership",
-      "debt_type": "knowledge-process",
-      "type_id": "TD-16",
-      "title": "Ownership gaps in src/checkout/checkout.ts",
-      "severity": 2,
-      "effort": "M",
-      "source": "rule",
-      "rule_id": "ownership.former-contributor",
-      "tool": null,
-      "note": "hotspot whose top author is inactive",
-      "evidence": [
-        {
-          "file": "src/checkout/checkout.ts",
-          "line_start": null,
-          "line_end": null,
-          "quote": "src/checkout/checkout.ts: top author has no commits in 188 days",
-          "quote_verified": true
-        }
-      ],
-      "confirmed_by": [
-        "rule:ownership.former-contributor"
-      ],
-      "signals_cited": [],
-      "signals": {
-        "hotspot_score": 2.9,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": 1,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "tier": "A",
-      "tier_reason": "a deterministic rule finding, true by construction",
-      "verdict": "rule",
-      "proof": "verified by construction",
-      "checked": [],
-      "opened": [],
-      "trap_matched": null,
-      "verified": true
-    },
-    {
-      "fingerprint": "b82f6e5b7feabfe3",
-      "quote_hash": "0c23cc75500f938abe5ffa4d6eed3444960365ba",
-      "family": "ownership",
-      "debt_type": "knowledge-process",
-      "type_id": "TD-16",
-      "title": "Ownership gaps in src/util/receipt-legacy.ts",
-      "severity": 2,
-      "effort": "M",
-      "source": "rule",
-      "rule_id": "ownership.former-contributor",
-      "tool": null,
-      "note": "hotspot whose top author is inactive",
-      "evidence": [
-        {
-          "file": "src/util/receipt-legacy.ts",
-          "line_start": null,
-          "line_end": null,
-          "quote": "src/util/receipt-legacy.ts: top author has no commits in 288 days",
-          "quote_verified": true
-        }
-      ],
-      "confirmed_by": [
-        "rule:ownership.former-contributor"
-      ],
-      "signals_cited": [],
-      "signals": {
-        "hotspot_score": 8.6,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": 0,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "tier": "A",
-      "tier_reason": "a deterministic rule finding, true by construction",
-      "verdict": "rule",
-      "proof": "verified by construction",
-      "checked": [],
-      "opened": [],
-      "trap_matched": null,
-      "verified": true
-    },
-    {
-      "fingerprint": "6b888fd3b5a2ecc6",
-      "quote_hash": "eba27234f929dfe049f0cc200ca8cc75f62ec93f",
-      "family": "ownership",
-      "debt_type": "knowledge-process",
-      "type_id": "TD-16",
-      "title": "Ownership gaps in src/util/receipt.ts",
-      "severity": 2,
-      "effort": "M",
-      "source": "rule",
-      "rule_id": "ownership.former-contributor",
-      "tool": null,
-      "note": "hotspot whose top author is inactive",
-      "evidence": [
-        {
-          "file": "src/util/receipt.ts",
-          "line_start": null,
-          "line_end": null,
-          "quote": "src/util/receipt.ts: top author has no commits in 288 days",
-          "quote_verified": true
-        }
-      ],
-      "confirmed_by": [
-        "rule:ownership.former-contributor"
-      ],
-      "signals_cited": [],
-      "signals": {
-        "hotspot_score": 8.6,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": 0,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "tier": "A",
-      "tier_reason": "a deterministic rule finding, true by construction",
-      "verdict": "rule",
-      "proof": "verified by construction",
-      "checked": [],
-      "opened": [],
-      "trap_matched": null,
-      "verified": true
     }
   ],
   "stats": {
-    "selected": 25,
-    "verdicts": 25,
+    "selected": 27,
+    "verdicts": 27,
     "unknown_fingerprint": 0,
     "missing_verdict": 0,
-    "tier_a": 13,
-    "tier_b": 9,
-    "tier_c": 10,
+    "tier_a": 12,
+    "tier_b": 11,
+    "tier_c": 8,
     "rejected": 1
   }
 }

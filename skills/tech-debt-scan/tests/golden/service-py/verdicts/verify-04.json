@@ -1,5 +1,35 @@
 [
   {
+    "fingerprint": "2e969b3499636196",
+    "verdict": "confirm",
+    "proof": "refund.py:31-34 catches bare Exception from ledger.post and passes silently — no log, no re-raise, no cause preserved. Execution then proceeds unconditionally to gateway.refund at line 37, which moves money via the live v2 API (gateway.py) regardless of ledger write success. This means a ledger write failure produces no audit record and no operator visibility while the refund is still issued, a genuine financial-integrity error-masking bug.",
+    "severity": 5,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "control flow from ledger.post through gateway.refund",
+      "whether failure is logged or surfaced elsewhere",
+      "gateway.py to confirm it performs a real state-changing call"
+    ],
+    "opened": [
+      "src/pay/gateway.py",
+      "src/pay/models.py"
+    ]
+  },
+  {
+    "fingerprint": "4b10ada7bef4b500",
+    "verdict": "confirm",
+    "proof": "Grep confirms no test calls issue_partial anywhere in tests/. Unlike test_issue_calls_gateway (explicitly marked @pytest.mark.skip), issue_partial has no test stub at all — not even a skipped placeholder. The fraction-to-cents conversion (refund.py:46) and full delegation to issue() are unguarded, so a rounding or scale regression would ship undetected.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "grep for 'issue_partial' in tests/",
+      "presence of skip markers as a signal of intentional deferral"
+    ],
+    "opened": []
+  },
+  {
     "fingerprint": "74967b275a61fb33",
     "verdict": "confirm",
     "proof": "refund.py:39-40 uses `log.exception` for the OSError path, but line 41 uses bare `print()` for the normal-outcome message in the same function, on the same code path a few lines later. There is no __main__ guard or CLI parsing in this module (it's a library import per refund.py:1), so the print goes to stdout uncontrolled by log level/handlers, breaking aggregation for a production refund outcome. Real, low-effort fix (swap to log.info).",
@@ -63,32 +93,6 @@
       "reflection/string-dispatch",
       "public/plugin surface",
       "test discovery"
-    ],
-    "opened": []
-  },
-  {
-    "fingerprint": "92c2c6c4c06ada32",
-    "verdict": "confirm",
-    "proof": "test_ledger.py:18-19 calls `ledger.reverse(Entry(...))` and discards the return value with no assert. ledger.reverse (ledger.py:29-30) negates amount_cents and sets reason='reversal' -- real business logic, not a startup/import smoke check. A regression that flipped the sign or dropped the reason field would not fail this test. Not table-driven/parametrised, not a permission/kill-switch check.",
-    "severity": 3,
-    "effort": "S",
-    "trap_matched": null,
-    "checked": [
-      "whether it guards only import/startup (it doesn't)",
-      "table-driven idiom (none)"
-    ],
-    "opened": []
-  },
-  {
-    "fingerprint": "b1f9606f10dd3ee8",
-    "verdict": "confirm",
-    "proof": "test_ledger.py:14 has `time.sleep(0.05)  # flaky on CI without this; retried in the workflow` -- a self-admitted race being masked by a fixed sleep plus workflow-level retries, matching commit 5334fe2 'test: retry flaky ledger test' in recent history. post() (ledger.py:12-15) and balance() (ledger.py:18-26) are synchronous file I/O with no async/threading, so the sleep is compensating for an unidentified race rather than a real inherent delay. No ticket reference in the code.",
-    "severity": 2,
-    "effort": "S",
-    "trap_matched": null,
-    "checked": [
-      "whether post/balance are actually async needing a wait (they are not)",
-      "ticket reference"
     ],
     "opened": []
   }

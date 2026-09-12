@@ -37,6 +37,32 @@
   "signals": [
     {
       "tool": "ruff",
+      "family": "performance",
+      "kind": "perf-smell",
+      "file": "src/pay/export.py",
+      "line_start": 18,
+      "line_end": 18,
+      "message": "Use `list.extend` to create a transformed list",
+      "fact": false,
+      "extra": {
+        "code": "PERF401"
+      }
+    },
+    {
+      "tool": "ruff",
+      "family": "performance",
+      "kind": "perf-smell",
+      "file": "src/pay/export.py",
+      "line_start": 25,
+      "line_end": 25,
+      "message": "Use a list comprehension to create a transformed list",
+      "fact": false,
+      "extra": {
+        "code": "PERF401"
+      }
+    },
+    {
+      "tool": "ruff",
       "family": "error-masking",
       "kind": "error-masking",
       "file": "src/pay/refund.py",
@@ -65,6 +91,126 @@
       "tool": "vulture",
       "family": "dead-code",
       "kind": "unused",
+      "file": "src/billing/format.py",
+      "line_start": 4,
+      "line_end": 4,
+      "message": "unused function 'format_amount'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "function",
+        "symbol": "format_amount"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/billing/parse.py",
+      "line_start": 5,
+      "line_end": 5,
+      "message": "unused function 'parse_json'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "function",
+        "symbol": "parse_json"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/pay/export.py",
+      "line_start": 5,
+      "line_end": 5,
+      "message": "unused variable 'HEADER_RE'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "variable",
+        "symbol": "HEADER_RE"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/pay/export.py",
+      "line_start": 9,
+      "line_end": 9,
+      "message": "unused variable 'CARD'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "variable",
+        "symbol": "CARD"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/pay/export.py",
+      "line_start": 10,
+      "line_end": 10,
+      "message": "unused variable 'BANK'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "variable",
+        "symbol": "BANK"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/pay/export.py",
+      "line_start": 13,
+      "line_end": 13,
+      "message": "unused function 'export_statements'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "function",
+        "symbol": "export_statements"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/pay/export.py",
+      "line_start": 22,
+      "line_end": 22,
+      "message": "unused function 'kind_labels'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "function",
+        "symbol": "kind_labels"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/pay/export.py",
+      "line_start": 29,
+      "line_end": 29,
+      "message": "unused function 'format_amount'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "function",
+        "symbol": "format_amount"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
       "file": "src/pay/legacy_export.py",
       "line_start": 8,
       "line_end": 8,
@@ -74,6 +220,21 @@
         "confidence": 60,
         "symbol_kind": "function",
         "symbol": "export_v1"
+      }
+    },
+    {
+      "tool": "vulture",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/pay/parse.py",
+      "line_start": 4,
+      "line_end": 4,
+      "message": "unused function 'parse_csv'",
+      "fact": false,
+      "extra": {
+        "confidence": 60,
+        "symbol_kind": "function",
+        "symbol": "parse_csv"
       }
     },
     {

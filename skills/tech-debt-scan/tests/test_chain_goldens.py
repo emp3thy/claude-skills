@@ -44,6 +44,7 @@ from typing import Any
 import pytest
 from apply_verdicts import apply
 from baseline import diff
+from concern_index import build_concern_index
 from config import DEFAULTS
 from design_parser import parse_design
 from design_writer import load_inputs, write_design
@@ -149,6 +150,10 @@ def _chain(name: str, repo: Path, tmp_path: Path) -> Chain:
         repo, churn_months=int(planted["churn_months"]), config=DEFAULTS
     )
     write_outputs(inventory, coupling, workdir)
+    # Step 1a (after inventory, before patterns): the concerns scout's definition-name
+    # index. Built here, not left absent, so the concerns family's leads are real
+    # ``candidate`` entries rather than an empty pool that skips the family outright.
+    write_json(workdir / "concern-index.json", build_concern_index(repo, inventory, coupling))
     patterns, inline = run_patterns(repo, inventory, DEFAULTS, blame=False)
     for entry in inventory["files"]:
         entry["inline_disables"] = inline.get(entry["path"], 0)
@@ -159,9 +164,16 @@ def _chain(name: str, repo: Path, tmp_path: Path) -> Chain:
         workdir / "rule-findings.json",
         {"schema_version": 2, "findings": findings, "leads": leads},
     )
+    golden = GOLDEN / name
+    # Step 4's canned counterpart: the golden tool-signals.json (test_tools_probe.py's
+    # own live-probe golden for this fixture) copied into the workdir so an inference
+    # signal on a planted file -- the ruff PERF401 hit on the performance family's
+    # planted loop -- can earn a candidate the ``tool:`` corroboration token spec 2.3's
+    # cap requires. No test-only signal is invented: every entry in this file is real
+    # tool output, pinned by test_tools_probe.py against the same corpus files.
+    shutil.copy(golden / "tool-signals.json", workdir / "tool-signals.json")
     plan, prompts = build_plan(workdir, DEFAULTS, families="deep", top=5)
     write_plan(workdir, plan, prompts)
-    golden = GOLDEN / name
     for entry in plan["entries"]:
         src = golden / entry["output"]
         assert src.is_file(), f"golden scout missing for {entry['family']} on {name}"

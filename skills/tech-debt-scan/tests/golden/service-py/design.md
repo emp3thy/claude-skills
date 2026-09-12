@@ -2,8 +2,8 @@
 schema_version: 2
 scan_date: 2026-09-06
 root: <root>
-total_files: 16
-total_loc: 243
+total_files: 21
+total_loc: 289
 languages:
 - markdown
 - python
@@ -26,32 +26,38 @@ families_run:
 - test-quality
 - pipeline-infra
 families_skipped: []
-tools_run: []
-tools_absent: []
+tools_run:
+- lizard
+- ruff
+- vulture
+tools_absent:
+- jscpd (skipped)
+- knip (skipped)
+- madge (skipped)
 git_available: true
 counts:
-  candidates: 37
+  candidates: 39
   quote_failed: 1
-  verified: 36
-  tier_a: 16
+  verified: 38
+  tier_a: 20
   tier_b: 14
-  tier_c: 5
+  tier_c: 3
   unverified: 1
   rejected: 2
   suppressed: 0
-  new: 37
+  new: 39
   resolved: 0
 ---
 
 # Tech-debt scan - 2026-09-06
 
-Scanned `<root>` - 16 files, 243 LOC across: markdown, python.
+Scanned `<root>` - 21 files, 289 LOC across: markdown, python.
 
 Review each finding below. To act on one, change its `status:` from `pending` to
 `approved`, `rejected`, or `accepted` (add a `reason:` and an optional `until:` ISO
 date), then run `/tech-debt-promote`.
 
-Top hotspots: `src/pay/refund.py` (100.0), `src/pay/ledger.py` (52.9), `src/pay/gateway.py` (20.2), `src/pay/models.py` (5.0), `tests/test_ledger.py` (4.2).
+Top hotspots: `src/pay/refund.py` (100.0), `src/pay/ledger.py` (52.9), `src/pay/gateway.py` (20.2), `src/pay/export.py` (7.6), `src/pay/models.py` (5.0).
 
 Top coupled pairs: `src/pay/ledger.py` <-> `src/pay/refund.py` (shared 5, ratio 0.714).
 
@@ -94,7 +100,7 @@ refund.py:31-34 catches bare Exception from ledger.post and passes silently — 
 ### Signals
 
 - hotspot score 100.0, churn 7, coupling pairs 1, fan-in 2 (approximate)
-- confirmed by: coupling, hotspot, pattern:swallowed-catch, satd, scout:error-masking
+- confirmed by: coupling, hotspot, pattern:swallowed-catch, satd, scout:error-masking, tool:ruff
 
 ### Remediation
 
@@ -154,6 +160,51 @@ Replace the process-local `_seen` set in `src/pay/refund.py` (declared line 14, 
 - [ ] `_seen` is gone from `src/pay/refund.py` and the duplicate guard survives a process restart.
 - [ ] `gateway.refund` receives an idempotency key derived from the refund, and two calls with the same key move money once.
 - [ ] The duplicate-refund FIXME at `src/pay/refund.py:35` is deleted in the same commit as the guard.
+
+## refund.issue_partial has no callers in production or tests
+
+```yaml
+status: pending
+slug: refund-issue-partial-has-no-callers-in-production-or-tests
+fingerprint: c716d4382547d1ce
+tier: A
+priority: 9.0
+family: dead-code
+category: dead-code
+debt_type: code
+type_id: TD-09
+severity: 3
+effort: S
+diff: NEW
+```
+
+### Proof
+
+Repo-wide grep for `issue_partial` (case-sensitive, all of src/ and tests/) returns only the definition at refund.py:45 -- no callers, no test coverage, no dynamic dispatch/reflection/string-based lookup found. tests/test_refund.py exercises validate, audit_trail, and has a skipped issue test, but nothing calls issue_partial. It is a plain function, not a plugin hook or serialized entry point.
+
+### Evidence
+
+- `src/pay/refund.py:45-48`
+
+```
+def issue_partial(refund: Refund, gateway: Gateway, fraction: float) -> bool:
+    amount = cents(refund.amount_cents * fraction / 100)
+    partial = Refund(order_id=refund.order_id, amount_cents=amount, reason_code=refund.reason_code)
+    return issue(partial, gateway)
+```
+
+### Signals
+
+- hotspot score 100.0, churn 7, coupling pairs 1, fan-in 2 (approximate)
+- confirmed by: coupling, hotspot, satd, scout:dead-code, tool:vulture
+
+### Remediation
+
+remediation note not available
+
+### Acceptance criteria
+
+remediation note not available
 
 ## Ownership gaps in src/pay/refund.py
 
@@ -246,6 +297,8 @@ Add tests for `issue_partial()` to `tests/test_refund.py`. Cover the arithmetic 
 - [ ] A rounding assertion pins the exact cents for a fraction that does not divide evenly.
 - [ ] A test asserts the `Refund` passed on to the gateway keeps the original `order_id` and `reason_code`.
 
+# Below the cut
+
 ## print() used for refund outcome despite logger present
 
 ```yaml
@@ -276,23 +329,6 @@ refund.py:39-40 uses `log.exception` for the OSError path, but line 41 uses bare
         raise RuntimeError("gateway unreachable") from exc
     print(f"refund {refund.order_id} accepted={accepted}")
 ```
-
-### Signals
-
-- hotspot score 100.0, churn 7, coupling pairs 1, fan-in 2 (approximate)
-- confirmed by: coupling, hotspot, pattern:stdout-write, satd, scout:pipeline-infra
-
-### Remediation
-
-`src/pay/refund.py` is imported as a library, so the refund outcome at line 41 should not go to stdout. Emit it on the `log` logger already bound at line 11, at info level, with lazy `%s` arguments to match the `log.exception` call two lines above; leave the gateway-unreachable path exactly as it is. While the file is open, sweep the rest of `src/pay/` for other stdout writes and convert them in the same change, so the module has one output channel rather than two on the same code path.
-
-### Acceptance criteria
-
-- [ ] No stdout write remains in `src/pay/refund.py`; the refund outcome goes through `log`.
-- [ ] The outcome message uses lazy `%s` logger arguments rather than an f-string.
-- [ ] The gateway-unreachable path still logs via `log.exception` and re-raises unchanged.
-
-# Below the cut
 
 ## Gateway.refund() HTTP call has zero test coverage
 
@@ -478,6 +514,37 @@ def test_issue_calls_gateway() -> None:
     try:
         accepted = gateway.refund(refund.order_id, refund.amount_cents)
     except OSError as exc:
+```
+
+## export_statements opens a file handle inside the loop for every path
+
+```yaml
+status: pending
+slug: export-statements-opens-a-file-handle-inside-the-loop-for-every
+fingerprint: 4433f7e50d5b7145
+tier: A
+priority: 3.228
+family: performance
+category: performance
+debt_type: performance
+type_id: TD-36
+severity: 3
+effort: S
+diff: NEW
+```
+
+### Proof
+
+export.py:16 opens a new file handle per path inside the outer loop, and the inner loop (line 18) builds `lines` with .append() in a for-loop instead of a comprehension -- ruff flags this PERF401. Called from export_statements, which runs once per statement export, not once at startup. No cache, batch or index exists on this path.
+
+### Evidence
+
+- `src/pay/export.py:16-18`
+
+```
+handle = open(path)  # planted TD-36: I/O inside the loop
+        for line in handle:
+            lines.append(line.strip())
 ```
 
 ## Ownership gaps in src/pay/models.py
@@ -925,6 +992,80 @@ fail_under = 80
       - run: pytest -q
 ```
 
+## utils.fingerprint has no callers anywhere in the repo
+
+```yaml
+status: pending
+slug: utils-fingerprint-has-no-callers-anywhere-in-the-repo
+fingerprint: 441a5776ddef0261
+tier: A
+priority: 2.016
+family: dead-code
+category: dead-code
+debt_type: code
+type_id: TD-09
+severity: 2
+effort: S
+diff: NEW
+```
+
+### Proof
+
+Repo-wide grep for `fingerprint` returns only the definition at utils.py:11 -- zero callers anywhere in src/ or tests/. Not referenced by name in serialization, routing, or DI. It also uses md5, a weak hash, compounding the dead-code concern, but the core claim (unused) is verified as stated.
+
+### Evidence
+
+- `src/pay/utils.py:11-12`
+
+```
+def fingerprint(order_id: str) -> str:
+    return hashlib.md5(order_id.encode("utf-8")).hexdigest()
+```
+
+## export_v1 and its legacy_export module have zero callers
+
+```yaml
+status: pending
+slug: export-v1-and-its-legacy-export-module-have-zero-callers
+fingerprint: 08dd9ba688d79fda
+tier: A
+priority: 2.0
+family: dead-code
+category: dead-code
+debt_type: code
+type_id: TD-30
+severity: 2
+effort: S
+diff: NEW
+```
+
+### Proof
+
+Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.
+
+### Evidence
+
+- `src/pay/legacy_export.py:17-19`
+
+```
+# def export_v0(refund_id):
+#     rows = fetch(refund_id)
+#     return rows
+```
+
+- `src/pay/legacy_export.py:1-8`
+
+```
+"""Legacy CSV export kept for the v1 reporting job."""
+from __future__ import annotations
+
+import sqlite3
+import subprocess
+
+# TODO(#42): delete once finance moves to the v2 report
+def export_v1(refund_id: str, db: str = "refunds.db") -> list[tuple[str, int]]:
+```
+
 ## Dependency manifest gaps in pyproject.toml
 
 ```yaml
@@ -1139,18 +1280,18 @@ def test_post_then_balance(tmp_path: Path) -> None:
     assert ledger.balance("a", path) == 100
 ```
 
-## export_v1 and its legacy_export module have zero callers
+## format_amount reimplemented separately in src/billing and src/pay
 
 ```yaml
 status: pending
-slug: export-v1-and-its-legacy-export-module-have-zero-callers
-fingerprint: 08dd9ba688d79fda
+slug: format-amount-reimplemented-separately-in-src-billing-and-src-pa
+fingerprint: 0f695a82f79107b0
 tier: B
-priority: 1.4
-family: dead-code
-category: dead-code
-debt_type: code
-type_id: TD-30
+priority: 1.4056
+family: concerns
+category: concerns
+debt_type: architecture
+type_id: TD-10
 severity: 2
 effort: S
 diff: NEW
@@ -1158,29 +1299,22 @@ diff: NEW
 
 ### Proof
 
-Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.
+format_amount is defined identically in src/billing/format.py:4-5 and src/pay/export.py:29-30 (same body: f"{cents / 100:.2f}"), with neither file importing the other. Same concept, not a homonym or per-adapter pattern -- there is one representation of a money amount, not one per backend.
 
 ### Evidence
 
-- `src/pay/legacy_export.py:17-19`
+- `src/billing/format.py:4-5`
 
 ```
-# def export_v0(refund_id):
-#     rows = fetch(refund_id)
-#     return rows
+def format_amount(cents):
+    return f"{cents / 100:.2f}"
 ```
 
-- `src/pay/legacy_export.py:1-8`
+- `src/pay/export.py:29-30`
 
 ```
-"""Legacy CSV export kept for the v1 reporting job."""
-from __future__ import annotations
-
-import sqlite3
-import subprocess
-
-# TODO(#42): delete once finance moves to the v2 report
-def export_v1(refund_id: str, db: str = "refunds.db") -> list[tuple[str, int]]:
+def format_amount(cents):
+    return f"{cents / 100:.2f}"
 ```
 
 ## CHANGELOG has no entry for the 0.2.0 release already in pyproject.toml
@@ -1270,9 +1404,7 @@ requests==2.32.3
 
 | slug | family | file | reason |
 | --- | --- | --- | --- |
-| refund-issue-partial-has-no-callers-in-production-or-tests | dead-code | src/pay/refund.py | dead-code is capped at C without tool corroboration |
 | legacy-export-bypasses-the-ledger-writing-refund-data-to-a-secon | architecture | src/pay/legacy_export.py | selected for verification, but no verdict came back |
-| utils-fingerprint-has-no-callers-anywhere-in-the-repo | dead-code | src/pay/utils.py | dead-code is capped at C without tool corroboration |
 | audit-trail-assertion-hard-codes-a-string-built-from-fixture-val | test-quality | tests/test_refund.py | the verifier downgraded it |
 | legacy-export-export-v1-has-no-automated-test | test-gaps | src/pay/legacy_export.py | the verifier downgraded it |
 
@@ -1302,6 +1434,10 @@ requests==2.32.3
 - `docs/adr/0001-ledger.md:5` - Flagged as stale, but the described design (JSON-lines append-only ledger, reversals as new entries) matches src/pay/ledger.py's current implementation.
 - `src/pay/refund.py:6` - refund.py imports ledger, gateway, models, and utils but none of those import back from refund.py, so this is a simple acyclic layering, not a dependency cycle.
 - `tests/fixtures/seed.py:2` - api_key value is 'sk_t***', clearly a test fixture placeholder, not a real credential.
+- `src/pay/export.py:24` - kind_labels loops over the Kind enum, a fixed two-member collection with a bounded N, not a data-dependent loop.
+- `src/pay/export.py:5` - HEADER_RE is compiled once at import time via re.compile; not a per-iteration cost.
+- `src/pay/parse.py:4` - parse_csv reads CSV text; parse_json (src/billing/parse.py) reads JSON text. One adapter per input format is a pattern, not scatter.
+- `src/billing/parse.py:5` - parse_json is the JSON-format counterpart to parse_csv; a per-format adapter, not scattered functionality.
 - `tests/test_ledger.py:15` - assert ledger.balance("a", path) == 100 restates the amount_cents=100 posted two lines above in the same test, so the value is locally traceable rather than an unexplained magic number.
 - `.github/workflows/ci.yml:1` - Differs substantially in purpose/steps from release.yml (test job vs. publish job); not hand-copied duplication.
 - `.github/workflows/release.yml:10` - Checkout action is pinned to a full commit SHA rather than a floating tag — this is a stricter, not weaker, practice.

@@ -10,6 +10,8 @@
     "e4e3d0cfb7d0981c",
     "ecf0205d7d75e559",
     "fac69799ae0e21ac",
+    "0f695a82f79107b0",
+    "4433f7e50d5b7145",
     "3aad01488c771d47",
     "6be2f463cba67c1e",
     "a17a78d98f9e7beb",
@@ -51,41 +53,43 @@
       "output": "verdicts/verify-02.json",
       "fingerprints": [
         "fac69799ae0e21ac",
+        "0f695a82f79107b0",
+        "4433f7e50d5b7145",
         "3aad01488c771d47",
         "6be2f463cba67c1e",
-        "a17a78d98f9e7beb",
-        "08dd9ba688d79fda",
-        "336fccbd19191237"
+        "a17a78d98f9e7beb"
       ]
     },
     {
       "prompt": "prompts/verify-03.md",
       "output": "verdicts/verify-03.json",
       "fingerprints": [
+        "08dd9ba688d79fda",
+        "336fccbd19191237",
         "532b106d4a224260",
         "d0af6b85d7b41fd1",
         "f3c6e048c6d5f4f6",
-        "17a853add39e2774",
-        "2e969b3499636196",
-        "4b10ada7bef4b500"
+        "17a853add39e2774"
       ]
     },
     {
       "prompt": "prompts/verify-04.md",
       "output": "verdicts/verify-04.json",
       "fingerprints": [
+        "2e969b3499636196",
+        "4b10ada7bef4b500",
         "74967b275a61fb33",
         "b459099b48e0a272",
         "c716d4382547d1ce",
-        "441a5776ddef0261",
-        "92c2c6c4c06ada32",
-        "b1f9606f10dd3ee8"
+        "441a5776ddef0261"
       ]
     },
     {
       "prompt": "prompts/verify-05.md",
       "output": "verdicts/verify-05.json",
       "fingerprints": [
+        "92c2c6c4c06ada32",
+        "b1f9606f10dd3ee8",
         "e36a78256ef7b76e",
         "42a9a9c5413651ea",
         "67e0dcc512d6ba39",

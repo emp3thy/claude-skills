@@ -1,21 +1,5 @@
 [
   {
-    "fingerprint": "45d73ee57cd37a54",
-    "verdict": "confirm",
-    "proof": "Fetch (httpc.go:12-21) carries a Deprecated comment (line 11) pointing at FetchWithTimeout (httpc_safe.go:10-17), but main.go:28 still calls httpc.Fetch, not the replacement. Grep confirms FetchWithTimeout has zero call sites anywhere in the repo. The migration was never completed; no ticket reference exists in the comment.",
-    "severity": 3,
-    "effort": "S",
-    "trap_matched": null,
-    "checked": [
-      "call sites of Fetch",
-      "call sites of FetchWithTimeout",
-      "ticket reference in comment"
-    ],
-    "opened": [
-      "internal/store/store.go"
-    ]
-  },
-  {
     "fingerprint": "8f91af0854095dec",
     "verdict": "confirm",
     "proof": "Fetch (httpc.go:12-17) and FetchWithTimeout (httpc_safe.go:10-15) both implement GET-then-handle-response against a URL parameter, with divergent behavior (string body vs status code, no timeout vs 5s timeout, TLS bypass vs none). main.go:28 calls only Fetch; FetchWithTimeout is uncalled anywhere. Both bodies are live source (not fixture/generated/vendored), so they are duplicate/overlapping implementations that could drift.",
@@ -46,7 +30,7 @@
   {
     "fingerprint": "d59bf39ced06c57e",
     "verdict": "reject",
-    "proof": "The claim mislabels which function is dead. Fetch (httpc.go:12-21) is not dead code \u2014 it is the sole live call site, invoked unconditionally from main.go:28. The genuinely unused code is FetchWithTimeout (httpc_safe.go:10-17), which has zero callers anywhere in the repo, but this candidate's proof and title point at Fetch instead. The underlying fact (deprecation not followed through) duplicates candidate 45d73ee57cd37a54 (half-finished), already confirmed there; framing it as 'dead-code' targeting the live function is incorrect.",
+    "proof": "The claim mislabels which function is dead. Fetch (httpc.go:12-21) is not dead code — it is the sole live call site, invoked unconditionally from main.go:28. The genuinely unused code is FetchWithTimeout (httpc_safe.go:10-17), which has zero callers anywhere in the repo, but this candidate's proof and title point at Fetch instead. The underlying fact (deprecation not followed through) duplicates candidate 45d73ee57cd37a54 (half-finished), already confirmed there; framing it as 'dead-code' targeting the live function is incorrect.",
     "severity": 2,
     "effort": "S",
     "trap_matched": "scout:dead-code mislabels an actively-called function as dead while missing the actually-unused FetchWithTimeout",

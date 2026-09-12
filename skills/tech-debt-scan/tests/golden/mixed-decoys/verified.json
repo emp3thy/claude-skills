@@ -1807,7 +1807,7 @@
   "stats": {
     "selected": 26,
     "verdicts": 23,
-    "unknown_fingerprint": 3,
+    "unknown_fingerprint": 0,
     "missing_verdict": 3,
     "tier_a": 10,
     "tier_b": 9,

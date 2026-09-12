@@ -2,7 +2,7 @@
   {
     "fingerprint": "02bbf6de78e47bd6",
     "verdict": "confirm",
-    "proof": "Grep across src for .test.ts/.spec.ts finds only cart.test.ts and pricing.spec.ts, neither referencing flags.ts, client.ts, client-admin.ts, or checkout.ts. isEnabled (flags.ts:7-9) is called from checkout.ts:7, client.ts:12, client-admin.ts:21, and its ?? false fallback is what makes the undefined 'adminPanel' key resolve to false in client-admin.ts:21 \u2014 untested branch logic with real effect.",
+    "proof": "Grep across src for .test.ts/.spec.ts finds only cart.test.ts and pricing.spec.ts, neither referencing flags.ts, client.ts, client-admin.ts, or checkout.ts. isEnabled (flags.ts:7-9) is called from checkout.ts:7, client.ts:12, client-admin.ts:21, and its ?? false fallback is what makes the undefined 'adminPanel' key resolve to false in client-admin.ts:21 — untested branch logic with real effect.",
     "severity": 2,
     "effort": "S",
     "trap_matched": null,
@@ -44,6 +44,35 @@
     "opened": []
   },
   {
+    "fingerprint": "acc2afedb12fe299",
+    "verdict": "confirm",
+    "proof": "export.ts:6 awaits fetch(row.url) inside the for...of loop, once per row, with no batching or Promise.all. exportRows runs once per export request, not at startup. No cache or index on this path.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "loop body for hoistable work",
+      "call frequency"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "c02580a81c6e0590",
+    "verdict": "confirm",
+    "proof": "formatAmount is defined identically in src/report/format.ts:1-2 and src/cart/format.ts:1-2 (same body: (cents / 100).toFixed(2)), with neither file importing the other. Same concept, not a per-adapter pattern.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "both definitions byte-for-byte",
+      "no import between the two files"
+    ],
+    "opened": [
+      "src/report/format.ts",
+      "src/cart/format.ts"
+    ]
+  },
+  {
     "fingerprint": "73c4ac3f4febadd0",
     "verdict": "confirm",
     "proof": "format-legacy.ts:3-6 marks legacyFormat @deprecated in favor of formatMoney; grep confirms legacyFormat's only caller is checkout.ts:11, which executes whenever the (permanently-off) newCheckout flag is false, i.e. on the sole live code path. formatMoney (format.ts:1-3) has no other callers. The deprecated function is genuinely still in active use, not dead.",
@@ -53,33 +82,6 @@
     "checked": [
       "all callers of legacyFormat",
       "all callers of formatMoney"
-    ],
-    "opened": []
-  },
-  {
-    "fingerprint": "795ec415100325e3",
-    "verdict": "downgrade",
-    "proof": "Core claim verified: legacyFormat (format-legacy.ts:3-6) is @deprecated yet still exercised on checkout.ts's live path (lines 6-11) since newCheckout is always false, and no ticket marker exists in src. The '704 days old' figure cannot be verified with available read-only tools (no git-log access), so I can't confirm that specific number; severity 2 as given is consistent with the effort-S, single-caller scope confirmed independently.",
-    "severity": 2,
-    "effort": "S",
-    "trap_matched": null,
-    "checked": [
-      "ticket/ID references in code",
-      "marker age (unverifiable without git history)"
-    ],
-    "opened": []
-  },
-  {
-    "fingerprint": "b7396d04c3285472",
-    "verdict": "confirm",
-    "proof": "Grep confirms legacyFormat's only call site is checkout.ts:11 (import at line 4), and formatMoney (format.ts:1-3) has no callers besides format-legacy.ts:1's import \u2014 i.e. 100% of live call sites use the deprecated wrapper, 0% call formatMoney directly. No evidence of deliberate multi-backend design; it's a single incomplete migration.",
-    "severity": 2,
-    "effort": "S",
-    "trap_matched": null,
-    "checked": [
-      "churn old vs new side (unavailable, no git tool)",
-      "multi-backend deliberateness",
-      "call-site ratio via grep"
     ],
     "opened": []
   }

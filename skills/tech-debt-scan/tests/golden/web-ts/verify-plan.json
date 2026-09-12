@@ -24,6 +24,8 @@
     "02bbf6de78e47bd6",
     "29eba6f4f9adcbc9",
     "9c6b39118019c27e",
+    "acc2afedb12fe299",
+    "c02580a81c6e0590",
     "73c4ac3f4febadd0",
     "795ec415100325e3",
     "b7396d04c3285472",
@@ -74,15 +76,17 @@
         "02bbf6de78e47bd6",
         "29eba6f4f9adcbc9",
         "9c6b39118019c27e",
-        "73c4ac3f4febadd0",
-        "795ec415100325e3",
-        "b7396d04c3285472"
+        "acc2afedb12fe299",
+        "c02580a81c6e0590",
+        "73c4ac3f4febadd0"
       ]
     },
     {
       "prompt": "prompts/verify-05.md",
       "output": "verdicts/verify-05.json",
       "fingerprints": [
+        "795ec415100325e3",
+        "b7396d04c3285472",
         "3d5daf8fb72b00a9"
       ]
     }
