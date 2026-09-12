@@ -155,9 +155,13 @@ copy each fixture's canned `tool-signals.json` into the workdir before
 planning, neither of which the harness did before; several pre-existing
 candidates gained `tool:` corroboration they had never exercised under test
 and rose from tier B or C to tier A on `service-py` and `web-ts` as a result
-— the whole-branch reviewer read the lifted candidates and confirmed each is
-genuine same-symbol corroboration (the tool signal names the same function or
-file the scout already cited), not an artefact of the harness change. Two
+— checked against source rather than taken on faith: `refund.issue_partial`
+(TD-09, service-py) is flagged by vulture as an unused function at
+`src/pay/refund.py:45`, the exact `def issue_partial` line already inside the
+candidate's own evidence span, and `export_v1` (TD-30, service-py) is flagged
+by vulture at `src/pay/legacy_export.py:8`, the exact `def export_v1` line
+inside its evidence span. Both lifts are genuine same-symbol corroboration,
+not same-file coincidence. Two
 planted items land in the regenerated goldens per fixture: `service-py`'s
 `p21` (`performance`, TD-36, a local loop smell) reaches tier A on a hotspot
 lead, a `pattern:io-in-loop` corroboration, the scout, and `tool:ruff`;
