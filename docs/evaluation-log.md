@@ -179,7 +179,11 @@ row, so they are recorded here as prose rather than as a row in the table
 below. A decoy sharing a file and family with a planted item now carries a
 non-overlapping `lines` range in `planted.json`, because `evaluate.hits()`
 otherwise matches an unranged decoy to any finding reported on that file,
-including one that is really the planted hit.
+including one that is really the planted hit. These deterministic-golden
+figures satisfy spec success criterion 7's corpus half; the live tier-A
+evaluation of `performance` and `concerns` the criterion also asks for is
+deferred to the project's pending bar-setting live run, the same run the
+tier-A bar (provisional at 0.80 since phase 5b) is still waiting on.
 
 | date | fixture | model | churn_months | tier_a_precision | reported_precision | decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd | notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
