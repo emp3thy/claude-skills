@@ -2,8 +2,8 @@
 schema_version: 2
 scan_date: 2026-09-06
 root: <root>
-total_files: 18
-total_loc: 228
+total_files: 23
+total_loc: 258
 languages:
 - javascript
 - markdown
@@ -21,37 +21,46 @@ families_run:
 - dependency-debt
 - doc-drift
 - architecture
+- performance
+- concerns
 - test-quality
 - pipeline-infra
 families_skipped:
 - family: security
   reason: no leads
-tools_run: []
-tools_absent: []
+tools_run:
+- jscpd
+- knip
+- lizard
+- madge
+tools_absent:
+- hadolint (skipped)
+- ruff (skipped)
+- vulture (skipped)
 git_available: true
 counts:
-  candidates: 33
+  candidates: 32
   quote_failed: 2
-  verified: 33
-  tier_a: 13
-  tier_b: 9
-  tier_c: 10
+  verified: 32
+  tier_a: 12
+  tier_b: 11
+  tier_c: 8
   unverified: 0
   rejected: 1
   suppressed: 0
-  new: 33
+  new: 32
   resolved: 0
 ---
 
 # Tech-debt scan - 2026-09-06
 
-Scanned `<root>` - 18 files, 228 LOC across: javascript, markdown, typescript.
+Scanned `<root>` - 23 files, 258 LOC across: javascript, markdown, typescript.
 
 Review each finding below. To act on one, change its `status:` from `pending` to
 `approved`, `rejected`, or `accepted` (add a `reason:` and an optional `until:` ISO
 date), then run `/tech-debt-promote`.
 
-Top hotspots: `src/api/client-admin.ts` (80.0), `src/api/client.ts` (42.9), `src/util/receipt-legacy.ts` (8.6), `src/util/receipt.ts` (8.6), `src/__tests__/pricing.spec.ts` (5.7).
+Top hotspots: `src/api/client-admin.ts` (80.0), `src/api/client.ts` (42.9), `src/report/export.ts` (8.6), `src/util/receipt-legacy.ts` (8.6), `src/util/receipt.ts` (8.6).
 
 Top coupled pairs: `src/api/client-admin.ts` <-> `src/api/client.ts` (shared 4, ratio 0.889).
 
@@ -157,6 +166,132 @@ src/api/client-admin.ts: 100% of lines by one author, 1 author(s) in the window
 - [ ] If it stays, a commit touching `src/api/client-admin.ts` is authored by a second contributor.
 - [ ] CODEOWNERS covers `src/api/` and names at least two owners.
 
+## client-admin.ts exports are never called; adminPanel flag key does not exist
+
+```yaml
+status: pending
+slug: client-admin-ts-exports-are-never-called-adminpanel-flag-key-doe
+fingerprint: f4c345aefd008ff5
+tier: A
+priority: 7.5
+family: dead-code
+category: dead-code
+debt_type: code
+type_id: TD-30
+severity: 3
+effort: S
+diff: NEW
+```
+
+### Proof
+
+grep across src for 'getAdminJson', 'adminEnabled', 'client-admin' finds only the definitions in client-admin.ts:6,20 — zero callers anywhere, including index.ts (the only entry point) and the sole test file. flags.ts:1-5 lists only newCheckout and betaBanner; 'adminPanel' is absent, so adminEnabled() at line 21 always falls through isEnabled's '?? false' at flags.ts:8. No dynamic dispatch, route table, or DI container exists in this repo to invoke it indirectly.
+
+### Evidence
+
+- `src/api/client-admin.ts:6-11`
+
+```
+export async function getAdminJson(path: string): Promise<unknown> {
+  const headers = { Authorization: `Bearer ${token}`, "X-Retry": "3" };
+  try {
+    const response = await fetch(`${BASE}${path}`, {
+      headers,
+      signal: AbortSignal.timeout(5000),
+```
+
+- `src/api/client-admin.ts:20-22`
+
+```
+export function adminEnabled(): boolean {
+  return isEnabled("adminPanel");
+}
+```
+
+- `src/flags.ts:1-5`
+
+```
+const FLAGS: Record<string, boolean> = {
+  // newCheckout has been off since launch; the new flow was never finished
+  newCheckout: false,
+  betaBanner: true,
+};
+```
+
+### Signals
+
+- hotspot score 80.0, churn 4, coupling pairs 1, fan-in 0 (approximate)
+- confirmed by: coupling, hotspot, pattern:flag-sdk, scout:dead-code, tool:knip
+
+### Remediation
+
+remediation note not available
+
+### Acceptance criteria
+
+remediation note not available
+
+## getJson has no in-repo callers; betaBanner flag inside it is always true
+
+```yaml
+status: pending
+slug: getjson-has-no-in-repo-callers-betabanner-flag-inside-it-is-alwa
+fingerprint: 39ff2c7e77aa20a8
+tier: A
+priority: 6.1089
+family: dead-code
+category: dead-code
+debt_type: code
+type_id: TD-30
+severity: 3
+effort: S
+diff: NEW
+```
+
+### Proof
+
+grep for 'getJson' repo-wide returns only the definition at client.ts:6; index.ts (sole entry, checked) never imports it, and the only test file (cart.test.ts) tests cart.ts, not client.ts. betaBanner is hardcoded true at flags.ts:4 with no setter anywhere, so line 12's isEnabled check is dead-in-a-dead-function. No dynamic reference patterns exist in this small repo.
+
+### Evidence
+
+- `src/api/client.ts:6-11`
+
+```
+export async function getJson(path: string): Promise<unknown> {
+  const headers = { Authorization: `Bearer ${token}`, "X-Retry": "3" };
+  try {
+    const response = await fetch(`${BASE}${path}`, { headers });
+    return await response.json();
+  } catch (e) {}
+```
+
+- `src/api/client.ts:12-14`
+
+```
+if (isEnabled("betaBanner")) {
+    console.log("beta banner shown");
+  }
+```
+
+- `src/flags.ts:4-4`
+
+```
+betaBanner: true,
+```
+
+### Signals
+
+- hotspot score 42.9, churn 5, coupling pairs 1, fan-in 0 (approximate)
+- confirmed by: coupling, hotspot, pattern:flag-sdk, scout:dead-code, tool:knip
+
+### Remediation
+
+remediation note not available
+
+### Acceptance criteria
+
+remediation note not available
+
 ## Ownership gaps in src/api/client.ts
 
 ```yaml
@@ -201,6 +336,8 @@ src/api/client.ts: 100% of lines by one author, 1 author(s) in the window
 - [ ] A commit touching `src/api/client.ts` is authored by someone other than the current sole author.
 - [ ] The empty catch block in `getJson` either logs or is replaced by a deliberate, documented fallback.
 
+# Below the cut
+
 ## Checkout flow (legacy/new switch) has no automated test
 
 ```yaml
@@ -237,21 +374,6 @@ export function checkout(cart: Cart): string {
 }
 ```
 
-### Signals
-
-- hotspot score 2.9, churn 1, coupling pairs 0, fan-in 1 (approximate)
-- confirmed by: hotspot, scout:test-gaps, signal:no-mapped-tests
-
-### Remediation
-
-Add a test file for `src/checkout/checkout.ts`; `src/__tests__/cart.test.ts` never imports it, so neither side of the `newCheckout` switch is exercised. Stub `isEnabled` rather than mutating the flag store. With the flag on, pin the `new:` string against `total(cart)`. With it off, pin the `legacy:` string against `legacyFormat(priceOf(sku))` for the first item, and add the empty-cart case where the label collapses to the empty string. `src/index.ts` discards the return value, so these assertions are the only thing holding the string shape.
-
-### Acceptance criteria
-
-- [ ] A test exercises `checkout` with `newCheckout` enabled and again with it disabled.
-- [ ] The empty-cart legacy branch is asserted, including the empty label.
-- [ ] Both branches assert the returned string itself, not merely that the call does not throw.
-
 ## Bulk pricing behavior test is skipped
 
 ```yaml
@@ -282,21 +404,6 @@ it.skip("applies bulk pricing", () => {
     expect(priceOf("A1")).toBe(900);
   });
 ```
-
-### Signals
-
-- hotspot score 5.7, churn 1, coupling pairs 0, fan-in not computed (approximate)
-- confirmed by: scout:test-gaps, signal:no-mapped-tests
-
-### Remediation
-
-remediation note not available
-
-### Acceptance criteria
-
-remediation note not available
-
-# Below the cut
 
 ## Bulk pricing test skipped; feature never implemented in priceOf
 
@@ -374,6 +481,36 @@ const FLAGS: Record<string, boolean> = {
 export function isEnabled(name: string): boolean {
   return FLAGS[name] ?? false;
 }
+```
+
+## exportRows awaits a fetch call inside the loop for every row
+
+```yaml
+status: pending
+slug: exportrows-awaits-a-fetch-call-inside-the-loop-for-every-row
+fingerprint: acc2afedb12fe299
+tier: B
+priority: 2.3257
+family: performance
+category: performance
+debt_type: performance
+type_id: TD-36
+severity: 3
+effort: S
+diff: NEW
+```
+
+### Proof
+
+export.ts:6 awaits fetch(row.url) inside the for...of loop, once per row, with no batching or Promise.all. exportRows runs once per export request, not at startup. No cache or index on this path.
+
+### Evidence
+
+- `src/report/export.ts:6-7`
+
+```
+const response = await fetch(row.url); // planted TD-36: I/O inside the loop
+    out.push(await response.text());
 ```
 
 ## Skipped bulk-pricing test asserts a value the implementation cannot produce
@@ -547,93 +684,6 @@ verified by construction
 
 ```
 {
-```
-
-## Ownership gaps in src/checkout/checkout.ts
-
-```yaml
-status: pending
-slug: ownership-gaps-in-src-checkout-checkout-ts
-fingerprint: d96ff883dbafb64f
-tier: A
-priority: 1.7043
-family: ownership
-category: ownership
-debt_type: knowledge-process
-type_id: TD-16
-severity: 2
-effort: M
-diff: NEW
-```
-
-### Proof
-
-verified by construction
-
-### Evidence
-
-- `src/checkout/checkout.ts` (whole file)
-
-```
-src/checkout/checkout.ts: top author has no commits in 188 days
-```
-
-## Ownership gaps in src/util/receipt.ts
-
-```yaml
-status: pending
-slug: ownership-gaps-in-src-util-receipt-ts
-fingerprint: 6b888fd3b5a2ecc6
-tier: A
-priority: 1.6612
-family: ownership
-category: ownership
-debt_type: knowledge-process
-type_id: TD-16
-severity: 2
-effort: M
-diff: NEW
-```
-
-### Proof
-
-verified by construction
-
-### Evidence
-
-- `src/util/receipt.ts` (whole file)
-
-```
-src/util/receipt.ts: top author has no commits in 288 days
-```
-
-## Ownership gaps in src/util/receipt-legacy.ts
-
-```yaml
-status: pending
-slug: ownership-gaps-in-src-util-receipt-legacy-ts
-fingerprint: b82f6e5b7feabfe3
-tier: A
-priority: 1.6612
-family: ownership
-category: ownership
-debt_type: knowledge-process
-type_id: TD-16
-severity: 2
-effort: M
-diff: NEW
-```
-
-### Proof
-
-verified by construction
-
-### Evidence
-
-- `src/util/receipt-legacy.ts` (whole file)
-
-```
-src/util/receipt-legacy.ts: top author has no commits in 288 days
 ```
 
 ## Deprecated legacyFormat still the only caller path, not formatMoney
@@ -844,6 +894,43 @@ tslint.json:1 (`tslint:recommended`) has no corresponding tooling: package.json:
   "devDependencies": { "typescript": "5.4.5", "jest": "29.7.0", "eslint": "9.0.0" },
 ```
 
+## formatAmount reimplemented separately in src/report and src/cart
+
+```yaml
+status: pending
+slug: formatamount-reimplemented-separately-in-src-report-and-src-cart
+fingerprint: c02580a81c6e0590
+tier: B
+priority: 1.4
+family: concerns
+category: concerns
+debt_type: architecture
+type_id: TD-10
+severity: 2
+effort: S
+diff: NEW
+```
+
+### Proof
+
+formatAmount is defined identically in src/report/format.ts:1-2 and src/cart/format.ts:1-2 (same body: (cents / 100).toFixed(2)), with neither file importing the other. Same concept, not a per-adapter pattern.
+
+### Evidence
+
+- `src/report/format.ts:1-2`
+
+```
+export function formatAmount(cents: number): string {
+  return (cents / 100).toFixed(2);
+```
+
+- `src/cart/format.ts:1-2`
+
+```
+export function formatAmount(cents: number): string {
+  return (cents / 100).toFixed(2);
+```
+
 ## Cart total test asserts hardcoded money total with no derivation
 
 ```yaml
@@ -880,8 +967,6 @@ test("total sums items", () => {
 
 | slug | family | file | reason |
 | --- | --- | --- | --- |
-| client-admin-ts-exports-are-never-called-adminpanel-flag-key-doe | dead-code | src/api/client-admin.ts | dead-code is capped at C without tool corroboration |
-| getjson-has-no-in-repo-callers-betabanner-flag-inside-it-is-alwa | dead-code | src/api/client.ts | dead-code is capped at C without tool corroboration |
 | empty-catch-swallows-fetch-json-errors-in-getjson | error-masking | src/api/client.ts | the verifier downgraded it |
 | duplicated-fetch-with-auth-headers-logic-across-api-clients | duplication | src/api/client.ts | the verifier downgraded it |
 | getjson-fetch-has-no-timeout-and-swallows-all-errors | half-finished | src/api/client.ts | the verifier downgraded it |
@@ -910,6 +995,8 @@ test("total sums items", () => {
 - `src\util\format-legacy.ts:1` - format-legacy.ts wrapping format.ts is an internal code-duplication/migration pattern, not a dependency-debt issue (no external package involved).
 - `src/checkout/checkout.ts:1` - checkout.ts and flags.ts are not mentioned in docs/architecture.md, but architecture.md only scopes itself to cart/stock/pricing coupling and does not claim to be exhaustive, so this is an incompleteness rather than a contradiction.
 - `src/cart/cart.ts:1` - cart.ts -> pricing.ts -> stock.ts -> (type-only) cart.ts forms a cycle, but all three files live inside the single src/cart directory/package and the back-edge (src/cart/stock.ts:1) is a type-only import erased at compile time, not a runtime circular dependency. This is an intra-package design smell rather than a cross-module architecture cycle.
+- `src/report/export.ts:14` - kindLabels loops over KINDS, a fixed three-member tuple with a bounded N.
+- `src/report/parseCsv.ts:1` - parseCsv reads CSV text; parseJson (src/report/parseJson.ts) reads JSON text. One adapter per input format is a pattern, not scatter.
 - `src/api/client.ts:13` - console.log call looks like a stdout-vs-logger violation, but no logger/logging library exists anywhere in the repo (grep for logger/winston/pino/log4js found nothing), so the pipeline-infra pattern (stdout writes where a logger exists) does not apply.
 - `src/api/client-admin.ts:15` - console.error call, same reasoning: no logger is present in the codebase to compare against.
 - `.github/workflows/ci.yml:1` - Only one workflow file with a single job exists; there is no second workflow to compare against, so this is not duplicated pipeline YAML.

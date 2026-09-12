@@ -117,6 +117,20 @@
       "tool": "knip",
       "family": "dead-code",
       "kind": "unused",
+      "file": "src/cart/format.ts",
+      "line_start": null,
+      "line_end": null,
+      "message": "unused file src/cart/format.ts",
+      "fact": false,
+      "extra": {
+        "issue": "files",
+        "symbol": "src/cart/format.ts"
+      }
+    },
+    {
+      "tool": "knip",
+      "family": "dead-code",
+      "kind": "unused",
       "file": "src/cart/stock.ts",
       "line_start": 11,
       "line_end": 11,
@@ -125,6 +139,62 @@
       "extra": {
         "issue": "exports",
         "symbol": "reserveCart"
+      }
+    },
+    {
+      "tool": "knip",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/report/export.ts",
+      "line_start": null,
+      "line_end": null,
+      "message": "unused file src/report/export.ts",
+      "fact": false,
+      "extra": {
+        "issue": "files",
+        "symbol": "src/report/export.ts"
+      }
+    },
+    {
+      "tool": "knip",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/report/format.ts",
+      "line_start": null,
+      "line_end": null,
+      "message": "unused file src/report/format.ts",
+      "fact": false,
+      "extra": {
+        "issue": "files",
+        "symbol": "src/report/format.ts"
+      }
+    },
+    {
+      "tool": "knip",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/report/parseCsv.ts",
+      "line_start": null,
+      "line_end": null,
+      "message": "unused file src/report/parseCsv.ts",
+      "fact": false,
+      "extra": {
+        "issue": "files",
+        "symbol": "src/report/parseCsv.ts"
+      }
+    },
+    {
+      "tool": "knip",
+      "family": "dead-code",
+      "kind": "unused",
+      "file": "src/report/parseJson.ts",
+      "line_start": null,
+      "line_end": null,
+      "message": "unused file src/report/parseJson.ts",
+      "fact": false,
+      "extra": {
+        "issue": "files",
+        "symbol": "src/report/parseJson.ts"
       }
     },
     {

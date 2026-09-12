@@ -388,7 +388,7 @@ def test_prompt_carries_the_family_traps_before_the_repository_traps(tmp_path: P
 
 
 def test_every_family_renders_its_own_trap_list(tmp_path: Path) -> None:
-    """Every one of the fourteen families carries its block's traps into the prompt."""
+    """Every one of the sixteen families carries its block's traps into the prompt."""
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / "src" / "payments.py").write_text(
@@ -409,7 +409,7 @@ def test_credential_shaped_family_trap_is_redacted_in_the_prompt(
 ) -> None:
     """A family block's own trap text is redacted, same as every other prompt line (spec 4.3/4.4).
 
-    None of the fourteen real family blocks' traps happen to contain a
+    None of the sixteen real family blocks' traps happen to contain a
     credential-shaped string, so ``test_every_family_renders_its_own_trap_list``
     stays green even if the ``redact(`` call were deleted from the family-traps
     line in ``render_verify_prompt``. This monkeypatches one block's traps

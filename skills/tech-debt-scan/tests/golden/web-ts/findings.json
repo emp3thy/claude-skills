@@ -105,6 +105,142 @@
       "diff": "NEW"
     },
     {
+      "fingerprint": "f4c345aefd008ff5",
+      "slug": "client-admin-ts-exports-are-never-called-adminpanel-flag-key-doe",
+      "title": "client-admin.ts exports are never called; adminPanel flag key does not exist",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-30",
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),",
+          "quote_verified": true
+        },
+        {
+          "file": "src/api/client-admin.ts",
+          "line_start": 20,
+          "line_end": 22,
+          "quote": "export function adminEnabled(): boolean {\n  return isEnabled(\"adminPanel\");\n}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/flags.ts",
+          "line_start": 1,
+          "line_end": 5,
+          "quote": "const FLAGS: Record<string, boolean> = {\n  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,\n  betaBanner: true,\n};",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 80.0,
+        "churn": 4,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:flag-sdk",
+        "scout:dead-code",
+        "tool:knip"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "grep across src for 'getAdminJson', 'adminEnabled', 'client-admin' finds only the definitions in client-admin.ts:6,20 \u2014 zero callers anywhere, including index.ts (the only entry point) and the sole test file. flags.ts:1-5 lists only newCheckout and betaBanner; 'adminPanel' is absent, so adminEnabled() at line 21 always falls through isEnabled's '?? false' at flags.ts:8. No dynamic dispatch, route table, or DI container exists in this repo to invoke it indirectly.",
+      "priority": 7.5,
+      "terms": {
+        "severity": 3,
+        "H": 1.0,
+        "C": 1.0,
+        "F": 0.0,
+        "interest": 2.5,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 7.5
+      },
+      "in_top_n": true,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "39ff2c7e77aa20a8",
+      "slug": "getjson-has-no-in-repo-callers-betabanner-flag-inside-it-is-alwa",
+      "title": "getJson has no in-repo callers; betaBanner flag inside it is always true",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-30",
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/api/client.ts",
+          "line_start": 6,
+          "line_end": 11,
+          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}",
+          "quote_verified": true
+        },
+        {
+          "file": "src/api/client.ts",
+          "line_start": 12,
+          "line_end": 14,
+          "quote": "if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");\n  }",
+          "quote_verified": true
+        },
+        {
+          "file": "src/flags.ts",
+          "line_start": 4,
+          "line_end": 4,
+          "quote": "betaBanner: true,",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 42.9,
+        "churn": 5,
+        "coupling_degree": 1,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "pattern:flag-sdk",
+        "scout:dead-code",
+        "tool:knip"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "grep for 'getJson' repo-wide returns only the definition at client.ts:6; index.ts (sole entry, checked) never imports it, and the only test file (cart.test.ts) tests cart.ts, not client.ts. betaBanner is hardcoded true at flags.ts:4 with no setter anywhere, so line 12's isEnabled check is dead-in-a-dead-function. No dynamic reference patterns exist in this small repo.",
+      "priority": 6.1089,
+      "terms": {
+        "severity": 3,
+        "H": 0.5363,
+        "C": 1.0,
+        "F": 0.0,
+        "interest": 2.0363,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 6.1089
+      },
+      "in_top_n": true,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
       "fingerprint": "3c1370050f312692",
       "slug": "ownership-gaps-in-src-api-client-ts",
       "title": "Ownership gaps in src/api/client.ts",
@@ -230,10 +366,9 @@
         "coupling_degree": 0,
         "fan_in_approx": 1,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "confirmed_by": [
-        "hotspot",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -254,7 +389,7 @@
         "tractability": 1.0,
         "priority": 4.5448
       },
-      "in_top_n": true,
+      "in_top_n": false,
       "spread_capped": false,
       "diff": "NEW"
     },
@@ -305,7 +440,7 @@
         "tractability": 1.0,
         "priority": 3.2139
       },
-      "in_top_n": true,
+      "in_top_n": false,
       "spread_capped": false,
       "diff": "NEW"
     },
@@ -368,73 +503,6 @@
       "diff": "NEW"
     },
     {
-      "fingerprint": "f4c345aefd008ff5",
-      "slug": "client-admin-ts-exports-are-never-called-adminpanel-flag-key-doe",
-      "title": "client-admin.ts exports are never called; adminPanel flag key does not exist",
-      "family": "dead-code",
-      "debt_type": "code",
-      "type_id": "TD-30",
-      "severity": 3,
-      "effort": "S",
-      "evidence": [
-        {
-          "file": "src/api/client-admin.ts",
-          "line_start": 6,
-          "line_end": 11,
-          "quote": "export async function getAdminJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, {\n      headers,\n      signal: AbortSignal.timeout(5000),",
-          "quote_verified": true
-        },
-        {
-          "file": "src/api/client-admin.ts",
-          "line_start": 20,
-          "line_end": 22,
-          "quote": "export function adminEnabled(): boolean {\n  return isEnabled(\"adminPanel\");\n}",
-          "quote_verified": true
-        },
-        {
-          "file": "src/flags.ts",
-          "line_start": 1,
-          "line_end": 5,
-          "quote": "const FLAGS: Record<string, boolean> = {\n  // newCheckout has been off since launch; the new flow was never finished\n  newCheckout: false,\n  betaBanner: true,\n};",
-          "quote_verified": true
-        }
-      ],
-      "signals": {
-        "hotspot_score": 80.0,
-        "churn": 4,
-        "coupling_degree": 1,
-        "fan_in_approx": 0,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "confirmed_by": [
-        "coupling",
-        "hotspot",
-        "pattern:flag-sdk",
-        "scout:dead-code"
-      ],
-      "source": "scout",
-      "rule_id": null,
-      "tool": null,
-      "tier": "C",
-      "verdict": "confirm",
-      "proof": "grep across src for 'getAdminJson', 'adminEnabled', 'client-admin' finds only the definitions in client-admin.ts:6,20 \u2014 zero callers anywhere, including index.ts (the only entry point) and the sole test file. flags.ts:1-5 lists only newCheckout and betaBanner; 'adminPanel' is absent, so adminEnabled() at line 21 always falls through isEnabled's '?? false' at flags.ts:8. No dynamic dispatch, route table, or DI container exists in this repo to invoke it indirectly.",
-      "priority": 2.625,
-      "terms": {
-        "severity": 3,
-        "H": 1.0,
-        "C": 1.0,
-        "F": 0.0,
-        "interest": 2.5,
-        "tier_weight": 0.35,
-        "tractability": 1.0,
-        "priority": 2.625
-      },
-      "in_top_n": false,
-      "spread_capped": false,
-      "diff": "NEW"
-    },
-    {
       "fingerprint": "02bbf6de78e47bd6",
       "slug": "feature-flag-lookup-isenabled-has-no-direct-test",
       "title": "Feature flag lookup (isEnabled) has no direct test",
@@ -486,6 +554,58 @@
       "diff": "NEW"
     },
     {
+      "fingerprint": "acc2afedb12fe299",
+      "slug": "exportrows-awaits-a-fetch-call-inside-the-loop-for-every-row",
+      "title": "exportRows awaits a fetch call inside the loop for every row",
+      "family": "performance",
+      "debt_type": "performance",
+      "type_id": "TD-36",
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/report/export.ts",
+          "line_start": 6,
+          "line_end": 7,
+          "quote": "const response = await fetch(row.url); // planted TD-36: I/O inside the loop\n    out.push(await response.text());",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "hotspot",
+        "pattern:io-in-loop",
+        "scout:performance"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "export.ts:6 awaits fetch(row.url) inside the for...of loop, once per row, with no batching or Promise.all. exportRows runs once per export request, not at startup. No cache or index on this path.",
+      "priority": 2.3257,
+      "terms": {
+        "severity": 3,
+        "H": 0.1075,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.1075,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 2.3257
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
       "fingerprint": "1b4189615c5560c6",
       "slug": "skipped-bulk-pricing-test-asserts-a-value-the-implementation-can",
       "title": "Skipped bulk-pricing test asserts a value the implementation cannot produce",
@@ -531,73 +651,6 @@
         "tier_weight": 0.7,
         "tractability": 1.0,
         "priority": 2.2497
-      },
-      "in_top_n": false,
-      "spread_capped": false,
-      "diff": "NEW"
-    },
-    {
-      "fingerprint": "39ff2c7e77aa20a8",
-      "slug": "getjson-has-no-in-repo-callers-betabanner-flag-inside-it-is-alwa",
-      "title": "getJson has no in-repo callers; betaBanner flag inside it is always true",
-      "family": "dead-code",
-      "debt_type": "code",
-      "type_id": "TD-30",
-      "severity": 3,
-      "effort": "S",
-      "evidence": [
-        {
-          "file": "src/api/client.ts",
-          "line_start": 6,
-          "line_end": 11,
-          "quote": "export async function getJson(path: string): Promise<unknown> {\n  const headers = { Authorization: `Bearer ${token}`, \"X-Retry\": \"3\" };\n  try {\n    const response = await fetch(`${BASE}${path}`, { headers });\n    return await response.json();\n  } catch (e) {}",
-          "quote_verified": true
-        },
-        {
-          "file": "src/api/client.ts",
-          "line_start": 12,
-          "line_end": 14,
-          "quote": "if (isEnabled(\"betaBanner\")) {\n    console.log(\"beta banner shown\");\n  }",
-          "quote_verified": true
-        },
-        {
-          "file": "src/flags.ts",
-          "line_start": 4,
-          "line_end": 4,
-          "quote": "betaBanner: true,",
-          "quote_verified": true
-        }
-      ],
-      "signals": {
-        "hotspot_score": 42.9,
-        "churn": 5,
-        "coupling_degree": 1,
-        "fan_in_approx": 0,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "confirmed_by": [
-        "coupling",
-        "hotspot",
-        "pattern:flag-sdk",
-        "scout:dead-code"
-      ],
-      "source": "scout",
-      "rule_id": null,
-      "tool": null,
-      "tier": "C",
-      "verdict": "confirm",
-      "proof": "grep for 'getJson' repo-wide returns only the definition at client.ts:6; index.ts (sole entry, checked) never imports it, and the only test file (cart.test.ts) tests cart.ts, not client.ts. betaBanner is hardcoded true at flags.ts:4 with no setter anywhere, so line 12's isEnabled check is dead-in-a-dead-function. No dynamic reference patterns exist in this small repo.",
-      "priority": 2.1381,
-      "terms": {
-        "severity": 3,
-        "H": 0.5363,
-        "C": 1.0,
-        "F": 0.0,
-        "interest": 2.0363,
-        "tier_weight": 0.35,
-        "tractability": 1.0,
-        "priority": 2.1381
       },
       "in_top_n": false,
       "spread_capped": false,
@@ -819,156 +872,6 @@
         "tier_weight": 1.0,
         "tractability": 1.0,
         "priority": 2.0
-      },
-      "in_top_n": false,
-      "spread_capped": false,
-      "diff": "NEW"
-    },
-    {
-      "fingerprint": "d96ff883dbafb64f",
-      "slug": "ownership-gaps-in-src-checkout-checkout-ts",
-      "title": "Ownership gaps in src/checkout/checkout.ts",
-      "family": "ownership",
-      "debt_type": "knowledge-process",
-      "type_id": "TD-16",
-      "severity": 2,
-      "effort": "M",
-      "evidence": [
-        {
-          "file": "src/checkout/checkout.ts",
-          "line_start": null,
-          "line_end": null,
-          "quote": "src/checkout/checkout.ts: top author has no commits in 188 days",
-          "quote_verified": true
-        }
-      ],
-      "signals": {
-        "hotspot_score": 2.9,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": 1,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "confirmed_by": [
-        "rule:ownership.former-contributor"
-      ],
-      "source": "rule",
-      "rule_id": "ownership.former-contributor",
-      "tool": null,
-      "tier": "A",
-      "verdict": "rule",
-      "proof": "verified by construction",
-      "priority": 1.7043,
-      "terms": {
-        "severity": 2,
-        "H": 0.0362,
-        "C": 0.0,
-        "F": 0.2,
-        "interest": 1.1362,
-        "tier_weight": 1.0,
-        "tractability": 0.75,
-        "priority": 1.7043
-      },
-      "in_top_n": false,
-      "spread_capped": false,
-      "diff": "NEW"
-    },
-    {
-      "fingerprint": "6b888fd3b5a2ecc6",
-      "slug": "ownership-gaps-in-src-util-receipt-ts",
-      "title": "Ownership gaps in src/util/receipt.ts",
-      "family": "ownership",
-      "debt_type": "knowledge-process",
-      "type_id": "TD-16",
-      "severity": 2,
-      "effort": "M",
-      "evidence": [
-        {
-          "file": "src/util/receipt.ts",
-          "line_start": null,
-          "line_end": null,
-          "quote": "src/util/receipt.ts: top author has no commits in 288 days",
-          "quote_verified": true
-        }
-      ],
-      "signals": {
-        "hotspot_score": 8.6,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": 0,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "confirmed_by": [
-        "rule:ownership.former-contributor"
-      ],
-      "source": "rule",
-      "rule_id": "ownership.former-contributor",
-      "tool": null,
-      "tier": "A",
-      "verdict": "rule",
-      "proof": "verified by construction",
-      "priority": 1.6612,
-      "terms": {
-        "severity": 2,
-        "H": 0.1075,
-        "C": 0.0,
-        "F": 0.0,
-        "interest": 1.1075,
-        "tier_weight": 1.0,
-        "tractability": 0.75,
-        "priority": 1.6612
-      },
-      "in_top_n": false,
-      "spread_capped": false,
-      "diff": "NEW"
-    },
-    {
-      "fingerprint": "b82f6e5b7feabfe3",
-      "slug": "ownership-gaps-in-src-util-receipt-legacy-ts",
-      "title": "Ownership gaps in src/util/receipt-legacy.ts",
-      "family": "ownership",
-      "debt_type": "knowledge-process",
-      "type_id": "TD-16",
-      "severity": 2,
-      "effort": "M",
-      "evidence": [
-        {
-          "file": "src/util/receipt-legacy.ts",
-          "line_start": null,
-          "line_end": null,
-          "quote": "src/util/receipt-legacy.ts: top author has no commits in 288 days",
-          "quote_verified": true
-        }
-      ],
-      "signals": {
-        "hotspot_score": 8.6,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": 0,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "confirmed_by": [
-        "rule:ownership.former-contributor"
-      ],
-      "source": "rule",
-      "rule_id": "ownership.former-contributor",
-      "tool": null,
-      "tier": "A",
-      "verdict": "rule",
-      "proof": "verified by construction",
-      "priority": 1.6612,
-      "terms": {
-        "severity": 2,
-        "H": 0.1075,
-        "C": 0.0,
-        "F": 0.0,
-        "interest": 1.1075,
-        "tier_weight": 1.0,
-        "tractability": 0.75,
-        "priority": 1.6612
       },
       "in_top_n": false,
       "spread_capped": false,
@@ -1456,6 +1359,63 @@
       "tier": "B",
       "verdict": "confirm",
       "proof": "tslint.json:1 (`tslint:recommended`) has no corresponding tooling: package.json:7 lists eslint but not tslint, and grep confirms tslint appears nowhere else in the repo (no script, no CI step). ci.yml only runs `npm test` (no lint step at all), so neither tslint.json nor .eslintrc.json is actually invoked \u2014 but tslint.json specifically is a dead leftover from a superseded tool with zero remaining references, matching the migration-debris pattern exactly.",
+      "priority": 1.4,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 1.4
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "c02580a81c6e0590",
+      "slug": "formatamount-reimplemented-separately-in-src-report-and-src-cart",
+      "title": "formatAmount reimplemented separately in src/report and src/cart",
+      "family": "concerns",
+      "debt_type": "architecture",
+      "type_id": "TD-10",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/report/format.ts",
+          "line_start": 1,
+          "line_end": 2,
+          "quote": "export function formatAmount(cents: number): string {\n  return (cents / 100).toFixed(2);",
+          "quote_verified": true
+        },
+        {
+          "file": "src/cart/format.ts",
+          "line_start": 1,
+          "line_end": 2,
+          "quote": "export function formatAmount(cents: number): string {\n  return (cents / 100).toFixed(2);",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "scout:concerns"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "formatAmount is defined identically in src/report/format.ts:1-2 and src/cart/format.ts:1-2 (same body: (cents / 100).toFixed(2)), with neither file importing the other. Same concept, not a per-adapter pattern.",
       "priority": 1.4,
       "terms": {
         "severity": 2,

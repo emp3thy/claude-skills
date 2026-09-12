@@ -463,7 +463,7 @@ def heading_text(value: str) -> str:
     lands in the document as a line of its own: a ``# ``-shaped one becomes a
     section heading to ``design_parser``, which then finds no anchor under the
     finding's heading and aborts the whole render -- one stray line from one
-    agent discarding a run's twelve scouts, its verifier batches and its note
+    agent discarding a run's fourteen scouts, its verifier batches and its note
     agent.
 
     A title is a single line by nature, so this collapses every whitespace run

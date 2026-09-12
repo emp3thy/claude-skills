@@ -39,8 +39,8 @@ The scan is grounded in three published ideas:
 - **Debt taxonomy** (SATD / Alves et al.): every finding carries a `debt_type`
   (code, design, architecture, test, documentation, dependency, build,
   requirement, security, infrastructure, knowledge-process, defect) on top of
-  its **family** (one of fourteen, `scripts/categories.py`'s `FAMILY_BLOCKS`)
-  and an optional `type_id` (`TD-01` to `TD-35`), so reports can be sliced by
+  its **family** (one of sixteen, `scripts/categories.py`'s `FAMILY_BLOCKS`)
+  and an optional `type_id` (`TD-01` to `TD-37`), so reports can be sliced by
   the kind of liability, not just by which family found it.
 - **Detect, verify, rank.** Rule scripts and family-scoped scout agents emit
   candidates; read-only verifier agents apply each family's questions and
@@ -76,7 +76,7 @@ run clears the hard gate (see `docs/evaluation-log.md`).
 
 `/tech-debt-scan <repo> [--quick | --deep] [--preset balanced|hotspot-first|architecture|quick-wins] [--families a,b,c] [--top N] [--no-tools]`.
 `--quick` selects the quick family set (six families) and `--top 3`; `--deep`
-selects the deep family set (all fourteen families, `plan_scan.py --families
+selects the deep family set (all sixteen families, `plan_scan.py --families
 deep`); `--families` overrides both and bypasses the adaptive rule; `--no-tools`
 runs step 4 with `--skip-all`, so `tool-signals.json` is still written but
 every tool is marked `skipped` and nothing reaches the network.
@@ -114,6 +114,10 @@ renumbers the rest.
    `inventory.json` and `coupling.json`. Add `--churn-months <n>` to change
    the window. When `git_available` is false, `churn` is 0, `hotspots` is
    empty and the history fields are null; say so in the report.
+1a. `python scripts/concern_index.py <repo> --workdir .tech-debt` writes
+    `concern-index.json`: per-directory aggregates and at most 40 definition
+    names that recur across directories, the concerns scout's only leads.
+    Exit 2 when `coupling.json` predates the graph join; re-run step 1.
 2. `python scripts/patterns.py <repo> --workdir .tech-debt` writes
    `patterns.json` and fills `inline_disables` in `inventory.json`.
 3. `python scripts/rules.py <repo> --workdir .tech-debt` writes
@@ -211,7 +215,7 @@ renumbers the rest.
 
 | Scan | v1 | v2 quick | v2 default | v2 deep |
 |---|---|---|---|---|
-| Scout agents | 8 (4 quick) | 6 | 12 | 14, and on a chunked plan at most `families x chunking.max_modules` (14 x 8) |
+| Scout agents | 8 (4 quick) | 6 | 14 | 16, and on a chunked plan at most `families x chunking.max_modules` (16 x 8) |
 | Verifier batches | 0 | 3 to 5 | 5 to 7 | 8 to 12 |
 | Note agent | 1 top-N picker | 1 | 1 | 1 |
 | Output tokens | 80 to 110k | 35 to 50k | 60 to 85k | 90 to 130k |
@@ -247,6 +251,13 @@ with `--skip-all`) brings it to 0.
   itself did not update. Fix the cause and re-run the same command: a slug
   already `promoted` on disk is still selectable, so a re-run of `--select`
   re-renders `evidence.md` rather than failing.
+- **Performance is static only.** A TD-36 local smell can reach tier A on a
+  linter hit plus a verifier confirm; a TD-37 cardinality claim (N+1,
+  complexity, "will not scale") is capped at tier C however confident the
+  reader is, because the N lives at runtime and this scan never reads it.
+- **The concerns scout reads without file leads**, bounded by the 40-candidate
+  index and an instructed 60 + 10 file budget that `merge_findings` records
+  as `stats.concerns.files_read` but cannot enforce.
 - **Single-user.** Do not run two `--select` invocations against the same
   `design.md` concurrently; there is no file locking.
 - **Backwards compatibility.** A v1 `design.md` still parses and selects (no

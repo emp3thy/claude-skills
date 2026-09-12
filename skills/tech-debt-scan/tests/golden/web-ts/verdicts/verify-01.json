@@ -15,7 +15,7 @@
   {
     "fingerprint": "1a2cee62a043fa63",
     "verdict": "confirm",
-    "proof": "README.md:1-5 is the entire file: title, one-line description, `npm test`. Globbed for CONTRIBUTING*, CHANGELOG*, and any adr/ directory repo-wide \u2014 none exist. docs/ only contains architecture.md. So the absence is real and total, not just missing a link to existing docs.",
+    "proof": "README.md:1-5 is the entire file: title, one-line description, `npm test`. Globbed for CONTRIBUTING*, CHANGELOG*, and any adr/ directory repo-wide — none exist. docs/ only contains architecture.md. So the absence is real and total, not just missing a link to existing docs.",
     "severity": 2,
     "effort": "S",
     "trap_matched": null,
@@ -60,7 +60,7 @@
   {
     "fingerprint": "9ead67e93821ff71",
     "verdict": "confirm",
-    "proof": "package-lock.json:1 is `{ \"packages\": {} }` \u2014 an empty lockfile that does not record tiny-emitter despite it being a declared dependency. yarn.lock:1-4 does record tiny-emitter@2.1.0. ci.yml:14,19 configures `cache: npm` and runs `npm test` exclusively; there is no yarn step anywhere in CI. So yarn.lock is dead weight and the npm lockfile that CI actually relies on is non-functional (would need regeneration on every npm ci).",
+    "proof": "package-lock.json:1 is `{ \"packages\": {} }` — an empty lockfile that does not record tiny-emitter despite it being a declared dependency. yarn.lock:1-4 does record tiny-emitter@2.1.0. ci.yml:14,19 configures `cache: npm` and runs `npm test` exclusively; there is no yarn step anywhere in CI. So yarn.lock is dead weight and the npm lockfile that CI actually relies on is non-functional (would need regeneration on every npm ci).",
     "severity": 3,
     "effort": "S",
     "trap_matched": null,
@@ -76,7 +76,7 @@
   {
     "fingerprint": "08e6401c9ac87df8",
     "verdict": "confirm",
-    "proof": "package.json:5,8 \u2014 \"test\": \"jest\" with no --coverage flag, while jest.coverageThreshold.global.lines is set to 80. No jest.config.* file exists to add coverage-on-by-default. Coverage (and thus the threshold) only evaluates with `--coverage`, so plain `npm test`/`yarn test` never triggers it. Confirmed only one test file exists repo-wide (src/__tests__/cart.test.ts); client.ts, client-admin.ts, and checkout.ts have no corresponding test files, so the unmet threshold would go undetected.",
+    "proof": "package.json:5,8 — \"test\": \"jest\" with no --coverage flag, while jest.coverageThreshold.global.lines is set to 80. No jest.config.* file exists to add coverage-on-by-default. Coverage (and thus the threshold) only evaluates with `--coverage`, so plain `npm test`/`yarn test` never triggers it. Confirmed only one test file exists repo-wide (src/__tests__/cart.test.ts); client.ts, client-admin.ts, and checkout.ts have no corresponding test files, so the unmet threshold would go undetected.",
     "severity": 2,
     "effort": "S",
     "trap_matched": null,

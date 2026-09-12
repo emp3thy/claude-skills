@@ -1,0 +1,33 @@
+{
+  "family": "performance",
+  "module": null,
+  "findings": [
+    {
+      "title": "exportRows awaits a fetch call inside the loop for every row",
+      "family": "performance",
+      "debt_type": "performance",
+      "type_id": "TD-36",
+      "severity": 3,
+      "effort": "S",
+      "signals_cited": ["hotspot", "pattern:io-in-loop"],
+      "evidence": [
+        {
+          "file": "src/report/export.ts",
+          "line_start": 6,
+          "line_end": 7,
+          "quote": "const response = await fetch(row.url); // planted TD-36: I/O inside the loop\n    out.push(await response.text());"
+        }
+      ],
+      "note": "exportRows awaits fetch(row.url) once per row inside the loop, with no batching or concurrency. Real per-request cost on a hot path (export.ts is in the hotspot band); no ruff-equivalent linter covers TypeScript here, so this is a scout-only finding without tool corroboration."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/report/export.ts",
+      "line_start": 14,
+      "why": "kindLabels loops over KINDS, a fixed three-member tuple with a bounded N."
+    }
+  ],
+  "not_assessed": []
+}

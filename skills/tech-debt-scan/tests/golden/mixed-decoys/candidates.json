@@ -1629,6 +1629,16 @@
       "why": "md5 use has no discoverable caller in the repo; per family rules a weak hash used only for a cache key or checksum is not reportable, and no evidence contradicts that reading."
     },
     {
+      "file": "internal/report/kinds.go",
+      "line_start": 10,
+      "why": "KindLabels loops over kindNames, a fixed two-member slice with a bounded N."
+    },
+    {
+      "file": "internal/report/parse_csv.go",
+      "line_start": 6,
+      "why": "ParseCSV reads CSV text; ParseJSON (internal/report/parse_json.go) reads JSON text. One adapter per input format is a pattern, not scattered functionality."
+    },
+    {
       "file": "internal/store/store_test.go",
       "line_start": 8,
       "why": "if _, err := Open(\"missing\"); err == nil { t.Fatal(...) } is the standard idiomatic Go pattern for asserting an error occurred (no assert library available); it is a single deterministic check, not conditional logic branching test behavior on data."
@@ -1738,6 +1748,22 @@
       "dropped": 0,
       "quote_failed": 0,
       "clustered": 1,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "performance": {
+      "raw": 0,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "concerns": {
+      "raw": 0,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
       "suppressed": 0,
       "disabled": 0
     },

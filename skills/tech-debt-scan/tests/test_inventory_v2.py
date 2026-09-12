@@ -82,7 +82,7 @@ def test_service_py_path_classes(service_py_repo: Path) -> None:
     assert classes["README.md"] == "docs"
     assert classes["docs/adr/0001-ledger.md"] == "docs"
     assert classes["docs/übersicht.md"] == "docs"
-    assert result["total_files"] == 16
+    assert result["total_files"] == 21
     assert {e["language"] for e in result["files"]} == {"python", "markdown"}
 
 
@@ -106,7 +106,7 @@ def test_web_ts_path_classes(web_ts_repo: Path) -> None:
     assert classes["src/generated/api-types.ts"] == "generated"
     assert classes["vendor/tiny-emitter.js"] == "vendored"
     assert classes["docs/architecture.md"] == "docs"
-    assert result["total_files"] == 18
+    assert result["total_files"] == 23
 
 
 def test_service_py_artefact_classes(service_py_repo: Path) -> None:
@@ -323,10 +323,10 @@ def test_git_pass_authors_keyed_by_email_and_bots_dropped(service_py_repo: Path)
     assert [a["email"] for a in git["authors"]] == [
         "ada@example.com", "linus@example.com", "grace@example.com",
     ]
-    assert [a["commits"] for a in git["authors"]] == [7, 5, 3]
+    assert [a["commits"] for a in git["authors"]] == [8, 5, 3]
     assert git["authors"][0]["name"] == "Ada Lovelace"
-    assert git["authors"][0]["last_active"].startswith("2026-06-22")
-    assert git["commits_in_window"] == 16
+    assert git["authors"][0]["last_active"].startswith("2026-07-15")
+    assert git["commits_in_window"] == 17
     assert git["bulk_commits_excluded"] == 0
     assert git["mailmap_present"] is False
     req = next(e for e in result["artefacts"]["manifest"] if e["path"] == "requirements.txt")
@@ -338,7 +338,7 @@ def test_git_pass_authors_keyed_by_email_and_bots_dropped(service_py_repo: Path)
 def test_git_pass_head_join_drops_deleted_file(service_py_repo: Path) -> None:
     result = walk_inventory(service_py_repo, churn_months=240)
     assert "src/pay/old_helper.py" not in {e["path"] for e in result["files"]}
-    assert result["git"]["commits_in_window"] == 16  # the deletion commit is still counted
+    assert result["git"]["commits_in_window"] == 17  # the deletion commit is still counted
 
 
 def test_git_pass_non_ascii_path(service_py_repo: Path) -> None:
@@ -528,7 +528,7 @@ def test_coupling_pairs_on_service_py(service_py_repo: Path) -> None:
     assert coupling["fan_in_mode"] == "auto"
     assert list(coupling) == [
         "schema_version", "min_shared", "min_ratio", "bulk_threshold", "fan_in_mode",
-        "pairs", "degree", "cycles", "directories", "unstable_edges",
+        "pairs", "degree", "cycles", "directories", "unstable_edges", "edges",
     ]
 
 
@@ -609,7 +609,7 @@ def test_fan_in_on_web_ts_matches_hand_count(web_ts_repo: Path) -> None:
         "src/cart/stock.ts": 1,  # pricing
         "src/checkout/checkout.ts": 1,  # index
         "src/util/format-legacy.ts": 1,  # checkout: the deprecated helper still has a caller
-        "src/util/format.ts": 1,  # format-legacy
+        "src/util/format.ts": None,  # ambiguous shared-stem: report/ and cart/ add a format.ts too
         "src/flags.ts": 3,  # checkout, client, client-admin
         "src/api/client.ts": 0,
         "src/api/client-admin.ts": 0,
@@ -871,12 +871,12 @@ def test_test_mapping_across_seven_conventions(tmp_path: Path) -> None:
 def test_tests_block_on_corpus(service_py_repo: Path, web_ts_repo: Path) -> None:
     service = walk_inventory(service_py_repo, churn_months=240)["tests"]
     assert service == {
-        "test_to_source_ratio": 0.5,
+        "test_to_source_ratio": 0.308,
         "coverage_gate": ["pyproject.toml"],
         "ci_retry_config": [],
     }
     web = walk_inventory(web_ts_repo, churn_months=240)["tests"]
-    assert web["test_to_source_ratio"] == 0.167
+    assert web["test_to_source_ratio"] == 0.118
     assert web["coverage_gate"] == ["package.json"]
     assert web["ci_retry_config"] == [".github/workflows/ci.yml"]
 
@@ -894,9 +894,9 @@ def test_docs_block_on_service_py(service_py_repo: Path) -> None:
     assert docs["dangling_refs"] == [
         {"file": "README.md", "line": 10, "token": "src/pay/exporter.py"}
     ]
-    # README last touched 2024-08-15, newest source (refund.py) 2026-06-22
-    assert docs["stale_vs_code_days"]["README.md"] == 676
-    assert docs["stale_vs_code_days"]["docs/adr/0001-ledger.md"] == 625
+    # README last touched 2024-08-15, newest source (src/pay/export.py et al.) 2026-07-15
+    assert docs["stale_vs_code_days"]["README.md"] == 699
+    assert docs["stale_vs_code_days"]["docs/adr/0001-ledger.md"] == 648
 
 
 def test_doc_newer_than_the_code_is_zero_days_stale(tmp_path: Path) -> None:
@@ -991,7 +991,7 @@ def test_cli_out_flag_keeps_v1_behaviour(service_py_repo: Path, tmp_path: Path) 
     assert _main([str(service_py_repo), "--out", str(out)]) == 0
     assert out.is_file()
     assert not (tmp_path / "v1" / "coupling.json").exists()
-    assert json.loads(out.read_bytes())["total_files"] == 16
+    assert json.loads(out.read_bytes())["total_files"] == 21
 
 
 def test_cli_reads_config_from_root(service_py_repo: Path, tmp_path: Path) -> None:
@@ -1006,4 +1006,105 @@ def test_cli_reads_config_from_root(service_py_repo: Path, tmp_path: Path) -> No
     assert _main([str(repo), "--workdir", str(workdir)]) == 0
     inventory = json.loads((workdir / "inventory.json").read_bytes())
     assert inventory["churn_window_months"] == 240
-    assert inventory["total_files"] == 16  # .tech-debt.yaml is neither a file nor an artefact
+    assert inventory["total_files"] == 21  # .tech-debt.yaml is neither a file nor an artefact
+
+
+# --- Task 2: graph-history join --------------------------------------------------
+
+
+def _graph(edges: list[tuple[str, str]], fan_in: dict[str, int | None]):
+    from reference_graph import GraphResult
+
+    g = GraphResult()
+    g.edges = list(edges)
+    g.fan_in = dict(fan_in)
+    return g
+
+
+def _pair(a: str, b: str, *, cross: bool = True) -> dict:
+    return {"a": a, "b": b, "shared_commits": 4, "ratio": 0.5, "cross_directory": cross}
+
+
+def test_pair_with_no_edge_is_a_modularity_violation() -> None:
+    from inventory import _annotate_pairs
+
+    pairs = [_pair("src/a.py", "lib/b.py")]
+    _annotate_pairs(pairs, _graph([], {"src/a.py": 1, "lib/b.py": 1}))
+    assert pairs[0]["has_edge"] is False
+    assert pairs[0]["edge_direction"] is None
+    assert pairs[0]["lead_kind"] == "modularity-violation"
+
+
+@pytest.mark.parametrize(
+    ("edges", "direction"),
+    [
+        ([("src/a.py", "lib/b.py")], "a->b"),
+        ([("lib/b.py", "src/a.py")], "b->a"),
+        ([("src/a.py", "lib/b.py"), ("lib/b.py", "src/a.py")], "both"),
+    ],
+)
+def test_pair_with_a_direct_edge_is_never_a_violation(edges, direction) -> None:
+    from inventory import _annotate_pairs
+
+    pairs = [_pair("src/a.py", "lib/b.py")]
+    _annotate_pairs(pairs, _graph(edges, {"src/a.py": 1, "lib/b.py": 1}))
+    assert pairs[0]["has_edge"] is True
+    assert pairs[0]["edge_direction"] == direction
+    assert pairs[0]["lead_kind"] is None
+
+
+def test_edge_into_a_top_decile_fan_in_file_is_an_unstable_interface() -> None:
+    from inventory import _annotate_pairs
+
+    fan_in = {f"src/f{i}.py": i for i in range(1, 21)}  # 1..20; top decile is >= 19
+    fan_in["src/hub.py"] = 40
+    fan_in["src/dep.py"] = 1
+    pairs = [_pair("src/dep.py", "src/hub.py", cross=False)]
+    _annotate_pairs(pairs, _graph([("src/dep.py", "src/hub.py")], fan_in))
+    assert pairs[0]["lead_kind"] == "unstable-interface"
+
+
+def test_decile_floor_is_by_count_not_by_tied_percentile_rank() -> None:
+    """Nine files tied at fan-in 1 and one hub at 40: the floor must be 40, not 1 --
+    a nearest-rank percentile index would land on the tied value and flag every
+    non-hub pair as a hub lead."""
+    from inventory import _annotate_pairs
+
+    fan_in = {f"src/f{i}.py": 1 for i in range(1, 10)}
+    fan_in["src/hub.py"] = 40
+    pairs = [
+        _pair("src/f1.py", "src/f2.py"),
+        _pair("src/f3.py", "src/hub.py"),
+    ]
+    edges = [("src/f1.py", "src/f2.py"), ("src/f3.py", "src/hub.py")]
+    _annotate_pairs(pairs, _graph(edges, fan_in))
+    assert pairs[0]["lead_kind"] is None
+    assert pairs[1]["lead_kind"] == "unstable-interface"
+
+
+def test_decile_ignores_null_fan_in_and_needs_positive_fan_in() -> None:
+    from inventory import _annotate_pairs
+
+    fan_in = {"src/a.py": None, "src/b.py": 0, "src/c.py": 0}
+    pairs = [_pair("src/a.py", "src/b.py")]
+    _annotate_pairs(pairs, _graph([("src/a.py", "src/b.py")], fan_in))
+    assert pairs[0]["lead_kind"] is None  # an edge, but no positive fan-in anywhere
+
+
+def test_same_directory_violation_is_kept_and_flagged() -> None:
+    from inventory import _annotate_pairs
+
+    pairs = [_pair("src/a.py", "src/b.py", cross=False)]
+    _annotate_pairs(pairs, _graph([], {"src/a.py": 1, "src/b.py": 1}))
+    assert pairs[0]["lead_kind"] == "modularity-violation"
+    assert pairs[0]["cross_directory"] is False
+
+
+def test_coupling_document_carries_edges(service_py_repo: Path) -> None:
+    from inventory import build_all
+
+    _inventory, coupling = build_all(service_py_repo, churn_months=240)
+    assert "edges" in coupling
+    assert all(len(e) == 2 for e in coupling["edges"])
+    for pair in coupling["pairs"]:
+        assert set(pair) >= {"has_edge", "edge_direction", "lead_kind"}

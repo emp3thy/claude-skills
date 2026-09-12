@@ -12,8 +12,8 @@ VALID_STATUSES: Final[frozenset[str]] = frozenset(
 # from the SATD / Alves taxonomies: code and design debt are merged into
 # "code" vs "design" at the scout's discretion; the rest are the widely-agreed
 # artifact buckets. v2 (spec 2.2) adds security, infrastructure,
-# knowledge-process and defect; data and ml-ai are reserved for the data-ml
-# follow-on and performance is deliberately absent.
+# knowledge-process and defect; v2.1 adds performance; data and ml-ai are
+# reserved for the data-ml follow-on.
 VALID_DEBT_TYPES: Final[frozenset[str]] = frozenset(
     {
         "code",
@@ -28,6 +28,7 @@ VALID_DEBT_TYPES: Final[frozenset[str]] = frozenset(
         "infrastructure",
         "knowledge-process",
         "defect",
+        "performance",
     }
 )
 
@@ -35,9 +36,10 @@ VALID_DEBT_TYPES: Final[frozenset[str]] = frozenset(
 # confirmed only, C unverified or downgraded.
 VALID_TIERS: Final[frozenset[str]] = frozenset({"A", "B", "C"})
 
-# Optional taxonomy id TD-01 to TD-35 (spec 2.1); checked only when present.
+# Optional taxonomy id TD-01 to TD-37 (spec 2.1; TD-36 and TD-37 added by the
+# 2026-09-12 amendment); checked only when present.
 _TYPE_ID_RE: Final[re.Pattern[str]] = re.compile(r"^TD-\d{2}$")
-_TYPE_ID_MAX: Final[int] = 35
+_TYPE_ID_MAX: Final[int] = 37
 
 # Effort: S (< half a day), M (half a day to ~2 days), L (larger / needs a plan).
 VALID_EFFORTS: Final[frozenset[str]] = frozenset({"S", "M", "L"})

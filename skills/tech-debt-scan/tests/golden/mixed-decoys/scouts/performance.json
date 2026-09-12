@@ -1,0 +1,16 @@
+{
+  "family": "performance",
+  "module": null,
+  "findings": [],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "internal/report/kinds.go",
+      "line_start": 10,
+      "why": "KindLabels loops over kindNames, a fixed two-member slice with a bounded N."
+    }
+  ],
+  "not_assessed": [
+    "Repository is small; no hot-path loops with expensive operations detected by static analysis."
+  ]
+}

@@ -1,8 +1,35 @@
 [
   {
+    "fingerprint": "795ec415100325e3",
+    "verdict": "downgrade",
+    "proof": "Core claim verified: legacyFormat (format-legacy.ts:3-6) is @deprecated yet still exercised on checkout.ts's live path (lines 6-11) since newCheckout is always false, and no ticket marker exists in src. The '704 days old' figure cannot be verified with available read-only tools (no git-log access), so I can't confirm that specific number; severity 2 as given is consistent with the effort-S, single-caller scope confirmed independently.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "ticket/ID references in code",
+      "marker age (unverifiable without git history)"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "b7396d04c3285472",
+    "verdict": "confirm",
+    "proof": "Grep confirms legacyFormat's only call site is checkout.ts:11 (import at line 4), and formatMoney (format.ts:1-3) has no callers besides format-legacy.ts:1's import — i.e. 100% of live call sites use the deprecated wrapper, 0% call formatMoney directly. No evidence of deliberate multi-backend design; it's a single incomplete migration.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "churn old vs new side (unavailable, no git tool)",
+      "multi-backend deliberateness",
+      "call-site ratio via grep"
+    ],
+    "opened": []
+  },
+  {
     "fingerprint": "3d5daf8fb72b00a9",
     "verdict": "confirm",
-    "proof": "tslint.json:1 (`tslint:recommended`) has no corresponding tooling: package.json:7 lists eslint but not tslint, and grep confirms tslint appears nowhere else in the repo (no script, no CI step). ci.yml only runs `npm test` (no lint step at all), so neither tslint.json nor .eslintrc.json is actually invoked \u2014 but tslint.json specifically is a dead leftover from a superseded tool with zero remaining references, matching the migration-debris pattern exactly.",
+    "proof": "tslint.json:1 (`tslint:recommended`) has no corresponding tooling: package.json:7 lists eslint but not tslint, and grep confirms tslint appears nowhere else in the repo (no script, no CI step). ci.yml only runs `npm test` (no lint step at all), so neither tslint.json nor .eslintrc.json is actually invoked — but tslint.json specifically is a dead leftover from a superseded tool with zero remaining references, matching the migration-debris pattern exactly.",
     "severity": 2,
     "effort": "S",
     "trap_matched": null,

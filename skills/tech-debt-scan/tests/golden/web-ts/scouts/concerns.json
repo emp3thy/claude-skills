@@ -1,0 +1,40 @@
+{
+  "family": "concerns",
+  "module": null,
+  "findings": [
+    {
+      "title": "formatAmount reimplemented separately in src/report and src/cart",
+      "family": "concerns",
+      "debt_type": "architecture",
+      "type_id": "TD-10",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": ["candidate:format_amount"],
+      "evidence": [
+        {
+          "file": "src/report/format.ts",
+          "line_start": 1,
+          "line_end": 2,
+          "quote": "export function formatAmount(cents: number): string {\n  return (cents / 100).toFixed(2);"
+        },
+        {
+          "file": "src/cart/format.ts",
+          "line_start": 1,
+          "line_end": 2,
+          "quote": "export function formatAmount(cents: number): string {\n  return (cents / 100).toFixed(2);"
+        }
+      ],
+      "note": "formatAmount is defined identically in src/report/format.ts and src/cart/format.ts: the same cents-to-string conversion under the same name in two directories, neither importing the other. Consolidating would not change behaviour."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/report/parseCsv.ts",
+      "line_start": 1,
+      "why": "parseCsv reads CSV text; parseJson (src/report/parseJson.ts) reads JSON text. One adapter per input format is a pattern, not scatter."
+    }
+  ],
+  "not_assessed": [],
+  "files_read": 4
+}

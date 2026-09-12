@@ -168,7 +168,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "scout:dead-code"
       ],
       "signals_cited": [
@@ -180,7 +179,7 @@
         "coupling_degree": 0,
         "fan_in_approx": null,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": null
     },
@@ -1181,6 +1180,93 @@
       "tier": null
     },
     {
+      "fingerprint": "4433f7e50d5b7145",
+      "quote_hash": "7dc284b046705bf9d3b897ed5143d879beca0f37",
+      "family": "performance",
+      "debt_type": "performance",
+      "type_id": "TD-36",
+      "title": "export_statements opens a file handle inside the loop for every path",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "note": "export_statements calls open() on every iteration of the outer loop, and the inner read loop is a manual list-build (ruff PERF401) rather than a comprehension. Real per-file I/O cost on a hot path (export.py is in the hotspot band), not a cosmetic linter hit -- a linter-only finding with no hot-path",
+      "evidence": [
+        {
+          "file": "src/pay/export.py",
+          "line_start": 16,
+          "line_end": 18,
+          "quote": "handle = open(path)  # planted TD-36: I/O inside the loop\n        for line in handle:\n            lines.append(line.strip())",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:io-in-loop",
+        "scout:performance"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:io-in-loop",
+        "tool:ruff"
+      ],
+      "signals": {
+        "hotspot_score": 7.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "0f695a82f79107b0",
+      "quote_hash": "c541e49eeae57538c5fac9a940e86e3ee56a846e",
+      "family": "concerns",
+      "debt_type": "architecture",
+      "type_id": "TD-10",
+      "title": "format_amount reimplemented separately in src/billing and src/pay",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "note": "format_amount is defined identically in src/billing/format.py and src/pay/export.py: the same cents-to-string conversion under the same name in two directories, neither importing the other. Consolidating into one shared helper would not change behaviour, and this is not a per-adapter pattern -- ther",
+      "evidence": [
+        {
+          "file": "src/billing/format.py",
+          "line_start": 4,
+          "line_end": 5,
+          "quote": "def format_amount(cents):\n    return f\"{cents / 100:.2f}\"",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/export.py",
+          "line_start": 29,
+          "line_end": 30,
+          "quote": "def format_amount(cents):\n    return f\"{cents / 100:.2f}\"",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:concerns"
+      ],
+      "signals_cited": [
+        "candidate:format_amount"
+      ],
+      "signals": {
+        "hotspot_score": 0.4,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
       "fingerprint": "92c2c6c4c06ada32",
       "quote_hash": "ba241d99239e9a1e2be432b4f9291f88f7c9865d",
       "family": "test-quality",
@@ -1955,6 +2041,26 @@
       "why": "api_key value is 'sk_t***', clearly a test fixture placeholder, not a real credential."
     },
     {
+      "file": "src/pay/export.py",
+      "line_start": 24,
+      "why": "kind_labels loops over the Kind enum, a fixed two-member collection with a bounded N, not a data-dependent loop."
+    },
+    {
+      "file": "src/pay/export.py",
+      "line_start": 5,
+      "why": "HEADER_RE is compiled once at import time via re.compile; not a per-iteration cost."
+    },
+    {
+      "file": "src/pay/parse.py",
+      "line_start": 4,
+      "why": "parse_csv reads CSV text; parse_json (src/billing/parse.py) reads JSON text. One adapter per input format is a pattern, not scatter."
+    },
+    {
+      "file": "src/billing/parse.py",
+      "line_start": 5,
+      "why": "parse_json is the JSON-format counterpart to parse_csv; a per-format adapter, not scattered functionality."
+    },
+    {
       "file": "tests/test_ledger.py",
       "line_start": 15,
       "why": "assert ledger.balance(\"a\", path) == 100 restates the amount_cents=100 posted two lines above in the same test, so the value is locally traceable rather than an unexplained magic number."
@@ -2071,6 +2177,23 @@
       "clustered": 3,
       "suppressed": 0,
       "disabled": 0
+    },
+    "performance": {
+      "raw": 1,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "concerns": {
+      "raw": 1,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0,
+      "files_read": 4
     },
     "test-quality": {
       "raw": 4,

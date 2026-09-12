@@ -94,7 +94,8 @@
         "pattern:commented-out-code",
         "pattern:legacy-name",
         "satd",
-        "scout:dead-code"
+        "scout:dead-code",
+        "tool:vulture"
       ],
       "signals_cited": [
         "coupling",
@@ -110,8 +111,8 @@
         "path_class": "source",
         "in_hotspot_band": false
       },
-      "tier": "B",
-      "tier_reason": "dead-code is capped at B without tool corroboration",
+      "tier": "A",
+      "tier_reason": "confirmed and corroborated by pattern:commented-out-code, pattern:legacy-name, satd, tool:vulture",
       "verdict": "confirm",
       "proof": "Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.",
       "checked": [
@@ -152,7 +153,8 @@
         "coupling",
         "hotspot",
         "satd",
-        "scout:dead-code"
+        "scout:dead-code",
+        "tool:vulture"
       ],
       "signals_cited": [
         "coupling",
@@ -166,8 +168,8 @@
         "path_class": "source",
         "in_hotspot_band": true
       },
-      "tier": "C",
-      "tier_reason": "dead-code is capped at C without tool corroboration",
+      "tier": "A",
+      "tier_reason": "confirmed and corroborated by coupling, hotspot, satd, tool:vulture",
       "verdict": "confirm",
       "proof": "Repo-wide grep for `issue_partial` (case-sensitive, all of src/ and tests/) returns only the definition at refund.py:45 -- no callers, no test coverage, no dynamic dispatch/reflection/string-based lookup found. tests/test_refund.py exercises validate, audit_trail, and has a skipped issue test, but nothing calls issue_partial. It is a plain function, not a plugin hook or serialized entry point.",
       "checked": [
@@ -205,8 +207,8 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
-        "scout:dead-code"
+        "scout:dead-code",
+        "tool:vulture"
       ],
       "signals_cited": [
         "coupling"
@@ -217,10 +219,10 @@
         "coupling_degree": 0,
         "fan_in_approx": null,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
-      "tier": "C",
-      "tier_reason": "dead-code is capped at C without tool corroboration",
+      "tier": "A",
+      "tier_reason": "confirmed and corroborated by tool:vulture",
       "verdict": "confirm",
       "proof": "Repo-wide grep for `fingerprint` returns only the definition at utils.py:11 -- zero callers anywhere in src/ or tests/. Not referenced by name in serialization, routing, or DI. It also uses md5, a weak hash, compounding the dead-code concern, but the core claim (unused) is verified as stated.",
       "checked": [
@@ -259,7 +261,8 @@
         "hotspot",
         "pattern:swallowed-catch",
         "satd",
-        "scout:error-masking"
+        "scout:error-masking",
+        "tool:ruff"
       ],
       "signals_cited": [
         "hotspot",
@@ -274,7 +277,7 @@
         "in_hotspot_band": true
       },
       "tier": "A",
-      "tier_reason": "confirmed and corroborated by coupling, hotspot, pattern:swallowed-catch, satd",
+      "tier_reason": "confirmed and corroborated by coupling, hotspot, pattern:swallowed-catch, satd, tool:ruff",
       "verdict": "confirm",
       "proof": "refund.py:31-34 catches bare Exception from ledger.post and passes silently \u2014 no log, no re-raise, no cause preserved. Execution then proceeds unconditionally to gateway.refund at line 37, which moves money via the live v2 API (gateway.py) regardless of ledger write success. This means a ledger write failure produces no audit record and no operator visibility while the refund is still issued, a genuine financial-integrity error-masking bug.",
       "checked": [
@@ -1402,6 +1405,117 @@
       "verified": true
     },
     {
+      "fingerprint": "4433f7e50d5b7145",
+      "quote_hash": "7dc284b046705bf9d3b897ed5143d879beca0f37",
+      "family": "performance",
+      "debt_type": "performance",
+      "type_id": "TD-36",
+      "title": "export_statements opens a file handle inside the loop for every path",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "note": "export_statements calls open() on every iteration of the outer loop, and the inner read loop is a manual list-build (ruff PERF401) rather than a comprehension. Real per-file I/O cost on a hot path (export.py is in the hotspot band), not a cosmetic linter hit -- a linter-only finding with no hot-path",
+      "evidence": [
+        {
+          "file": "src/pay/export.py",
+          "line_start": 16,
+          "line_end": 18,
+          "quote": "handle = open(path)  # planted TD-36: I/O inside the loop\n        for line in handle:\n            lines.append(line.strip())",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:io-in-loop",
+        "scout:performance",
+        "tool:ruff"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:io-in-loop",
+        "tool:ruff"
+      ],
+      "signals": {
+        "hotspot_score": 7.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": "A",
+      "tier_reason": "confirmed and corroborated by hotspot, pattern:io-in-loop, tool:ruff",
+      "verdict": "confirm",
+      "proof": "export.py:16 opens a new file handle per path inside the outer loop, and the inner loop (line 18) builds `lines` with .append() in a for-loop instead of a comprehension -- ruff flags this PERF401. Called from export_statements, which runs once per statement export, not once at startup. No cache, batch or index exists on this path.",
+      "checked": [
+        "loop body for hoistable work",
+        "call frequency (per export, not startup)"
+      ],
+      "opened": [],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
+      "fingerprint": "0f695a82f79107b0",
+      "quote_hash": "c541e49eeae57538c5fac9a940e86e3ee56a846e",
+      "family": "concerns",
+      "debt_type": "architecture",
+      "type_id": "TD-10",
+      "title": "format_amount reimplemented separately in src/billing and src/pay",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "note": "format_amount is defined identically in src/billing/format.py and src/pay/export.py: the same cents-to-string conversion under the same name in two directories, neither importing the other. Consolidating into one shared helper would not change behaviour, and this is not a per-adapter pattern -- ther",
+      "evidence": [
+        {
+          "file": "src/billing/format.py",
+          "line_start": 4,
+          "line_end": 5,
+          "quote": "def format_amount(cents):\n    return f\"{cents / 100:.2f}\"",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/export.py",
+          "line_start": 29,
+          "line_end": 30,
+          "quote": "def format_amount(cents):\n    return f\"{cents / 100:.2f}\"",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:concerns"
+      ],
+      "signals_cited": [
+        "candidate:format_amount"
+      ],
+      "signals": {
+        "hotspot_score": 0.4,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": "B",
+      "tier_reason": "confirmed, with no independent corroboration",
+      "verdict": "confirm",
+      "proof": "format_amount is defined identically in src/billing/format.py:4-5 and src/pay/export.py:29-30 (same body: f\"{cents / 100:.2f}\"), with neither file importing the other. Same concept, not a homonym or per-adapter pattern -- there is one representation of a money amount, not one per backend.",
+      "checked": [
+        "both definitions byte-for-byte",
+        "no import between the two files"
+      ],
+      "opened": [
+        "src/billing/format.py",
+        "src/pay/export.py"
+      ],
+      "trap_matched": null,
+      "verified": true
+    },
+    {
       "fingerprint": "92c2c6c4c06ada32",
       "quote_hash": "ba241d99239e9a1e2be432b4f9291f88f7c9865d",
       "family": "test-quality",
@@ -2091,13 +2205,13 @@
     }
   ],
   "stats": {
-    "selected": 28,
-    "verdicts": 27,
-    "unknown_fingerprint": 1,
+    "selected": 30,
+    "verdicts": 29,
+    "unknown_fingerprint": 0,
     "missing_verdict": 1,
-    "tier_a": 16,
+    "tier_a": 20,
     "tier_b": 14,
-    "tier_c": 5,
+    "tier_c": 3,
     "rejected": 2
   }
 }

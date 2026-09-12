@@ -32,7 +32,8 @@
         "hotspot",
         "pattern:swallowed-catch",
         "satd",
-        "scout:error-masking"
+        "scout:error-masking",
+        "tool:ruff"
       ],
       "source": "scout",
       "rule_id": null,
@@ -103,6 +104,60 @@
         "tier_weight": 1.0,
         "tractability": 0.75,
         "priority": 11.25
+      },
+      "in_top_n": true,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "c716d4382547d1ce",
+      "slug": "refund-issue-partial-has-no-callers-in-production-or-tests",
+      "title": "refund.issue_partial has no callers in production or tests",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-09",
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/pay/refund.py",
+          "line_start": 45,
+          "line_end": 48,
+          "quote": "def issue_partial(refund: Refund, gateway: Gateway, fraction: float) -> bool:\n    amount = cents(refund.amount_cents * fraction / 100)\n    partial = Refund(order_id=refund.order_id, amount_cents=amount, reason_code=refund.reason_code)\n    return issue(partial, gateway)",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 100.0,
+        "churn": 7,
+        "coupling_degree": 1,
+        "fan_in_approx": 2,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "coupling",
+        "hotspot",
+        "satd",
+        "scout:dead-code",
+        "tool:vulture"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "Repo-wide grep for `issue_partial` (case-sensitive, all of src/ and tests/) returns only the definition at refund.py:45 -- no callers, no test coverage, no dynamic dispatch/reflection/string-based lookup found. tests/test_refund.py exercises validate, audit_trail, and has a skipped issue test, but nothing calls issue_partial. It is a plain function, not a plugin hook or serialized entry point.",
+      "priority": 9.0,
+      "terms": {
+        "severity": 3,
+        "H": 1.0,
+        "C": 1.0,
+        "F": 1.0,
+        "interest": 3.0,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 9.0
       },
       "in_top_n": true,
       "spread_capped": false,
@@ -261,7 +316,7 @@
         "tractability": 1.0,
         "priority": 6.3
       },
-      "in_top_n": true,
+      "in_top_n": false,
       "spread_capped": false,
       "diff": "NEW"
     },
@@ -547,6 +602,59 @@
       "diff": "NEW"
     },
     {
+      "fingerprint": "4433f7e50d5b7145",
+      "slug": "export-statements-opens-a-file-handle-inside-the-loop-for-every",
+      "title": "export_statements opens a file handle inside the loop for every path",
+      "family": "performance",
+      "debt_type": "performance",
+      "type_id": "TD-36",
+      "severity": 3,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/pay/export.py",
+          "line_start": 16,
+          "line_end": 18,
+          "quote": "handle = open(path)  # planted TD-36: I/O inside the loop\n        for line in handle:\n            lines.append(line.strip())",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 7.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "confirmed_by": [
+        "hotspot",
+        "pattern:io-in-loop",
+        "scout:performance",
+        "tool:ruff"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "export.py:16 opens a new file handle per path inside the outer loop, and the inner loop (line 18) builds `lines` with .append() in a for-loop instead of a comprehension -- ruff flags this PERF401. Called from export_statements, which runs once per statement export, not once at startup. No cache, batch or index exists on this path.",
+      "priority": 3.228,
+      "terms": {
+        "severity": 3,
+        "H": 0.076,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.076,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 3.228
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
       "fingerprint": "10a292b59f942eaf",
       "slug": "ownership-gaps-in-src-pay-models-py",
       "title": "Ownership gaps in src/pay/models.py",
@@ -590,59 +698,6 @@
         "interest": 1.05,
         "tier_weight": 1.0,
         "tractability": 0.75,
-        "priority": 3.15
-      },
-      "in_top_n": false,
-      "spread_capped": false,
-      "diff": "NEW"
-    },
-    {
-      "fingerprint": "c716d4382547d1ce",
-      "slug": "refund-issue-partial-has-no-callers-in-production-or-tests",
-      "title": "refund.issue_partial has no callers in production or tests",
-      "family": "dead-code",
-      "debt_type": "code",
-      "type_id": "TD-09",
-      "severity": 3,
-      "effort": "S",
-      "evidence": [
-        {
-          "file": "src/pay/refund.py",
-          "line_start": 45,
-          "line_end": 48,
-          "quote": "def issue_partial(refund: Refund, gateway: Gateway, fraction: float) -> bool:\n    amount = cents(refund.amount_cents * fraction / 100)\n    partial = Refund(order_id=refund.order_id, amount_cents=amount, reason_code=refund.reason_code)\n    return issue(partial, gateway)",
-          "quote_verified": true
-        }
-      ],
-      "signals": {
-        "hotspot_score": 100.0,
-        "churn": 7,
-        "coupling_degree": 1,
-        "fan_in_approx": 2,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "confirmed_by": [
-        "coupling",
-        "hotspot",
-        "satd",
-        "scout:dead-code"
-      ],
-      "source": "scout",
-      "rule_id": null,
-      "tool": null,
-      "tier": "C",
-      "verdict": "confirm",
-      "proof": "Repo-wide grep for `issue_partial` (case-sensitive, all of src/ and tests/) returns only the definition at refund.py:45 -- no callers, no test coverage, no dynamic dispatch/reflection/string-based lookup found. tests/test_refund.py exercises validate, audit_trail, and has a skipped issue test, but nothing calls issue_partial. It is a plain function, not a plugin hook or serialized entry point.",
-      "priority": 3.15,
-      "terms": {
-        "severity": 3,
-        "H": 1.0,
-        "C": 1.0,
-        "F": 1.0,
-        "interest": 3.0,
-        "tier_weight": 0.35,
-        "tractability": 1.0,
         "priority": 3.15
       },
       "in_top_n": false,
@@ -1313,6 +1368,118 @@
       "diff": "NEW"
     },
     {
+      "fingerprint": "441a5776ddef0261",
+      "slug": "utils-fingerprint-has-no-callers-anywhere-in-the-repo",
+      "title": "utils.fingerprint has no callers anywhere in the repo",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-09",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/pay/utils.py",
+          "line_start": 11,
+          "line_end": 12,
+          "quote": "def fingerprint(order_id: str) -> str:\n    return hashlib.md5(order_id.encode(\"utf-8\")).hexdigest()",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.8,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "scout:dead-code",
+        "tool:vulture"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "Repo-wide grep for `fingerprint` returns only the definition at utils.py:11 -- zero callers anywhere in src/ or tests/. Not referenced by name in serialization, routing, or DI. It also uses md5, a weak hash, compounding the dead-code concern, but the core claim (unused) is verified as stated.",
+      "priority": 2.016,
+      "terms": {
+        "severity": 2,
+        "H": 0.008,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.008,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 2.016
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
+      "fingerprint": "08dd9ba688d79fda",
+      "slug": "export-v1-and-its-legacy-export-module-have-zero-callers",
+      "title": "export_v1 and its legacy_export module have zero callers",
+      "family": "dead-code",
+      "debt_type": "code",
+      "type_id": "TD-30",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 17,
+          "line_end": 19,
+          "quote": "# def export_v0(refund_id):\n#     rows = fetch(refund_id)\n#     return rows",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/legacy_export.py",
+          "line_start": 1,
+          "line_end": 8,
+          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report\ndef export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 0,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "pattern:commented-out-code",
+        "pattern:legacy-name",
+        "satd",
+        "scout:dead-code",
+        "tool:vulture"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "A",
+      "verdict": "confirm",
+      "proof": "Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.",
+      "priority": 2.0,
+      "terms": {
+        "severity": 2,
+        "H": 0.0,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.0,
+        "tier_weight": 1.0,
+        "tractability": 1.0,
+        "priority": 2.0
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
       "fingerprint": "495747bed5818465",
       "slug": "dependency-manifest-gaps-in-pyproject-toml",
       "title": "Dependency manifest gaps in pyproject.toml",
@@ -1660,6 +1827,63 @@
       "diff": "NEW"
     },
     {
+      "fingerprint": "0f695a82f79107b0",
+      "slug": "format-amount-reimplemented-separately-in-src-billing-and-src-pa",
+      "title": "format_amount reimplemented separately in src/billing and src/pay",
+      "family": "concerns",
+      "debt_type": "architecture",
+      "type_id": "TD-10",
+      "severity": 2,
+      "effort": "S",
+      "evidence": [
+        {
+          "file": "src/billing/format.py",
+          "line_start": 4,
+          "line_end": 5,
+          "quote": "def format_amount(cents):\n    return f\"{cents / 100:.2f}\"",
+          "quote_verified": true
+        },
+        {
+          "file": "src/pay/export.py",
+          "line_start": 29,
+          "line_end": 30,
+          "quote": "def format_amount(cents):\n    return f\"{cents / 100:.2f}\"",
+          "quote_verified": true
+        }
+      ],
+      "signals": {
+        "hotspot_score": 0.4,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "confirmed_by": [
+        "scout:concerns"
+      ],
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "tier": "B",
+      "verdict": "confirm",
+      "proof": "format_amount is defined identically in src/billing/format.py:4-5 and src/pay/export.py:29-30 (same body: f\"{cents / 100:.2f}\"), with neither file importing the other. Same concept, not a homonym or per-adapter pattern -- there is one representation of a money amount, not one per backend.",
+      "priority": 1.4056,
+      "terms": {
+        "severity": 2,
+        "H": 0.004,
+        "C": 0.0,
+        "F": 0.0,
+        "interest": 1.004,
+        "tier_weight": 0.7,
+        "tractability": 1.0,
+        "priority": 1.4056
+      },
+      "in_top_n": false,
+      "spread_capped": false,
+      "diff": "NEW"
+    },
+    {
       "fingerprint": "121bbdafc23ecebd",
       "slug": "removed-exporter-still-referenced-in-readme-while-a-same-purpose",
       "title": "Removed exporter still referenced in README while a same-purpose module remains",
@@ -1704,66 +1928,6 @@
         "tier_weight": 0.7,
         "tractability": 1.0,
         "priority": 1.4056
-      },
-      "in_top_n": false,
-      "spread_capped": false,
-      "diff": "NEW"
-    },
-    {
-      "fingerprint": "08dd9ba688d79fda",
-      "slug": "export-v1-and-its-legacy-export-module-have-zero-callers",
-      "title": "export_v1 and its legacy_export module have zero callers",
-      "family": "dead-code",
-      "debt_type": "code",
-      "type_id": "TD-30",
-      "severity": 2,
-      "effort": "S",
-      "evidence": [
-        {
-          "file": "src/pay/legacy_export.py",
-          "line_start": 17,
-          "line_end": 19,
-          "quote": "# def export_v0(refund_id):\n#     rows = fetch(refund_id)\n#     return rows",
-          "quote_verified": true
-        },
-        {
-          "file": "src/pay/legacy_export.py",
-          "line_start": 1,
-          "line_end": 8,
-          "quote": "\"\"\"Legacy CSV export kept for the v1 reporting job.\"\"\"\nfrom __future__ import annotations\n\nimport sqlite3\nimport subprocess\n\n# TODO(#42): delete once finance moves to the v2 report\ndef export_v1(refund_id: str, db: str = \"refunds.db\") -> list[tuple[str, int]]:",
-          "quote_verified": true
-        }
-      ],
-      "signals": {
-        "hotspot_score": 0.0,
-        "churn": 0,
-        "coupling_degree": 0,
-        "fan_in_approx": 0,
-        "path_class": "source",
-        "in_hotspot_band": false
-      },
-      "confirmed_by": [
-        "pattern:commented-out-code",
-        "pattern:legacy-name",
-        "satd",
-        "scout:dead-code"
-      ],
-      "source": "scout",
-      "rule_id": null,
-      "tool": null,
-      "tier": "B",
-      "verdict": "confirm",
-      "proof": "Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.",
-      "priority": 1.4,
-      "terms": {
-        "severity": 2,
-        "H": 0.0,
-        "C": 0.0,
-        "F": 0.0,
-        "interest": 1.0,
-        "tier_weight": 0.7,
-        "tractability": 1.0,
-        "priority": 1.4
       },
       "in_top_n": false,
       "spread_capped": false,
@@ -1946,57 +2110,6 @@
         "tier_weight": 0.35,
         "tractability": 0.75,
         "priority": 0.7875
-      },
-      "in_top_n": false,
-      "spread_capped": false,
-      "diff": "NEW"
-    },
-    {
-      "fingerprint": "441a5776ddef0261",
-      "slug": "utils-fingerprint-has-no-callers-anywhere-in-the-repo",
-      "title": "utils.fingerprint has no callers anywhere in the repo",
-      "family": "dead-code",
-      "debt_type": "code",
-      "type_id": "TD-09",
-      "severity": 2,
-      "effort": "S",
-      "evidence": [
-        {
-          "file": "src/pay/utils.py",
-          "line_start": 11,
-          "line_end": 12,
-          "quote": "def fingerprint(order_id: str) -> str:\n    return hashlib.md5(order_id.encode(\"utf-8\")).hexdigest()",
-          "quote_verified": true
-        }
-      ],
-      "signals": {
-        "hotspot_score": 0.8,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": null,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "confirmed_by": [
-        "hotspot",
-        "scout:dead-code"
-      ],
-      "source": "scout",
-      "rule_id": null,
-      "tool": null,
-      "tier": "C",
-      "verdict": "confirm",
-      "proof": "Repo-wide grep for `fingerprint` returns only the definition at utils.py:11 -- zero callers anywhere in src/ or tests/. Not referenced by name in serialization, routing, or DI. It also uses md5, a weak hash, compounding the dead-code concern, but the core claim (unused) is verified as stated.",
-      "priority": 0.7056,
-      "terms": {
-        "severity": 2,
-        "H": 0.008,
-        "C": 0.0,
-        "F": 0.0,
-        "interest": 1.008,
-        "tier_weight": 0.35,
-        "tractability": 1.0,
-        "priority": 0.7056
       },
       "in_top_n": false,
       "spread_capped": false,

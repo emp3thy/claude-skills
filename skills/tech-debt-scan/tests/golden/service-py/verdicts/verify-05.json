@@ -1,5 +1,31 @@
 [
   {
+    "fingerprint": "92c2c6c4c06ada32",
+    "verdict": "confirm",
+    "proof": "test_ledger.py:18-19 calls `ledger.reverse(Entry(...))` and discards the return value with no assert. ledger.reverse (ledger.py:29-30) negates amount_cents and sets reason='reversal' -- real business logic, not a startup/import smoke check. A regression that flipped the sign or dropped the reason field would not fail this test. Not table-driven/parametrised, not a permission/kill-switch check.",
+    "severity": 3,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "whether it guards only import/startup (it doesn't)",
+      "table-driven idiom (none)"
+    ],
+    "opened": []
+  },
+  {
+    "fingerprint": "b1f9606f10dd3ee8",
+    "verdict": "confirm",
+    "proof": "test_ledger.py:14 has `time.sleep(0.05)  # flaky on CI without this; retried in the workflow` -- a self-admitted race being masked by a fixed sleep plus workflow-level retries, matching commit 5334fe2 'test: retry flaky ledger test' in recent history. post() (ledger.py:12-15) and balance() (ledger.py:18-26) are synchronous file I/O with no async/threading, so the sleep is compensating for an unidentified race rather than a real inherent delay. No ticket reference in the code.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "whether post/balance are actually async needing a wait (they are not)",
+      "ticket reference"
+    ],
+    "opened": []
+  },
+  {
     "fingerprint": "e36a78256ef7b76e",
     "verdict": "confirm",
     "proof": "ledger.py:29-30 shows reverse() returns a new Entry with amount_cents negated and reason='reversal'. tests/test_ledger.py:18-19 calls ledger.reverse(...) and discards the return value with no assert whatsoever. Grep for 'reverse' across the repo shows no other test references it, so this is genuinely the only coverage and it is assert-free. A regression that dropped the sign flip or hardcoded a different reason string would not be caught.",
@@ -35,7 +61,7 @@
   {
     "fingerprint": "67e0dcc512d6ba39",
     "verdict": "confirm",
-    "proof": "test_refund.py:19-21 skips test_issue_calls_gateway with reason='gateway stub not written yet' \u2014 no ticket, no owner, no date. refund.py:35 has an adjacent unresolved 'FIXME: the gateway retries on our behalf, so a duplicate refund can post twice' directly inside issue(), the function the skipped test targets. gateway.py:19-27 shows refund() is a real (non-stub) implementation already, so the stated skip reason is stale/inaccurate as well as vague.",
+    "proof": "test_refund.py:19-21 skips test_issue_calls_gateway with reason='gateway stub not written yet' — no ticket, no owner, no date. refund.py:35 has an adjacent unresolved 'FIXME: the gateway retries on our behalf, so a duplicate refund can post twice' directly inside issue(), the function the skipped test targets. gateway.py:19-27 shows refund() is a real (non-stub) implementation already, so the stated skip reason is stale/inaccurate as well as vague.",
     "severity": 3,
     "effort": "M",
     "trap_matched": null,
@@ -52,7 +78,7 @@
   {
     "fingerprint": "f9f1100485b2696b",
     "verdict": "confirm",
-    "proof": "issue() at refund.py:24-42 is untested (only test skipped at test_refund.py:19-21). Lines 31-34 wrap ledger.post in bare 'except Exception: pass', so a ledger write failure is swallowed and execution still proceeds to call the gateway at line 37 \u2014 money can move with no corresponding ledger entry. Line 35's FIXME confirms a known duplicate-post risk in the same unguarded path. No test asserts call order, exception handling, or the duplicate-refund guard (_seen set, line 27-29). This is a real financial-correctness gap, not just a style nit.",
+    "proof": "issue() at refund.py:24-42 is untested (only test skipped at test_refund.py:19-21). Lines 31-34 wrap ledger.post in bare 'except Exception: pass', so a ledger write failure is swallowed and execution still proceeds to call the gateway at line 37 — money can move with no corresponding ledger entry. Line 35's FIXME confirms a known duplicate-post risk in the same unguarded path. No test asserts call order, exception handling, or the duplicate-refund guard (_seen set, line 27-29). This is a real financial-correctness gap, not just a style nit.",
     "severity": 5,
     "effort": "M",
     "trap_matched": null,

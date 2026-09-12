@@ -377,3 +377,42 @@ class TestTierReason:
         for verdict in (None, self._confirm(), dict(self._confirm(), verdict="reject")):
             out = _finding(self._cand(), verdict, selected=True)
             assert out["tier_reason"].strip()
+
+
+@pytest.mark.parametrize(
+    ("type_id", "confirmed", "verdict", "tier"),
+    [
+        ("TD-36", ["scout:performance", "tool:ruff"], "confirm", "A"),
+        ("TD-36", ["scout:performance", "tool:ruff"], "downgrade", "C"),
+        ("TD-36", ["scout:performance", "hotspot"], "confirm", "B"),   # capped: no tool token
+        ("TD-36", ["scout:performance"], "confirm", "B"),
+        ("TD-37", ["scout:performance", "tool:ruff", "hotspot"], "confirm", "C"),
+        ("TD-37", ["scout:performance"], "confirm", "C"),
+    ],
+)
+def test_performance_ladder(type_id: str, confirmed: list[str], verdict: str, tier: str) -> None:
+    cand = _cand("performance", confirmed=confirmed, type_id=type_id)
+    assert earned_tier(cand, _verdict(cand, verdict)) == tier
+
+
+def test_td37_cap_sentence_names_runtime_evidence() -> None:
+    from apply_verdicts import tier_reason
+
+    cand = _cand("performance", confirmed=["scout:performance", "tool:ruff"], type_id="TD-37")
+    reason = tier_reason(cand, _verdict(cand, "confirm"), selected=True)
+    assert "runtime evidence" in reason and "capped at C" in reason
+
+
+@pytest.mark.parametrize(
+    ("confirmed", "verdict", "tier"),
+    [
+        (["scout:concerns"], "downgrade", "C"),
+        (["scout:concerns"], "confirm", "B"),
+        (["scout:concerns", "hotspot"], "confirm", "A"),
+        (["scout:concerns", "coupling"], "confirm", "A"),
+    ],
+)
+def test_concerns_ladder(confirmed: list[str], verdict: str, tier: str) -> None:
+    cand = _cand("concerns", confirmed=confirmed, type_id="TD-10")
+    assert earned_tier(cand, _verdict(cand, verdict)) == tier
+    assert family_cap(cand) is None

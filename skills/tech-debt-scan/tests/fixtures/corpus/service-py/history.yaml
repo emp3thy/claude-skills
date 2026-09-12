@@ -548,3 +548,12 @@ commits:
     date: "2026-07-01T09:00:00+00:00"
     subject: "chore: remove old helper"
     delete: [src/pay/old_helper.py]
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2026-07-15T09:00:00+00:00"
+    subject: "feat: statement export and billing formatter"
+    files:
+      src/pay/export.py: "@final"
+      src/billing/__init__.py: ""
+      src/billing/format.py: "@final"
+      src/billing/parse.py: "@final"
+      src/pay/parse.py: "@final"

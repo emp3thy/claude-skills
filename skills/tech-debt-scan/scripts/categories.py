@@ -1,4 +1,4 @@
-"""Scout prompts: the fourteen v2 family blocks and their shared contract (spec 2.3, 4.6).
+"""Scout prompts: the sixteen v2 family blocks and their shared contract (spec 2.3, 4.6).
 
 Data-only module. Each scout is dispatched (via the Agent tool, read-only
 Explore semantics) with one family's rendered prompt. Every prompt is written
@@ -44,7 +44,7 @@ class FamilyBlock:
 FAMILIES: Final[tuple[str, ...]] = (
     "complex-units", "god-classes", "duplication", "dead-code", "error-masking",
     "test-gaps", "half-finished", "migration", "dependency-debt", "doc-drift",
-    "architecture", "security", "test-quality", "pipeline-infra",
+    "architecture", "security", "performance", "concerns", "test-quality", "pipeline-infra",
 )
 
 SEVERITY_RUBRIC: Final[str] = """Severity rubric (apply consistently; location is scored later
@@ -335,10 +335,15 @@ FAMILY_BLOCKS: Final[dict[str, FamilyBlock]] = {
             "Is the co-change explained by a declared dependency or by feature work?",
             "Does an ADR, an import contract or a boundary tool state the intended layers?",
             "Which component should own the misplaced code, and what depends on it today?",
+            "Is the co-change explained by a dependency the graph cannot see -- a config "
+            "file, a schema, a generated pair, a test and its subject?",
+            "Is the high-fan-in side an intentional facade whose dependents are meant to "
+            "change with it?",
         ),
         traps=(
             "Re-export packages create apparent cycles that the compiler resolves.",
             "A cycle inside one cohesive package is a design smell, not an architecture finding.",
+            "A .proto or schema file and its generated code co-change by construction.",
         ),
         type_ids=("TD-07", "TD-10"),
         debt_types=("architecture", "design"),
@@ -372,6 +377,80 @@ FAMILY_BLOCKS: Final[dict[str, FamilyBlock]] = {
             "Path class example, fixture or test, and secret entropy?",
             "User input reachable at the SQL or shell site?",
             "Suppression justified nearby?",
+        ),
+    ),
+    "performance": FamilyBlock(
+        definition=(
+            "PERFORMANCE DEBT, static only: work done inside a loop that belongs outside it "
+            "(I/O, a process call, a regex compile, a sort, a membership test against a "
+            "literal), redundant traversal, and inefficient collection idioms the linter "
+            "flags. Two kinds, and you must assign exactly one per finding: TD-36 is a LOCAL "
+            "smell provable from the source in front of you; TD-37 is a CARDINALITY claim "
+            "(N+1, algorithmic complexity, 'will not scale') that depends on a runtime N "
+            "nothing static can see -- a TD-37 finding is capped at tier C whatever you say, "
+            "and must state why N could be large (user data, a per-request path, a paginated "
+            "source), not just the shape of the loop. A linter-only hit with no hot-path "
+            "reason is severity 2. Never report startup-only initialisation, a loop over an "
+            "enum or a config list, test or benchmark code, or generated or vendored code."
+        ),
+        questions=(
+            "Does this code run per request, per item or per file, or once at startup?",
+            "What bounds N here: user data, a config list, a fixed enum?",
+            "Is the expensive call actually inside the loop body, or hoisted above it?",
+            "Is there already a cache, a batch, an index or a memo on this path?",
+            "For a TD-37 claim: what evidence of scale exists -- a comment, a test with a "
+            "large N, an issue reference?",
+        ),
+        traps=(
+            "Initialisation that runs once at import or startup is not a loop cost.",
+            "A loop over an enum, a config list or a fixed small collection has a bounded N.",
+            "Deliberate simplicity on a cold path is a choice, not debt.",
+            "Benchmark, test, generated and vendored code are out of scope.",
+        ),
+        type_ids=("TD-36", "TD-37"),
+        debt_types=("performance",),
+        verifier_questions=(
+            "Runs per request, per item or per file, or once?",
+            "What bounds N -- user data, config, a fixed enum?",
+            "Is there already a cache, batch, index or memo on this path?",
+            "Is the expensive call inside the loop or hoisted?",
+            "TD-37 only: what evidence of scale is cited?",
+        ),
+    ),
+    "concerns": FamilyBlock(
+        definition=(
+            "CONCERN DEBT: the same functionality implemented in more than one place under "
+            "one name (scattered functionality), the same behaviour re-implemented under "
+            "different names (semantic duplication, which clone detectors miss), and code "
+            "that drifts from a convention the repository has written down. You receive no "
+            "file leads: the candidates are definition names that recur across directories, "
+            "plus the hotspot band, the coupled pairs and the directory aggregates. Read to "
+            "confirm a candidate, not to discover; name every file you open beyond the "
+            "candidates and why. TD-05 for semantic duplication, TD-10 for scatter, null "
+            "for drift."
+        ),
+        questions=(
+            "Is the recurring name the same concept, or a homonym?",
+            "Would consolidating the implementations change behaviour?",
+            "Is this a deliberate per-module implementation -- adapter, plugin, backend?",
+            "For drift: which written convention does it contradict -- an ADR, README, "
+            "CLAUDE.md, a docs/ page -- cited by file and line?",
+        ),
+        traps=(
+            "One function per adapter, plugin or backend under a shared name is a pattern, "
+            "not scatter.",
+            "Generated code, fixtures and corpora repeat names by construction.",
+            "Language idioms (main, init, new, run, setup) recur everywhere and mean nothing.",
+            "Drift that contradicts only your taste, with no written convention to cite, "
+            "is not a finding.",
+        ),
+        type_ids=("TD-05", "TD-10"),
+        debt_types=("architecture",),
+        verifier_questions=(
+            "Same concept or a homonym?",
+            "Would consolidation change behaviour?",
+            "Deliberate per-module implementation?",
+            "Which written convention is contradicted, cited by file and line?",
         ),
     ),
     "test-quality": FamilyBlock(
@@ -450,7 +529,8 @@ SCOUT_OUTPUT_CONTRACT: Final[str] = """Output: one JSON object with exactly thes
   ],
   "open_questions": [{"file": "", "line_start": 0, "question": ""}],
   "looks_bad_but_fine": [{"file": "", "line_start": 0, "why": ""}],
-  "not_assessed": ["<claims you could not make>"]
+  "not_assessed": ["<claims you could not make>"],
+  "files_read": <integer; optional, report it when your prompt asks for a read budget>
 }
 
 Every quote must be copied verbatim from the file; a quote that is not in the file
@@ -502,6 +582,7 @@ SCOUT_OUTPUT_SCHEMA: Final[dict[str, Any]] = {
         "open_questions": {"type": "array", "items": {"type": "object"}},
         "looks_bad_but_fine": {"type": "array", "items": {"type": "object"}},
         "not_assessed": {"type": "array", "items": {"type": "string"}},
+        "files_read": {"type": "integer", "minimum": 0},
     },
 }
 
@@ -513,6 +594,7 @@ def render_scout_prompt(
     leads_block: str,
     scout_cap: int,
     disabled_note: str,
+    extra_block: str = "",
 ) -> str:
     """Shared prefix, then the family block, then the leads block, then the contract (spec 4.6)."""
     block = FAMILY_BLOCKS[family]
@@ -546,6 +628,7 @@ def render_scout_prompt(
         f"Allowed debt_type values: {', '.join(block.debt_types)}. "
         f"Allowed type_id values: {', '.join(block.type_ids)}.",
         "",
+        *([extra_block, ""] if extra_block else []),
         "Leads (deterministic signals; start here, then read beyond them if budget allows):",
         leads_block.rstrip("\n"),
         "",

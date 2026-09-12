@@ -31,6 +31,8 @@
     {"id": "d8", "family": "pipeline-infra", "path": "k8s/service.yaml", "why": "Service manifest has no containers; resource and privilege rules do not apply", "sources": ["scout:pipeline-infra", "rule:iac.*"]},
     {"id": "d9", "family": "half-finished", "path": "internal/httpc/httpc_safe.go", "why": "client carries a Timeout", "sources": ["scout:half-finished"]},
     {"id": "d10", "family": "error-masking", "path": "internal/store/store.go", "lines": [19, 21], "why": "return nil, err propagates the error", "sources": ["scout:error-masking"]},
-    {"id": "d11", "family": "ownership", "path": "internal/store/store.go", "why": "two human authors in the repository: the ownership group is suppressed", "sources": ["rule:ownership.*"]}
+    {"id": "d11", "family": "ownership", "path": "internal/store/store.go", "why": "two human authors in the repository: the ownership group is suppressed", "sources": ["rule:ownership.*"]},
+    {"id": "d12", "family": "performance", "path": "internal/report/kinds.go", "lines": [7, 14], "why": "a loop over a fixed two-member slice has a bounded N", "sources": ["scout:performance"]},
+    {"id": "d13", "family": "concerns", "path": "internal/report/parse_csv.go", "why": "one Parse<Format> per format is an adapter pattern, not scatter", "sources": ["scout:concerns"]}
   ]
 }

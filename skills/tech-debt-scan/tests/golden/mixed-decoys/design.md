@@ -2,8 +2,8 @@
 schema_version: 2
 scan_date: 2026-09-06
 root: <root>
-total_files: 15
-total_loc: 534
+total_files: 18
+total_loc: 570
 languages:
 - go
 - markdown
@@ -21,11 +21,19 @@ families_run:
 - doc-drift
 - architecture
 - security
+- performance
+- concerns
 - test-quality
 - pipeline-infra
 families_skipped: []
-tools_run: []
-tools_absent: []
+tools_run:
+- lizard
+tools_absent:
+- jscpd (skipped)
+- knip (skipped)
+- madge (skipped)
+- ruff (skipped)
+- vulture (skipped)
 git_available: true
 counts:
   candidates: 31
@@ -43,7 +51,7 @@ counts:
 
 # Tech-debt scan - 2026-09-06
 
-Scanned `<root>` - 15 files, 534 LOC across: go, markdown.
+Scanned `<root>` - 18 files, 570 LOC across: go, markdown.
 
 Review each finding below. To act on one, change its `status:` from `pending` to
 `approved`, `rejected`, or `accepted` (add a `reason:` and an optional `until:` ISO
@@ -945,6 +953,8 @@ image: mailhog/mailhog:latest
 - `internal/lookup/lookup.go:11` - 290-entry hardcoded map scores as a hotspot and is depended on by store, which could look like an unstable god-file many components rely on, but it has exactly one consumer (internal/store/store.go) and the map's values are identical to the function's own fallback pattern 'data/'+name+'.json', so there is no fan-out coupling risk despite the size.
 - `cmd/app/main.go:7` - main.go imports five internal packages (build, dispatch, flags, httpc, store), which looks like a coupled hub, but this is the composition root of a single small binary, not a shared library being fanned out to multiple consumers, so high import count here is expected.
 - `internal/crypto/hash.go:9` - md5 use has no discoverable caller in the repo; per family rules a weak hash used only for a cache key or checksum is not reportable, and no evidence contradicts that reading.
+- `internal/report/kinds.go:10` - KindLabels loops over kindNames, a fixed two-member slice with a bounded N.
+- `internal/report/parse_csv.go:6` - ParseCSV reads CSV text; ParseJSON (internal/report/parse_json.go) reads JSON text. One adapter per input format is a pattern, not scattered functionality.
 - `internal/store/store_test.go:8` - if _, err := Open("missing"); err == nil { t.Fatal(...) } is the standard idiomatic Go pattern for asserting an error occurred (no assert library available); it is a single deterministic check, not conditional logic branching test behavior on data.
 - `docker-compose.dev.yml:1` - Uses postgres:latest and mailhog/mailhog:latest floating tags, but this is a dev-only compose file, which is the documented trap (expected, not debt).
 - `docker-compose.yml:1` - Non-dev compose file pins postgres:16.3 and redis:7.2, so no floating-tag or dev-path-in-prod issue here.

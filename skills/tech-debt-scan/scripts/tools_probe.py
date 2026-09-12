@@ -323,7 +323,10 @@ ARTEFACTS: Final[dict[str, tuple[str, ...]]] = {
     "actionlint": (".github/workflows/*.yml", ".github/workflows/*.yaml"),
 }
 
-RUFF_SELECT: Final[str] = "E722,BLE001,S110,S112,C901,PLR0911,PLR0912,PLR0913,PLR0915,F401,UP035"
+RUFF_SELECT: Final[str] = (
+    "E722,BLE001,S110,S112,C901,PLR0911,PLR0912,PLR0913,PLR0915,F401,UP035,"
+    "PERF101,PERF102,PERF203,PERF401,PERF402,PERF403"
+)
 MADGE_EXTENSIONS: Final[str] = "js,jsx,ts,tsx"
 JSCPD_MIN_TOKENS: Final[str] = "50"
 # jscpd's own names for the four formats its ARTEFACTS row gates on. Without

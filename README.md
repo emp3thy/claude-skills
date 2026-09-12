@@ -2,7 +2,7 @@
 
 Language-independent tech-debt scan skill for Claude Code. It walks any repo,
 mines git history for hotspots, dispatches read-only LLM scout agents across
-fourteen debt families, verifies the candidates a deterministic budget
+sixteen debt families, verifies the candidates a deterministic budget
 selects, ranks the survivors with a fixed formula, and renders the top-N
 findings into a single `design.md` — after a human reviews and approves
 findings, `/tech-debt-promote` opens a design session on one approved
@@ -54,7 +54,7 @@ Two commands, with a human review step in between.
 
    This inventories the repo and mines patterns and rules, dispatches one
    scout agent per debt family the adaptive rule finds leads for (up to
-   fourteen, `scripts/categories.py`'s `FAMILY_BLOCKS`), merges the
+   sixteen, `scripts/categories.py`'s `FAMILY_BLOCKS`), merges the
    candidates, dispatches read-only verifier agents over the ones a
    deterministic budget selects, ranks the verified survivors with a fixed
    priority formula, dispatches one remediation-note agent over the top N,
@@ -228,13 +228,13 @@ Human in the loop throughout — nothing is fixed automatically.
 The v2 design ships in five phases. Phases 1 and 2 landed the deterministic
 signals (`config.py`, inventory v2 with `coupling.json`, `patterns.py`,
 `rules.py`) and the detect, verify and rank chain (`categories.py` v2's
-fourteen family blocks, `plan_scan.py`, `merge_findings.py`,
+sixteen family blocks, `plan_scan.py`, `merge_findings.py`,
 `verify_prompts.py`, `apply_verdicts.py`, `rank.py`), with `evaluate.py`, the
 fixture corpus, the goldens and the evaluation log that scores it. **Phase 3
 is complete:** `design_writer.py`, `design_parser.py` and `promote.py` render
 and select the v2 report, and `/tech-debt-scan` and `/tech-debt-promote` now
 run this chain end to end. `--families deep` already selects the full
-fourteen-family set today (`plan_scan.py`, phase 2).
+sixteen-family set today (`plan_scan.py`, phase 2).
 
 **Phase 4 is complete.** Phase 4a built `tools_probe.py` and
 `tool_normalisers.py`, which run ten already-installed external tools

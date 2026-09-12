@@ -17,7 +17,7 @@ from validation import VALID_DEBT_TYPES, validate_type_id
 EXPECTED_FAMILIES = (
     "complex-units", "god-classes", "duplication", "dead-code", "error-masking",
     "test-gaps", "half-finished", "migration", "dependency-debt", "doc-drift",
-    "architecture", "security", "test-quality", "pipeline-infra",
+    "architecture", "security", "performance", "concerns", "test-quality", "pipeline-infra",
 )
 FORBIDDEN = ("def ", ".py file", "python module", "__init__", "pip install")
 
@@ -62,10 +62,13 @@ def test_the_v1_scout_prompt_symbols_are_gone() -> None:
 # --- v2 -------------------------------------------------------------------------
 
 
-def test_fourteen_families_in_dispatch_order() -> None:
+def test_sixteen_families_and_the_sets() -> None:
     assert FAMILIES == EXPECTED_FAMILIES
     assert set(FAMILY_BLOCKS) == set(FAMILIES)
     assert FAMILY_SETS["deep"] == FAMILIES
+    assert "performance" in FAMILY_SETS["default"] and "concerns" in FAMILY_SETS["default"]
+    assert "performance" not in FAMILY_SETS["quick"] and "concerns" not in FAMILY_SETS["quick"]
+    assert len(FAMILY_SETS["quick"]) == 6
 
 
 def test_every_block_is_complete_and_valid() -> None:
@@ -78,6 +81,27 @@ def test_every_block_is_complete_and_valid() -> None:
             validate_type_id(type_id)
         assert block.debt_types and set(block.debt_types) <= VALID_DEBT_TYPES, family
         assert block.verifier_questions, family
+
+
+def test_performance_block_names_both_type_ids_and_the_tier_rule() -> None:
+    block = FAMILY_BLOCKS["performance"]
+    assert block.type_ids == ("TD-36", "TD-37")
+    assert block.debt_types == ("performance",)
+    assert "TD-37" in block.definition and "tier C" in block.definition
+    assert any("cache" in q.lower() for q in block.verifier_questions)
+
+
+def test_concerns_block_and_extra_block_render() -> None:
+    block = FAMILY_BLOCKS["concerns"]
+    assert "TD-05" in block.type_ids and "TD-10" in block.type_ids
+    text = render_scout_prompt(
+        "concerns", repo_summary="root: r, 10 files, 100 LOC, languages: python; git: yes",
+        leads_block="Recurring definition names (candidates): src/a.py foo\n", scout_cap=6,
+        disabled_note="", extra_block="Read budget: at most 60 files to confirm candidates.",
+    )
+    assert "Read budget: at most 60 files" in text
+    assert text.index("Read budget") < text.index("Recurring definition names")
+    assert '"files_read"' in categories.SCOUT_OUTPUT_CONTRACT
 
 
 def test_rendered_prompt_has_prefix_block_leads_and_contract() -> None:

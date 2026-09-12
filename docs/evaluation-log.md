@@ -148,6 +148,43 @@ hit, not ruled on. The run's `evaluation.json`, `design.md`, `notes.json` and
 `findings.json` for all three fixtures are kept under
 `docs/research/tech-debt-scan-v2/runs/2026-09-09-5b/`.
 
+**The 2026-09-12 goldens add the `performance` and `concerns` families to the
+chain harness.** From this date `tests/test_chain_goldens._chain` and
+`tests/test_e2e._scan` build `concern-index.json` (`concern_index.py`) and
+copy each fixture's canned `tool-signals.json` into the workdir before
+planning, neither of which the harness did before; several pre-existing
+candidates gained `tool:` corroboration they had never exercised under test
+and rose from tier B or C to tier A on `service-py` and `web-ts` as a result
+— checked against source rather than taken on faith: `refund.issue_partial`
+(TD-09, service-py) is flagged by vulture as an unused function at
+`src/pay/refund.py:45`, the exact `def issue_partial` line already inside the
+candidate's own evidence span, and `export_v1` (TD-30, service-py) is flagged
+by vulture at `src/pay/legacy_export.py:8`, the exact `def export_v1` line
+inside its evidence span. Both lifts are genuine same-symbol corroboration,
+not same-file coincidence. Two
+planted items land in the regenerated goldens per fixture: `service-py`'s
+`p21` (`performance`, TD-36, a local loop smell) reaches tier A on a hotspot
+lead, a `pattern:io-in-loop` corroboration, the scout, and `tool:ruff`;
+`service-py`'s `p22` (`concerns`, TD-10) reaches tier B. `web-ts`'s `p11`
+(`performance`) reaches only tier B — no TypeScript performance tool exists
+in the ten-tool probe registry, so the B cap is structural rather than a
+verifier decision — and `web-ts`'s `p12` (`concerns`) also reaches tier B.
+Per-family precision for both new families is 1.00 with 1/1 recall on
+`service-py` and `web-ts`; `mixed-decoys` carries no planted item for either
+family. `decoys_in_tier_a` and `decoys_in_top_n` are both 0 on all three
+fixtures. Overall tier A precision from the regenerated goldens: `service-py`
+0.60 (12/20), `web-ts` 0.25 (3/12), `mixed-decoys` 0.70 (7/10) — these are
+deterministic-golden figures from the replayed fixtures, not a `live_run.py`
+row, so they are recorded here as prose rather than as a row in the table
+below. A decoy sharing a file and family with a planted item now carries a
+non-overlapping `lines` range in `planted.json`, because `evaluate.hits()`
+otherwise matches an unranged decoy to any finding reported on that file,
+including one that is really the planted hit. These deterministic-golden
+figures satisfy spec success criterion 7's corpus half; the live tier-A
+evaluation of `performance` and `concerns` the criterion also asks for is
+deferred to the project's pending bar-setting live run, the same run the
+tier-A bar (provisional at 0.80 since phase 5b) is still waiting on.
+
 | date | fixture | model | churn_months | tier_a_precision | reported_precision | decoys_tier_a | decoys_top_n | recall | scouts | verifiers | cost_usd | notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 2026-09-05 | service-py | sonnet | 240 | 0.59 | 0.48 | 0 | 0 | dead-code=0.00 dependency-debt=1.00 doc-drift=1.00 error-masking=1.00 half-finished=1.00 ownership=1.00 pipeline-infra=1.00 security=0.80 test-gaps=1.00 test-quality=1.00 | 14 | 5 | 3.11 |

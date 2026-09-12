@@ -57,9 +57,9 @@ def test_unknown_top_level_key_is_reported_with_line_and_ignored(
 @pytest.mark.parametrize(
     ("enabled", "expected_first", "expected_len"),
     [
-        ("default", "complex-units", 12),
+        ("default", "complex-units", 14),
         ("quick", "complex-units", 6),
-        ("deep", "complex-units", 14),
+        ("deep", "complex-units", 16),
         (["security", "dead-code"], "security", 2),
     ],
 )

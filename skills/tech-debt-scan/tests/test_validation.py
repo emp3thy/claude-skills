@@ -82,18 +82,18 @@ def test_new_debt_types_accepted(good: str) -> None:
     validate_debt_type(good)
 
 
-@pytest.mark.parametrize("reserved", ["data", "ml-ai", "performance"])
+@pytest.mark.parametrize("reserved", ["data", "ml-ai"])
 def test_reserved_debt_types_still_rejected(reserved: str) -> None:
     with pytest.raises(ValidationError, match="unknown debt_type"):
         validate_debt_type(reserved)
 
 
-@pytest.mark.parametrize("good", ["TD-01", "TD-13", "TD-35"])
+@pytest.mark.parametrize("good", ["TD-01", "TD-13", "TD-35", "TD-36", "TD-37"])
 def test_validate_type_id_accepts(good: str) -> None:
     validate_type_id(good)
 
 
-@pytest.mark.parametrize("bad", ["", "TD-00", "TD-36", "TD-1", "td-01", "TD-013", "TD-13 "])
+@pytest.mark.parametrize("bad", ["", "TD-00", "TD-1", "td-01", "TD-013", "TD-13 "])
 def test_validate_type_id_rejects(bad: str) -> None:
     with pytest.raises(ValidationError, match="invalid type_id"):
         validate_type_id(bad)
@@ -108,3 +108,12 @@ def test_validate_tier_accepts(good: str) -> None:
 def test_validate_tier_rejects(bad: str) -> None:
     with pytest.raises(ValidationError, match="unknown tier"):
         validate_tier(bad)
+
+
+def test_type_id_38_is_beyond_the_ceiling() -> None:
+    with pytest.raises(ValidationError, match="TD-01 to TD-37"):
+        validate_type_id("TD-38")
+
+
+def test_performance_is_a_debt_type() -> None:
+    assert "performance" in VALID_DEBT_TYPES

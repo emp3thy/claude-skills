@@ -145,3 +145,10 @@ commits:
     files:
       internal/units/units.go: "@final"
       internal/units/labels.go: "@final"
+  - author: "Hal Finney <hal@example.com>"
+    date: "2026-08-20T09:00:00+00:00"
+    subject: "feat: report kind labels and CSV/JSON adapters"
+    files:
+      internal/report/kinds.go: "@final"
+      internal/report/parse_csv.go: "@final"
+      internal/report/parse_json.go: "@final"

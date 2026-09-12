@@ -106,7 +106,7 @@ from git_history import (
     mailmap_present,
     repo_authors,
 )
-from reference_graph import GraphFile, build_reference_graph, file_stem
+from reference_graph import GraphFile, GraphResult, build_reference_graph, file_stem
 
 EXT_TO_LANG: dict[str, str] = {
     ".py": "python",
@@ -733,6 +733,53 @@ def write_outputs(
     return inventory_path, coupling_path
 
 
+def _fan_in_decile_floor(fan_in: dict[str, int | None]) -> int | None:
+    """The smallest fan-in among the top decile *by count* of non-null, positive
+    values; None when nothing is positive, or when every positive value is
+    identical -- with no spread at all, "top decile" would otherwise degenerate to
+    "everyone" (an N=2 corpus tied at the same value both land at the decile-floor
+    index), which is not a meaningful hub signal. Count-based (the smallest value
+    among the top ceil(10%) of files by rank), not a nearest-rank percentile index:
+    the two diverge whenever ties straddle the boundary -- on nine files tied at 1
+    and one hub at 40, a percentile index picks 1 as the floor and flags every tied
+    pair as a hub lead, when only the actual hub should qualify. A decile rather
+    than a fixed number because surveyed tools' hub thresholds disagree by an order
+    of magnitude (spec 2026-09-12, section 2)."""
+    values = sorted(v for v in fan_in.values() if isinstance(v, int) and v > 0)
+    if not values or values[0] == values[-1]:
+        return None
+    index = len(values) - max(1, math.ceil(0.1 * len(values)))
+    return values[index]
+
+
+def _annotate_pairs(pairs: list[dict[str, Any]], graph: GraphResult) -> None:
+    """Join each change-coupled pair to the reference graph (spec 2026-09-12, section 2).
+
+    ``has_edge`` is a direct edge in either direction -- never transitive, because
+    a two-hop path is a declared relation and the literature's signal is the
+    absence of any. A pair with no edge is a ``modularity-violation`` lead. A pair
+    with an edge where either side's fan-in sits in the repository's top decile is
+    an ``unstable-interface`` lead. Mutates ``pairs`` in place.
+    """
+    forward: set[tuple[str, str]] = set(graph.edges)
+    floor = _fan_in_decile_floor(graph.fan_in)
+    for pair in pairs:
+        a, b = str(pair["a"]), str(pair["b"])
+        ab, ba = (a, b) in forward, (b, a) in forward
+        pair["has_edge"] = ab or ba
+        pair["edge_direction"] = "both" if ab and ba else "a->b" if ab else "b->a" if ba else None
+        if not pair["has_edge"]:
+            pair["lead_kind"] = "modularity-violation"
+            continue
+        hub = False
+        if floor is not None:
+            for side in (a, b):
+                value = graph.fan_in.get(side)
+                if isinstance(value, int) and value >= floor:
+                    hub = True
+        pair["lead_kind"] = "unstable-interface" if hub else None
+
+
 def build_all(
     root: Path,
     *,
@@ -856,6 +903,8 @@ def build_all(
         signal_sources["git"] = datetime.now(UTC).isoformat(timespec="seconds")
     boundary, lint = _tooling_blocks(root)
 
+    _annotate_pairs(pairs, graph)
+
     inventory: dict[str, Any] = {
         "schema_version": 2,
         "root": str(root),
@@ -892,6 +941,7 @@ def build_all(
         "cycles": graph.cycles,
         "directories": graph.directories,
         "unstable_edges": graph.unstable_edges,
+        "edges": [[src, dst] for src, dst in graph.edges],
     }
     return inventory, coupling
 

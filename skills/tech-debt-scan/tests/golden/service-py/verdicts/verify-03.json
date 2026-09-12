@@ -1,5 +1,22 @@
 [
   {
+    "fingerprint": "08dd9ba688d79fda",
+    "verdict": "confirm",
+    "proof": "Repo-wide grep for `legacy_export|export_v1` across the whole tree returns only the definition itself (legacy_export.py:8), no imports or calls anywhere in src/ or tests/. Docstring (line 1) and TODO(#42) (line 7) explicitly mark it superseded by v2 reporting. Confirmed dead code, and separately it's dangerous dead code (SQL injection via f-string at line 11 with `# nosec` suppression, and `subprocess.run(..., shell=True)` at line 13 with `# noqa: S602`), but the dead-code claim itself stands on zero callers.",
+    "severity": 2,
+    "effort": "S",
+    "trap_matched": null,
+    "checked": [
+      "Which dynamic-reference patterns were checked? - grepped whole repo for the function/module name; no reflection, string dispatch, route registration, DI container, or serialization references found",
+      "Entry point, script run by name, or runner-discovered test? - not referenced in Dockerfile CMD, ci.yml, or any test file",
+      "Public or plugin surface? - no __init__.py re-export or package public API exposure found",
+      "Flag is permission or kill-switch? - n/a, not a flag"
+    ],
+    "opened": [
+      "src/pay/legacy_export.py"
+    ]
+  },
+  {
     "fingerprint": "336fccbd19191237",
     "verdict": "confirm",
     "proof": "export_v1 (legacy_export.py:8-14) has zero call sites confirmed by repo-wide grep for 'export_v1'/'legacy_export' outside its own definition. TODO(#42) at line 7 references a v2 report that doesn't exist anywhere in the repo (no export_v2, no mention in README/CHANGELOG/docs). Commented-out export_v0 stub at lines 17-19 confirms a prior migration was also never cleaned up. This is real orphaned migration debt.",
@@ -35,7 +52,7 @@
     "proof": "Confirmed no test file or test references 'legacy_export' anywhere in tests/ (searched conftest.py, test_refund.py, test_ledger.py, fixtures/seed.py). However export_v1 is simultaneously flagged (candidate 1) as dead code slated for deletion under TODO(#42) with zero callers. Writing a test for code destined for removal is not a productive fix; the correct remediation is deletion, not coverage. Real gap, but low-value to act on.",
     "severity": 1,
     "effort": "S",
-    "trap_matched": "test-gap flagged on code that is itself already marked for deletion (see candidate 1) \u2014 remediation is removal, not test authorship",
+    "trap_matched": "test-gap flagged on code that is itself already marked for deletion (see candidate 1) — remediation is removal, not test authorship",
     "checked": [
       "grep for 'legacy_export' in tests/",
       "cross-reference with candidate 1 deletion ticket"
@@ -45,43 +62,13 @@
   {
     "fingerprint": "17a853add39e2774",
     "verdict": "reject",
-    "proof": "The 'duplication' is a single-expression pattern \u2014 negating amount_cents inside an Entry(...) construction \u2014 appearing once in refund.py:30 (building a fresh refund entry) and once in ledger.py:29-30 (reverse(), building a reversal entry from an existing one). These serve different domains (initial posting vs. explicit reversal) and are too trivial (one field negation) to warrant a shared abstraction; extracting it would add indirection for no real maintenance benefit. The file coupling (shared=5, ratio=0.714) reflects refund.py calling ledger.post/reverse generally, not copy-pasted logic.",
+    "proof": "The 'duplication' is a single-expression pattern — negating amount_cents inside an Entry(...) construction — appearing once in refund.py:30 (building a fresh refund entry) and once in ledger.py:29-30 (reverse(), building a reversal entry from an existing one). These serve different domains (initial posting vs. explicit reversal) and are too trivial (one field negation) to warrant a shared abstraction; extracting it would add indirection for no real maintenance benefit. The file coupling (shared=5, ratio=0.714) reflects refund.py calling ledger.post/reverse generally, not copy-pasted logic.",
     "severity": 1,
     "effort": "S",
     "trap_matched": "coincidental single-line negation flagged as meaningful duplication due to file-level change coupling, not actual copied logic",
     "checked": [
       "semantic comparison of the two sites",
       "whether coupling reflects shared logic vs. caller/callee relationship"
-    ],
-    "opened": []
-  },
-  {
-    "fingerprint": "2e969b3499636196",
-    "verdict": "confirm",
-    "proof": "refund.py:31-34 catches bare Exception from ledger.post and passes silently \u2014 no log, no re-raise, no cause preserved. Execution then proceeds unconditionally to gateway.refund at line 37, which moves money via the live v2 API (gateway.py) regardless of ledger write success. This means a ledger write failure produces no audit record and no operator visibility while the refund is still issued, a genuine financial-integrity error-masking bug.",
-    "severity": 5,
-    "effort": "S",
-    "trap_matched": null,
-    "checked": [
-      "control flow from ledger.post through gateway.refund",
-      "whether failure is logged or surfaced elsewhere",
-      "gateway.py to confirm it performs a real state-changing call"
-    ],
-    "opened": [
-      "src/pay/gateway.py",
-      "src/pay/models.py"
-    ]
-  },
-  {
-    "fingerprint": "4b10ada7bef4b500",
-    "verdict": "confirm",
-    "proof": "Grep confirms no test calls issue_partial anywhere in tests/. Unlike test_issue_calls_gateway (explicitly marked @pytest.mark.skip), issue_partial has no test stub at all \u2014 not even a skipped placeholder. The fraction-to-cents conversion (refund.py:46) and full delegation to issue() are unguarded, so a rounding or scale regression would ship undetected.",
-    "severity": 3,
-    "effort": "S",
-    "trap_matched": null,
-    "checked": [
-      "grep for 'issue_partial' in tests/",
-      "presence of skip markers as a signal of intentional deferral"
     ],
     "opened": []
   }

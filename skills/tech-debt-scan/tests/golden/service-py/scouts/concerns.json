@@ -1,0 +1,45 @@
+{
+  "family": "concerns",
+  "module": null,
+  "findings": [
+    {
+      "title": "format_amount reimplemented separately in src/billing and src/pay",
+      "family": "concerns",
+      "debt_type": "architecture",
+      "type_id": "TD-10",
+      "severity": 2,
+      "effort": "S",
+      "signals_cited": ["candidate:format_amount"],
+      "evidence": [
+        {
+          "file": "src/billing/format.py",
+          "line_start": 4,
+          "line_end": 5,
+          "quote": "def format_amount(cents):\n    return f\"{cents / 100:.2f}\""
+        },
+        {
+          "file": "src/pay/export.py",
+          "line_start": 29,
+          "line_end": 30,
+          "quote": "def format_amount(cents):\n    return f\"{cents / 100:.2f}\""
+        }
+      ],
+      "note": "format_amount is defined identically in src/billing/format.py and src/pay/export.py: the same cents-to-string conversion under the same name in two directories, neither importing the other. Consolidating into one shared helper would not change behaviour, and this is not a per-adapter pattern -- there is one representation of a money amount, not one per backend."
+    }
+  ],
+  "open_questions": [],
+  "looks_bad_but_fine": [
+    {
+      "file": "src/pay/parse.py",
+      "line_start": 4,
+      "why": "parse_csv reads CSV text; parse_json (src/billing/parse.py) reads JSON text. One adapter per input format is a pattern, not scatter."
+    },
+    {
+      "file": "src/billing/parse.py",
+      "line_start": 5,
+      "why": "parse_json is the JSON-format counterpart to parse_csv; a per-format adapter, not scattered functionality."
+    }
+  ],
+  "not_assessed": [],
+  "files_read": 4
+}

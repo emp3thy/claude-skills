@@ -90,7 +90,8 @@
         "coupling",
         "hotspot",
         "pattern:flag-sdk",
-        "scout:dead-code"
+        "scout:dead-code",
+        "tool:knip"
       ],
       "signals_cited": [
         "coupling",
@@ -147,7 +148,8 @@
         "coupling",
         "hotspot",
         "pattern:flag-sdk",
-        "scout:dead-code"
+        "scout:dead-code",
+        "tool:knip"
       ],
       "signals_cited": [
         "coupling",
@@ -487,7 +489,6 @@
         }
       ],
       "confirmed_by": [
-        "hotspot",
         "scout:test-gaps",
         "signal:no-mapped-tests"
       ],
@@ -501,7 +502,7 @@
         "coupling_degree": 0,
         "fan_in_approx": 1,
         "path_class": "source",
-        "in_hotspot_band": true
+        "in_hotspot_band": false
       },
       "tier": null
     },
@@ -1012,6 +1013,92 @@
       "tier": null
     },
     {
+      "fingerprint": "acc2afedb12fe299",
+      "quote_hash": "5a786663cb2abd01876e50503b6433290d8241dd",
+      "family": "performance",
+      "debt_type": "performance",
+      "type_id": "TD-36",
+      "title": "exportRows awaits a fetch call inside the loop for every row",
+      "severity": 3,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "note": "exportRows awaits fetch(row.url) once per row inside the loop, with no batching or concurrency. Real per-request cost on a hot path (export.ts is in the hotspot band); no ruff-equivalent linter covers TypeScript here, so this is a scout-only finding without tool corroboration.",
+      "evidence": [
+        {
+          "file": "src/report/export.ts",
+          "line_start": 6,
+          "line_end": 7,
+          "quote": "const response = await fetch(row.url); // planted TD-36: I/O inside the loop\n    out.push(await response.text());",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "hotspot",
+        "pattern:io-in-loop",
+        "scout:performance"
+      ],
+      "signals_cited": [
+        "hotspot",
+        "pattern:io-in-loop"
+      ],
+      "signals": {
+        "hotspot_score": 8.6,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": 0,
+        "path_class": "source",
+        "in_hotspot_band": true
+      },
+      "tier": null
+    },
+    {
+      "fingerprint": "c02580a81c6e0590",
+      "quote_hash": "dc6fe3eb0ea6e98dbcf35b28a1c93d9d7f337381",
+      "family": "concerns",
+      "debt_type": "architecture",
+      "type_id": "TD-10",
+      "title": "formatAmount reimplemented separately in src/report and src/cart",
+      "severity": 2,
+      "effort": "S",
+      "source": "scout",
+      "rule_id": null,
+      "tool": null,
+      "note": "formatAmount is defined identically in src/report/format.ts and src/cart/format.ts: the same cents-to-string conversion under the same name in two directories, neither importing the other. Consolidating would not change behaviour.",
+      "evidence": [
+        {
+          "file": "src/report/format.ts",
+          "line_start": 1,
+          "line_end": 2,
+          "quote": "export function formatAmount(cents: number): string {\n  return (cents / 100).toFixed(2);",
+          "quote_verified": true
+        },
+        {
+          "file": "src/cart/format.ts",
+          "line_start": 1,
+          "line_end": 2,
+          "quote": "export function formatAmount(cents: number): string {\n  return (cents / 100).toFixed(2);",
+          "quote_verified": true
+        }
+      ],
+      "confirmed_by": [
+        "scout:concerns"
+      ],
+      "signals_cited": [
+        "candidate:format_amount"
+      ],
+      "signals": {
+        "hotspot_score": 0.0,
+        "churn": 1,
+        "coupling_degree": 0,
+        "fan_in_approx": null,
+        "path_class": "source",
+        "in_hotspot_band": false
+      },
+      "tier": null
+    },
+    {
       "fingerprint": "3be7c52dfb951591",
       "quote_hash": "f11897c638472ff1229ffc602605d690fc819b06",
       "family": "test-quality",
@@ -1314,114 +1401,6 @@
         "in_hotspot_band": true
       },
       "tier": "A"
-    },
-    {
-      "fingerprint": "d96ff883dbafb64f",
-      "quote_hash": "b9996ebfc497e5adddaec80ef0f57ca8beebd7e5",
-      "family": "ownership",
-      "debt_type": "knowledge-process",
-      "type_id": "TD-16",
-      "title": "Ownership gaps in src/checkout/checkout.ts",
-      "severity": 2,
-      "effort": "M",
-      "source": "rule",
-      "rule_id": "ownership.former-contributor",
-      "tool": null,
-      "note": "hotspot whose top author is inactive",
-      "evidence": [
-        {
-          "file": "src/checkout/checkout.ts",
-          "line_start": null,
-          "line_end": null,
-          "quote": "src/checkout/checkout.ts: top author has no commits in 188 days",
-          "quote_verified": true
-        }
-      ],
-      "confirmed_by": [
-        "rule:ownership.former-contributor"
-      ],
-      "signals_cited": [],
-      "signals": {
-        "hotspot_score": 2.9,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": 1,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "tier": "A"
-    },
-    {
-      "fingerprint": "b82f6e5b7feabfe3",
-      "quote_hash": "0c23cc75500f938abe5ffa4d6eed3444960365ba",
-      "family": "ownership",
-      "debt_type": "knowledge-process",
-      "type_id": "TD-16",
-      "title": "Ownership gaps in src/util/receipt-legacy.ts",
-      "severity": 2,
-      "effort": "M",
-      "source": "rule",
-      "rule_id": "ownership.former-contributor",
-      "tool": null,
-      "note": "hotspot whose top author is inactive",
-      "evidence": [
-        {
-          "file": "src/util/receipt-legacy.ts",
-          "line_start": null,
-          "line_end": null,
-          "quote": "src/util/receipt-legacy.ts: top author has no commits in 288 days",
-          "quote_verified": true
-        }
-      ],
-      "confirmed_by": [
-        "rule:ownership.former-contributor"
-      ],
-      "signals_cited": [],
-      "signals": {
-        "hotspot_score": 8.6,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": 0,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "tier": "A"
-    },
-    {
-      "fingerprint": "6b888fd3b5a2ecc6",
-      "quote_hash": "eba27234f929dfe049f0cc200ca8cc75f62ec93f",
-      "family": "ownership",
-      "debt_type": "knowledge-process",
-      "type_id": "TD-16",
-      "title": "Ownership gaps in src/util/receipt.ts",
-      "severity": 2,
-      "effort": "M",
-      "source": "rule",
-      "rule_id": "ownership.former-contributor",
-      "tool": null,
-      "note": "hotspot whose top author is inactive",
-      "evidence": [
-        {
-          "file": "src/util/receipt.ts",
-          "line_start": null,
-          "line_end": null,
-          "quote": "src/util/receipt.ts: top author has no commits in 288 days",
-          "quote_verified": true
-        }
-      ],
-      "confirmed_by": [
-        "rule:ownership.former-contributor"
-      ],
-      "signals_cited": [],
-      "signals": {
-        "hotspot_score": 8.6,
-        "churn": 1,
-        "coupling_degree": 0,
-        "fan_in_approx": 0,
-        "path_class": "source",
-        "in_hotspot_band": true
-      },
-      "tier": "A"
     }
   ],
   "open_questions": [
@@ -1547,6 +1526,16 @@
       "why": "cart.ts -> pricing.ts -> stock.ts -> (type-only) cart.ts forms a cycle, but all three files live inside the single src/cart directory/package and the back-edge (src/cart/stock.ts:1) is a type-only import erased at compile time, not a runtime circular dependency. This is an intra-package design smell rather than a cross-module architecture cycle."
     },
     {
+      "file": "src/report/export.ts",
+      "line_start": 14,
+      "why": "kindLabels loops over KINDS, a fixed three-member tuple with a bounded N."
+    },
+    {
+      "file": "src/report/parseCsv.ts",
+      "line_start": 1,
+      "why": "parseCsv reads CSV text; parseJson (src/report/parseJson.ts) reads JSON text. One adapter per input format is a pattern, not scatter."
+    },
+    {
       "file": "src/api/client.ts",
       "line_start": 13,
       "why": "console.log call looks like a stdout-vs-logger violation, but no logger/logging library exists anywhere in the repo (grep for logger/winston/pino/log4js found nothing), so the pipeline-infra pattern (stdout writes where a logger exists) does not apply."
@@ -1650,6 +1639,23 @@
       "clustered": 0,
       "suppressed": 0,
       "disabled": 0
+    },
+    "performance": {
+      "raw": 1,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "concerns": {
+      "raw": 1,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0,
+      "files_read": 4
     },
     "test-quality": {
       "raw": 3,

@@ -84,12 +84,16 @@ KIND_CAPS: Final[dict[str, int]] = {
     "pattern": LEAD_CAP, "satd": LEAD_CAP, "inventory": LEAD_CAP, "tool": LEAD_CAP,
 }
 KIND_ORDER: Final[tuple[str, ...]] = (
-    "hotspot", "coupling", "pattern", "satd", "artefact", "cycle", "inventory", "tool", "docs",
-    "tests",
+    "directory", "hotspot", "coupling", "violation", "interface", "candidate", "pattern", "satd",
+    "artefact", "cycle", "inventory", "tool", "docs", "tests",
 )
 KIND_TITLE: Final[dict[str, str]] = {
+    "directory": "Directory aggregates (files, LOC, churn, instability)",
     "hotspot": "Hotspot-band files (score)",
     "coupling": "Change-coupled pairs",
+    "violation": "Co-change with no import edge (modularity violation)",
+    "interface": "Co-change into a high-fan-in file (unstable interface)",
+    "candidate": "Recurring definition names (candidates)",
     "pattern": "Pattern leads",
     "satd": "Self-admitted debt markers",
     "artefact": "Artefacts",
@@ -99,6 +103,14 @@ KIND_TITLE: Final[dict[str, str]] = {
     "docs": "Documentation and structure signals",
     "tests": "Test signals",
 }
+
+
+CONCERNS_EXTRA_BLOCK: Final[str] = (
+    "Read budget: this scout receives no file leads. Read at most 60 files to confirm the "
+    "candidates below and at most 10 more of your own choosing for drift, naming each of "
+    "those in not_assessed with a one-line reason. Report the total as \"files_read\" in "
+    "your output."
+)
 
 
 @dataclass(slots=True)
@@ -117,6 +129,7 @@ class ScanDocs:
     patterns: dict[str, Any] = field(default_factory=dict)
     rules: dict[str, Any] = field(default_factory=dict)
     tool_signals: dict[str, Any] = field(default_factory=dict)
+    concern_index: dict[str, Any] = field(default_factory=dict)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -127,7 +140,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def load_docs(workdir: Path) -> ScanDocs:
-    """The four phase 1 documents; a missing ``inventory.json`` is fatal, the rest are optional."""
+    """The five phase-1 documents; a missing ``inventory.json`` is fatal, the rest are optional."""
     inventory = _read_json(workdir / "inventory.json")
     if not inventory:
         raise FileNotFoundError(f"{workdir / 'inventory.json'} not found; run inventory.py first")
@@ -137,6 +150,7 @@ def load_docs(workdir: Path) -> ScanDocs:
         patterns=_read_json(workdir / "patterns.json"),
         rules=_read_json(workdir / "rule-findings.json"),
         tool_signals=_read_json(workdir / "tool-signals.json"),
+        concern_index=_read_json(workdir / "concern-index.json"),
     )
 
 
@@ -215,12 +229,34 @@ def _band(docs: ScanDocs) -> list[Lead]:
 
 
 def _pairs(docs: ScanDocs, *, cross_only: bool = False) -> list[Lead]:
+    """Coupled pairs as leads. A pair the graph join labelled gets its own kind
+    (spec 2026-09-12, section 2); an unlabelled pair stays a plain coupling lead.
+
+    ``cross_only`` keeps its pre-join meaning for a plain (unlabelled) pair: the
+    architecture family's own ``_pairs(docs, cross_only=True)`` call still drops a
+    same-directory plain pair. A join-labelled pair (modularity violation, unstable
+    interface) is always rendered regardless of directory -- a same-directory
+    violation is marked "weaker" in its text rather than being dropped, per the spec.
+    """
     out: list[Lead] = []
     for pair in docs.coupling.get("pairs", []):
-        if cross_only and not pair.get("cross_directory"):
+        kind = pair.get("lead_kind")
+        if cross_only and kind is None and not pair.get("cross_directory"):
             continue
-        text = f"<-> {pair['b']} shared={pair['shared_commits']} ratio={pair['ratio']}"
-        out.append(Lead("coupling", str(pair["a"]), None, text, float(pair["ratio"])))
+        a, b = str(pair["a"]), str(pair["b"])
+        shared, ratio = pair["shared_commits"], float(pair["ratio"])
+        if kind == "modularity-violation":
+            where = "cross-directory" if pair.get("cross_directory") else "same directory, weaker"
+            out.append(Lead(
+                "violation", a, None,
+                f"<-> {b} shared={shared} ratio={ratio} no edge ({where})", ratio,
+            ))
+        elif kind == "unstable-interface":
+            arrow = "->" if pair.get("edge_direction") in ("a->b", "both") else "<-"
+            out.append(Lead("interface", a, None,
+                            f"{arrow} {b} shared={shared} ratio={ratio} top-decile fan-in", ratio))
+        else:
+            out.append(Lead("coupling", a, None, f"<-> {b} shared={shared} ratio={ratio}", ratio))
     return out
 
 
@@ -359,6 +395,24 @@ def _structure(docs: ScanDocs) -> list[Lead]:
     return out
 
 
+def _concern_directories(docs: ScanDocs) -> list[Lead]:
+    """``concern-index.json``'s ``directories`` aggregates as leads (spec 2026-09-12,
+    section 4: "the scout receives the directory aggregates ..."). The data is
+    already loaded into ``ScanDocs``; this is the only place anything reads it
+    (fix round 2, I2)."""
+    out: list[Lead] = []
+    for entry in docs.concern_index.get("directories") or []:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path") or "") or "(root)"
+        out.append(Lead(
+            "directory", path, None,
+            f"files={entry.get('files')} loc={entry.get('loc')} churn={entry.get('churn')} "
+            f"instability={entry.get('instability')}",
+        ))
+    return out
+
+
 def _joined(value: Any) -> str:
     """``tests.coverage_gate`` and ``tests.ci_retry_config`` are lists of artefact paths."""
     if isinstance(value, list):
@@ -452,6 +506,28 @@ def _raw_leads(family: str, docs: ScanDocs) -> list[Lead]:
                 + _tool_leads(docs, family))
     if family == "security":
         return _pattern_leads(docs, "security") + _tool_leads(docs, family)
+    if family == "performance":
+        band = set(docs.inventory.get("hotspot_band") or [])
+        deep = _inventory_where(
+            docs, lambda e: e["path"] in band and (_number(e.get("max_indent")) or 0.0) >= 4,
+            "max_indent={max_indent} on a hotspot-band file",
+        )
+        return (_band(docs) + _pattern_leads(docs, "performance") + deep
+                + _tool_leads(docs, family))
+    if family == "concerns":
+        candidates = [
+            Lead("candidate", str(c["files"][0]), None,
+                 f"{c['name']} ({', '.join(c.get('tokens') or [])}) defined in "
+                 f"{len(c['files'])} files across {len(c['directories'])} directories: "
+                 f"{', '.join(c['files'])}"
+                 + (" [hotspot]" if c.get("hotspot_touch") else "")
+                 + (" [coupled]" if c.get("coupled") else ""),
+                 float(c.get("hotspot_share") or 0.0))
+            for c in docs.concern_index.get("candidates") or []
+            if isinstance(c, dict) and c.get("files")
+        ]
+        return (_concern_directories(docs) + _band(docs) + candidates + _pairs(docs)
+                + _structure(docs))
     if family == "test-quality":
         return (
             _pattern_leads(docs, "test-quality") + _test_quality_extras(docs)
@@ -789,7 +865,9 @@ def build_plan(
     entries: list[dict[str, Any]] = []
     prompts: dict[str, str] = {}
     for family, leads in family_leads.items():
-        if chunked and leads:
+        # The concerns index is repository-wide by construction (spec 2026-09-12, 4);
+        # scatter across modules is its point, so it never splits.
+        if chunked and leads and family != "concerns":
             by_module = sorted(
                 (item for item in _leads_by_module(leads).items() if item[0] in scanned),
                 key=lambda kv: _module_sort_key(kv[0]),
@@ -815,6 +893,7 @@ def build_plan(
                 prompts[prompt_path] = render_scout_prompt(
                     family, repo_summary=module_summary, leads_block=render_leads(capped),
                     scout_cap=int(config["scout_cap"]), disabled_note=note,
+                    extra_block=CONCERNS_EXTRA_BLOCK if family == "concerns" else "",
                 )
                 entries.append({"family": family, "module": display, "prompt": prompt_path,
                                 "output": f"scouts/{family}-{token}.json", "leads": len(capped)})
@@ -824,6 +903,7 @@ def build_plan(
             prompts[prompt_path] = render_scout_prompt(
                 family, repo_summary=summary, leads_block=render_leads(capped),
                 scout_cap=int(config["scout_cap"]), disabled_note=note,
+                extra_block=CONCERNS_EXTRA_BLOCK if family == "concerns" else "",
             )
             entries.append({"family": family, "module": None, "prompt": prompt_path,
                             "output": f"scouts/{family}.json", "leads": len(capped)})
