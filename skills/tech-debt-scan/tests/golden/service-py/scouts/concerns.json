@@ -1,0 +1,10 @@
+{
+  "family": "concerns",
+  "module": null,
+  "findings": [],
+  "open_questions": [],
+  "looks_bad_but_fine": [],
+  "not_assessed": [
+    "Repository is small (243 LOC); no scattered functionality or semantic duplication detected."
+  ]
+}

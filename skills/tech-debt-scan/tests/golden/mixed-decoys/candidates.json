@@ -1741,6 +1741,22 @@
       "suppressed": 0,
       "disabled": 0
     },
+    "performance": {
+      "raw": 0,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
+    "concerns": {
+      "raw": 0,
+      "dropped": 0,
+      "quote_failed": 0,
+      "clustered": 0,
+      "suppressed": 0,
+      "disabled": 0
+    },
     "test-quality": {
       "raw": 2,
       "dropped": 0,

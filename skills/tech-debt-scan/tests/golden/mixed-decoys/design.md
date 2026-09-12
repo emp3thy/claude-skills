@@ -21,6 +21,8 @@ families_run:
 - doc-drift
 - architecture
 - security
+- performance
+- concerns
 - test-quality
 - pipeline-infra
 families_skipped: []

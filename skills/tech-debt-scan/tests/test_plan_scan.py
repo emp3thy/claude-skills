@@ -53,7 +53,7 @@ def corpus_workdirs(tmp_path_factory: pytest.TempPathFactory) -> dict[str, tuple
 _ALL_DEEP: frozenset[str] = frozenset({
     "complex-units", "god-classes", "duplication", "dead-code", "error-masking",
     "test-gaps", "half-finished", "migration", "dependency-debt", "doc-drift",
-    "architecture", "security", "test-quality", "pipeline-infra",
+    "architecture", "security", "performance", "concerns", "test-quality", "pipeline-infra",
 })
 EXPECTED_RUN: dict[str, set[str]] = {
     "service-py": set(_ALL_DEEP),

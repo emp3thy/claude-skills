@@ -103,7 +103,7 @@ FAMILY_SETS: Final[dict[str, tuple[str, ...]]] = {
     "default": (
         "complex-units", "god-classes", "duplication", "dead-code", "error-masking",
         "test-gaps", "half-finished", "migration", "dependency-debt", "doc-drift",
-        "architecture", "security",
+        "architecture", "security", "performance", "concerns",
     ),
     "quick": (
         "complex-units", "error-masking", "test-gaps", "half-finished",
@@ -112,7 +112,7 @@ FAMILY_SETS: Final[dict[str, tuple[str, ...]]] = {
     "deep": (
         "complex-units", "god-classes", "duplication", "dead-code", "error-masking",
         "test-gaps", "half-finished", "migration", "dependency-debt", "doc-drift",
-        "architecture", "security", "test-quality", "pipeline-infra",
+        "architecture", "security", "performance", "concerns", "test-quality", "pipeline-infra",
     ),
 }
 

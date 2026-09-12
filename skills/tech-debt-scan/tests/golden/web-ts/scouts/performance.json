@@ -1,0 +1,10 @@
+{
+  "family": "performance",
+  "module": null,
+  "findings": [],
+  "open_questions": [],
+  "looks_bad_but_fine": [],
+  "not_assessed": [
+    "Repository is small; no hot-path loops with expensive operations detected by static analysis."
+  ]
+}

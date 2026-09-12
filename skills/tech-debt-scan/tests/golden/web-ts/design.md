@@ -21,6 +21,8 @@ families_run:
 - dependency-debt
 - doc-drift
 - architecture
+- performance
+- concerns
 - test-quality
 - pipeline-infra
 families_skipped:

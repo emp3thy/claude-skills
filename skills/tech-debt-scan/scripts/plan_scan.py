@@ -452,6 +452,11 @@ def _raw_leads(family: str, docs: ScanDocs) -> list[Lead]:
                 + _tool_leads(docs, family))
     if family == "security":
         return _pattern_leads(docs, "security") + _tool_leads(docs, family)
+    if family == "performance":
+        return _band(docs) + _tool_leads(docs, family)
+    if family == "concerns":
+        return (_band(docs) + _pairs(docs) + _structure(docs)
+                + _tool_leads(docs, family))
     if family == "test-quality":
         return (
             _pattern_leads(docs, "test-quality") + _test_quality_extras(docs)
