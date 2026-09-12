@@ -347,6 +347,37 @@ class TestTierReason:
         out = _finding(self._cand(), dict(self._confirm(), verdict="downgrade"), selected=True)
         assert out["tier_reason"] == "the verifier downgraded it"
 
+    def test_a_referral_says_so(self) -> None:
+        from apply_verdicts import _finding
+
+        out = _finding(self._cand(), dict(self._confirm(), verdict="refer"), selected=True)
+        assert out["tier_reason"] == "the verifier referred it"
+
+    def test_a_rule_fact_says_so(self) -> None:
+        from apply_verdicts import _finding
+
+        out = _finding(self._cand(tier="A", source="rule"), None, selected=False)
+        assert out["tier_reason"] == "a deterministic rule finding, true by construction"
+
+    def test_an_osv_fact_says_so_not_the_rule_wording(self) -> None:
+        """The ruling: key the reason on ``source``, not on the tier alone -- an osv
+        fact-class candidate arrives with ``tier: "A"`` and ``source: "tool"``, exactly
+        as a rule finding arrives with ``tier: "A"`` and ``source: "rule"``, and the two
+        must render different prose."""
+        from apply_verdicts import _finding
+
+        out = _finding(self._cand(tier="A", source="tool"), None, selected=False)
+        assert out["tier_reason"] == "a published advisory, true by construction"
+        assert "rule" not in out["tier_reason"]
+
+    def test_every_finding_has_a_reason(self) -> None:
+        """A blank reason renders a blank column, which is what this replaces."""
+        from apply_verdicts import _finding
+
+        for verdict in (None, self._confirm(), dict(self._confirm(), verdict="reject")):
+            out = _finding(self._cand(), verdict, selected=True)
+            assert out["tier_reason"].strip()
+
 
 @pytest.mark.parametrize(
     ("type_id", "confirmed", "verdict", "tier"),
@@ -385,34 +416,3 @@ def test_concerns_ladder(confirmed: list[str], verdict: str, tier: str) -> None:
     cand = _cand("concerns", confirmed=confirmed, type_id="TD-10")
     assert earned_tier(cand, _verdict(cand, verdict)) == tier
     assert family_cap(cand) is None
-
-    def test_a_referral_says_so(self) -> None:
-        from apply_verdicts import _finding
-
-        out = _finding(self._cand(), dict(self._confirm(), verdict="refer"), selected=True)
-        assert out["tier_reason"] == "the verifier referred it"
-
-    def test_a_rule_fact_says_so(self) -> None:
-        from apply_verdicts import _finding
-
-        out = _finding(self._cand(tier="A", source="rule"), None, selected=False)
-        assert out["tier_reason"] == "a deterministic rule finding, true by construction"
-
-    def test_an_osv_fact_says_so_not_the_rule_wording(self) -> None:
-        """The ruling: key the reason on ``source``, not on the tier alone -- an osv
-        fact-class candidate arrives with ``tier: "A"`` and ``source: "tool"``, exactly
-        as a rule finding arrives with ``tier: "A"`` and ``source: "rule"``, and the two
-        must render different prose."""
-        from apply_verdicts import _finding
-
-        out = _finding(self._cand(tier="A", source="tool"), None, selected=False)
-        assert out["tier_reason"] == "a published advisory, true by construction"
-        assert "rule" not in out["tier_reason"]
-
-    def test_every_finding_has_a_reason(self) -> None:
-        """A blank reason renders a blank column, which is what this replaces."""
-        from apply_verdicts import _finding
-
-        for verdict in (None, self._confirm(), dict(self._confirm(), verdict="reject")):
-            out = _finding(self._cand(), verdict, selected=True)
-            assert out["tier_reason"].strip()
