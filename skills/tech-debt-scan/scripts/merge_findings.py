@@ -863,6 +863,9 @@ def merge(
         if not isinstance(doc, dict):
             stats[family]["missing_file"] = 1
             continue
+        files_read = doc.get("files_read")
+        if isinstance(files_read, int) and not isinstance(files_read, bool):
+            stats[family]["files_read"] = files_read
         for question in doc.get("open_questions") or []:
             if isinstance(question, dict):
                 open_questions.append({

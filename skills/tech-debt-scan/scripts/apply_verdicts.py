@@ -108,6 +108,17 @@ def _family_cap_and_lift(cand: dict[str, Any]) -> tuple[str | None, str | None]:
         # reason says what spec 2.3 actually names: this scan never reads CI data,
         # not "tool corroboration", which this family gets no tool signals for.
         return (None if tool else "B"), "CI data, which this scan never reads"
+    if family == "performance":
+        # Spec 2026-09-12, section 3. TD-37 is a cardinality claim: N+1, complexity,
+        # "will not scale". Nothing static can prove the N, so it is capped at C
+        # whatever the verifier says; the lift names what would be needed.
+        if cand.get("type_id") == "TD-37":
+            return "C", "runtime evidence, which this scan never reads"
+        return (None if tool else "B"), "tool corroboration"
+    if family == "concerns":
+        # No cap: confirm is B, confirm plus a hotspot or coupling token is A --
+        # the base rule in _tier_and_reason, stated here so the family is listed.
+        return None, None
     if family in ("dependency-debt", "security"):
         return (None if tool else "B"), "tool corroboration"
     if family == "migration":

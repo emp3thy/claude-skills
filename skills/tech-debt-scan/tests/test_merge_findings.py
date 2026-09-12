@@ -342,6 +342,30 @@ def test_dropped_reason_is_redacted_before_recording(tmp_path: Path) -> None:
     assert "abcd***" in " | ".join(doc["stats"]["security"]["dropped_reasons"])
 
 
+def test_files_read_is_copied_into_stats(tmp_path: Path) -> None:
+    """The concerns scout reports how many files it opened; merge records it so the
+    read budget is auditable (spec 2026-09-12, section 4)."""
+    repo, workdir = _repo(tmp_path)
+    plan_path = workdir / "scan-plan.json"
+    plan = json.loads(plan_path.read_bytes())
+    plan["entries"].append({
+        "family": "concerns",
+        "module": None,
+        "prompt": "prompts/scout-concerns.md",
+        "output": "scouts/concerns.json",
+        "leads": 1,
+    })
+    write_json(plan_path, plan)
+    scouts = workdir / "scouts"
+    scouts.mkdir(exist_ok=True)
+    (scouts / "concerns.json").write_text(json.dumps({
+        "family": "concerns", "module": None, "findings": [], "open_questions": [],
+        "looks_bad_but_fine": [], "not_assessed": [], "files_read": 17,
+    }), encoding="utf-8")
+    doc = merge(workdir, repo, DEFAULTS)
+    assert doc["stats"]["concerns"]["files_read"] == 17
+
+
 def test_suppression_with_expiry_and_path_class_disable(tmp_path: Path) -> None:
     repo, workdir = _repo(tmp_path)
     fp, _ = fingerprint("error-masking", "src/pay.py", SWALLOW)
