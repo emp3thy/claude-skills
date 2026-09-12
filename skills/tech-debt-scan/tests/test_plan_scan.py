@@ -886,3 +886,123 @@ def test_chunked_plan_goldens_at_full_and_halved_thresholds(
     assert full["chunked"] is True and halved["chunked"] is True
     assert full["thresholds"] != halved["thresholds"]
     assert set(full["families_run"]) < set(halved["families_run"])
+
+
+def _docs_with(inventory: dict[str, Any], **extra: dict[str, Any]) -> ScanDocs:
+    return ScanDocs(inventory=inventory, **extra)
+
+
+def _min_inventory() -> dict[str, Any]:
+    return {"root": "r", "total_files": 2, "total_loc": 20, "languages": ["python"],
+            "git_available": True, "hotspot_band": ["src/hot.py"],
+            "files": [{"path": "src/hot.py", "path_class": "source", "hotspot_score": 9.0,
+                       "max_indent": 5, "fan_in_approx": 1, "churn": 3},
+                      {"path": "src/cold.py", "path_class": "source", "hotspot_score": 0.0,
+                       "max_indent": 1, "fan_in_approx": 1, "churn": 0}],
+            "boundary_tooling": []}
+
+
+def test_join_leads_render_under_their_own_headings() -> None:
+    coupling = {"pairs": [
+        {"a": "src/a.py", "b": "lib/b.py", "shared_commits": 4, "ratio": 0.5,
+         "cross_directory": True, "has_edge": False, "edge_direction": None,
+         "lead_kind": "modularity-violation"},
+        {"a": "src/dep.py", "b": "src/hub.py", "shared_commits": 6, "ratio": 0.6,
+         "cross_directory": False, "has_edge": True, "edge_direction": "a->b",
+         "lead_kind": "unstable-interface"},
+        {"a": "src/x.py", "b": "src/y.py", "shared_commits": 3, "ratio": 0.3,
+         "cross_directory": False, "has_edge": True, "edge_direction": "both",
+         "lead_kind": None},
+    ], "cycles": [], "unstable_edges": [], "directories": [], "edges": []}
+    leads = leads_for("architecture", _docs_with(_min_inventory(), coupling=coupling), DEFAULTS)
+    kinds = {lead.kind for lead in leads}
+    assert {"violation", "interface", "coupling"} <= kinds
+    from plan_scan import render_leads
+    text = render_leads(leads)
+    assert "Co-change with no import edge (modularity violation):" in text
+    assert "Co-change into a high-fan-in file (unstable interface):" in text
+    assert "src/a.py <-> lib/b.py" in text and "no edge" in text
+    assert "src/dep.py -> src/hub.py" in text
+
+
+def test_performance_leads_come_from_patterns_tools_and_deep_band_files() -> None:
+    patterns = {"leads": {"performance": [
+        {"file": "src/cold.py", "line": 4, "rule": "io-in-loop", "quote": "open(p)",
+         "path_class": "source", "extra": {"loop_line": 3}}]}, "satd": []}
+    signals = {"signals": [{"tool": "ruff", "family": "performance", "kind": "perf-smell",
+                            "file": "src/cold.py", "line_start": 9, "message": "PERF401",
+                            "fact": False}]}
+    docs = _docs_with(_min_inventory(), patterns=patterns, tool_signals=signals)
+    leads = leads_for("performance", docs, DEFAULTS)
+    kinds = [(lead.kind, lead.path) for lead in leads]
+    assert ("hotspot", "src/hot.py") in kinds
+    assert ("inventory", "src/hot.py") in kinds        # max_indent 5 on a band file
+    assert ("inventory", "src/cold.py") not in kinds   # off band
+    assert ("pattern", "src/cold.py") in kinds
+    assert ("tool", "src/cold.py") in kinds
+
+
+def test_concerns_leads_are_candidates_band_pairs_and_structure_never_files() -> None:
+    index = {"candidates": [{"name": "format_amount", "tokens": ["format_amount", "formatAmount"],
+                             "files": ["src/a.py", "lib/b.py"], "directories": ["lib", "src"],
+                             "hotspot_touch": True, "hotspot_share": 0.5, "coupled": False}],
+             "directories": [], "stats": {}}
+    patterns = {"leads": {"performance": [
+        {"file": "src/cold.py", "line": 4, "rule": "io-in-loop", "quote": "open(p)",
+         "path_class": "source", "extra": {}}]}, "satd": []}
+    docs = _docs_with(_min_inventory(), concern_index=index, patterns=patterns)
+    leads = leads_for("concerns", docs, DEFAULTS)
+    assert any(lead.kind == "candidate" and "format_amount" in lead.text for lead in leads)
+    assert all(lead.kind != "pattern" and lead.kind != "tool" for lead in leads)
+
+
+def test_concerns_prompt_carries_the_read_budget(tmp_path: Path) -> None:
+    from inventory import write_json
+    write_json(tmp_path / "inventory.json", _min_inventory())
+    write_json(tmp_path / "coupling.json", {"pairs": [], "cycles": [], "unstable_edges": [],
+                                             "directories": [], "edges": []})
+    write_json(tmp_path / "concern-index.json", {"candidates": [
+        {"name": "n", "tokens": ["n"], "files": ["src/a.py", "lib/b.py"],
+         "directories": ["lib", "src"], "hotspot_touch": False, "hotspot_share": 0.0,
+         "coupled": False}], "directories": [], "stats": {}})
+    plan, prompts = build_plan(tmp_path, DEFAULTS, families=["concerns"], top=8)
+    text = prompts["prompts/scout-concerns.md"]
+    assert "at most 60 files" in text and "at most 10" in text and '"files_read"' in text
+    assert plan["entries"][0]["output"] == "scouts/concerns.json"
+
+
+def test_concerns_and_performance_skip_with_no_leads(tmp_path: Path) -> None:
+    from inventory import write_json
+    inv = _min_inventory()
+    inv["hotspot_band"] = []
+    inv["files"][0]["max_indent"] = 1
+    write_json(tmp_path / "inventory.json", inv)
+    plan, _ = build_plan(tmp_path, DEFAULTS, families="default", top=8)
+    skipped = {s["family"]: s["reason"] for s in plan["families_skipped"]}
+    assert skipped.get("concerns") == "no leads" and skipped.get("performance") == "no leads"
+
+
+def test_concerns_gets_one_entry_on_a_chunked_plan(tmp_path: Path) -> None:
+    from copy import deepcopy
+
+    from inventory import write_json
+
+    inv = _min_inventory()
+    inv["files"] = [{"path": f"{d}/f{i}.py", "path_class": "source", "hotspot_score": 1.0,
+                     "max_indent": 1, "fan_in_approx": 1, "churn": 1}
+                    for d in ("alpha", "beta") for i in range(3)]
+    inv["hotspot_band"] = ["alpha/f0.py", "beta/f0.py"]
+    write_json(tmp_path / "inventory.json", inv)
+    write_json(tmp_path / "coupling.json", {"pairs": [], "cycles": [], "unstable_edges": [],
+                                             "directories": [], "edges": []})
+    write_json(tmp_path / "concern-index.json", {"candidates": [
+        {"name": "n", "tokens": ["n"], "files": ["alpha/f1.py", "beta/f1.py"],
+         "directories": ["alpha", "beta"], "hotspot_touch": False, "hotspot_share": 0.0,
+         "coupled": False}], "directories": [], "stats": {}})
+    config = deepcopy(DEFAULTS)
+    config["chunking"]["max_files"] = 2
+    plan, prompts = build_plan(tmp_path, config, families=["concerns", "complex-units"], top=8)
+    assert plan["chunked"] is True
+    concerns = [e for e in plan["entries"] if e["family"] == "concerns"]
+    assert len(concerns) == 1 and concerns[0]["module"] is None
+    assert "prompts/scout-concerns.md" in prompts
