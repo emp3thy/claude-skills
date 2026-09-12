@@ -99,6 +99,16 @@ every tool is marked `skipped` and nothing reaches the network.
   8191-char argv ceiling. `plan_scan.py` and `verify_prompts.py` render the
   scout and verifier prompts as files for the same reason; dispatch each
   Agent with the prompt file's content, not a hand-built one.
+- Agent output always comes back as a **file the Agent wrote itself**, never
+  as a reply the driver transcribes. An Agent's reply is truncated at roughly
+  4 to 5 KB, and every artefact steps 6, 8 and 12 produce is larger (5 to
+  24 KB measured), so a transcribed reply silently loses its tail. Each
+  dispatch names the output path; the Agent writes its JSON there with the
+  Write tool (never a shell heredoc, which mangles JSON on Windows) and
+  replies with a receipt only: the path, the byte count and the number of
+  entries. The driver then checks that the file exists and parses. This is
+  what makes a headless run (`claude -p`) possible: nothing in the chain
+  depends on a human noticing a truncated reply.
 - `--workdir` (default `.tech-debt`) is the directory every chain script, from
   `inventory.py` through `design_writer.py render`, reads its inputs from and
   writes its outputs to. Pass the same `--workdir` to every command in one
@@ -135,15 +145,19 @@ renumbers the rest.
    writes `scan-plan.json` and `prompts/scout-*.md`; `<set>` is `default`,
    `quick`, `deep` or a comma-separated list.
 6. Dispatch one read-only Agent per plan entry with the prompt file's
-   content; write each response verbatim to the output path the plan names.
-   A missing output file after dispatch is exit 5; an empty findings list is
-   not.
+   content and the output path the plan names; the Agent writes its findings
+   JSON to that path itself and replies with a receipt (path, bytes, number
+   of findings). Never transcribe the reply into the file. A missing or
+   unparseable output file after dispatch is exit 5; an empty findings list
+   is not.
 7. `python scripts/merge_findings.py --workdir .tech-debt` writes
    `candidates.json`.
 8. `python scripts/verify_prompts.py --workdir .tech-debt --top <n>` writes
    `prompts/verify-*.md` and `verify-plan.json`; dispatch one read-only Agent
-   per batch; write each response to the `verdicts/verify-<nn>.json` path the
-   plan names.
+   per batch with the prompt file's content and the `verdicts/verify-<nn>.json`
+   path the plan names; the Agent writes its verdicts JSON there itself and
+   replies with a receipt (path, bytes, number of verdicts). A missing or
+   unparseable verdict file is exit 5.
 9. `python scripts/apply_verdicts.py --workdir .tech-debt` writes
    `verified.json`.
 10. `python scripts/rank.py --workdir .tech-debt --preset <p> --top <n>`
@@ -157,8 +171,10 @@ renumbers the rest.
     it is taken from the `root` step 1 recorded in the workdir's
     `inventory.json`, which is the same repository.
 12. `python scripts/design_writer.py notes-prompt --workdir .tech-debt --top <n>`
-    writes `prompts/notes.md`; dispatch one read-only Agent; write
-    `notes.json`.
+    writes `prompts/notes.md`; dispatch one read-only Agent with its content
+    and the `notes.json` path; the Agent writes `notes.json` itself and
+    replies with a receipt (path, bytes, number of notes). A missing or
+    unparseable `notes.json` is exit 5.
 13. `python scripts/design_writer.py render --workdir .tech-debt --scan-date <date> --out .tech-debt/design.md`
     writes `design.md` and `findings.json`, self-checking through the parser;
     a non-zero exit is exit 5.
