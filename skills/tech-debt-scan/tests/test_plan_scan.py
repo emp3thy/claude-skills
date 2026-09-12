@@ -911,12 +911,16 @@ def test_join_leads_render_under_their_own_headings() -> None:
          "cross_directory": False, "has_edge": True, "edge_direction": "a->b",
          "lead_kind": "unstable-interface"},
         {"a": "src/x.py", "b": "src/y.py", "shared_commits": 3, "ratio": 0.3,
+         "cross_directory": True, "has_edge": True, "edge_direction": "both",
+         "lead_kind": None},
+        {"a": "src/p.py", "b": "src/q.py", "shared_commits": 2, "ratio": 0.2,
          "cross_directory": False, "has_edge": True, "edge_direction": "both",
          "lead_kind": None},
     ], "cycles": [], "unstable_edges": [], "directories": [], "edges": []}
     leads = leads_for("architecture", _docs_with(_min_inventory(), coupling=coupling), DEFAULTS)
     kinds = {lead.kind for lead in leads}
     assert {"violation", "interface", "coupling"} <= kinds
+    assert not any(lead.path == "src/p.py" for lead in leads)
     from plan_scan import render_leads
     text = render_leads(leads)
     assert "Co-change with no import edge (modularity violation):" in text

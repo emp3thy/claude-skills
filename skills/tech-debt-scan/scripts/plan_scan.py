@@ -231,18 +231,19 @@ def _pairs(docs: ScanDocs, *, cross_only: bool = False) -> list[Lead]:
     """Coupled pairs as leads. A pair the graph join labelled gets its own kind
     (spec 2026-09-12, section 2); an unlabelled pair stays a plain coupling lead.
 
-    ``cross_only`` (architecture's own ``_pairs(docs, cross_only=True)`` call) no
-    longer filters: every pair the join has seen -- violation, interface or plain
-    coupling alike -- already carries a real signal (an import edge or the lack of
-    one), so a same-directory pair is exactly as architecturally relevant as a
-    cross-directory one; a same-directory violation is marked "weaker" in its text
-    instead of being dropped. The parameter is kept for call-site compatibility.
+    ``cross_only`` keeps its pre-join meaning for a plain (unlabelled) pair: the
+    architecture family's own ``_pairs(docs, cross_only=True)`` call still drops a
+    same-directory plain pair. A join-labelled pair (modularity violation, unstable
+    interface) is always rendered regardless of directory -- a same-directory
+    violation is marked "weaker" in its text rather than being dropped, per the spec.
     """
     out: list[Lead] = []
     for pair in docs.coupling.get("pairs", []):
+        kind = pair.get("lead_kind")
+        if cross_only and kind is None and not pair.get("cross_directory"):
+            continue
         a, b = str(pair["a"]), str(pair["b"])
         shared, ratio = pair["shared_commits"], float(pair["ratio"])
-        kind = pair.get("lead_kind")
         if kind == "modularity-violation":
             where = "cross-directory" if pair.get("cross_directory") else "same directory, weaker"
             out.append(Lead(
