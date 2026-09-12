@@ -1,4 +1,4 @@
-"""Scout prompts: the fourteen v2 family blocks and their shared contract (spec 2.3, 4.6).
+"""Scout prompts: the sixteen v2 family blocks and their shared contract (spec 2.3, 4.6).
 
 Data-only module. Each scout is dispatched (via the Agent tool, read-only
 Explore semantics) with one family's rendered prompt. Every prompt is written
