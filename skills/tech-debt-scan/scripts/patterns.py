@@ -204,6 +204,17 @@ def is_comment_line(line: str, markers: Markers) -> bool:
     return False
 
 
+def _code_part(line: str, markers: Markers) -> str:
+    """``line`` up to its first single-line comment marker, stripped.
+
+    Used before a header's own delimiter test so a trailing comment cannot
+    hide the code's ``:`` or ``{``, e.g. ``for row in rows:  # noqa`` still
+    ends its header in ``:`` (fix round 2, I1).
+    """
+    positions = [idx for idx in (line.find(m) for m in markers[0]) if idx != -1]
+    return (line[: min(positions)] if positions else line).rstrip()
+
+
 def strip_markers(line: str, markers: Markers) -> str:
     stripped = line.strip()
     for marker in markers[0]:
@@ -419,7 +430,7 @@ def _brace_body(lines: list[str], index: int, from_col: int) -> tuple[list[str],
 
 # performance (spec 2026-09-12, section 3): a loop header, then four body smells.
 LOOP_HEADER_RE: Final[re.Pattern[str]] = re.compile(
-    r"^\s*(?:for\b|while\b|foreach\b|.*\.forEach\s*\()"
+    r"^\s*(?:async\s+for\b|for\b|while\b|foreach\b|.*\.forEach\s*\()"
 )
 IO_IN_LOOP_RE: Final[re.Pattern[str]] = re.compile(
     r"\b(?:open|subprocess\.(?:run|check_output|call|Popen)|requests\.(?:get|post|put|delete|head)"
@@ -499,11 +510,11 @@ def _scan_loops(sf: ScanFile, rule: Rule, _ctx: ScanContext) -> list[Lead]:
     for index, line in enumerate(sf.lines):
         if not LOOP_HEADER_RE.match(line):
             continue
-        stripped = line.rstrip()
-        if stripped.endswith(":"):
+        code = _code_part(line, sf.markers)
+        if code.endswith(":"):
             _body, end = _indented_body(sf.lines, index)
-        elif "{" in line:
-            _body, end = _brace_body(sf.lines, index, line.find("{"))
+        elif "{" in code:
+            _body, end = _brace_body(sf.lines, index, code.find("{"))
         elif index + 1 < len(sf.lines) and sf.lines[index + 1].lstrip().startswith("{"):
             _body, end = _brace_body(sf.lines, index + 1, 0)
         else:

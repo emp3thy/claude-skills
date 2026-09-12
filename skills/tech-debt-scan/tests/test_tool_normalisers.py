@@ -176,6 +176,18 @@ def test_ruff_perf_codes_map_to_the_performance_family(code: str, tmp_path: Path
     assert signal["extra"]["code"] == code and signal["fact"] is False
 
 
+def test_signal_families_are_a_subset_of_categories_families() -> None:
+    """``SIGNAL_FAMILIES`` is deliberately a subset of ``categories.FAMILIES`` --
+    only families a normaliser can assign (fix round 2, M5). ``merge_findings``
+    silently drops any tool signal naming a family outside ``categories.FAMILIES``
+    (``merge_findings.py:707``), so a typo in either collection would lose
+    signals with no error; this closes that gap with a one-line assertion."""
+    import categories
+    from tool_normalisers import SIGNAL_FAMILIES
+
+    assert set(categories.FAMILIES) >= SIGNAL_FAMILIES
+
+
 class TestNormaliseVulture:
     def _signals(self) -> list:
         from tool_normalisers import normalise_vulture

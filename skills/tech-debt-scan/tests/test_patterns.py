@@ -470,6 +470,19 @@ def test_rule_table_covers_every_group() -> None:
     assert len(RULES) >= 27
 
 
+def test_family_names_are_a_subset_of_categories_families() -> None:
+    """``patterns.FAMILIES`` is deliberately a subset of ``categories.FAMILIES`` --
+    only the families this module has rules for (fix round 2, M5).
+    ``merge_findings`` silently drops any tool signal naming a family outside
+    ``categories.FAMILIES`` (``merge_findings.py:707``), so a typo in either
+    collection would lose signals with no error; this closes that gap with a
+    one-line assertion."""
+    import categories
+    from patterns import FAMILIES
+
+    assert set(FAMILIES) <= set(categories.FAMILIES)
+
+
 def test_stub_and_skip_leads_in_two_languages(
     service_py: tuple[Path, dict[str, Any]],
     web_ts: tuple[Path, dict[str, Any]],
@@ -830,3 +843,27 @@ def test_regex_sort_and_membership_in_loop() -> None:
 def test_nested_loops_report_a_line_once() -> None:
     text = "for a in xs:\n    for b in ys:\n        open(b)\n"
     assert len(_scan(text, "io-in-loop")) == 1
+
+
+def test_loop_header_with_trailing_comment_still_finds_the_body() -> None:
+    """A trailing comment on the header must not hide its own ':' delimiter
+    (fix round 2, I1): ``for row in rows:  # noqa`` is an ordinary Python loop."""
+    text = "for row in rows:  # noqa\n    data = open(row.path).read()\n"
+    (lead,) = _scan(text, "io-in-loop")
+    assert lead.line == 2 and lead.extra["loop_line"] == 1
+
+
+def test_async_for_loop_header_is_scanned() -> None:
+    """``async for`` is ordinary async Python and must match ``LOOP_HEADER_RE``
+    (fix round 2, I1)."""
+    text = "async for row in rows:\n    data = open(row.path).read()\n"
+    (lead,) = _scan(text, "io-in-loop")
+    assert lead.line == 2 and lead.extra["loop_line"] == 1
+
+
+def test_loop_body_with_a_blank_line_is_still_scanned() -> None:
+    """Non-regression for the shape the review measured alongside I1: a blank
+    line inside the body must not stop the scan."""
+    text = "for row in rows:\n\n    data = open(row.path).read()\n"
+    (lead,) = _scan(text, "io-in-loop")
+    assert lead.line == 3 and lead.extra["loop_line"] == 1

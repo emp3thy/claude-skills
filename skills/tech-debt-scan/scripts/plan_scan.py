@@ -84,10 +84,11 @@ KIND_CAPS: Final[dict[str, int]] = {
     "pattern": LEAD_CAP, "satd": LEAD_CAP, "inventory": LEAD_CAP, "tool": LEAD_CAP,
 }
 KIND_ORDER: Final[tuple[str, ...]] = (
-    "hotspot", "coupling", "violation", "interface", "candidate", "pattern", "satd",
+    "directory", "hotspot", "coupling", "violation", "interface", "candidate", "pattern", "satd",
     "artefact", "cycle", "inventory", "tool", "docs", "tests",
 )
 KIND_TITLE: Final[dict[str, str]] = {
+    "directory": "Directory aggregates (files, LOC, churn, instability)",
     "hotspot": "Hotspot-band files (score)",
     "coupling": "Change-coupled pairs",
     "violation": "Co-change with no import edge (modularity violation)",
@@ -108,7 +109,7 @@ CONCERNS_EXTRA_BLOCK: Final[str] = (
     "Read budget: this scout receives no file leads. Read at most 60 files to confirm the "
     "candidates below and at most 10 more of your own choosing for drift, naming each of "
     "those in not_assessed with a one-line reason. Report the total as \"files_read\" in "
-    "your output. Report at most 6 findings."
+    "your output."
 )
 
 
@@ -394,6 +395,24 @@ def _structure(docs: ScanDocs) -> list[Lead]:
     return out
 
 
+def _concern_directories(docs: ScanDocs) -> list[Lead]:
+    """``concern-index.json``'s ``directories`` aggregates as leads (spec 2026-09-12,
+    section 4: "the scout receives the directory aggregates ..."). The data is
+    already loaded into ``ScanDocs``; this is the only place anything reads it
+    (fix round 2, I2)."""
+    out: list[Lead] = []
+    for entry in docs.concern_index.get("directories") or []:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path") or "") or "(root)"
+        out.append(Lead(
+            "directory", path, None,
+            f"files={entry.get('files')} loc={entry.get('loc')} churn={entry.get('churn')} "
+            f"instability={entry.get('instability')}",
+        ))
+    return out
+
+
 def _joined(value: Any) -> str:
     """``tests.coverage_gate`` and ``tests.ci_retry_config`` are lists of artefact paths."""
     if isinstance(value, list):
@@ -507,7 +526,8 @@ def _raw_leads(family: str, docs: ScanDocs) -> list[Lead]:
             for c in docs.concern_index.get("candidates") or []
             if isinstance(c, dict) and c.get("files")
         ]
-        return _band(docs) + candidates + _pairs(docs) + _structure(docs)
+        return (_concern_directories(docs) + _band(docs) + candidates + _pairs(docs)
+                + _structure(docs))
     if family == "test-quality":
         return (
             _pattern_leads(docs, "test-quality") + _test_quality_extras(docs)

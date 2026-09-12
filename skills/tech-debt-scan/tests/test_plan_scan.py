@@ -48,7 +48,7 @@ def corpus_workdirs(tmp_path_factory: pytest.TempPathFactory) -> dict[str, tuple
 
 # Filled in by the implementer from the first green run (Step 4) and checked by the
 # reviewer against planted.json: every family with a planted item must be run.
-# service-py and mixed-decoys carry a lead for all fourteen; web-ts has no security
+# service-py and mixed-decoys carry a lead for all sixteen; web-ts has no security
 # pattern hit at all, so the adaptive rule drops that one scout.
 _ALL_DEEP: frozenset[str] = frozenset({
     "complex-units", "god-classes", "duplication", "dead-code", "error-masking",
@@ -118,6 +118,24 @@ def test_set_forms_and_explicit_list_bypass_adaptive_rule(
             for s in disabled["families_skipped"]}["duplication"] == "disabled"
     with pytest.raises(ConfigError):
         build_plan(workdir, DEFAULTS, families="nonsense", top=None)
+
+
+def test_quick_set_skips_exactly_the_ten_families_outside_it_as_not_in_set(
+    tmp_path: Path,
+) -> None:
+    """Pins `quick`'s ``not in set`` skips (fix round 2, C1/S2/S5): ``families_skipped``
+    is built from the full ``FAMILIES``, not from the selected set, so a `quick` plan's
+    `design.md` is not byte-identical across a family addition -- the next one must be a
+    deliberate decision, not a silent byproduct this test would catch."""
+    from inventory import write_json
+
+    write_json(tmp_path / "inventory.json", _min_inventory())
+    plan, _ = build_plan(tmp_path, DEFAULTS, families="quick", top=8)
+    not_in_set = {s["family"] for s in plan["families_skipped"] if s["reason"] == "not in set"}
+    assert not_in_set == {
+        "god-classes", "duplication", "dead-code", "migration", "doc-drift",
+        "architecture", "performance", "concerns", "test-quality", "pipeline-infra",
+    }
 
 
 def test_no_leads_family_is_skipped_with_reason(tmp_path: Path) -> None:
@@ -958,6 +976,23 @@ def test_concerns_leads_are_candidates_band_pairs_and_structure_never_files() ->
     leads = leads_for("concerns", docs, DEFAULTS)
     assert any(lead.kind == "candidate" and "format_amount" in lead.text for lead in leads)
     assert all(lead.kind != "pattern" and lead.kind != "tool" for lead in leads)
+
+
+def test_concerns_leads_include_directory_aggregates() -> None:
+    """Spec 2026-09-12 section 4: "the scout receives the directory aggregates
+    [...]". Before fix round 2 (I2), ``concern-index.json``'s ``directories``
+    was computed, persisted and never read by anything."""
+    index = {"candidates": [], "directories": [
+        {"path": "src/billing", "files": 3, "loc": 11, "churn": 3, "fan_in": 1,
+         "fan_out": 2, "instability": 0.5},
+        {"path": "", "files": 1, "loc": 4, "churn": 1, "fan_in": 0, "fan_out": 0,
+         "instability": 0.0},
+    ], "stats": {}}
+    docs = _docs_with(_min_inventory(), concern_index=index)
+    leads = leads_for("concerns", docs, DEFAULTS)
+    directory_leads = {lead.path: lead.text for lead in leads if lead.kind == "directory"}
+    assert directory_leads["src/billing"] == "files=3 loc=11 churn=3 instability=0.5"
+    assert directory_leads["(root)"] == "files=1 loc=4 churn=1 instability=0.0"
 
 
 def test_concerns_prompt_carries_the_read_budget(tmp_path: Path) -> None:

@@ -865,7 +865,12 @@ def merge(
             continue
         files_read = doc.get("files_read")
         if isinstance(files_read, int) and not isinstance(files_read, bool):
-            stats[family]["files_read"] = files_read
+            # Summed, not assigned: a chunked plan can dispatch one family to more
+            # than one module, and each module's scout reports its own files_read
+            # (fix round 2, M2). Harmless today because concerns never chunks, but
+            # the next family with a read budget would otherwise silently keep
+            # only the last module's count.
+            stats[family]["files_read"] = stats[family].get("files_read", 0) + files_read
         for question in doc.get("open_questions") or []:
             if isinstance(question, dict):
                 open_questions.append({

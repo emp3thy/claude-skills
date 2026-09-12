@@ -366,6 +366,34 @@ def test_files_read_is_copied_into_stats(tmp_path: Path) -> None:
     assert doc["stats"]["concerns"]["files_read"] == 17
 
 
+def test_files_read_accumulates_across_two_entries_for_one_family(tmp_path: Path) -> None:
+    """A chunked plan can dispatch one family to more than one module; merge must
+    sum each entry's files_read rather than keep only the last one (fix round 2,
+    M2). Harmless today because concerns never chunks, but the next family with a
+    read budget would otherwise silently drop every module but the last."""
+    repo, workdir = _repo(tmp_path)
+    plan_path = workdir / "scan-plan.json"
+    plan = json.loads(plan_path.read_bytes())
+    plan["entries"].append({
+        "family": "concerns", "module": "alpha", "prompt": "prompts/scout-concerns-alpha.md",
+        "output": "scouts/concerns-alpha.json", "leads": 1,
+    })
+    plan["entries"].append({
+        "family": "concerns", "module": "beta", "prompt": "prompts/scout-concerns-beta.md",
+        "output": "scouts/concerns-beta.json", "leads": 1,
+    })
+    write_json(plan_path, plan)
+    scouts = workdir / "scouts"
+    scouts.mkdir(exist_ok=True)
+    for module, files_read in (("alpha", 12), ("beta", 5)):
+        (scouts / f"concerns-{module}.json").write_text(json.dumps({
+            "family": "concerns", "module": module, "findings": [], "open_questions": [],
+            "looks_bad_but_fine": [], "not_assessed": [], "files_read": files_read,
+        }), encoding="utf-8")
+    doc = merge(workdir, repo, DEFAULTS)
+    assert doc["stats"]["concerns"]["files_read"] == 17
+
+
 def test_suppression_with_expiry_and_path_class_disable(tmp_path: Path) -> None:
     repo, workdir = _repo(tmp_path)
     fp, _ = fingerprint("error-masking", "src/pay.py", SWALLOW)
