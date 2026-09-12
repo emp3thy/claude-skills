@@ -528,7 +528,7 @@ def test_coupling_pairs_on_service_py(service_py_repo: Path) -> None:
     assert coupling["fan_in_mode"] == "auto"
     assert list(coupling) == [
         "schema_version", "min_shared", "min_ratio", "bulk_threshold", "fan_in_mode",
-        "pairs", "degree", "cycles", "directories", "unstable_edges",
+        "pairs", "degree", "cycles", "directories", "unstable_edges", "edges",
     ]
 
 
@@ -1007,3 +1007,86 @@ def test_cli_reads_config_from_root(service_py_repo: Path, tmp_path: Path) -> No
     inventory = json.loads((workdir / "inventory.json").read_bytes())
     assert inventory["churn_window_months"] == 240
     assert inventory["total_files"] == 16  # .tech-debt.yaml is neither a file nor an artefact
+
+
+# --- Task 2: graph-history join --------------------------------------------------
+
+
+def _graph(edges: list[tuple[str, str]], fan_in: dict[str, int | None]):
+    from reference_graph import GraphResult
+
+    g = GraphResult()
+    g.edges = list(edges)
+    g.fan_in = dict(fan_in)
+    return g
+
+
+def _pair(a: str, b: str, *, cross: bool = True) -> dict:
+    return {"a": a, "b": b, "shared_commits": 4, "ratio": 0.5, "cross_directory": cross}
+
+
+def test_pair_with_no_edge_is_a_modularity_violation() -> None:
+    from inventory import _annotate_pairs
+
+    pairs = [_pair("src/a.py", "lib/b.py")]
+    _annotate_pairs(pairs, _graph([], {"src/a.py": 1, "lib/b.py": 1}))
+    assert pairs[0]["has_edge"] is False
+    assert pairs[0]["edge_direction"] is None
+    assert pairs[0]["lead_kind"] == "modularity-violation"
+
+
+@pytest.mark.parametrize(
+    ("edges", "direction"),
+    [
+        ([("src/a.py", "lib/b.py")], "a->b"),
+        ([("lib/b.py", "src/a.py")], "b->a"),
+        ([("src/a.py", "lib/b.py"), ("lib/b.py", "src/a.py")], "both"),
+    ],
+)
+def test_pair_with_a_direct_edge_is_never_a_violation(edges, direction) -> None:
+    from inventory import _annotate_pairs
+
+    pairs = [_pair("src/a.py", "lib/b.py")]
+    _annotate_pairs(pairs, _graph(edges, {"src/a.py": 1, "lib/b.py": 1}))
+    assert pairs[0]["has_edge"] is True
+    assert pairs[0]["edge_direction"] == direction
+    assert pairs[0]["lead_kind"] is None
+
+
+def test_edge_into_a_top_decile_fan_in_file_is_an_unstable_interface() -> None:
+    from inventory import _annotate_pairs
+
+    fan_in = {f"src/f{i}.py": i for i in range(1, 21)}  # 1..20; top decile is >= 19
+    fan_in["src/hub.py"] = 40
+    fan_in["src/dep.py"] = 1
+    pairs = [_pair("src/dep.py", "src/hub.py", cross=False)]
+    _annotate_pairs(pairs, _graph([("src/dep.py", "src/hub.py")], fan_in))
+    assert pairs[0]["lead_kind"] == "unstable-interface"
+
+
+def test_decile_ignores_null_fan_in_and_needs_positive_fan_in() -> None:
+    from inventory import _annotate_pairs
+
+    fan_in = {"src/a.py": None, "src/b.py": 0, "src/c.py": 0}
+    pairs = [_pair("src/a.py", "src/b.py")]
+    _annotate_pairs(pairs, _graph([("src/a.py", "src/b.py")], fan_in))
+    assert pairs[0]["lead_kind"] is None  # an edge, but no positive fan-in anywhere
+
+
+def test_same_directory_violation_is_kept_and_flagged() -> None:
+    from inventory import _annotate_pairs
+
+    pairs = [_pair("src/a.py", "src/b.py", cross=False)]
+    _annotate_pairs(pairs, _graph([], {"src/a.py": 1, "src/b.py": 1}))
+    assert pairs[0]["lead_kind"] == "modularity-violation"
+    assert pairs[0]["cross_directory"] is False
+
+
+def test_coupling_document_carries_edges(service_py_repo: Path) -> None:
+    from inventory import build_all
+
+    _inventory, coupling = build_all(service_py_repo, churn_months=240)
+    assert "edges" in coupling
+    assert all(len(e) == 2 for e in coupling["edges"])
+    for pair in coupling["pairs"]:
+        assert set(pair) >= {"has_edge", "edge_direction", "lead_kind"}
