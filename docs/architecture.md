@@ -73,15 +73,18 @@ probe, landed in phase 4b; step 11, the baseline diff, lands in phase 5a):
 5. `plan_scan.py` writes `scan-plan.json` and `prompts/scout-<family>.md`,
    applying the adaptive rule over the [family table](#scout-families)
    below: a family is dispatched only when it has at least one lead.
-6. One read-only scout Agent per plan entry writes its reply to the path the
-   plan names.
+6. One read-only scout Agent per plan entry writes its findings JSON to the
+   path the plan names itself, with the Write tool, and replies with a receipt
+   (path, bytes, count); the driver never transcribes a reply, because replies
+   truncate at roughly 4 to 5 KB and every scout file is larger (issue #19).
 7. `merge_findings.py` writes `candidates.json`: one verified, deduplicated
    candidate list.
 8. `verify_prompts.py` writes `verify-plan.json` and
    `prompts/verify-<nn>.md`, selecting candidates for verification under a
    provisional-priority budget rule (the `verify_prompts.py` row in the
    table below has the exact selection order and caps).
-9. Read-only verifier Agents reply per batch; `apply_verdicts.py` writes
+9. Read-only verifier Agents write `verdicts/verify-<nn>.json` per batch
+   themselves and reply with a receipt; `apply_verdicts.py` writes
    `verified.json`, earning every candidate a tier from the table in the
    `apply_verdicts.py` row below: A (confirmed and corroborated, **or** a
    `rules.py` finding **or** an osv-scanner advisory, the only two kinds of
