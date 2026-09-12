@@ -1064,6 +1064,24 @@ def test_edge_into_a_top_decile_fan_in_file_is_an_unstable_interface() -> None:
     assert pairs[0]["lead_kind"] == "unstable-interface"
 
 
+def test_decile_floor_is_by_count_not_by_tied_percentile_rank() -> None:
+    """Nine files tied at fan-in 1 and one hub at 40: the floor must be 40, not 1 --
+    a nearest-rank percentile index would land on the tied value and flag every
+    non-hub pair as a hub lead."""
+    from inventory import _annotate_pairs
+
+    fan_in = {f"src/f{i}.py": 1 for i in range(1, 10)}
+    fan_in["src/hub.py"] = 40
+    pairs = [
+        _pair("src/f1.py", "src/f2.py"),
+        _pair("src/f3.py", "src/hub.py"),
+    ]
+    edges = [("src/f1.py", "src/f2.py"), ("src/f3.py", "src/hub.py")]
+    _annotate_pairs(pairs, _graph(edges, fan_in))
+    assert pairs[0]["lead_kind"] is None
+    assert pairs[1]["lead_kind"] == "unstable-interface"
+
+
 def test_decile_ignores_null_fan_in_and_needs_positive_fan_in() -> None:
     from inventory import _annotate_pairs
 

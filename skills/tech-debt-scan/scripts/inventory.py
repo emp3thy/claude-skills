@@ -734,17 +734,21 @@ def write_outputs(
 
 
 def _fan_in_decile_floor(fan_in: dict[str, int | None]) -> int | None:
-    """The smallest fan-in in the top decile of non-null, positive values; None when
-    nothing is positive, or when every positive value is identical -- with no spread
-    at all, "top decile" would otherwise degenerate to "everyone" (an N=2 corpus
-    tied at the same value both land at the decile-floor index), which is not a
-    meaningful hub signal. A decile rather than a fixed number because surveyed
-    tools' hub thresholds disagree by an order of magnitude (spec 2026-09-12,
-    section 2)."""
+    """The smallest fan-in among the top decile *by count* of non-null, positive
+    values; None when nothing is positive, or when every positive value is
+    identical -- with no spread at all, "top decile" would otherwise degenerate to
+    "everyone" (an N=2 corpus tied at the same value both land at the decile-floor
+    index), which is not a meaningful hub signal. Count-based (the smallest value
+    among the top ceil(10%) of files by rank), not a nearest-rank percentile index:
+    the two diverge whenever ties straddle the boundary -- on nine files tied at 1
+    and one hub at 40, a percentile index picks 1 as the floor and flags every tied
+    pair as a hub lead, when only the actual hub should qualify. A decile rather
+    than a fixed number because surveyed tools' hub thresholds disagree by an order
+    of magnitude (spec 2026-09-12, section 2)."""
     values = sorted(v for v in fan_in.values() if isinstance(v, int) and v > 0)
     if not values or values[0] == values[-1]:
         return None
-    index = max(0, int(math.ceil(0.9 * len(values))) - 1)
+    index = len(values) - max(1, math.ceil(0.1 * len(values)))
     return values[index]
 
 
