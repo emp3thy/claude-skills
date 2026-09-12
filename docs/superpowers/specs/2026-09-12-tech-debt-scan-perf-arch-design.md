@@ -85,9 +85,9 @@ TD-36 covers allocation or I/O inside a loop, string concatenation in a loop, a 
 | Finding | Tier | Lift |
 |---|---|---|
 | TD-36, `tool:` token, verifier confirms | A | -- |
-| TD-36, `tool:` token, verifier downgrades | B | -- |
-| TD-36, no `tool:` token | B max | tool corroboration |
-| TD-37, any verdict | C | none; the cap sentence says "a cardinality claim needs runtime evidence this scan never reads" |
+| TD-36, any family: verifier downgrades, refers, or a quote fails | C | the pipeline's existing rule for every family (`_tier_and_reason`) |
+| TD-36, no `tool:` token, verifier confirms | B max | tool corroboration |
+| TD-37, any verdict | C | the lift names "runtime evidence, which this scan never reads" |
 
 **Sets.** `config.py`'s `default` and `deep` gain `performance`; `quick` stays at six. The adaptive rule applies unchanged.
 
