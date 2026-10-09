@@ -20,12 +20,14 @@ Tree entries resolve doc-relative then root-relative, with the label and then wi
 placeholder label is always dropped); a renamed entry's replacement is its own last name
 segment only, and a rename that changes a parent directory is a human decision (rulings R12,
 R16, R22). Anchors whose target doc climbs above the repository never existed. An anchor is
-judged by the one commit that removed its slug, and a ``-N`` duplicate-suffix anchor is never
-provable (R24). An ``ignored`` token never yields a candidate (R29).
+judged by the one commit that removed its slug (a rename keeps the level and a similar section
+body, R30), and a ``-N`` duplicate-suffix anchor is never provable (R24). An ``ignored`` token
+never yields a candidate (R29).
 """
 from __future__ import annotations
 
 import argparse
+import difflib
 import functools
 import posixpath
 import re
@@ -55,6 +57,9 @@ _ID_ATTR = re.compile(r"""\bid\s*=\s*["']([^"']+)["']""", re.I)
 _NAME_ATTR = re.compile(r"""\bname\s*=\s*["']([^"']+)["']""", re.I)
 _URL_SAFE = "/!$&'()*+,;=:@-._~"
 _DUP_SUFFIX = re.compile(r"(.+)-(\d+)")
+# Ruling R30: a one-commit heading change is a rename only when the section bodies are this
+# similar (difflib ratio). An unmeasured convention, to be checked on the fixture corpus.
+HEADING_BODY_SIMILARITY = 0.6
 _SNAPSHOT_MODES = ("doc", "root")
 
 Tree = tuple[frozenset[str], frozenset[str]]
@@ -81,16 +86,39 @@ def heading_slugs(text: str) -> set[str]:
 
 
 @functools.lru_cache(maxsize=256)
-def _slugs(text: str) -> frozenset[str]:
-    slugs: set[str] = set()
+def _headings(text: str) -> tuple[tuple[str, ...], tuple[tuple[str, int, int, int], ...]]:
+    """The doc's lines and its headings as (slug, level, line_start, line_end), in order."""
+    sc = scan(text)
+    out: list[tuple[str, int, int, int]] = []
     counts: dict[str, int] = {}
-    for block in scan(text).blocks:
-        if block.kind != "heading":
-            continue
+    for block in sorted((b for b in sc.blocks if b.kind == "heading"),
+                        key=lambda b: b.line_start):
         base = slugify_heading(_plain(block.text or ""))
         seen = counts.get(base, 0)
         counts[base] = seen + 1
-        slugs.add(base if seen == 0 else f"{base}-{seen}")
+        slug = base if seen == 0 else f"{base}-{seen}"
+        out.append((slug, block.level or 1, block.line_start, block.line_end))
+    return tuple(sc.lines), tuple(out)
+
+
+def heading_sections(text: str) -> dict[str, tuple[int, str]]:
+    """Heading slug -> (level, section body): the lines after the heading up to the next
+    heading of the same or a higher level, joined and stripped."""
+    lines, heads = _headings(text)
+    sections: dict[str, tuple[int, str]] = {}
+    for i, (slug, level, _start, end) in enumerate(heads):
+        stop = len(lines)
+        for _other, other_level, other_start, _other_end in heads[i + 1 :]:
+            if other_level <= level:
+                stop = other_start - 1
+                break
+        sections[slug] = (level, "\n".join(lines[end:stop]).strip())
+    return sections
+
+
+@functools.lru_cache(maxsize=256)
+def _slugs(text: str) -> frozenset[str]:
+    slugs: set[str] = {slug for slug, _level, _start, _end in _headings(text)[1]}
     for tag in _TAG.finditer(text):
         body = tag.group(0)
         slugs.update(m.group(1) for m in _ID_ATTR.finditer(body))
@@ -383,12 +411,21 @@ class Resolver:
         removed, added = found[1], found[2]
         if len(removed) == 1 and len(added) == 1:
             new = next(iter(added))
-            if new in now:
+            if new in now and self._same_section(target, found[0], next(iter(removed)), new):
                 fields.update(outcome="unique", replacement=new,
                               evidence=_ev("heading renamed", commit))
         elif len(removed) == 1 and not added:
             fields.update(outcome="deleted", evidence=_ev("heading removed", commit))
         return fields
+
+    def _same_section(self, target: str, commit: str, old: str, new: str) -> bool:
+        """Ruling R30: the renamed heading keeps its level and a similar section body."""
+        before = heading_sections(self.history.show(f"{commit}^", target) or "").get(old)
+        after = heading_sections(self.history.show(commit, target) or "").get(new)
+        if before is None or after is None or before[0] != after[0]:
+            return False  # an HTML id, not a heading, or the level changed
+        ratio = difflib.SequenceMatcher(None, before[1], after[1]).ratio()
+        return ratio >= HEADING_BODY_SIMILARITY
 
     def _heading_commit(self, sha: str, target: str,
                         frag: str) -> tuple[str, set[str], set[str]] | None:

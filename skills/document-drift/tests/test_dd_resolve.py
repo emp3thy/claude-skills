@@ -12,7 +12,15 @@ from dd_helpers import make_repo
 from dd_history import History
 from dd_inventory import DEFAULT_NEVER_EDIT
 from dd_manifests import script_source
-from dd_resolve import Resolver, heading_slugs, main, resolve_token, run, slugify_heading
+from dd_resolve import (
+    Resolver,
+    heading_sections,
+    heading_slugs,
+    main,
+    resolve_token,
+    run,
+    slugify_heading,
+)
 
 NEVER = re.compile(DEFAULT_NEVER_EDIT)
 
@@ -338,6 +346,43 @@ def test_anchor_removed_then_unrelated_heading_added_later_is_deleted(tmp_path: 
     cand = _one(repo)
     assert _shape(cand) == ("provable-delete", "deleted", None, None)
     assert cand["evidence"] == f"heading removed in {_sha7(repo, 'HEAD~1')}"
+
+
+SECTIONED = (
+    "See [install](#install).\n\n## Install\n\nRun the installer with the default options.\n"
+    "Then restart the shell.\n\n## Usage\n\nUse it.\n"
+)
+
+
+@pytest.mark.parametrize(("after", "expected"), [
+    # R30: an unrelated section swapped in one commit is not a rename
+    (SECTIONED.replace(
+        "## Install\n\nRun the installer with the default options.\nThen restart the shell.",
+        "## Troubleshooting\n\nIf the daemon crashes, collect logs and open an issue."),
+     ("human", "ambiguous", None, "ambiguous-rename")),
+    # same body, same level: a rename
+    (SECTIONED.replace("## Install\n", "## Installation\n"),
+     ("provable-replace", "unique", "installation", None)),
+    # same body, level changed: not provable
+    (SECTIONED.replace("## Install\n", "### Installation\n"),
+     ("human", "ambiguous", None, "ambiguous-rename")),
+])
+def test_anchor_one_commit_rename_needs_same_level_and_similar_body(
+    tmp_path: Path, after: str, expected: tuple[Any, ...]
+) -> None:
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": SECTIONED}),
+        _c("02", "change", files={"README.md": after}),
+    ])
+    assert _shape(_one(repo)) == expected
+
+
+def test_heading_sections_level_and_body() -> None:
+    text = "# Top\n\nintro\n\n## A\n\nbody a\n\n### A.1\n\nnested\n\n## B\n\nbody b\n"
+    sections = heading_sections(text)
+    assert sections["a"] == (2, "body a\n\n### A.1\n\nnested")
+    assert sections["a1"] == (3, "nested")
+    assert sections["b"] == (2, "body b")
 
 
 def test_anchor_renamed_then_renamed_again_is_unique_to_head_name(tmp_path: Path) -> None:
