@@ -7,9 +7,11 @@ out). In check mode ``applied.json`` and ``commits.json`` are not read.
 
 Counts: docs scanned are the inventory docs minus those extraction skipped; a token is
 ``resolved`` when it produced no candidate and no marker suppressed it; candidates are counted
-per class from ``findings.json`` (superseded findings included under their class). The human
-section is ``dd_commit.render_human``. A marker with a reason is stale when the lines it covers
-hold no token it suppressed (``honoured``); markers without a reason are listed apart.
+per class from ``findings.json`` (superseded findings included under their class). In check
+mode a ``Planned edits:`` section lists every planned hunk's findings as commit-body bullets
+(``dd_commit.render_bullets``, ruling R66). The human section is ``dd_commit.render_human``.
+A marker with a reason is stale when the lines it covers hold no token it suppressed
+(``honoured``); markers without a reason are listed apart.
 
 Every repository-derived string passes through ``dd_redaction.redact``. The text is written to
 ``summary.md`` as UTF-8 with LF endings and returned.
@@ -22,7 +24,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from dd_commit import render_human
+from dd_commit import render_bullets, render_human
 from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json
 from dd_redaction import redact
 
@@ -122,6 +124,9 @@ def render(workdir: Path) -> str:
                       f" reverted {len(reverted)}")
         counts.extend(f"- {r['hunk']} reverted: {redact(str(r['reason']))}" for r in reverted)
     sections.append(counts)
+    if applied is None and hunks:  # R66: what a run without --check would commit
+        sections.append(["Planned edits:",
+                         *render_bullets(findings, hunks, missing_code=EXIT_MISSING)])
 
     human = render_human(findings)
     if human:

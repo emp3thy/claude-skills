@@ -136,11 +136,44 @@ def test_summary_no_branch_and_no_history_line(tmp_path: Path) -> None:
     assert "Branch:" not in text
 
 
+def _planned(workdir: Path, third: str = "F005") -> None:
+    write_json(workdir / "hunks-provable.json", {"hunks": [
+        {"id": "H001", "finding_id": "F001", "doc": "README.md", "verb": "replace",
+         "new_text": "src/new.py", "reason": "renamed in 1234567", "also": []},
+        {"id": "H002", "finding_id": "F002", "doc": "README.md", "verb": "delete",
+         "new_text": None, "reason": "deleted in 89abcde",
+         "also": [{"finding_id": third, "verb": "delete", "token_text": "src/never.py",
+                   "new_text": None, "reason": "deleted in 89abcde"}]},
+    ]})
+
+
 def test_summary_check_mode(tmp_path: Path) -> None:
-    text = run(_workdir(tmp_path, check=True))
+    workdir = _workdir(tmp_path, check=True)
+    _planned(workdir)
+    text = run(workdir)
     lines = text.splitlines()
-    assert "Hunks: 3 provable; check mode: no edits made" in lines
+    assert "Hunks: 2 provable; check mode: no edits made" in lines
     assert lines[-1] == "No branch created."
+    # R66: check mode lists every planned edit in the commit-bullet grammar
+    at = lines.index("Planned edits:")
+    assert lines[at + 1 : at + 5] == [
+        "- README.md:3 replace `src/old.py` -> `src/new.py` (renamed in 1234567)",
+        "- README.md:5 delete `src/gone.py` (deleted in 89abcde)",
+        "- README.md:11 delete `src/never.py` (deleted in 89abcde)",
+        "",
+    ]
+
+
+def test_summary_without_check_has_no_planned_section(tmp_path: Path) -> None:
+    assert "Planned edits:" not in run(_workdir(tmp_path))
+
+
+def test_summary_check_mode_hunk_without_finding_is_exit_5(tmp_path: Path) -> None:
+    workdir = _workdir(tmp_path, check=True)
+    _planned(workdir, third="F999")
+    with pytest.raises(StepError) as exc:
+        run(workdir)
+    assert exc.value.code == EXIT_MISSING
 
 
 def test_summary_redacts_repository_strings(tmp_path: Path) -> None:

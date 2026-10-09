@@ -4,6 +4,11 @@ Display (ruling R51): a ``script`` finding is shown as its invocation (``make li
 ``npm run lint``, ``yarn lint``, ``pnpm lint``, ``just lint``, ``task lint``) in body bullets and
 human statements; a ``tree`` replace bullet shows full paths on both sides, the new one being
 the finding's path with its last segment replaced by the hunk's new text.
+
+Final-review rulings: a ``large-deletion`` statement names its unit in words ("a list item",
+"a table row", "a fence line", "a tree line", "a paragraph", "a heading"; R66), the
+``heading-reference`` statement says a heading names the token (R62), and ``render_bullets`` is
+shared with the check-mode summary (R66).
 """
 from __future__ import annotations
 
@@ -57,15 +62,24 @@ def tree_new_path(text: str, new_text: str) -> str:
     return text[: len(text) - len(own)] + new_text
 
 
+UNIT_WORDS: dict[str, str] = {
+    "list_item": "a list item", "table_row": "a table row", "table_header": "a table row",
+    "fence": "a fence line", "tree": "a tree line", "paragraph": "a paragraph",
+    "heading": "a heading",
+}
+
+
 def _statement(finding: dict[str, Any]) -> str:
     token = _tick(_shown(finding))
     kind = finding.get("human_kind")
     if kind == "ambiguous-rename":
         return f"{token} was renamed or moved and no single new name is provable"
     if kind == "large-deletion":
-        block = (finding.get("block") or {}).get("kind") or "block"
-        return (f"{token} no longer exists and removing it would remove a whole "
-                f"{redact(str(block))}")
+        block = str((finding.get("block") or {}).get("kind") or "")
+        return (f"{token} no longer exists and removing it would remove "
+                f"{UNIT_WORDS.get(block, 'a block')}")
+    if kind == "heading-reference":
+        return f"{token} is named in a heading; changing it would break links to that heading"
     if kind == "prose-mention":
         return f"{token} no longer exists and is mentioned in running prose"
     if kind == "never-edit-section":
@@ -109,6 +123,31 @@ def _bullet(finding: dict[str, Any], verb: str, new_text: str | None, reason: st
     return f"- {where} {verb} {old} {why}"
 
 
+def render_bullets(findings: list[dict[str, Any]], hunks: list[dict[str, Any]],
+                   only: set[str] | None = None, missing_code: int = EXIT_COMMIT) -> list[str]:
+    """One bullet per finding of each hunk (of the hunk ids in ``only``, when given), ordered
+    by doc, line and column. A hunk naming a finding that is missing from ``findings`` raises
+    ``StepError`` with ``missing_code`` (R48: never skipped)."""
+    by_id = {f["id"]: f for f in findings if "id" in f}
+    entries: list[tuple[tuple[str, int, int], str]] = []
+    for hunk in hunks:
+        if only is not None and hunk["id"] not in only:
+            continue
+        parts = [{"finding_id": hunk["finding_id"], "verb": hunk["verb"],
+                  "new_text": hunk.get("new_text"), "reason": hunk.get("reason", "")},
+                 *hunk.get("also", [])]
+        for part in parts:
+            finding = by_id.get(part["finding_id"])
+            if finding is None:
+                raise StepError(
+                    f"applied hunk {hunk['id']} names finding {part['finding_id']} "
+                    "which is missing from findings.json", missing_code)
+            entries.append((_pos(finding), _bullet(
+                finding, part["verb"], part.get("new_text"), part.get("reason", ""))))
+    entries.sort(key=lambda e: e[0])
+    return [b for _, b in entries]
+
+
 def render_message(
     findings: list[dict[str, Any]],
     hunks: list[dict[str, Any]],
@@ -120,28 +159,10 @@ def render_message(
     trailers: list[str],
 ) -> str:
     """The full commit message for the applied hunks."""
-    by_id = {f["id"]: f for f in findings if "id" in f}
-    done = set(applied)
-    entries: list[tuple[tuple[str, int, int], str]] = []
-    for hunk in hunks:
-        if hunk["id"] not in done:
-            continue
-        parts = [{"finding_id": hunk["finding_id"], "verb": hunk["verb"],
-                  "new_text": hunk.get("new_text"), "reason": hunk.get("reason", "")},
-                 *hunk.get("also", [])]
-        for part in parts:
-            finding = by_id.get(part["finding_id"])
-            if finding is None:
-                raise StepError(
-                    f"applied hunk {hunk['id']} names finding {part['finding_id']} "
-                    "which is missing from findings.json", EXIT_COMMIT)
-            entries.append((_pos(finding), _bullet(
-                finding, part["verb"], part.get("new_text"), part.get("reason", ""))))
-    entries.sort(key=lambda e: e[0])
     blocks = [
         SUBJECT,
         f"Drift-Run: {run_id}\nDrift-Base: {base}\nDrift-Scope: {redact(scope)}",
-        "\n".join(b for _, b in entries),
+        "\n".join(render_bullets(findings, hunks, set(applied))),
     ]
     human = render_human(findings)
     if human:

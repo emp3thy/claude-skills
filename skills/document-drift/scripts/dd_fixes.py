@@ -27,6 +27,11 @@ rows, command lines or entries (R39). Edits with the same line range merge into 
 hunk. A demoted finding whose token sits inside lines another hunk deletes joins that hunk.
 A span that no longer holds the token's text is ``human``/``recheck-failed``. A replacement in a
 link, image or refdef destination is percent-encoded (R41).
+
+Final-review rulings: a replace whose token sits in a heading is ``human``/``heading-reference``
+(R62: the heading's slug may be a link target in another doc, which apply does not re-check).
+Every hunk's ``reason``, and every ``also`` reason, either names a 7-hex commit after `` in ``
+or starts with ``manifest ``; anything else is a planning bug and exits 5 (R64).
 """
 from __future__ import annotations
 
@@ -53,6 +58,7 @@ _COMPOUND = re.compile(
 )
 _ORDERED = re.compile(r"^[ \t>]*\d{1,9}[.)]")
 _ENCODE = {" ": "%20", "(": "%28", ")": "%29", "<": "%3C", ">": "%3E"}
+_PROOF = re.compile(r" in [0-9a-f]{7}(?![0-9a-f])")  # R64: "renamed in a1b2c3d" and the like
 
 Cand = dict[str, Any]
 Span = tuple[int, int, str]  # [col, end_col) on line_start and its new text
@@ -149,6 +155,8 @@ class _Doc:
         return found
 
     def replace(self, c: Cand, line: str) -> _Edit | str:
+        if (c.get("block") or {}).get("kind") == "heading":
+            return "heading-reference"  # R62: the heading's slug is a link target elsewhere
         new = c.get("replacement")
         if not new:
             return "recheck-failed"
@@ -404,6 +412,15 @@ def _hunk_record(doc: _Doc, h: _Hunk, n: int, cands: list[Cand]) -> Cand:
     }
 
 
+def _check_reasons(hunk: Cand) -> None:
+    """Ruling R64: every provable edit names the commit (or the manifest) that proves it."""
+    for reason in [hunk.get("reason"), *(a.get("reason") for a in hunk.get("also") or [])]:
+        text = str(reason or "")
+        if not (_PROOF.search(text) or text.startswith("manifest ")):
+            raise StepError(f"hunk {hunk['id']} in {hunk['doc']} has no proving commit or "
+                            f"manifest in its reason {text!r}", EXIT_MISSING)
+
+
 def run(root: Path, workdir: Path) -> dict[str, Any]:
     """Number every candidate and plan the provable hunks; write both outputs.
 
@@ -433,6 +450,7 @@ def run(root: Path, workdir: Path) -> dict[str, Any]:
         hunks.extend(doc_hunks)
     for n, h in enumerate(hunks, 1):
         h["id"] = f"H{n:03d}"
+        _check_reasons(h)
     findings_doc = {
         "findings": findings,
         "history_unavailable": bool(data.get("history_unavailable", False)),

@@ -23,7 +23,7 @@ def _fixture() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         _f("F002", "README.md", 9, 0, "src/gone.py"),
         _f("F003", "README.md", 2, 5, "src/dead.py"),
         _f("F004", "README.md", 20, 0, "src/big.py", **{"class": "human",
-           "human_kind": "large-deletion", "block": {"kind": "table"},
+           "human_kind": "large-deletion", "block": {"kind": "table_row"},
            "evidence": "deleted in 1234567"}),
         _f("F005", "README.md", 5, 0, "src/gen.py", **{"class": "human",
            "human_kind": "never-edit-section", "heading_path": ["Docs", "Changelog"]}),
@@ -59,7 +59,7 @@ GOLDEN = (
     "'Changelog'\n"
     "  evidence: none\n"
     "- README.md:20 [large-deletion] `src/big.py` no longer exists and removing it would "
-    "remove a whole table\n"
+    "remove a table row\n"
     "  evidence: deleted in 1234567\n"
     "\n"
     "Co-Authored-By: Someone <s@example.com>\n"
@@ -101,6 +101,30 @@ def test_render_human_statements() -> None:
     assert "the proposed edit for `p` did not pass the re-check (before-mismatch)" in out
 
 
+@pytest.mark.parametrize(("block", "unit"), [
+    ("list_item", "a list item"), ("table_row", "a table row"), ("fence", "a fence line"),
+    ("tree", "a tree line"), ("paragraph", "a paragraph"), ("heading", "a heading"),
+])
+def test_large_deletion_names_its_unit_in_words(block: str, unit: str) -> None:
+    # R66: the statement says what would go, not the raw block kind
+    out = render_human([_f("F1", "a.md", 1, 0, "p", **{"class": "human",
+                        "human_kind": "large-deletion", "block": {"kind": block}})])
+    assert f"`p` no longer exists and removing it would remove {unit}\n" in out
+    assert block not in out.replace(unit, "")
+
+
+def test_heading_reference_statement() -> None:
+    # R62: a token in a heading is never rewritten; links to the heading would break
+    out = render_human([_f("F1", "docs/api.md", 3, 3, "src/handlers.py", **{
+        "class": "human", "human_kind": "heading-reference", "evidence": "renamed in a1b2c3d"})])
+    assert out == (
+        "Needs a human decision:\n"
+        "- docs/api.md:3 [heading-reference] `src/handlers.py` is named in a heading; "
+        "changing it would break links to that heading\n"
+        "  evidence: renamed in a1b2c3d\n"
+    )
+
+
 def _hunk(hid: str, fid: str, verb: str, new_text: str | None = None,
           also: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     return {"id": hid, "finding_id": fid, "doc": "a.md", "line_start": 1, "verb": verb,
@@ -122,7 +146,7 @@ def test_script_findings_display_as_their_invocation(tool: str, shown: str) -> N
                          base=BASE, scope="all", trailers=[])
     assert f"- a.md:1 delete `{shown}` (why)\n" in msg
     assert (f"- a.md:2 [large-deletion] `{shown}` no longer exists and removing it would "
-            "remove a whole fence\n") in msg
+            "remove a fence line\n") in msg
 
 
 def test_script_finding_in_an_also_entry_displays_as_its_invocation() -> None:

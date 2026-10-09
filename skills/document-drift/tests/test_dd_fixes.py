@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from dd_common import EXIT_MISSING, EXIT_OK, read_json, write_json
+from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json, write_json
 from dd_extract import extract_doc
 from dd_fixes import main, plan_hunks, run
 from dd_inventory import DEFAULT_NEVER_EDIT
@@ -536,3 +536,65 @@ def test_r42_unlink_and_replace_on_one_line_keep_their_verbs():
     assert h["after"] == ["See the guide and `src/new.py`."]
     assert h["also"] == [{"finding_id": "F002", "verb": "replace", "token_text": "src/old.py",
                           "new_text": "src/new.py", "reason": "renamed in a1b2c3d"}]
+
+
+# -- final review --------------------------------------------------------------------------
+
+
+def test_r62_replace_in_a_heading_is_heading_reference():
+    # final review C4: rewriting a heading changes its slug, which links elsewhere may name
+    text = "# API\n\n## `src/handlers.py`\n\nThe request handlers.\n"
+    cand = _cand(text, "src/handlers.py", "provable-replace", replacement="src/routes.py")
+    assert cand["block"]["kind"] == "heading"
+    assert _demoted_kind(text, cand) == "heading-reference"
+
+
+def test_r62_delete_of_a_heading_link_still_unlinks():
+    # an unlink keeps the heading's rendered text, so its slug does not change
+    text = "# API\n\n## See [the handlers](src/handlers.py)\n"
+    cand = _cand(text, "src/handlers.py", kind="path")
+    hunks, demoted = _plan(text, cand)
+    assert demoted == []
+    assert hunks[0]["after"] == ["## See the handlers"]
+
+
+def _run_with(tmp_path: Path, text: str, *cands: Cand) -> dict[str, Any]:
+    root, workdir = tmp_path / "repo", tmp_path / "work"
+    root.mkdir(parents=True)
+    (root / "README.md").write_bytes(text.encode())
+    for c in cands:
+        del c["id"]
+    write_json(workdir / "candidates.json",
+               {"candidates": list(cands), "history_unavailable": False, "honoured": []})
+    return run(root, workdir)
+
+
+@pytest.mark.parametrize("reason", ["deleted", "deleted in HEAD", "renamed in a1b2c3", ""])
+def test_r64_hunk_reason_without_a_commit_is_exit_5(tmp_path: Path, reason: str):
+    text = "- `src/a.py`\n- `src/b.py`\n"
+    cand = _cand(text, "src/a.py")
+    cand["evidence"] = reason
+    with pytest.raises(StepError) as exc:
+        _run_with(tmp_path, text, cand)
+    assert exc.value.code == EXIT_MISSING
+    assert not (tmp_path / "work" / "hunks-provable.json").exists()
+
+
+def test_r64_also_reason_without_a_commit_is_exit_5(tmp_path: Path):
+    text = "Read [docs/a.md](docs/a.md) and [the guide](docs/a.md).\n"
+    first = _cand(text, "docs/a.md", "provable-replace", replacement="docs/b.md")
+    second = _cand(text, "docs/a.md", "provable-replace", replacement="docs/b.md", nth=1)
+    second["evidence"] = "renamed"
+    with pytest.raises(StepError) as exc:
+        _run_with(tmp_path, text, first, second)
+    assert exc.value.code == EXIT_MISSING
+
+
+@pytest.mark.parametrize("reason", ["deleted in a1b2c3d", "heading renamed in 0123abc",
+                                    "manifest pyproject.toml says >=3.11"])
+def test_r64_proven_reasons_pass(tmp_path: Path, reason: str):
+    text = "- `src/a.py`\n- `src/b.py`\n"
+    cand = _cand(text, "src/a.py")
+    cand["evidence"] = reason
+    out = _run_with(tmp_path, text, cand)
+    assert [h["reason"] for h in out["hunks"]] == [reason]
