@@ -8,6 +8,7 @@ from dd_common import run_git
 
 _BLAME_HEADER = re.compile(r"^([0-9a-f]{40}) \d+ (\d+)")
 _QUIET = ("-c", "core.quotePath=false")
+_LITERAL = "--literal-pathspecs"
 _EMPTY: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
 
 
@@ -20,7 +21,7 @@ class History:
         self._trees: dict[str, tuple[frozenset[str], frozenset[str]] | None] = {}
         self._shows: dict[tuple[str, str], str | None] = {}
         self._renames: dict[str, dict[str, tuple[str, str]]] = {}
-        self._finals: dict[tuple[str, str], tuple[set[str], str | None]] = {}
+        self._finals: dict[tuple[str, str], tuple[frozenset[str], str | None]] = {}
         self._deletions: dict[tuple[str, str], str | None] = {}
         self._touches: dict[tuple[str, str, str], str | None] = {}
 
@@ -81,7 +82,7 @@ class History:
             out = run_git(
                 self.root,
                 [*_QUIET, "log", "-M", "--diff-filter=R", "--name-status",
-                 "--abbrev=7", "--format=%x1e%h", f"{sha}..HEAD"],
+                 "--topo-order", "--abbrev=7", "--format=%x1e%h", f"{sha}..HEAD"],
             )
             result: dict[str, tuple[str, str]] = {}
             if out:
@@ -96,27 +97,31 @@ class History:
             self._renames[sha] = result
         return self._renames[sha]
 
-    def final_name(self, sha: str, path: str) -> tuple[set[str], str | None]:
+    def final_name(self, sha: str, path: str) -> tuple[frozenset[str], str | None]:
         """Follow ``path`` through renames after ``sha``.
 
-        Returns the final names that exist at HEAD and the commit of the last hop
-        (None when never renamed or when nothing exists at HEAD).
+        A path that exists at HEAD is returned as is with no commit (never drift). Otherwise
+        returns the final names that exist at HEAD and the commit of the last hop (a chain
+        that returns to an earlier name finishes there); ``(frozenset(), None)`` if gone.
         """
         key = (sha, path)
         if key not in self._finals:
+            if path in self.head_files()[0]:
+                self._finals[key] = (frozenset({path}), None)
+                return self._finals[key]
             renames = self.renames_since(sha)
             current, last = path, None
             seen = {path}
             while current in renames:
                 nxt, commit = renames[current]
+                current, last = nxt, commit
                 if nxt in seen:
                     break
                 seen.add(nxt)
-                current, last = nxt, commit
             if current in self.head_files()[0]:
-                self._finals[key] = ({current}, last)
+                self._finals[key] = (frozenset({current}), last)
             else:
-                self._finals[key] = (set(), None)
+                self._finals[key] = (frozenset(), None)
         return self._finals[key]
 
     def deleting_commit(self, sha: str, path: str) -> str | None:
@@ -125,7 +130,7 @@ class History:
         if key not in self._deletions:
             out = run_git(
                 self.root,
-                [*_QUIET, "log", "-1", "--abbrev=7", "--format=%h", "--diff-filter=D",
+                [_LITERAL, *_QUIET, "log", "-1", "--abbrev=7", "--format=%h", "--diff-filter=D",
                  f"{sha}..HEAD", "--", path],
             )
             self._deletions[key] = (out or "").strip() or None
@@ -137,7 +142,7 @@ class History:
         if key not in self._touches:
             out = run_git(
                 self.root,
-                [*_QUIET, "log", "-1", "--abbrev=7", "--format=%h", f"-S{needle}",
+                [_LITERAL, *_QUIET, "log", "-1", "--abbrev=7", "--format=%h", f"-S{needle}",
                  f"{sha}..HEAD", "--", path],
             )
             self._touches[key] = (out or "").strip() or None

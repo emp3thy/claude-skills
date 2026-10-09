@@ -98,7 +98,7 @@ def test_final_name_follows_two_hop_chain(tmp_path: Path) -> None:
     h = History(repo)
     base = _rev(repo, "HEAD~2")
     names, commit = h.final_name(base, "old.py")
-    assert names == {"new.py"}
+    assert names == frozenset({"new.py"})
     assert commit == _rev(repo, "HEAD")[:7]
     renames = h.renames_since(base)
     assert renames["old.py"] == ("mid.py", _rev(repo, "HEAD~1")[:7])
@@ -109,8 +109,8 @@ def test_final_name_unrenamed_and_missing(tmp_path: Path) -> None:
     repo = _rename_repo(tmp_path)
     h = History(repo)
     base = _rev(repo, "HEAD~2")
-    assert h.final_name(base, "keep.py") == ({"keep.py"}, None)
-    assert h.final_name(base, "ghost.py") == (set(), None)
+    assert h.final_name(base, "keep.py") == (frozenset({"keep.py"}), None)
+    assert h.final_name(base, "ghost.py") == (frozenset(), None)
 
 
 def test_final_name_empty_when_deleted(tmp_path: Path) -> None:
@@ -121,7 +121,7 @@ def test_final_name_empty_when_deleted(tmp_path: Path) -> None:
             _c("02", "delete", delete=["gone.py"]),
         ],
     )
-    assert History(repo).final_name(_rev(repo, "HEAD~1"), "gone.py") == (set(), None)
+    assert History(repo).final_name(_rev(repo, "HEAD~1"), "gone.py") == (frozenset(), None)
 
 
 def test_final_name_rename_then_delete(tmp_path: Path) -> None:
@@ -133,7 +133,7 @@ def test_final_name_rename_then_delete(tmp_path: Path) -> None:
             _c("03", "delete", delete=["b.py"]),
         ],
     )
-    assert History(repo).final_name(_rev(repo, "HEAD~2"), "a.py") == (set(), None)
+    assert History(repo).final_name(_rev(repo, "HEAD~2"), "a.py") == (frozenset(), None)
 
 
 def test_final_name_survives_rename_cycle(tmp_path: Path) -> None:
@@ -145,8 +145,32 @@ def test_final_name_survives_rename_cycle(tmp_path: Path) -> None:
             _c("03", "back to a", rename={"b.py": "a.py"}),
         ],
     )
-    names, _ = History(repo).final_name(_rev(repo, "HEAD~2"), "a.py")
-    assert names in (set(), {"a.py"})
+    assert History(repo).final_name(_rev(repo, "HEAD~2"), "a.py") == (frozenset({"a.py"}), None)
+
+
+def test_final_name_path_recreated_after_rename(tmp_path: Path) -> None:
+    repo = make_repo(
+        tmp_path,
+        [
+            _c("01", "base", files={"old.py": BODY}),
+            _c("02", "rename", rename={"old.py": "new.py"}),
+            _c("03", "recreate", files={"old.py": "fresh\n"}),
+        ],
+    )
+    assert History(repo).final_name(_rev(repo, "HEAD~2"), "old.py") == (frozenset({"old.py"}), None)
+
+
+def test_deleting_commit_literal_pathspec(tmp_path: Path) -> None:
+    repo = make_repo(
+        tmp_path,
+        [
+            _c("01", "base", files={"docs/a[1].md": "x\n", "docs/a1.md": "y\n"}),
+            _c("02", "delete other", delete=["docs/a1.md"]),
+            _c("03", "delete bracket", delete=["docs/a[1].md"]),
+        ],
+    )
+    h = History(repo)
+    assert h.deleting_commit(_rev(repo, "HEAD~2"), "docs/a[1].md") == _rev(repo, "HEAD")[:7]
 
 
 def test_deleting_commit(tmp_path: Path) -> None:
