@@ -12,12 +12,16 @@ line snapshot and the in-memory re-check alike. HEAD is the tree ``git ls-tree H
 same source as the snapshot trees, so the two sides of the test are comparable.
 
 Path tokens resolve doc-relative, then root-relative, then by suffix (tokens with ``/``) or
-basename (bare names), after percent-decoding and dropping a leading ``./``; the mode that
-matched is reused to write a replacement, which must itself resolve at HEAD to exactly the new
-path. Tree entries resolve doc-relative then root-relative, with the label and then without it
-(a placeholder label is always dropped); a renamed entry's replacement is its own last name
+basename (bare names), after percent-decoding and dropping a leading ``./``. At HEAD any mode
+resolves; at the snapshot only ``doc`` and ``root`` count as existed-then (ruling R26), so a
+replacement is written in one of those two modes and must itself resolve at HEAD to exactly
+the new path. A deleted path whose basename some HEAD path shares is a human decision (R27).
+Tree entries resolve doc-relative then root-relative, with the label and then without it (a
+placeholder label is always dropped); a renamed entry's replacement is its own last name
 segment only, and a rename that changes a parent directory is a human decision (rulings R12,
-R16, R22). Anchors whose target doc climbs above the repository never existed.
+R16, R22). Anchors whose target doc climbs above the repository never existed. An anchor is
+judged by the one commit that removed its slug, and a ``-N`` duplicate-suffix anchor is never
+provable (R24). An ``ignored`` token never yields a candidate (R29).
 """
 from __future__ import annotations
 
@@ -50,6 +54,8 @@ _OPEN_A = re.compile(r"<a\b", re.I)
 _ID_ATTR = re.compile(r"""\bid\s*=\s*["']([^"']+)["']""", re.I)
 _NAME_ATTR = re.compile(r"""\bname\s*=\s*["']([^"']+)["']""", re.I)
 _URL_SAFE = "/!$&'()*+,;=:@-._~"
+_DUP_SUFFIX = re.compile(r"(.+)-(\d+)")
+_SNAPSHOT_MODES = ("doc", "root")
 
 Tree = tuple[frozenset[str], frozenset[str]]
 
@@ -279,16 +285,20 @@ class Resolver:
         sha = snaps.get(token["line"]) if snaps else None
         tree = self.history.tree_at(sha) if sha else None
         if sha is None or tree is None:
-            self.history_unavailable = True
             return self._route(token, snapshot=sha, history_unavailable=True,
                                evidence="history unavailable")
         files, dirs = tree
         read: Reader = functools.partial(self.history.show, sha)
         then = resolve_token(token, files, dirs, read)
         if then is not None and kind == "script":
-            # strict at the snapshot: an unparsable manifest proves nothing existed
+            # strict at the snapshot: an open manifest proves only the names it shows
             then = script_source(token["doc"], token.get("script_tool") or "", token["text"],
                                  files, read, strict=True)
+        if then is not None and kind == "path":
+            # R26: a suffix or basename match at the snapshot is a guess, not proof
+            found = path_matches(token["text"], token["doc"], files, dirs)
+            if found is None or found[0] not in _SNAPSHOT_MODES:
+                then = None
         if then is None:
             return self._route(token, snapshot=sha, evidence=f"not present at {sha[:7]}")
         if kind == "anchor":
@@ -308,14 +318,16 @@ class Resolver:
                     history_unavailable=False)
         cand.update(fields)
         human: str | None = None
-        if not cand["existed_then"]:
-            cand["class"] = "summary-only"
-            return cand
-        if token.get("ignored"):
+        if token.get("ignored"):  # R29: never a candidate of any class
             self.honoured.append({"doc": token["doc"], "line": token["line"], "col": token["col"],
                                   "kind": token["kind"], "text": token["text"],
                                   "reason": token["ignored"]})
             return None
+        if cand["history_unavailable"]:
+            self.history_unavailable = True
+        if not cand["existed_then"]:
+            cand["class"] = "summary-only"
+            return cand
         if token.get("generated"):
             human = "generated-region"
         elif token.get("never_edit"):
@@ -354,33 +366,47 @@ class Resolver:
     # -- anchors -----------------------------------------------------------------------------
 
     def _anchor(self, token: dict[str, Any], sha: str) -> dict[str, Any]:
+        """Ruling R24: judge the anchor by the one commit that removed its slug."""
         target = token.get("target_doc") or token["doc"]
         frag = _fragment(token["text"])
         then = heading_slugs(self.history.show(sha, target) or "")
+        slug = _match_slug(frag, then) or frag
         now = heading_slugs(self._read_head(target) or "")
-        removed, added = then - now, now - then
-        commit = self._heading_commit(sha, target, frag)
-        fields: dict[str, Any] = {"resolved_then": target, "evidence_commit": commit}
+        found = self._heading_commit(sha, target, frag)
+        commit = found[0][:7] if found else None
+        fields: dict[str, Any] = {"resolved_then": target, "evidence_commit": commit,
+                                  "outcome": "ambiguous",
+                                  "evidence": _ev("headings changed", commit)}
+        dup = _DUP_SUFFIX.fullmatch(slug)
+        if found is None or (dup is not None and (dup.group(1) in then or dup.group(1) in now)):
+            return fields  # a -N anchor names a position among repeats: never provable
+        removed, added = found[1], found[2]
         if len(removed) == 1 and len(added) == 1:
-            fields.update(outcome="unique", replacement=next(iter(added)),
-                          evidence=_ev("heading renamed", commit))
-        elif not added:
+            new = next(iter(added))
+            if new in now:
+                fields.update(outcome="unique", replacement=new,
+                              evidence=_ev("heading renamed", commit))
+        elif len(removed) == 1 and not added:
             fields.update(outcome="deleted", evidence=_ev("heading removed", commit))
-        else:
-            fields.update(outcome="ambiguous", evidence=_ev("headings changed", commit))
         return fields
 
-    def _heading_commit(self, sha: str, target: str, frag: str) -> str | None:
-        """7-char commit where the anchor last went from defined to undefined in the doc."""
+    def _heading_commit(self, sha: str, target: str,
+                        frag: str) -> tuple[str, set[str], set[str]] | None:
+        """The last commit where the anchor went from defined to undefined in the doc, with
+        the slugs that commit removed and added (against its first parent)."""
         out = run_git(self.root, ["--literal-pathspecs", "log", "--topo-order", "--reverse",
                                   "--format=%H", f"{sha}..HEAD", "--", target])
         present, found = True, None
         for commit in (out or "").split():
             now = _match_slug(frag, heading_slugs(self.history.show(commit, target) or ""))
             if present and now is None:
-                found = commit[:7]
+                found = commit
             present = now is not None
-        return found
+        if found is None:
+            return None
+        before = heading_slugs(self.history.show(f"{found}^", target) or "")
+        after = heading_slugs(self.history.show(found, target) or "")
+        return found, before - after, after - before
 
     # -- paths and tree entries --------------------------------------------------------------
 
@@ -388,27 +414,24 @@ class Resolver:
         files, dirs = tree
         mode = "tree"
         if token["kind"] == "tree":
-            olds: tuple[str, ...] = (tree_match(token, files, dirs) or "",)
+            old = tree_match(token, files, dirs) or ""
         else:
             found = path_matches(token["text"], token["doc"], files, dirs)
-            assert found is not None  # the caller checked that the token resolved then
-            mode, olds = found
-        news: set[str] = set()
-        commits: Counter[str] = Counter()
-        for old in olds:
-            moved, commit = self._moved(sha, old, files)
-            news |= moved
-            if commit:
-                commits[commit] += 1
-        commit = min(commits, key=lambda c: (-commits[c], c)) if commits else None
-        fields: dict[str, Any] = {"resolved_then": olds[0], "evidence_commit": commit}
+            assert found is not None  # the caller checked a doc or root match then (R26)
+            mode, old = found[0], found[1][0]
+        news, commit = self._moved(sha, old, files)
+        fields: dict[str, Any] = {"resolved_then": old, "evidence_commit": commit}
         if not news:
-            gone = self.history.deleting_commit(sha, olds[0])
+            gone = self.history.deleting_commit(sha, old)
             fields.update(outcome="deleted", evidence_commit=gone, evidence=_ev("deleted", gone))
+            # R27: a same-named path at HEAD may be the file moved and rewritten
+            same = _by_name(self.files, self.dirs).get(old.rsplit("/", 1)[-1], ())
+            if same:
+                fields.update(outcome="ambiguous",
+                              evidence=_ev("deleted", gone) + "; HEAD has " + ", ".join(same))
             return fields
-        if len(news) == 1 and len(olds) == 1:
-            new = next(iter(news))
-            replacement = self._rewrite(token, mode, olds[0], new)
+        if len(news) == 1:
+            replacement = self._rewrite(token, mode, old, next(iter(news)))
             if replacement is not None:
                 fields.update(outcome="unique", replacement=replacement,
                               evidence=_ev("renamed", commit))
@@ -454,14 +477,7 @@ class Resolver:
             ok = tree_match(moved, self.files, self.dirs) == new
             return replacement if ok else None
         form = _Form(text)
-        if mode == "doc":
-            body = _relpath(new, posixpath.dirname(token["doc"]))
-        elif mode == "root":
-            body = new
-        elif mode == "suffix":
-            body = "/".join(new.split("/")[-len(form.core.split("/")) :])
-        else:
-            body = new.rsplit("/", 1)[-1]
+        body = _relpath(new, posixpath.dirname(token["doc"])) if mode == "doc" else new
         out = ("/" if form.absolute else "") + body + ("/" if form.trail else "")
         if form.dot and not out.startswith(("../", "/")):
             out = "./" + out

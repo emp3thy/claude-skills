@@ -11,6 +11,7 @@ from dd_extract import extract_doc
 from dd_helpers import make_repo
 from dd_history import History
 from dd_inventory import DEFAULT_NEVER_EDIT
+from dd_manifests import script_source
 from dd_resolve import Resolver, heading_slugs, main, resolve_token, run, slugify_heading
 
 NEVER = re.compile(DEFAULT_NEVER_EDIT)
@@ -137,7 +138,8 @@ def test_resolve_suffix_and_basename() -> None:
     assert resolve_token(_tok(doc=doc, text="../api/handlers.py"), files, dirs, read) is None
 
 
-def test_suffix_mode_rename_written_in_suffix_mode(tmp_path: Path) -> None:
+def test_suffix_only_match_at_snapshot_is_never_existed(tmp_path: Path) -> None:
+    # R26: at the snapshot only doc and root modes count as existed-then
     repo = make_repo(tmp_path, [
         _c("01", "one", files={
             "docs/guide.md": "Handlers live in `api/handlers.py`.\n",
@@ -145,20 +147,40 @@ def test_suffix_mode_rename_written_in_suffix_mode(tmp_path: Path) -> None:
         }),
         _c("02", "rename", rename={"services/api/handlers.py": "services/api/routes.py"}),
     ])
-    assert _shape(_one(repo, "docs/guide.md")) == ("provable-replace", "unique", "api/routes.py",
-                                                   None)
+    cand = _one(repo, "docs/guide.md")
+    assert _shape(cand) == ("summary-only", None, None, None)
+    assert cand["existed_then"] is False
 
 
-def test_basename_rename_not_unique_at_head_is_ambiguous(tmp_path: Path) -> None:
+@pytest.mark.parametrize("change", ["delete", "rename"])
+def test_basename_only_match_at_snapshot_is_never_existed(tmp_path: Path, change: str) -> None:
+    # R26, reviewer probe 6: an illustrative bare name matched an unrelated fixture
+    later: dict[str, object] = (
+        {"delete": ["tests/fixtures/config.yml"], "files": {"x.txt": "y\n"}}
+        if change == "delete"
+        else {"rename": {"tests/fixtures/config.yml": "tests/fixtures/settings.yml"}}
+    )
     repo = make_repo(tmp_path, [
-        _c("01", "one", files={
-            "docs/guide.md": "Helpers are in `util.py`.\n",
-            "src/util.py": "print('a long enough body for rename detection')\n",
-            "other/helpers.py": "something else entirely, different content\n",
-        }),
-        _c("02", "rename", rename={"src/util.py": "src/helpers.py"}),
+        _c("01", "one", files={"README.md": "The service reads `config.yml` at startup.\n",
+                               "tests/fixtures/config.yml": "a: 1\n" * 20}),
+        _c("02", "change fixture", **later),
     ])
-    assert _shape(_one(repo, "docs/guide.md")) == ("human", "ambiguous", None, "ambiguous-rename")
+    assert _shape(_one(repo)) == ("summary-only", None, None, None)
+
+
+def test_deleted_path_with_same_basename_at_head_is_human(tmp_path: Path) -> None:
+    # R27, reviewer probe 4: moved and rewritten, so git sees a delete plus an add
+    old = "".join(f"old line {i}\n" for i in range(30))
+    new = "".join(f"brand new content {i}\n" for i in range(30))
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": "See `src/utils/helpers.py`.\n",
+                               "src/utils/helpers.py": old}),
+        _c("02", "move", delete=["src/utils/helpers.py"], files={"lib/helpers.py": new}),
+    ])
+    cand = _one(repo)
+    assert _shape(cand) == ("human", "ambiguous", None, "ambiguous-rename")
+    assert "lib/helpers.py" in cand["evidence"]
+    assert cand["evidence_commit"] == _sha7(repo)
 
 
 def test_resolve_decodes_percent_encoding(tmp_path: Path) -> None:
@@ -288,6 +310,48 @@ def test_anchor_heading_removed_deleted(tmp_path: Path) -> None:
     assert cand["evidence"] == f"heading removed in {sha}"
 
 
+DUP = "See [usage two](#usage-1).\n\n## Usage\n\nfirst\n\n## Usage\n\nsecond\n"
+
+
+@pytest.mark.parametrize("after", [
+    DUP.replace("## Usage\n\nfirst", "## Intro\n\nfirst"),  # first renamed
+    DUP.replace("## Usage\n\nfirst\n\n", ""),  # first removed
+])
+def test_anchor_duplicate_suffix_is_human(tmp_path: Path, after: str) -> None:
+    # R24, reviewer probe 1: #usage-1 now means a different heading's position
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": DUP}),
+        _c("02", "change first", files={"README.md": after}),
+    ])
+    assert _shape(_one(repo)) == ("human", "ambiguous", None, "ambiguous-rename")
+
+
+def test_anchor_removed_then_unrelated_heading_added_later_is_deleted(tmp_path: Path) -> None:
+    # R24, reviewer probe 2: the removal and the addition are different commits
+    doc = "See [install](#install).\n\n## Install\n\nx\n"
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": doc}),
+        _c("02", "drop install", files={"README.md": "See [install](#install).\n\nx\n"}),
+        _c("03", "add troubleshooting",
+           files={"README.md": "See [install](#install).\n\nx\n\n## Troubleshooting\n\ny\n"}),
+    ])
+    cand = _one(repo)
+    assert _shape(cand) == ("provable-delete", "deleted", None, None)
+    assert cand["evidence"] == f"heading removed in {_sha7(repo, 'HEAD~1')}"
+
+
+def test_anchor_renamed_then_renamed_again_is_unique_to_head_name(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": "See [install](docs/guide.md#install).\n",
+                               "docs/guide.md": GUIDE}),
+        _c("02", "rename", files={"docs/guide.md": GUIDE.replace("## Install", "## Setup")}),
+        _c("03", "rename again",
+           files={"docs/guide.md": GUIDE.replace("## Install", "## Installation")}),
+    ])
+    # the slug left in commit 02 for `setup`, which is gone at HEAD: not provable
+    assert _shape(_one(repo)) == ("human", "ambiguous", None, "ambiguous-rename")
+
+
 def test_anchor_with_missing_target_doc_is_the_path_finding(tmp_path: Path) -> None:
     repo = make_repo(tmp_path, [_c("01", "one", files={
         "README.md": "See [x](docs/gone.md#intro).\n",
@@ -371,6 +435,35 @@ def test_npm_script_removed(tmp_path: Path) -> None:
     assert cand["resolved_then"] == "web/package.json"
 
 
+def test_make_unfollowable_include_counts_as_every_name(tmp_path: Path) -> None:
+    # R25, reviewer probe 3
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": "Run `make test`.\n", "Makefile": "test:\n\tpytest\n"}),
+        _c("02", "split", files={"Makefile": "include mk/*.mk\n",
+                                 "mk/test.mk": "test:\n\tpytest\n"}),
+    ])
+    assert _cands(repo) == []
+
+
+@pytest.mark.parametrize(("tool", "name", "text"), [
+    ("make", "Makefile", "include $(ROOT)/rules.mk\nbuild:\n\techo\n"),
+    ("make", "Makefile", "include missing.mk\nbuild:\n\techo\n"),
+    ("make", "Makefile", "%.o: %.c\n\tcc\nbuild:\n\techo\n"),
+    ("make", "Makefile", "$(TARGETS):\n\techo\nbuild:\n\techo\n"),
+    ("just", "justfile", "import 'other.just'\nbuild:\n  echo\n"),
+    ("just", "justfile", "mod tools\nbuild:\n  echo\n"),
+    ("task", "Taskfile.yml", "version: '3'\nincludes:\n  docs: ./docs\ntasks:\n  build: {}\n"),
+])
+def test_open_manifests_lenient_at_head_strict_at_snapshot(tool: str, name: str,
+                                                           text: str) -> None:
+    files = frozenset({name})
+    read = _reader({name: text})
+    tok = _tok(kind="script", script_tool=tool, text="anything")
+    assert resolve_token(tok, files, frozenset(), read) == "anything"
+    assert script_source("README.md", tool, "anything", files, read, strict=True) is None
+    assert script_source("README.md", tool, "build", files, read, strict=True) == name
+
+
 def test_unparsable_manifest_never_proves_a_removal(tmp_path: Path) -> None:
     good = '{"scripts": {"e2e": "playwright test"}}\n'
     broken = '{"scripts": {"e2e": \n'
@@ -432,17 +525,43 @@ def test_version_mismatch_python_and_node(tmp_path: Path) -> None:
     assert cands[0]["evidence_commit"] is None
 
 
-def test_version_precision_and_fallback_manifests() -> None:
-    files = frozenset({".python-version", "go.mod", "README.md"})
-    read = _reader({".python-version": "3.11.4\n", "go.mod": "module x\n\ngo 1.22\n"})
-    def res(runtime: str, floor: str) -> str | None:
+def test_version_compared_at_lower_precision() -> None:
+    # R29: the lower of the doc's and the manifest's precision
+    files = frozenset({"pyproject.toml", "go.mod", "package.json", "README.md"})
+    def res(runtime: str, floor: str, texts: dict[str, str]) -> str | None:
         tok = _tok(kind="version", text=floor, version={"runtime": runtime, "floor": floor})
-        return resolve_token(tok, files, frozenset(), read)
-    assert res("python", "3.11") == "3.11"
-    assert res("python", "3.10") is None
-    assert res("go", "1.22") == "1.22"
-    assert res("go", "1.21") is None
-    assert res("node", "18") is None  # no manifest: unresolved, but classify gives no finding
+        return resolve_token(tok, files, frozenset(), _reader(texts))
+    py3 = {"pyproject.toml": '[project]\nrequires-python = ">=3"\n'}
+    py3114 = {"pyproject.toml": '[project]\nrequires-python = ">=3.11.4"\n'}
+    assert res("python", "3.10", py3) is not None
+    assert res("python", "3.11", py3114) == "3.11"
+    assert res("python", "3.10", py3114) is None
+    go = {"go.mod": "module x\n\ngo 1.22\n"}
+    assert res("go", "1.22", go) == "1.22"
+    assert res("go", "1.21", go) is None
+    node = {"package.json": '{"engines": {"node": ">=20.1"}}\n'}
+    assert res("node", "18", node) is None
+    assert res("node", "20", node) == "20"
+
+
+def test_version_against_coarse_manifest_gives_no_candidate(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path, [_c("01", "one", files={
+        "README.md": "Requires Python 3.10+.\n",
+        "pyproject.toml": '[project]\nname = "x"\nrequires-python = ">=3"\n',
+    })])
+    assert _cands(repo) == []
+
+
+def test_version_pin_files_never_produce_a_candidate(tmp_path: Path) -> None:
+    # R28, reviewer probe 5: .python-version is a pin, not a declared floor
+    repo = make_repo(tmp_path, [_c("01", "one", files={
+        "README.md": "Requires Python 3.10+.\n\nThe web app needs Node 18+.\n",
+        "pyproject.toml": '[tool.poetry.dependencies]\npython = "^3.10"\n',
+        ".python-version": "3.12.1\n",
+        ".nvmrc": "v20.1.0\n",
+        ".tool-versions": "python 3.12.1\nnodejs 20.1.0\n",
+    })])
+    assert _cands(repo) == []
 
 
 def test_version_without_manifest_gives_no_candidate(tmp_path: Path) -> None:
@@ -548,6 +667,20 @@ def test_no_history_means_no_edit(tmp_path: Path) -> None:
         assert cands[0]["history_unavailable"] is True
         assert cands[0]["existed_then"] is False
         assert resolver.history_unavailable is True
+
+
+def test_ignored_token_never_yields_a_candidate(tmp_path: Path) -> None:
+    # R29, reviewer probe 7: ignored and never existed, and ignored without history
+    repo = make_repo(tmp_path, [_c("01", "one", files={
+        "README.md": "<!-- drift-ignore: example -->\nSee `nope/missing.py`.\n",
+    })])
+    tokens = _tokens(repo, "README.md")
+    assert [t["ignored"] for t in tokens] == ["example"]
+    for history in (History(repo), _NoBlame(repo)):
+        resolver = Resolver(repo, history)
+        assert resolver.classify(tokens[0]) is None
+        assert resolver.history_unavailable is False
+        assert [h["text"] for h in resolver.honoured] == ["nope/missing.py"]
 
 
 # -- run and main ----------------------------------------------------------------------------

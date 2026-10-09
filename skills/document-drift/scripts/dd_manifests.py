@@ -6,12 +6,19 @@ HEAD, for a line snapshot and for an in-memory re-check.
 
 Scripts (spec 6.1): ``Makefile`` targets, ``package.json`` ``scripts`` keys, ``justfile``
 recipes and ``Taskfile.yml`` ``tasks`` keys, looked up in every manifest of the tool from the
-doc's directory up to the root (nearest first). A manifest that cannot be parsed counts as
-defining every name, so a broken manifest never turns into a deletion.
+doc's directory up to the root (nearest first). A manifest is *open* when it can define names
+this parser cannot see (ruling R25): it does not parse, a Makefile has an include it cannot
+follow (glob, variable, missing file), a pattern rule (``%``) or a variable target
+(``$(VAR):``), a justfile has ``import`` or ``mod``, a Taskfile has ``includes:``. An open
+manifest defines every name when asking whether a script still exists (lenient, HEAD) and only
+its visible names when asking whether it existed at a snapshot (strict).
 
-Versions: the nearest manifest value for the runtime, walking up from the doc's directory;
-within a directory ``pyproject.toml`` before ``.python-version`` and ``package.json`` before
-``.nvmrc``.
+Versions: only declared floors count (ruling R28): ``pyproject.toml``
+``[project].requires-python``, ``package.json`` ``engines.node``, the ``go.mod`` ``go``
+directive and ``Cargo.toml`` ``[package].rust-version``, from the nearest manifest walking up
+from the doc's directory. Pin files (``.python-version``, ``.nvmrc``, ``.tool-versions``) state
+what one machine runs, not what the project supports, and are never read. Floors compare at the
+lower of the two precisions (ruling R29).
 """
 from __future__ import annotations
 
@@ -35,8 +42,8 @@ SCRIPT_MANIFESTS: dict[str, tuple[str, ...]] = {
     "task": ("Taskfile.yml", "Taskfile.yaml", "taskfile.yml", "taskfile.yaml"),
 }
 VERSION_MANIFESTS: dict[str, tuple[str, ...]] = {
-    "python": ("pyproject.toml", ".python-version"),
-    "node": ("package.json", ".nvmrc"),
+    "python": ("pyproject.toml",),
+    "node": ("package.json",),
     "go": ("go.mod",),
     "rust": ("Cargo.toml",),
 }
@@ -46,18 +53,19 @@ VERSION_MANIFESTS: dict[str, tuple[str, ...]] = {
 _MAKE_RULE = re.compile(
     r"^([A-Za-z0-9_.\-]+(?:[ \t]+[A-Za-z0-9_.\-]+)*)[ \t]*(?:::(?!=)|:(?![=:]))", re.M
 )
+# A rule line whose targets hold ``%`` (pattern rule) or ``$`` (variable target).
+_MAKE_OPEN_RULE = re.compile(r"^[^\t#:=\n]*[%$][^:=\n]*:(?!=)", re.M)
 _MAKE_SPECIAL = re.compile(r"\.[A-Z_]+")  # .PHONY, .DEFAULT, .SUFFIXES ...
 _MAKE_INCLUDE = re.compile(r"^-?s?include[ \t]+(.+)$", re.M)
 _JUST_RECIPE = re.compile(r"^@?([A-Za-z0-9_-]+)(\s+[^:\n]*)?:(?!=)", re.M)
 _JUST_ALIAS = re.compile(r"^alias[ \t]+([A-Za-z0-9_-]+)[ \t]*:=", re.M)
+_JUST_OPEN = re.compile(r"^(?:import|mod)\??[ \t]", re.M)
 _VERSION = re.compile(r"\d+(?:\.\d+){0,2}")
 _PY_CLAUSE = re.compile(r"^(>=|~=|==|\^|~)?\s*(\d+(?:\.\d+){0,2})(?:\.\*)?$")
 _NODE_CLAUSE = re.compile(r"^(>=|\^|~|=)?\s*v?(\d+(?:\.\d+){0,2})(?:\.[x*])*$")
 _GO_DIRECTIVE = re.compile(r"^go[ \t]+(\d+(?:\.\d+){0,2})[ \t]*$", re.M)
 
-
-class _Unparsed(Exception):
-    """A manifest exists but its names cannot be read."""
+Names = tuple[set[str], bool]  # (visible names, open)
 
 
 def ancestors(doc: str) -> list[str]:
@@ -82,64 +90,66 @@ def script_manifests(doc: str, tool: str, files: frozenset[str]) -> list[str]:
 
 
 def _make_targets(path: str, text: str, files: frozenset[str], read: Reader,
-                  depth: int = 0) -> set[str]:
+                  depth: int = 0) -> Names:
     names: set[str] = set()
     for m in _MAKE_RULE.finditer(text):
         names.update(n for n in m.group(1).split() if not _MAKE_SPECIAL.fullmatch(n))
-    if depth < 3:
-        base = posixpath.dirname(path)
-        for m in _MAKE_INCLUDE.finditer(text):
-            for word in m.group(1).split():
-                if any(c in word for c in "$*?["):
-                    continue
-                inc = posixpath.normpath(_join(base, word))
-                body = read(inc) if inc in files else None
-                if body is not None:
-                    names |= _make_targets(inc, body, files, read, depth + 1)
-    return names
+    is_open = _MAKE_OPEN_RULE.search(text) is not None
+    base = posixpath.dirname(path)
+    for m in _MAKE_INCLUDE.finditer(text):
+        for word in m.group(1).split():
+            inc = posixpath.normpath(_join(base, word))
+            followable = depth < 3 and not any(c in word for c in "$*?[") and inc in files
+            body = read(inc) if followable else None
+            if body is None:
+                is_open = True
+                continue
+            sub, sub_open = _make_targets(inc, body, files, read, depth + 1)
+            names |= sub
+            is_open = is_open or sub_open
+    return names, is_open
 
 
 def _script_names(tool: str, path: str, text: str, files: frozenset[str],
-                  read: Reader) -> set[str]:
+                  read: Reader) -> Names:
     if tool == "make":
         return _make_targets(path, text, files, read)
     if tool == "just":
-        return {m.group(1) for m in _JUST_RECIPE.finditer(text)} | {
-            m.group(1) for m in _JUST_ALIAS.finditer(text)}
+        names = {m.group(1) for m in _JUST_RECIPE.finditer(text)}
+        names |= {m.group(1) for m in _JUST_ALIAS.finditer(text)}
+        return names, _JUST_OPEN.search(text) is not None
     try:
         data: Any = json.loads(text) if tool in ("npm", "yarn", "pnpm") else yaml.safe_load(text)
-    except (ValueError, yaml.YAMLError) as exc:
-        raise _Unparsed(path) from exc
+    except (ValueError, yaml.YAMLError):
+        return set(), True
     key = "scripts" if tool in ("npm", "yarn", "pnpm") else "tasks"
     section = data.get(key) if isinstance(data, dict) else None
+    is_open = tool == "task" and isinstance(data, dict) and "includes" in data
     if not isinstance(section, dict):
-        return set()
-    names = {str(k) for k in section}
+        return set(), is_open
+    found = {str(k) for k in section}
     if tool == "task":
         for body in section.values():
             aliases = body.get("aliases") if isinstance(body, dict) else None
             if isinstance(aliases, list):
-                names.update(str(a) for a in aliases)
-    return names
+                found.update(str(a) for a in aliases)
+    return found, is_open
 
 
 def script_source(doc: str, tool: str, name: str, files: frozenset[str], read: Reader,
                   strict: bool = False) -> str | None:
     """The nearest manifest of ``tool`` that defines ``name``, else None.
 
-    An unparsable manifest counts as defining every name unless ``strict``: lenient when asking
+    An open manifest counts as defining every name unless ``strict``: lenient when asking
     whether a script still exists, strict when asking whether it existed at a snapshot.
     """
     for path in script_manifests(doc, tool, files):
         text = read(path)
         if text is None:
             continue
-        try:
-            if name in _script_names(tool, path, text, files, read):
-                return path
-        except _Unparsed:
-            if not strict:
-                return path
+        names, is_open = _script_names(tool, path, text, files, read)
+        if name in names or (is_open and not strict):
+            return path
     return None
 
 
@@ -164,14 +174,6 @@ def _node_floor(spec: str) -> str | None:
     return None
 
 
-def _first_line(text: str) -> str:
-    for line in text.splitlines():
-        line = line.strip()
-        if line and not line.startswith("#"):
-            return line
-    return ""
-
-
 def _value(name: str, text: str) -> tuple[str, str] | None:
     """(raw value, floor) from one manifest file's text, or None."""
     raw: Any = None
@@ -186,8 +188,6 @@ def _value(name: str, text: str) -> tuple[str, str] | None:
             floor = _python_floor(raw) if isinstance(raw, str) else None
         else:
             raw = data.get("package", {}).get("rust-version")
-            if not isinstance(raw, str):
-                raw = data.get("workspace", {}).get("package", {}).get("rust-version")
             floor = raw if isinstance(raw, str) and _VERSION.fullmatch(raw) else None
     elif name == "package.json":
         try:
@@ -200,10 +200,6 @@ def _value(name: str, text: str) -> tuple[str, str] | None:
     elif name == "go.mod":
         m = _GO_DIRECTIVE.search(text)
         raw = floor = m.group(1) if m else None
-    else:  # .python-version, .nvmrc
-        raw = _first_line(text)
-        m = re.fullmatch(r"v?(\d+(?:\.\d+){0,2})", raw)
-        floor = m.group(1) if m else None
     if isinstance(raw, str) and floor is not None:
         return raw, floor
     return None
@@ -211,7 +207,7 @@ def _value(name: str, text: str) -> tuple[str, str] | None:
 
 def manifest_floor(doc: str, runtime: str, files: frozenset[str],
                    read: Reader) -> tuple[str, str, str] | None:
-    """(manifest path, raw value, floor) of the nearest manifest stating the runtime floor."""
+    """(manifest path, raw value, floor) of the nearest manifest declaring the runtime floor."""
     for d in ancestors(doc):
         for name in VERSION_MANIFESTS.get(runtime, ()):
             path = _join(d, name)
@@ -224,18 +220,14 @@ def manifest_floor(doc: str, runtime: str, files: frozenset[str],
     return None
 
 
-def _parts(version: str) -> list[int]:
-    return [int(p) for p in version.split(".")]
-
-
 def at_precision(doc_floor: str, manifest: str) -> str:
     """The manifest floor cut to as many components as the doc's floor states."""
     return ".".join(manifest.split(".")[: len(doc_floor.split("."))])
 
 
 def same_floor(doc_floor: str, manifest: str) -> bool:
-    """True when the floors agree at the doc's precision (missing components count as 0)."""
-    a = _parts(doc_floor)
-    b = _parts(at_precision(doc_floor, manifest))
-    width = max(len(a), len(b))
-    return a + [0] * (width - len(a)) == b + [0] * (width - len(b))
+    """True when the floors agree at the lower of the two precisions (ruling R29)."""
+    a = doc_floor.split(".")
+    b = manifest.split(".")
+    width = min(len(a), len(b))
+    return [int(p) for p in a[:width]] == [int(p) for p in b[:width]]
