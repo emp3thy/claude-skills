@@ -1,0 +1,301 @@
+---
+name: tech-debt-scan
+description: Scan a repo for top-N tech-debt findings via a hotspot-aware detect-verify-rank pipeline (churn x complexity, then family-scoped scouts, verification, and ranking); emit a design doc the user reviews, then open a design session on one approved finding.
+triggers:
+  - /tech-debt-scan
+  - /tech-debt-promote
+---
+
+# tech-debt-scan
+
+Language-independent, two-command tech-debt workflow. `/tech-debt-scan` walks a
+repo, mines git history for hotspots, then runs a three-stage pipeline —
+**detect** (deterministic signal scripts plus one scout agent per debt
+family), **verify** (read-only verifier agents apply per-family questions and
+traps to the candidates a deterministic budget selects), **rank** (a fixed
+priority formula orders the survivors) — and renders a single `design.md`. The
+user edits `design.md` (flipping `status: pending` to `approved`, `rejected`,
+or `accepted`). `/tech-debt-promote` then opens a design session on one
+approved finding.
+
+Deterministic work (file walk, churn mining, pattern and rule mining,
+candidate merging, verification prompts, ranking, prompt rendering,
+evidence-document rendering, parsing, validation) lives in pure-Python
+scripts under `scripts/`. The
+LLM does only three things: run each dispatched family's scout, verify a batch
+of candidates, and write one remediation note per top-N finding. No agent
+picks the final list or its order — the deterministic ranking formula does.
+
+## Methodology
+
+The scan is grounded in three published ideas:
+
+- **Hotspot analysis** (Tornhill, *Your Code as a Crime Scene*): debt interest
+  is proportional to how often the code is touched. `inventory.py` mines
+  per-file **churn** (commits in a window, default 12 months) and a
+  language-agnostic **complexity** proxy (indentation units), then ranks files
+  by normalised churn x complexity (`hotspot_score`, `hotspot_band`). Debt in
+  a hotspot is re-paid on every change; debt in cold code can usually wait.
+- **Debt taxonomy** (SATD / Alves et al.): every finding carries a `debt_type`
+  (code, design, architecture, test, documentation, dependency, build,
+  requirement, security, infrastructure, knowledge-process, defect) on top of
+  its **family** (one of sixteen, `scripts/categories.py`'s `FAMILY_BLOCKS`)
+  and an optional `type_id` (`TD-01` to `TD-37`), so reports can be sliced by
+  the kind of liability, not just by which family found it.
+- **Detect, verify, rank.** Rule scripts and family-scoped scout agents emit
+  candidates; read-only verifier agents apply each family's questions and
+  known-non-debt traps to the candidates a signal budget selects, earning
+  every candidate a tier (A confirmed and corroborated, B confirmed or
+  downgraded, C unverified or capped); a fixed formula (severity x interest x
+  tier weight x tractability) then scores every verified finding and takes
+  the top N. No agent orders the list — the formula does.
+
+## No improvisation
+
+If any expected output file from a numbered step is missing, abort with exit 5. Do not retry steps you weren't told to retry. Do not invent intermediate state. Do not skip steps.
+
+## When to use
+
+- `/tech-debt-scan <repo-path>` — produce a reviewable `design.md` of the worst
+  debt in a repo. Run it against any language; the scripts and scout prompts
+  are language-agnostic.
+- `/tech-debt-promote` — after a human has reviewed `design.md` and marked
+  findings `approved`, `rejected` or `accepted`, pick one approved finding and
+  open a design session on it.
+
+Human-in-the-loop throughout. There is no autonomous "fix it" step. Phase 4b
+folded the external tool probe (step 4) into leads, corroboration and tier
+assignment; phase 5a lands the baseline diff (step 11) and the promote
+write-back described below. Phase 5b — the live-run measurement that
+repairs the fixture corpus and adds the note agent to the harness — has
+landed. Its run on 2026-09-09 set no bar, because a decoy reached tier A
+on web-ts, so the tier A precision bar stays the provisional 0.80 until a
+run clears the hard gate (see `docs/evaluation-log.md`).
+
+## Flags
+
+`/tech-debt-scan <repo> [--quick | --deep] [--preset balanced|hotspot-first|architecture|quick-wins] [--families a,b,c] [--top N] [--no-tools]`.
+`--quick` selects the quick family set (six families) and `--top 3`; `--deep`
+selects the deep family set (all sixteen families, `plan_scan.py --families
+deep`); `--families` overrides both and bypasses the adaptive rule; `--no-tools`
+runs step 4 with `--skip-all`, so `tool-signals.json` is still written but
+every tool is marked `skipped` and nothing reaches the network.
+
+## Conventions
+
+- All intermediate artefacts live under `.tech-debt/` in the scanned repo (or
+  the current directory). The directory is gitignored. The baseline is the
+  exception that must live in the scanned repository whatever directory
+  `--workdir` names, because that is the repository it is committed to;
+  pass the scanned repository to `--root` (step 11) and name the baseline
+  under it explicitly on promote.
+- All script commands below are run from the skill's `skills/tech-debt-scan/`
+  directory so the `scripts/<name>.py` paths resolve. Each script is
+  direct-path invocable (`python scripts/<name>.py`), no `-m`, no package
+  install.
+- Large intermediate data (the inventory, leads, evidence spans) always passes
+  between steps as a **file path** under `--workdir`, never inline JSON on an
+  argv or hand-built into a prompt — a large inventory would blow the Windows
+  8191-char argv ceiling. `plan_scan.py` and `verify_prompts.py` render the
+  scout and verifier prompts as files for the same reason; dispatch each
+  Agent with the prompt file's content, not a hand-built one.
+- Agent output always comes back as a **file the Agent wrote itself**, never
+  as a reply the driver transcribes. An Agent's reply is truncated at roughly
+  4 to 5 KB, and every artefact steps 6, 8 and 12 produce is larger (5 to
+  24 KB measured), so a transcribed reply silently loses its tail. Each
+  dispatch names the output path; the Agent writes its JSON there with the
+  Write tool (never a shell heredoc, which mangles JSON on Windows) and
+  replies with a receipt only: the path, the byte count and the number of
+  entries. The driver then checks that the file exists and parses. This is
+  what makes a headless run (`claude -p`) possible: nothing in the chain
+  depends on a human noticing a truncated reply.
+- `--workdir` (default `.tech-debt`) is the directory every chain script, from
+  `inventory.py` through `design_writer.py render`, reads its inputs from and
+  writes its outputs to. Pass the same `--workdir` to every command in one
+  scan.
+
+## Scan steps
+
+Step numbers are fixed across phases: step 4 (the tool probe) landed in
+phase 4b and step 11 (the baseline diff) lands in phase 5a; neither
+renumbers the rest.
+
+1. `python scripts/inventory.py <repo> --workdir .tech-debt` writes
+   `inventory.json` and `coupling.json`. Add `--churn-months <n>` to change
+   the window. When `git_available` is false, `churn` is 0, `hotspots` is
+   empty and the history fields are null; say so in the report.
+1a. `python scripts/concern_index.py <repo> --workdir .tech-debt` writes
+    `concern-index.json`: per-directory aggregates and at most 40 definition
+    names that recur across directories, the concerns scout's only leads.
+    Exit 2 when `coupling.json` predates the graph join; re-run step 1.
+2. `python scripts/patterns.py <repo> --workdir .tech-debt` writes
+   `patterns.json` and fills `inline_disables` in `inventory.json`.
+3. `python scripts/rules.py <repo> --workdir .tech-debt` writes
+   `rule-findings.json`.
+4. Network notice, then the probe. Before anything leaves the machine, tell
+   the user which installed tools will reach the network and what they send:
+   osv-scanner sends package names, versions, ecosystems and file hashes to
+   OSV.dev; every other first-cut tool (gitleaks, ruff, vulture, lizard,
+   jscpd, knip, madge, hadolint, actionlint) is local-only and sends nothing.
+   To stay offline, set `tools.network: false` in `.tech-debt.yaml` — the
+   probe then runs `osv-scanner --offline` against a pre-downloaded database
+   (`OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY`); an absent database reports
+   `skipped: no local database` for that tool rather than failing the scan.
+   Then `python scripts/tools_probe.py <repo> --workdir .tech-debt` writes
+   `tool-signals.json`. With `--no-tools` the command is
+   `python scripts/tools_probe.py <repo> --workdir .tech-debt --skip-all`
+   instead, and the file is still written with every tool `skipped`.
+5. `python scripts/plan_scan.py --workdir .tech-debt --families <set> --top <n>`
+   writes `scan-plan.json` and `prompts/scout-*.md`; `<set>` is `default`,
+   `quick`, `deep` or a comma-separated list.
+6. Dispatch one read-only Agent per plan entry with the prompt file's
+   content and the output path the plan names; the Agent writes its findings
+   JSON to that path itself and replies with a receipt (path, bytes, number
+   of findings). Never transcribe the reply into the file. A missing or
+   unparseable output file after dispatch is exit 5; an empty findings list
+   is not.
+7. `python scripts/merge_findings.py --workdir .tech-debt` writes
+   `candidates.json`.
+8. `python scripts/verify_prompts.py --workdir .tech-debt --top <n>` writes
+   `prompts/verify-*.md` and `verify-plan.json`; dispatch one read-only Agent
+   per batch with the prompt file's content and the `verdicts/verify-<nn>.json`
+   path the plan names; the Agent writes its verdicts JSON there itself and
+   replies with a receipt (path, bytes, number of verdicts). A missing or
+   unparseable verdict file is exit 5.
+9. `python scripts/apply_verdicts.py --workdir .tech-debt` writes
+   `verified.json`.
+10. `python scripts/rank.py --workdir .tech-debt --preset <p> --top <n>`
+    writes `ranked.json`.
+11. `python scripts/baseline.py diff --workdir .tech-debt --root <repo>`
+    writes `diff.json`; an absent baseline marks everything NEW. The
+    baseline defaults to `<repo>/.tech-debt/baseline.json` — the config's
+    `baseline` key resolved against `--root` — so pass `--baseline <path>`
+    only when the config points somewhere else. `--root` is the scanned
+    repository every baseline entry's file is resolved against; omit it and
+    it is taken from the `root` step 1 recorded in the workdir's
+    `inventory.json`, which is the same repository.
+12. `python scripts/design_writer.py notes-prompt --workdir .tech-debt --top <n>`
+    writes `prompts/notes.md`; dispatch one read-only Agent with its content
+    and the `notes.json` path; the Agent writes `notes.json` itself and
+    replies with a receipt (path, bytes, number of notes). A missing or
+    unparseable `notes.json` is exit 5.
+13. `python scripts/design_writer.py render --workdir .tech-debt --scan-date <date> --out .tech-debt/design.md`
+    writes `design.md` and `findings.json`, self-checking through the parser;
+    a non-zero exit is exit 5.
+14. Report: the path, the counts from the frontmatter, tools absent, git
+    absent, families skipped, and the instruction to set each `status:` to
+    `approved`, `rejected` or `accepted` (with `reason:` and optional
+    `until:`) and run `/tech-debt-promote`. Never promote on the user's
+    behalf.
+
+## Promote steps
+
+1. Locate the edited `design.md` (default `.tech-debt/design.md`); missing is
+   exit 5.
+2. Optional: `python scripts/design_parser.py <design.md>` prints the parsed
+   findings as JSON and mutates nothing — useful for inspecting the document
+   outside the promote flow.
+3. `python scripts/promote.py <design.md> --baseline <repo>/.tech-debt/baseline.json`
+   records every finding's current decision — `rejected` and `accepted` (with
+   their `reason` and `until`), `promoted`, or still `pending`/`approved` —
+   into the baseline and exits; `--baseline` given alone like this, with
+   neither `--list-approved` nor `--select`, writes nothing to `design.md` or
+   `evidence.md`. Run this unconditionally, before the list below, so a
+   session that rejects or accepts everything and approves nothing still has
+   those decisions recorded and suppressed on the next scan.
+4. `python scripts/promote.py <design.md> --list-approved` prints the approved
+   findings as JSON: slug, title, family, severity, effort, primary file,
+   fingerprint, most severe first. An empty list means nothing is approved —
+   say so and stop; step 3 already recorded every decision, so there is
+   nothing left to do. Never approve on the user's behalf.
+5. Show the list and ask the user which single finding to work on. One per
+   invocation: a second finding is a second run, with fresh context.
+6. `python scripts/promote.py <design.md> --select <slug> --baseline <repo>/.tech-debt/baseline.json`
+   writes `.tech-debt/evidence.md`, flips that finding to `promoted` in
+   `design.md`, and records every finding's decision into the baseline again
+   (capturing this mark). Exit 2 is a selection or parse failure and the
+   finding was not consumed; the message names any `evidence.md` already
+   written. Exit 6 means the evidence document and the design.md mark both
+   landed and only the baseline write failed — fix the cause and re-run the
+   same command, which is idempotent because `--select` accepts an
+   already-promoted slug.
+7. Read `.tech-debt/evidence.md` and invoke `superpowers:brainstorming`, seeded
+   with it. Its `### Open questions from the scan` section is the scan's own
+   unanswered questions about this code: ask those first.
+8. The brainstorm always ends by invoking `superpowers:writing-plans`, whatever
+   it classified the work as — a tech-debt finding must leave a plan behind.
+   The plan is the deliverable; this skill does not execute it, queue it or
+   commit it on the user's behalf.
+
+## Token budget
+
+| Scan | v1 | v2 quick | v2 default | v2 deep |
+|---|---|---|---|---|
+| Scout agents | 8 (4 quick) | 6 | 14 | 16, and on a chunked plan at most `families x chunking.max_modules` (16 x 8) |
+| Verifier batches | 0 | 3 to 5 | 5 to 7 | 8 to 12 |
+| Note agent | 1 top-N picker | 1 | 1 | 1 |
+| Output tokens | 80 to 110k | 35 to 50k | 60 to 85k | 90 to 130k |
+| Input tokens | unbounded reads | 250 to 400k | 500 to 800k | 0.8 to 1.3M |
+| Script time | seconds | under 2 min | under 2 min | under 3 min |
+| Tool time | none | 0 to 10 min | 0 to 10 min | 0 to 10 min |
+
+Output stays near v1 because scouts are lead-driven and capped and there is no
+separate agent call to pick the top N. Input grows because scouts and
+verifiers read cited spans with context; the 40-lead cap, the adaptive rule
+and the verifier budget bound it. Tool time depends on which of the ten
+first-cut tools step 4's probe finds already installed; `--no-tools` (step 4
+with `--skip-all`) brings it to 0.
+
+## Caveats
+
+- **No live LLM in CI.** Tests never call an Agent; they feed canned JSON to
+  the scripts. The `live` pytest marker is off by default.
+- **Churn is best-effort.** `inventory.py` shells out to `git log`; if git is
+  missing, times out, or the path is not a repository, churn falls back to 0
+  and `hotspots` is empty. This is never a fatal error.
+- **Exit codes.** `inventory.py`: 2 on a bad path. `promote.py`: 0 success, 2
+  on no mode given (none of `--list-approved`, `--select` or `--baseline`),
+  `--list-approved` combined with `--baseline` (rejected rather than silently
+  ignoring the baseline — `--list-approved` stays read-only), a parse or
+  selection error (an unknown or non-selectable slug, an evidence-write
+  failure), or a v1 `design.md` given with `--baseline`, refused before
+  anything is written — a baseline keyed by fingerprint cannot record a
+  decision that has none. 6 (`EXIT_WRITE_BACK`) when the baseline write-back
+  raised: either the record-only run (`--baseline` given alone), where
+  nothing else was written either, or after `--select`'s own `evidence.md`
+  was already written and `design.md` already marked — only the baseline
+  itself did not update. Fix the cause and re-run the same command: a slug
+  already `promoted` on disk is still selectable, so a re-run of `--select`
+  re-renders `evidence.md` rather than failing.
+- **Performance is static only.** A TD-36 local smell can reach tier A on a
+  linter hit plus a verifier confirm; a TD-37 cardinality claim (N+1,
+  complexity, "will not scale") is capped at tier C however confident the
+  reader is, because the N lives at runtime and this scan never reads it.
+- **The concerns scout reads without file leads**, bounded by the 40-candidate
+  index and an instructed 60 + 10 file budget that `merge_findings` records
+  as `stats.concerns.files_read` but cannot enforce.
+- **Single-user.** Do not run two `--select` invocations against the same
+  `design.md` concurrently; there is no file locking.
+- **Backwards compatibility.** A v1 `design.md` still parses and selects (no
+  `fingerprint`, `tier`, `priority` or `type_id` in its anchors): `category`
+  is read as `family`, a v1 `confidence` value is parsed and discarded, and
+  `god-modules` as a category value still selects. The PBI bundle format is
+  gone with no shim, since ralph's own skills own queue packaging. The v1
+  top-N picker step and its files are gone with no shim either: neither is
+  ever produced or consumed, and nothing outside this repository reads them.
+- **Tools are wired in; so is the baseline.** Step 4 runs the external tool
+  probe and folds its signals into leads, corroboration and tier assignment
+  — an osv-scanner advisory can reach tier A on its own, the same way a
+  `rules.py` finding does, without a verifier reading it; those two are the
+  only producers allowed to assign a tier without one. `design.md`'s
+  `tools_run` names every tool the probe recorded as `ran`, and `tools_absent`
+  every other one with its status in parentheses — `absent`, `failed` or
+  `skipped` — so a `--no-tools` run lists all ten as `skipped` and is not the
+  same document as a full probe. Step 11 diffs every finding against the
+  committed baseline — `NEW`, `UNCHANGED`, `UNCHANGED (moved)` or
+  `UNCHANGED (edited)`, which are the four values a finding in `design.md`
+  can carry; the fifth, `RESOLVED`, names a baseline entry no current
+  finding matched and so appears only in `diff.json` and the frontmatter's
+  `resolved:` count (see `docs/architecture.md`'s "The baseline" section for
+  what each means and how suppression and expiry work) — and promote's
+  `--baseline` writes the human's decisions back into it.
