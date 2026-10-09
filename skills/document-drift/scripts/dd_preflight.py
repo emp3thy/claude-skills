@@ -43,6 +43,9 @@ def run(root: Path, workdir: Path, branch: str, check: bool) -> dict[str, Any]:
     branch_from = (run_git(root, ["symbolic-ref", "--short", "-q", "HEAD"]) or "").strip()
     if not branch_from:
         raise StepError("HEAD is detached; check out a branch first", EXIT_REFUSED)
+    if not git_ok(root, ["check-ref-format", "--branch", branch]):
+        raise StepError(f"branch name {branch!r} is not valid; choose another with --branch",
+                        EXIT_REFUSED)
     _exclude_workdir(root, workdir)
     if not check:
         status = run_git(root, ["status", "--porcelain"])

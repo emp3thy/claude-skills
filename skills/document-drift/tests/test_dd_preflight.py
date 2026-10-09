@@ -115,3 +115,11 @@ def test_workdir_added_to_info_exclude_once(tmp_path: Path) -> None:
     run(root, workdir, "drift/x", False)
     exclude = (root / ".git" / "info" / "exclude").read_text(encoding="utf-8")
     assert exclude.splitlines().count(".document-drift/") == 1
+
+
+def test_refuses_invalid_branch_name(tmp_path: Path) -> None:
+    root, workdir = _repo(tmp_path)
+    with pytest.raises(StepError) as exc:
+        run(root, workdir, "drift fixes", False)
+    assert exc.value.code == EXIT_REFUSED
+    assert "drift fixes" in str(exc.value)

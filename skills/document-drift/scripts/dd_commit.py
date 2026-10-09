@@ -100,7 +100,9 @@ def render_message(
         for part in parts:
             finding = by_id.get(part["finding_id"])
             if finding is None:
-                continue
+                raise StepError(
+                    f"applied hunk {hunk['id']} names finding {part['finding_id']} "
+                    "which is missing from findings.json", EXIT_COMMIT)
             entries.append((_pos(finding), _bullet(
                 finding, part["verb"], part.get("new_text"), part.get("reason", ""))))
     entries.sort(key=lambda e: e[0])
@@ -143,17 +145,22 @@ def run(
     msg_path.parent.mkdir(parents=True, exist_ok=True)
     msg_path.write_bytes(message.encode("utf-8"))
     docs: list[str] = applied["docs"]
-    steps = (
-        ["switch", "-c", branch],
-        ["add", "--", *docs],
-        ["commit", "--cleanup=verbatim", "-F", str(msg_path)],
-    )
-    for args in steps:
-        if run_git(root, args) is None:
-            raise StepError(f"git {args[0]} failed after the edits were applied", EXIT_COMMIT)
+    current = run_git(root, ["rev-parse", "HEAD"])
+    if current is None or current.strip() != base:
+        raise StepError(
+            f"HEAD moved during the run (expected {base}); no branch was created", EXIT_COMMIT)
+    if run_git(root, ["switch", "-c", branch]) is None:
+        raise StepError(f"git switch -c {branch} failed after the edits were applied",
+                        EXIT_COMMIT)
+    here = f"you are on branch {branch}"
+    if run_git(root, ["--literal-pathspecs", "add", "--", *docs]) is None:
+        raise StepError(f"git add failed; {here} with the edits unstaged", EXIT_COMMIT)
+    if run_git(root, ["commit", "--cleanup=verbatim", "-F", str(msg_path)]) is None:
+        raise StepError(f"git commit failed; {here} with the edits staged", EXIT_COMMIT)
     sha = run_git(root, ["rev-parse", "HEAD"])
     if sha is None:
-        raise StepError("git rev-parse failed after the commit", EXIT_COMMIT)
+        raise StepError(f"git rev-parse failed after the commit; you are on branch {branch}",
+                        EXIT_COMMIT)
     result = {"branch": branch, "commits": [sha.strip()]}
     write_json(workdir / "commits.json", result)
     return result

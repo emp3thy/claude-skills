@@ -4,8 +4,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
 from dd_commit import render_human, render_message, run
-from dd_common import read_json, write_json
+from dd_common import EXIT_COMMIT, StepError, read_json, write_json
 
 BASE = "a" * 40
 GIT = ["git", "-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
@@ -176,3 +177,76 @@ def test_no_hunks_no_branch(tmp_path: Path) -> None:
     assert out == {"branch": None, "commits": []}
     assert read_json(workdir / "commits.json") == {"branch": None, "commits": []}
     assert _git(root, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
+
+
+def _prep(root: Path, workdir: Path, head: str, doc: str, applied: bool = True,
+          finding_ids: tuple[str, ...] = ("F001",)) -> None:
+    findings = [_f(fid, doc, 1, 4, "src/gone.py") for fid in finding_ids]
+    hunks = [{"id": "H001", "finding_id": "F001", "doc": doc, "line_start": 1,
+              "verb": "delete", "token_text": "src/gone.py", "new_text": None,
+              "reason": "deleted in 7654321",
+              "also": [{"finding_id": "F009", "verb": "delete", "token_text": "x",
+                        "new_text": None, "reason": "deleted in 7654321"}]
+              if "F009" not in finding_ids and len(finding_ids) > 1 else []}]
+    write_json(workdir / "findings.json", {"findings": findings})
+    write_json(workdir / "hunks-provable.json", {"hunks": hunks})
+    write_json(workdir / "applied.json", {"applied": ["H001"], "reverted": [], "docs": [doc]})
+    write_json(workdir / "preflight.json", {"head": head, "branch_from": "main",
+                                            "branch": "drift/x", "git_version": "git"})
+
+
+def test_bracket_named_doc_is_staged_literally(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    (root / "docs").mkdir(parents=True)
+    _git(root, "init", "-q", "-b", "main")
+    _git(root, "config", "core.autocrlf", "false")
+    _git(root, "config", "user.name", "T")
+    _git(root, "config", "user.email", "t@example.com")
+    for name in ("[a].md", "a.md", "b.md"):
+        (root / "docs" / name).write_text("see `src/gone.py` here\n", encoding="utf-8")
+    _git(root, "add", "docs")
+    _git(root, "commit", "-q", "-m", "init")
+    head = _git(root, "rev-parse", "HEAD").strip()
+    (root / "docs" / "[a].md").write_text("see here\n", encoding="utf-8")
+    (root / "docs" / "a.md").write_text("hand edit\n", encoding="utf-8")
+    workdir = root / ".document-drift"
+    _prep(root, workdir, head, "docs/[a].md")
+    run(root, workdir, "drift/x", "r", "all", [])
+    files = _git(root, "show", "--name-only", "--format=", "HEAD").split()
+    assert files == ["docs/[a].md"]
+    assert _git(root, "status", "--porcelain", "--untracked-files=no").strip() == "M docs/a.md"
+
+
+def test_head_moved_creates_no_branch(tmp_path: Path) -> None:
+    root, workdir, head = _repo(tmp_path)
+    (root / "README.md").write_text("see here\n", encoding="utf-8")
+    _prep(root, workdir, "b" * 40, "README.md")
+    with pytest.raises(StepError) as exc:
+        run(root, workdir, "drift/x", "r", "all", [])
+    assert exc.value.code == EXIT_COMMIT
+    assert "HEAD moved" in str(exc.value)
+    assert _git(root, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
+    assert _git(root, "branch", "--list", "drift/x").strip() == ""
+
+
+def test_missing_finding_is_an_error(tmp_path: Path) -> None:
+    root, workdir, head = _repo(tmp_path)
+    (root / "README.md").write_text("see here\n", encoding="utf-8")
+    _prep(root, workdir, head, "README.md", finding_ids=("F001", "F002"))
+    with pytest.raises(StepError) as exc:
+        run(root, workdir, "drift/x", "r", "all", [])
+    assert exc.value.code == EXIT_COMMIT
+    assert "F009" in str(exc.value)
+    assert _git(root, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
+
+
+def test_failure_after_switch_names_the_branch(tmp_path: Path) -> None:
+    root, workdir, head = _repo(tmp_path)
+    (root / "README.md").write_text("see here\n", encoding="utf-8")
+    _prep(root, workdir, head, "README.md")
+    write_json(workdir / "applied.json", {"applied": ["H001"], "reverted": [],
+                                          "docs": ["missing.md"]})
+    with pytest.raises(StepError) as exc:
+        run(root, workdir, "drift/x", "r", "all", [])
+    assert exc.value.code == EXIT_COMMIT
+    assert "you are on branch drift/x" in str(exc.value)
