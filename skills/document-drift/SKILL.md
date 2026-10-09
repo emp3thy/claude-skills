@@ -19,9 +19,11 @@ wrote its line and does not resolve now (the two-snapshot test), and git history
 provable outcome: a unique rename (replace the token), a deletion (delete the list item, table
 row, command line or tree line it is the subject of, or unlink the link), or a renamed heading.
 A runtime version floor is fixed when the nearest declared manifest floor (`requires-python`,
-`engines.node`, the `go` directive, `rust-version`) contradicts it. Everything else is either counted in the summary (a name that never
-existed, such as a runtime artefact or an illustrative path) or listed under "Needs a human
-decision".
+`engines.node`, the `go` directive, `rust-version`) contradicts it and the doc's floor was the
+manifest's when its line was written. A reference inside a heading is never rewritten (other
+docs may link to the heading). Everything else is either counted in the summary (a name that
+never existed, such as a runtime artefact or an illustrative path) or listed under "Needs a
+human decision".
 
 ## When to use
 
@@ -64,7 +66,7 @@ python scripts/dd_run.py <repo> --check
 |------|--------|
 | `--base <ref>` | Only docs that changed in `<ref>...HEAD`, or that name a path changed in that range (at HEAD or at the line's snapshot). |
 | `--branch <name>` | The branch to create. Default `docs/drift-<YYYY-MM-DD>`, or the `branch` pattern in `.document-drift.yaml`. |
-| `--check` | Stop after planning the fixes; exit 1 when any provable edit exists. No doc edit, no branch, no commit (the workdir is still created and, inside the repository, added to `.git/info/exclude`). Runs from a detached HEAD too. |
+| `--check` | Stop after planning the fixes; the summary lists each planned edit; exit 1 when any provable edit exists. No doc edit, no branch, no commit (the workdir is still created and, inside the repository, added to `.git/info/exclude`). Runs from a detached HEAD too. |
 
 The scripts also accept `--workdir <dir>` (default `<repo>/.document-drift`, added to
 `.git/info/exclude`, never committed) and `--date YYYY-MM-DD` (fixes the branch date and run
@@ -72,12 +74,14 @@ id; for tests). Pass them only when the user asks.
 
 ## Preconditions the run checks
 
-The run refuses (exit 2) when `<repo>` is not a git repository, has no commits, has a detached
-HEAD, has uncommitted changes, already has the target branch, has no git author identity
-(`user.name` and `user.email`), or when the branch name is not a valid git branch name. An
-unknown or invalid `--base` ref is refused with exit 2 too. In `--check` mode only "not a git
-repository", "no commits" and an unknown `--base` ref apply: check mode creates no branch, so
-it also runs from a detached HEAD or a dirty tree.
+The run refuses (exit 2) when `<repo>` is not a git repository, is not the top level of a
+working tree (a subdirectory, a bare repository or a `.git` directory: pass the repository's
+top level), has no commits, has a detached HEAD, has uncommitted changes, already has the
+target branch, has no git author identity (`user.name` and `user.email`), or when the branch
+name is not a valid git branch name. An unknown or invalid `--base` ref is refused with exit 2
+too. In `--check` mode only "not a git repository", "not the top level", "no commits" and an
+unknown `--base` ref apply: check mode creates no branch, so it also runs from a detached HEAD
+or a dirty tree.
 
 ## Exit codes
 
@@ -98,7 +102,8 @@ it also runs from a detached HEAD or a dirty tree.
 - No branch at all when nothing is provable; the human-decision list is then in the summary
   only.
 - Markers the user can add to a doc: `<!-- drift-ignore: reason -->` (the next block),
-  `<!-- drift-ignore-next-line: reason -->`, `<!-- drift-ignore-file: reason -->`.
+  `<!-- drift-ignore-next-line: reason -->`, `<!-- drift-ignore-file: reason -->`. A marker
+  needs the colon and a reason; one without is listed in the summary and has no effect.
 - Optional `.document-drift.yaml` at the repository root: `exclude` (extra globs),
   `never_edit_heading` (extra regex for sections never edited), `branch`, `commit_trailers`.
 

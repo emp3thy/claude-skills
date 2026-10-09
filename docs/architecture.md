@@ -803,19 +803,20 @@ run with exit 5 naming the step.
 
 | Step | Script | Output | Does |
 |---|---|---|---|
-| 1 | `dd_preflight.py` | `preflight.json` | Refuses (exit 2): not a repository, no commits; outside `--check` also a detached HEAD, an invalid branch name, a dirty tree, an existing branch, no author identity. `--check` creates no branch, so it runs from a detached HEAD (`branch_from` is then null) |
+| 1 | `dd_preflight.py` | `preflight.json` | Refuses (exit 2): not a repository, not the top level of a working tree (a subdirectory, a bare repository, a `.git` directory), no commits; outside `--check` also a detached HEAD, an invalid branch name, a dirty tree, an existing branch, no author identity. `--check` creates no branch, so it runs from a detached HEAD (`branch_from` is then null) |
 | 2 | `dd_inventory.py` | `inventory.json` | The doc list from `git ls-files` (`.md`, case-insensitive) and every exclusion with its reason |
 | 3 | `dd_extract.py` | `tokens.json` | Typed tokens per doc from the block and inline scanner `dd_md_scan.py`; markers |
 | 4 | `dd_resolve.py` | `candidates.json` | Resolution at HEAD, the per-line two-snapshot test, history lookups (`dd_history.py`, `dd_manifests.py`), the class of each unresolved token |
-| (4b) | `dd_run.py` | `inventory.json` | With `--base`, drops docs that neither changed in `REF...HEAD` nor name a changed path |
+| (4b) | `dd_run.py` | `inventory.json` | With `--base`, drops docs that neither changed in `REF...HEAD` nor name a changed path in a path or tree token |
 | 5 | `dd_fixes.py` | `findings.json`, `hunks-provable.json` | One finding per candidate (`F001`...), deletion units, provable hunks (`H001`...) |
 | 6 | `dd_apply.py` | `applied.json` | Applies hunks bottom-up per doc, writes atomically, re-extracts and re-resolves each touched doc, reverts a hunk that fails the re-check |
 | 7 | `dd_commit.py` | `commits.json` | Creates the branch with `git switch -c` and makes the one commit |
 | 8 | `dd_summary.py` | `summary.md` | The terminal summary |
 
-`--check` stops after step 5 (no apply, no commit), writes the summary and exits 1 when any
-provable hunk exists. Exit codes: 0 success, 1 `--check` found provable edits, 2 refused, 5 a
-missing output or a crashed step, 6 the commit failed after edits were applied.
+`--check` stops after step 5 (no apply, no commit), writes the summary (with each planned edit
+as a commit-body bullet) and exits 1 when any provable hunk exists. Exit codes: 0 success, 1
+`--check` found provable edits, 2 refused, 5 a missing output or a crashed step (or a crash
+between steps), 6 the commit failed after edits were applied.
 
 ### Token kinds
 
@@ -838,17 +839,24 @@ it is in a never-edit section, a generated region or under a marker.
 
 | Class | When | Edit |
 |---|---|---|
-| `provable-replace` | Resolved at the line's snapshot (only doc-relative or root-relative resolution counts there), gone now, and a unique rename to a path that exists at HEAD; an anchor whose heading was renamed in one commit (same level, both section bodies non-empty and at least `HEADING_BODY_SIMILARITY = 0.6` similar); a version floor the nearest declared manifest floor contradicts | Token-exact replacement |
-| `provable-delete` | Resolved at the snapshot, gone now, deleted with no rename | The deletion unit below |
-| `human` | `ambiguous-rename` (several names, a parent directory rename, an anchor with a `-N` suffix, several commits removing the anchor, a deleted path whose basename a HEAD file shares), `large-deletion`, `prose-mention`, `never-edit-section`, `generated-region`, `recheck-failed` | None; listed under "Needs a human decision" |
-| `summary-only` | Did not resolve at its snapshot: a runtime artefact, an illustrative name, a line written to say the file is gone | None; counted |
+| `provable-replace` | Resolved at the line's snapshot (only doc-relative or root-relative resolution counts there), gone now, and a unique rename to a path that exists at HEAD (a directory only when every file it held moved under one new directory); an anchor whose heading was renamed in one commit (same level, both section bodies non-empty and at least `HEADING_BODY_SIMILARITY = 0.6` similar); a version floor the nearest declared manifest floor contradicts, when the doc floor equalled the manifest floor at the line's snapshot | Token-exact replacement |
+| `provable-delete` | Resolved at the snapshot, gone now, deleted with no rename (a directory only when every file it held was deleted), and the deleting commit is known | The deletion unit below |
+| `human` | `ambiguous-rename` (several names, a parent directory rename, a directory partly moved and partly deleted, an anchor with a `-N` suffix, several commits removing the anchor, a deleted path whose basename a HEAD file shares, an outcome whose proving commit cannot be found), `large-deletion`, `prose-mention`, `never-edit-section`, `generated-region`, `heading-reference` (a replace inside a heading, whose slug another doc may link to), `recheck-failed` | None; listed under "Needs a human decision" |
+| `summary-only` | Did not resolve at its snapshot: a runtime artefact, an illustrative name, a line written to say the file is gone; a version floor that was not the manifest floor when its line was written | None; counted |
 
-A token under a `drift-ignore` marker never becomes a candidate. Version floors come only from
-declared floors (`requires-python`, `engines.node`, the `go` directive, `[package]`
-`rust-version`), never from pin files (`.python-version`, `.nvmrc`, `.tool-versions`), and are
-compared at the lower precision of the two. A Makefile with an include it cannot follow, a
-pattern or variable target, a justfile with `import` or `mod`, or a Taskfile with `includes` is
-treated as defining every target.
+A token under a `drift-ignore` marker never becomes a candidate; a marker with no colon or an
+empty reason is reported as a marker without a reason and suppresses nothing (a file marker
+then excludes nothing). Version floors come only from declared floors (`requires-python`,
+`engines.node`, the `go` directive, `[package]` `rust-version`), never from pin files
+(`.python-version`, `.nvmrc`, `.tool-versions`), and are compared at the lower precision of the
+two; the runtime word must start a word, so `opencv-python>=4.8` is not a floor. A Makefile
+with an include it cannot follow, a pattern or variable target, a justfile with `import` or
+`mod`, or a Taskfile with `includes` is treated as defining every target. A path or tree entry
+absent from HEAD but present on disk (an untracked or ignored runtime artefact) counts as
+resolved. A snapshot's tree is never listed: the paths the run asks about there are looked up
+in one `git cat-file --batch-check` call, and a directory's files with `git ls-tree -r <sha> --
+<dir>`. A file's renames come from one `git log -M --diff-filter=R` map per snapshot (parallel
+renames of one path take the topologically last target).
 
 ### Deletion units
 
@@ -864,7 +872,10 @@ Tried in order; the first rule that applies decides:
 
 A rule whose unit is unsafe gives `human`/`large-deletion`: a reference definition, any delete
 inside a block quote, an overlap with another hunk, and every delete of a list, table, fence or
-tree whose planned deletes together would empty it. A replacement written into a link, image or
+tree whose planned deletes together would empty it. A replace inside a heading is
+`human`/`heading-reference`: apply does not re-check anchors in other docs, and the heading's
+slug may be one. Every hunk's reason names its proving commit (`... in <sha>`) or manifest
+(`manifest ...`); a hunk without one stops the run with exit 5. A replacement written into a link, image or
 definition destination percent-encodes space, `(`, `)`, `<` and `>`. Line endings and the
 trailing newline of each doc are preserved. A human or summary-only finding inside lines an
 applied delete removed is marked `superseded_by` that hunk and left out of the human list.
