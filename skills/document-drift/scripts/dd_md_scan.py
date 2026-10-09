@@ -17,8 +17,15 @@ Conventions beyond the field names:
   the item. Blocks inside a block quote keep the quote's own ``parent``.
 - Thematic breaks produce no block; ``blank`` is one block per run of blank lines.
 - An inline's ``line, col .. end_line, end_col`` (end exclusive) is the code content or the link
-  target as written. A ``reflink`` is a link or image whose target comes from a reference
-  definition; its span is the label used for the lookup, since the target is not written there.
+  target as written. ``reflink`` and ``refimage`` are a link and an image whose target comes
+  from a reference definition; their span is the label used for the lookup, since the target is
+  not written there. Each ``refdef`` block has one ``refdef`` inline spanning its destination,
+  with ``outer_*`` spanning the definition when it is on one line.
+  ``cell`` is the 0-based table cell index of an inline in a ``table_row``, else None.
+- ``closed`` is set on fences only: True when a closing fence line exists (``line_end`` is that
+  line), False when the fence runs to its container's end. ``list_id`` is shared by the items of
+  one list; a different bullet or ordered delimiter, or any block other than a blank line at the
+  same level, starts a new list.
   ``outer_col`` (on ``line``) and ``outer_end_col`` (on ``end_line``) bound the whole construct,
   backticks included for code; each is None when the construct starts or ends on another line.
   Email autolinks have text ``mailto:<address>``.
@@ -41,6 +48,8 @@ class Block:
     level: int | None
     text: str | None
     parent: int | None
+    closed: bool | None = None
+    list_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +64,7 @@ class Inline:
     outer_col: int | None
     outer_end_col: int | None
     block: int
+    cell: int | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +85,7 @@ class Scan:
 _Line = tuple[int, int, str]
 _Pos = tuple[int, int]
 _Src = tuple[str, list[_Pos]]  # inline text and the (line, col) of each char, plus one for its end
+_Cell = tuple[_Src, int | None]  # an inline source and its table cell index
 
 _FENCE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
 _FENCE_CLOSE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
@@ -85,14 +96,11 @@ _SETEXT = re.compile(r" {0,3}(=+|-+)[ \t]*")
 _LIST = re.compile(r" {0,3}([-+*]|\d{1,9}[.)])(?=[ \t]|$)")
 _QUOTE = re.compile(r" {0,3}> ?")
 _DELIM_CELL = re.compile(r":?-+:?")
-_REF_LABEL = r" {0,3}\[((?:[^\\\[\]]|\\.){1,999})\]:"
-_REF_DEST = (
-    r"[ \t]*(?:<((?:[^\\<>\n]|\\.)*)>|([^\s<]\S*))"
+_REF_LABEL = re.compile(r" {0,3}\[(?P<label>(?:[^\\\[\]]|\\.){1,999})\]:")
+_REF_DEST = re.compile(
+    r"[ \t]*(?:<(?P<angle>(?:[^\\<>\n]|\\.)*)>|(?P<bare>[^\s<]\S*))"
     r"(?:[ \t]+(?:\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|\((?:[^()\\]|\\.)*\)))?[ \t]*"
 )
-_REFDEF = re.compile(_REF_LABEL + _REF_DEST)
-_REFDEF_LABEL_ONLY = re.compile(_REF_LABEL + r"[ \t]*")
-_REFDEF_DEST_ONLY = re.compile(_REF_DEST)
 _UNESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])|&([a-z#][a-z0-9]{1,31});", re.IGNORECASE)
 _AUTOLINK = re.compile(r"<([A-Za-z][A-Za-z0-9+.\-]{1,31}:[^<>\x00-\x20]*)>")
 _EMAIL = re.compile(
@@ -183,7 +191,7 @@ def _html_type(t: str, interrupting: bool) -> int | None:
     if _indent(t) >= 4:
         return None
     s = t.lstrip(" ")
-    for k, (start, _end, can_interrupt) in enumerate(_HTML_BLOCKS):
+    for k, (start, _, can_interrupt) in enumerate(_HTML_BLOCKS):
         if start.match(s):
             return k if can_interrupt or not interrupting else None
     return None
@@ -250,6 +258,10 @@ def _cells(ln: _Line) -> list[_Src]:
         end = [(pos[b - 1][0], pos[b - 1][1] + 1)] if b > a else []
         out.append(("".join(chars[a:b]), pos[a:b] + end))
     return out
+
+
+def _numbered(cells: list[_Src]) -> list[_Cell]:
+    return [(c, k) for k, c in enumerate(cells) if c[0]]
 
 
 def _table_cols(lls: list[_Line], i: int) -> int:
@@ -322,10 +334,12 @@ def _src(lls: list[_Line]) -> _Src:
 class _Scanner:
     def __init__(self) -> None:
         self.blocks: list[Block] = []
-        self.sources: dict[int, list[_Src]] = {}
+        self.sources: dict[int, list[_Cell]] = {}
+        self.defs: dict[int, Inline] = {}  # refdef block index -> its destination inline
         self.refs: dict[str, str] = {}
         self.comments: list[Comment] = []
         self.inlines: list[Inline] = []
+        self.lists = 0
 
     def add(
         self,
@@ -337,23 +351,28 @@ class _Scanner:
         info: str | None = None,
         level: int | None = None,
         text: str | None = None,
-        src: list[_Src] | None = None,
+        src: list[_Cell] | None = None,
+        closed: bool | None = None,
+        list_id: int | None = None,
     ) -> int:
-        self.blocks.append(Block(kind, first[0], last[0], info, level, text, parent))
+        block = Block(kind, first[0], last[0], info, level, text, parent, closed, list_id)
+        self.blocks.append(block)
         if src:
             self.sources[len(self.blocks) - 1] = src
         return len(self.blocks) - 1
 
     def parse(self, lls: list[_Line], parent: int | None, lead: int | None = None) -> None:
         i, n = 0, len(lls)
+        lst: tuple[int, str] | None = None  # (list id, marker kind) of the list in progress
         while i < n:
             t = lls[i][2]
+            prev, lst = lst, None  # any block but a blank line or a list item ends a list
             if _blank(t):
                 j = i
                 while j < n and _blank(lls[j][2]):
                     j += 1
                 self.add("blank", lls[i], lls[j - 1], parent)
-                i = j
+                i, lst = j, prev
             elif _indent(t) >= 4:
                 j = last = i
                 while j < n and (_blank(lls[j][2]) or _indent(lls[j][2]) >= 4):
@@ -369,8 +388,13 @@ class _Scanner:
                 i = self.quote(lls, i, parent)
             elif _HR.fullmatch(t):
                 i += 1
-            elif _LIST.match(t):
-                i = self.item(lls, i, parent)
+            elif m := _LIST.match(t):
+                marker = m[1] if m[1] in "-+*" else m[1][-1]
+                if prev is not None and prev[1] == marker:
+                    lst = prev
+                else:
+                    lst, self.lists = (self.lists, marker), self.lists + 1
+                i = self.item(lls, i, parent, lst[0])
             elif used := self.refdef(lls, i, parent):
                 i += used
             elif (k := _html_type(t, False)) is not None:
@@ -379,25 +403,37 @@ class _Scanner:
                 raw = m[2]
                 text = _ATX_CLOSE.sub("", raw).strip()
                 start = m.start(2) + len(raw) - len(raw.lstrip())
-                src = [_src([(lls[i][0], lls[i][1] + start, text)])] if text else None
-                self.add("heading", lls[i], lls[i], parent, level=len(m[1]), text=text, src=src)
+                src: list[_Cell] = [(_src([(lls[i][0], lls[i][1] + start, text)]), None)]
+                self.add("heading", lls[i], lls[i], parent, level=len(m[1]), text=text,
+                         src=src if text else None)
                 i += 1
             else:
                 i = self.paragraph(lls, i, parent, lead if i == 0 else None)
 
     def refdef(self, lls: list[_Line], i: int, parent: int | None) -> int:
         """Lines used by a link reference definition at i (destination on this or the next line)."""
-        label, dest, used = _REFDEF_LABEL_ONLY.fullmatch(lls[i][2]), None, 2
-        if label and i + 1 < len(lls):
-            dest = _REFDEF_DEST_ONLY.fullmatch(lls[i + 1][2])
-        if dest is None:
-            label = dest = _REFDEF.fullmatch(lls[i][2])
-            used = 1
-        if label is None or dest is None or not _norm_label(label[1]):
+        no, col, t = first = lls[i]
+        label = _REF_LABEL.match(t)
+        if label is None or not _norm_label(label["label"]):
             return 0
-        target = dest[2] if dest[2] is not None else dest[3]
-        self.refs.setdefault(_norm_label(label[1]), _unescape(target))
-        self.add("refdef", lls[i], lls[i + used - 1], parent)
+        dest, used = _REF_DEST.fullmatch(t, label.end()), 1
+        if dest is None and _blank(t[label.end() :]) and i + 1 < len(lls):
+            (no, col, t), used = lls[i + 1], 2
+            dest = _REF_DEST.fullmatch(t)
+        if dest is None:
+            return 0
+        group = "angle" if dest["angle"] is not None else "bare"
+        target = _unescape(dest[group])
+        self.refs.setdefault(_norm_label(label["label"]), target)
+        idx = self.add("refdef", first, lls[i + used - 1], parent)
+        outer_col = outer_end_col = None
+        if used == 1:
+            outer_col = col + len(t) - len(t.lstrip())
+            outer_end_col = col + len(t.rstrip())
+        self.defs[idx] = Inline(
+            "refdef", no, col + dest.start(group), no, col + dest.end(group), target,
+            label["label"], outer_col, outer_end_col, idx,
+        )
         return used
 
     def paragraph(self, lls: list[_Line], i: int, parent: int | None, lead: int | None) -> int:
@@ -412,12 +448,12 @@ class _Scanner:
                     text = " ".join(ln[2].strip() for ln in body)
                     level = 1 if m[1][0] == "=" else 2
                     self.add("heading", lls[i], lls[j], parent, level=level, text=text,
-                             src=[_src(body)])
+                             src=[(_src(body), None)])
                     return j + 1
                 if _interrupts(lls, j):
                     break
             j += 1
-        src = [_src(_trim(lls[i:j]))]
+        src: list[_Cell] = [(_src(_trim(lls[i:j])), None)]
         if lead is not None:
             self.sources[lead] = src
         else:
@@ -434,7 +470,7 @@ class _Scanner:
                 break
             j += 1
         last = min(j, len(lls) - 1)
-        self.add("fence", lls[i], lls[last], parent, info=m[2].strip())
+        self.add("fence", lls[i], lls[last], parent, info=m[2].strip(), closed=j < len(lls))
         return last + 1
 
     def html(self, lls: list[_Line], i: int, k: int, parent: int | None) -> int:
@@ -454,15 +490,14 @@ class _Scanner:
         return j + 1
 
     def table(self, lls: list[_Line], i: int, cols: int, parent: int | None) -> int:
-        self.add("table_row", lls[i], lls[i], parent, src=[c for c in _cells(lls[i]) if c[0]])
+        self.add("table_row", lls[i], lls[i], parent, src=_numbered(_cells(lls[i])))
         self.add("table_delim", lls[i + 1], lls[i + 1], parent)
         j = i + 2
         while j < len(lls):
             t = lls[j][2]
             if _blank(t) or _indent(t) >= 4 or _ends_lazy(t):
                 break
-            row = [c for c in _cells(lls[j])[:cols] if c[0]]
-            self.add("table_row", lls[j], lls[j], parent, src=row)
+            self.add("table_row", lls[j], lls[j], parent, src=_numbered(_cells(lls[j])[:cols]))
             j += 1
         return j
 
@@ -486,7 +521,7 @@ class _Scanner:
         self.parse(inner, parent)
         return j
 
-    def item(self, lls: list[_Line], i: int, parent: int | None) -> int:
+    def item(self, lls: list[_Line], i: int, parent: int | None, list_id: int) -> int:
         no, col, t = lls[i]
         m = _LIST.match(t)
         assert m is not None
@@ -523,14 +558,14 @@ class _Scanner:
         if fence and pending:  # an unclosed fence runs over the blank lines to the item's end
             inner.extend(_strip_cols(ln, width) for ln in lls[j - pending : j])
             pending = 0
-        idx = self.add("list_item", lls[i], inner[-1], parent)
+        idx = self.add("list_item", lls[i], inner[-1], parent, list_id=list_id)
         self.parse(inner[1:] if not first[2] else inner, idx, lead=idx)
         return j - pending
 
 
 class _InlineParser:
-    def __init__(self, sc: _Scanner, src: _Src, block: int) -> None:
-        self.sc, self.block = sc, block
+    def __init__(self, sc: _Scanner, src: _Src, block: int, cell: int | None) -> None:
+        self.sc, self.block, self.cell = sc, block, cell
         self.s, self.pos = src
         self.cache: dict[tuple[int, int], int] = {}
         self.depth = 0
@@ -573,7 +608,7 @@ class _InlineParser:
         outer_end_col = oe_col + 1 if oe_line == end_line else None
         self.sc.inlines.append(
             Inline(kind, line, col, end_line, end_col, text, label, outer_col, outer_end_col,
-                   self.block)
+                   self.block, self.cell)
         )
 
     def code(self, p: int, end: int, emit: bool) -> int:
@@ -667,7 +702,7 @@ class _InlineParser:
             resolved = self.sc.refs.get(_norm_label(label))
             if resolved is None:
                 return 0
-            target, kind = (resolved, la, lb), "reflink"
+            target, kind = (resolved, la, lb), "refimage" if image else "reflink"
         if emit:
             self.emit(kind, target[1], target[2], target[0], s[ls:le], p, q)
             self.run(ls, le)
@@ -739,8 +774,10 @@ def scan(text: str) -> Scan:
     count = len(lines) - 1 if lines[-1] == "" else len(lines)
     sc = _Scanner()
     sc.parse([(k + 1, 0, lines[k]) for k in range(count)], None)
-    for idx in sorted(sc.sources):
-        for src in sc.sources[idx]:
-            _InlineParser(sc, src, idx).run(0, len(src[0]))
+    for idx in sorted(set(sc.sources) | set(sc.defs)):
+        if idx in sc.defs:
+            sc.inlines.append(sc.defs[idx])
+        for src, cell in sc.sources.get(idx, []):
+            _InlineParser(sc, src, idx, cell).run(0, len(src[0]))
     comments = sorted(sc.comments, key=lambda c: (c.line_start, c.line_end))
     return Scan(lines, sc.blocks, sc.inlines, comments)

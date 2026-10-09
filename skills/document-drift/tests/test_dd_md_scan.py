@@ -26,7 +26,7 @@ def test_fence_indented_inside_list_item_is_a_fence():
     items = [(i, b) for i, b in enumerate(s.blocks) if b.kind == "list_item"]
     assert [(b.line_start, b.line_end, b.parent) for _, b in items] == [(1, 5, None), (6, 6, None)]
     fences = [b for b in s.blocks if b.kind == "fence"]
-    assert fences == [Block("fence", 3, 5, "bash", None, None, items[0][0])]
+    assert fences == [Block("fence", 3, 5, "bash", None, None, items[0][0], True)]
     assert [i for i in s.inlines if i.kind == "code"] == []
 
 
@@ -54,6 +54,8 @@ def test_reference_style_link_resolves_through_refdef():
         Inline("reflink", 1, 16, 1, 17, "docs/guide.md", "the guide", 4, 18, 0),
         Inline("reflink", 1, 24, 1, 28, "docs/index.md", "Docs", 23, 29, 0),
         Inline("reflink", 1, 35, 1, 36, "docs/guide.md", "g", 34, 39, 0),
+        Inline("refdef", 3, 5, 3, 18, "docs/guide.md", "g", 0, 26, 2),
+        Inline("refdef", 4, 9, 4, 22, "docs/index.md", "docs", 0, 23, 3),
     ]
     assert [(b.line_start, b.line_end) for b in s.blocks if b.kind == "refdef"] == [(3, 3), (4, 4)]
 
@@ -65,7 +67,7 @@ def test_undefined_reference_is_not_a_link():
 def test_escaped_pipe_does_not_split_table_cell():
     text = "| Flag | Meaning |\n| --- | --- |\n| `a\\|b` | either |\n"
     s = scan(text)
-    assert s.inlines == [Inline("code", 3, 3, 3, 7, "a|b", None, 2, 8, 2)]
+    assert s.inlines == [Inline("code", 3, 3, 3, 7, "a|b", None, 2, 8, 2, 0)]
 
 
 def test_table_row_blocks_have_line_numbers():
@@ -181,13 +183,87 @@ def test_lines_are_split_without_endings():
     assert scan("a\r\nb\nc").lines == ["a", "b", "c"]
 
 
-def test_reference_image_is_a_reflink_spanning_its_label():
+def test_reference_image_is_a_refimage_spanning_its_label():
     s = scan("[![CI][ci-img]][ci]\n\n[ci-img]: badge.svg\n[ci]:\n  https://ci.example\n")
-    assert [(i.kind, i.text, i.col, i.end_col) for i in s.inlines] == [
-        ("reflink", "https://ci.example", 16, 18),
-        ("reflink", "badge.svg", 7, 13),
+    spans = [(i.kind, i.text, i.line, i.col, i.end_col, i.outer_col, i.outer_end_col)
+             for i in s.inlines]
+    assert spans == [
+        ("reflink", "https://ci.example", 1, 16, 18, 0, 19),
+        ("refimage", "badge.svg", 1, 7, 13, 1, 14),
+        ("refdef", "badge.svg", 3, 10, 19, 0, 19),
+        ("refdef", "https://ci.example", 5, 2, 20, None, None),
     ]
     assert [(b.line_start, b.line_end) for b in s.blocks if b.kind == "refdef"] == [(3, 3), (4, 5)]
+
+
+def test_refimage_and_reflink_are_distinct_kinds():
+    s = scan("![alt][r] and [alt][r]\n\n[r]: x.png\n")
+    assert [(i.kind, i.text) for i in s.inlines] == [
+        ("refimage", "x.png"),
+        ("reflink", "x.png"),
+        ("refdef", "x.png"),
+    ]
+
+
+def test_two_line_refdef_with_angle_destination():
+    s = scan("[x]:\n  <a b.md>\n\nsee [x]\n")
+    assert s.inlines == [
+        Inline("refdef", 2, 3, 2, 9, "a b.md", "x", None, None, 0),
+        Inline("reflink", 4, 5, 4, 6, "a b.md", "x", 4, 7, 2),
+    ]
+    assert (s.blocks[0].kind, s.blocks[0].line_start, s.blocks[0].line_end) == ("refdef", 1, 2)
+
+
+def test_one_line_refdef_inline_spans_destination():
+    s = scan('  [Lbl]: <docs/a\\_b.md> "T"\n')
+    assert s.inlines == [Inline("refdef", 1, 10, 1, 22, "docs/a_b.md", "Lbl", 2, 27, 0)]
+
+
+def test_fence_closed_flag():
+    s = scan("```\nx\n```\n\n~~~\nopen\n\n")
+    assert [(b.line_start, b.line_end, b.closed) for b in s.blocks if b.kind == "fence"] == [
+        (1, 3, True),
+        (5, 7, False),
+    ]
+    assert all(b.closed is None for b in s.blocks if b.kind != "fence")
+
+
+def _list_ids(text: str) -> list[int | None]:
+    return [b.list_id for b in scan(text).blocks if b.kind == "list_item"]
+
+
+def test_list_ids_group_items_of_one_list():
+    assert _list_ids("- a\n- b\n\n- c\n") == [0, 0, 0]
+    assert _list_ids("1. a\n2. b\n") == [0, 0]
+    assert all(b.list_id is None for b in scan("- a\n\npara\n").blocks if b.kind != "list_item")
+
+
+def test_list_separated_by_paragraph_gets_new_id():
+    ids = _list_ids("- a\n\npara\n\n- b\n")
+    assert len(ids) == 2 and ids[0] != ids[1]
+
+
+def test_changed_bullet_or_delimiter_starts_new_list():
+    ids = _list_ids("- a\n* b\n1. c\n2) d\n")
+    assert len(set(ids)) == 4
+
+
+def test_nested_items_have_their_own_list_id():
+    s = scan("- a\n  - b\n  - c\n- d\n")
+    items = [(b.parent, b.list_id) for b in s.blocks if b.kind == "list_item"]
+    outer, inner = items[0][1], items[1][1]
+    assert outer != inner
+    assert items == [(None, outer), (0, inner), (0, inner), (None, outer)]
+
+
+def test_inline_cell_index_in_table_rows():
+    s = scan("| A | B |\n|---|---|\n| `a\\|b` | `c` |\n| x | [l](t.md) |\n\nText `p`\n")
+    assert [(i.text, i.cell) for i in s.inlines] == [
+        ("a|b", 0),
+        ("c", 1),
+        ("t.md", 1),
+        ("p", None),
+    ]
 
 
 def test_outer_span_is_none_when_label_wraps_lines():

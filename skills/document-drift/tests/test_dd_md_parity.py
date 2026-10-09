@@ -21,7 +21,7 @@ KNOWN_DIFFERENCES: dict[tuple[str, str], str] = {}
 
 # Ruling R2: markdown-it's commonmark preset emits link_open for <scheme:...> autolinks, so
 # our autolinks count with the link-like inlines.
-LINK_KINDS = ("link", "reflink", "image", "autolink")
+LINK_KINDS = ("link", "reflink", "image", "refimage", "autolink")
 
 
 @dataclass
