@@ -59,6 +59,25 @@ LIBRARY_MANIFESTS: tuple[str, ...] = (
     "package.json", "pyproject.toml", "setup.py", "Cargo.toml", "go.mod", "library.json",
     "library.properties", "CMakeLists.txt",
 )
+IGNORED_DIRS: frozenset[str] = frozenset(
+    {"node_modules", ".venv", "venv", "site-packages", "dist", "target", ".tox", "__pycache__"}
+)
+CONDITIONAL_IGNORED_DIRS: frozenset[str] = frozenset({"build", "bin"})
+# Copied from tech-debt-scan scripts/inventory.py MANIFEST_NAMES.
+MANIFEST_NAMES: tuple[str, ...] = (
+    "package.json", "pyproject.toml", "requirements*.txt", "go.mod", "Cargo.toml",
+    "Gemfile", "*.csproj", "pom.xml", "build.gradle*",
+)
+# Exact conventional stems (before the first dot) match case-insensitively; the reason uses
+# the spec glob, or the bare name for the hyphen variants the spec does not list.
+BASENAME_STEMS: dict[str, str] = {
+    "CHANGELOG": "CHANGELOG*", "CHANGES": "CHANGES*", "HISTORY": "HISTORY*",
+    "RELEASE_NOTES": "RELEASE_NOTES*", "RELEASE-NOTES": "RELEASE-NOTES",
+    "LICENSE": "LICENSE*", "LICENCE": "LICENCE*", "NOTICE": "NOTICE*", "COPYING": "COPYING*",
+    "CODE_OF_CONDUCT": "CODE_OF_CONDUCT*", "CODE-OF-CONDUCT": "CODE-OF-CONDUCT",
+    "SECURITY": "SECURITY*", "AUTHORS": "AUTHORS*", "CONTRIBUTORS": "CONTRIBUTORS*",
+    "MAINTAINERS": "MAINTAINERS*",
+}
 EXCLUDED_BASENAMES: tuple[str, ...] = (
     "CHANGELOG*", "CHANGES*", "HISTORY*", "RELEASE_NOTES*", "LICENSE*", "LICENCE*", "NOTICE*",
     "COPYING*", "CODE_OF_CONDUCT*", "SECURITY*", "AUTHORS*", "CONTRIBUTORS*", "MAINTAINERS*",
@@ -123,7 +142,9 @@ def _config_glob_matches(pattern: str, rel: str) -> bool:
     if _glob_matches(pattern, rel):
         return True
     pat = pattern.rstrip("/")
-    if pat and "/" not in pat:  # a bare directory name excludes everything beneath it
+    if "/" in pat:  # a directory pattern covers its contents
+        return any(_glob_matches(pat, ancestor) for ancestor in _ancestors(rel))
+    if pat:  # a bare directory name excludes everything beneath it
         regex = _glob_regex(pat)
         return any(regex.fullmatch(part) for part in rel.split("/")[:-1])
     return False
@@ -311,6 +332,10 @@ class _Inventory:
         self.root = root
         self.config = config
         self.submodules = gitlinks | _gitmodules_paths(root)
+        self.dir_files: dict[str, set[str]] = {}
+        for rel in files:
+            directory, _, base = rel.rpartition("/")
+            self.dir_files.setdefault(directory, set()).add(base)
         self.libraries = _nested_libraries(root, files)
         self.attrs = _parse_gitattributes(_read_text(root / ".gitattributes"))
         self._text: dict[str, str | None] = {}
@@ -347,6 +372,17 @@ class _Inventory:
                 return f"path:{glob}"
         return None
 
+    def _ignored_dir(self, rel: str) -> str | None:
+        for directory in _ancestors(rel):
+            name = directory.rsplit("/", 1)[-1]
+            if name in IGNORED_DIRS:
+                return f"ignored-dir:{name}"
+            if name in CONDITIONAL_IGNORED_DIRS:
+                names = self.dir_files.get(directory, set())
+                if not any(fnmatchcase(n, m) for n in names for m in MANIFEST_NAMES):
+                    return f"ignored-dir:{name}"
+        return None
+
     def _vendored_library(self, rel: str) -> str | None:
         ancestors = _ancestors(rel)
         for directory in ancestors:
@@ -357,7 +393,10 @@ class _Inventory:
         return None
 
     def _basename(self, rel: str) -> str | None:
-        name = rel.rsplit("/", 1)[-1].upper()
+        name = rel.rsplit("/", 1)[-1]
+        stem = BASENAME_STEMS.get(name.split(".", 1)[0].upper())
+        if stem:
+            return f"basename:{stem}"
         for glob in EXCLUDED_BASENAMES:
             if fnmatchcase(name, glob):
                 return f"basename:{glob}"
@@ -406,6 +445,7 @@ class _Inventory:
     def exclusion(self, rel: str) -> str | None:
         checks: tuple[Callable[[str], str | None], ...] = (
             self._paths,
+            self._ignored_dir,
             self._vendored_library,
             self._basename,
             self._class,

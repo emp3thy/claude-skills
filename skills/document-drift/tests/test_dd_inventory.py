@@ -300,3 +300,61 @@ def test_main_not_a_repo_refuses(tmp_path):
 @pytest.mark.parametrize("name", ["README.MD", "notes.Md"])
 def test_md_extension_case_insensitive(tmp_path, name):
     assert _inv(tmp_path, {name: "x\n"})["docs"] == [name]
+
+
+@pytest.mark.parametrize("pattern", ["docs/legacy", "docs/legacy/"])
+def test_config_exclude_directory_pattern_covers_contents(tmp_path, pattern):
+    inv = _inv(
+        tmp_path,
+        {"docs/legacy/a.md": "a\n", "docs/legacy/deep/b.md": "b\n", "docs/new.md": "n\n"},
+        {"exclude": [pattern]},
+    )
+    assert inv["docs"] == ["docs/new.md"]
+    assert set(_reasons(inv)) == {"docs/legacy/a.md", "docs/legacy/deep/b.md"}
+
+
+def test_basename_case_insensitive_only_on_conventional_stem(tmp_path):
+    inv = _inv(
+        tmp_path,
+        {
+            "changelog.md": "x\n",
+            "Security.md": "x\n",
+            "release-notes.md": "x\n",
+            "LICENSE-MIT.md": "x\n",
+            "CHANGELOG-v2.md": "x\n",
+            "license-faq.md": "x\n",
+            "notice-board.md": "x\n",
+            "history-of-the-project.md": "x\n",
+            "docs/authorship.md": "x\n",
+        },
+    )
+    assert inv["docs"] == [
+        "docs/authorship.md", "history-of-the-project.md", "license-faq.md", "notice-board.md",
+    ]
+    r = _reasons(inv)
+    assert r["changelog.md"] == "basename:CHANGELOG*"
+    assert r["Security.md"] == "basename:SECURITY*"
+    assert r["release-notes.md"] == "basename:RELEASE-NOTES"
+    assert r["LICENSE-MIT.md"] == "basename:LICENSE*"
+    assert r["CHANGELOG-v2.md"] == "basename:CHANGELOG*"
+
+
+def test_walk_ignore_dirs_excluded(tmp_path):
+    inv = _inv(
+        tmp_path,
+        {
+            "node_modules/x/README.md": "x\n",
+            "dist/README.md": "x\n",
+            "build/notes.md": "x\n",
+            "tools/build/README.md": "x\n",
+            "tools/build/package.json": "{}\n",
+            "venv/a.md": "x\n",
+            "dist.md": "x\n",
+        },
+    )
+    assert inv["docs"] == ["dist.md", "tools/build/README.md"]
+    r = _reasons(inv)
+    assert r["node_modules/x/README.md"] == "ignored-dir:node_modules"
+    assert r["dist/README.md"] == "ignored-dir:dist"
+    assert r["build/notes.md"] == "ignored-dir:build"
+    assert r["venv/a.md"] == "ignored-dir:venv"
