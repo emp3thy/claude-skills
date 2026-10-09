@@ -213,6 +213,21 @@ def test_version_floor_forms(line, runtime, floor):
     assert _span(text, tok) == floor
 
 
+@pytest.mark.parametrize("line", [
+    "- Install `opencv-python>=4.8` for the camera support.",
+    "Pin `my.python >= 2` and `pre-node 18+` here.",
+    "Use `tree_rust >= 2`.",
+])
+def test_runtime_word_inside_a_package_name_is_not_a_floor(line):
+    # R59, final review C1: the runtime word needs a left boundary
+    assert _toks(line + "\n", "version") == []
+
+
+def test_runtime_word_after_punctuation_is_still_a_floor():
+    toks = _toks("Needs (Python 3.11+), `python>=3.10` or Node>=18.\n", "version")
+    assert [t["text"] for t in toks] == ["3.11", "3.10", "18"]
+
+
 def test_version_context_and_skipped_in_fences():
     text = "Python 3.11+ and `Rust 1.75+`.\n\n```\nPython 3.9+\n```\n"
     toks = _toks(text, "version")
@@ -487,6 +502,32 @@ def test_marker_without_reason_reported_not_honoured():
     assert [(m["kind"], m["reason"], m["target_line_start"]) for m in markers] == [
         ("drift-ignore", None, 2),
         ("drift-ignore-next-line", None, 5),
+    ]
+
+
+def test_marker_without_colon_or_with_empty_reason_is_reasonless():
+    # R66: no colon, or nothing after it, is a marker without a reason; it suppresses nothing,
+    # and a reasonless file marker (which excludes nothing) is reported like the others
+    text = (
+        "<!-- drift-ignore kept for history -->\n"
+        "- `src/a.py`\n"
+        "\n"
+        "<!-- drift-ignore-next-line example output -->\n"
+        "`src/b.py` here\n"
+        "\n"
+        "<!-- drift-ignore-file -->\n"
+        "<!-- drift-ignore-file:  -->\n"
+        "<!-- drift-ignore-file whole file -->\n"
+        "<!-- drift-ignored: not a marker -->\n"
+    )
+    tokens, markers = _extract(text)
+    assert [t["ignored"] for t in tokens] == [None, None]
+    assert [(m["line"], m["kind"], m["reason"], m["target_line_start"]) for m in markers] == [
+        (1, "drift-ignore", None, 2),
+        (4, "drift-ignore-next-line", None, 5),
+        (7, "drift-ignore-file", None, None),
+        (8, "drift-ignore-file", None, None),
+        (9, "drift-ignore-file", None, None),
     ]
 
 

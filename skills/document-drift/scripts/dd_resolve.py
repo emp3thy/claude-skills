@@ -8,8 +8,9 @@ been candidates (``doc``, ``line``, ``col``, ``kind``, ``text``, ``reason``), so
 can tell live markers from stale ones. Candidates are ordered by (doc, line, col).
 
 ``resolve_token`` is pure over a tree (``files``, ``dirs`` and ``read``) and serves HEAD, a
-line snapshot and the in-memory re-check alike. HEAD is the tree ``git ls-tree HEAD`` lists, the
-same source as the snapshot trees, so the two sides of the test are comparable.
+line snapshot and the in-memory re-check alike. HEAD is the tree ``git ls-tree HEAD`` lists; a
+snapshot is the same git tree, asked path by path (``dd_history.SnapshotTree``), so the two
+sides of the test are comparable.
 
 Path tokens resolve doc-relative, then root-relative, then by suffix (tokens with ``/``) or
 basename (bare names), after percent-decoding and dropping a leading ``./``. At HEAD any mode
@@ -24,6 +25,16 @@ judged by the one commit that removed its slug (a rename keeps the level and a s
 body, R30); more than one removing commit is a human decision (R35), and a ``-N``
 duplicate-suffix anchor is never provable (R24). An ``ignored`` token
 never yields a candidate (R29).
+
+Final-review rulings: a snapshot's tree is never listed (R63): the paths a token may name there
+(``snapshot_paths``) are looked up with one batched ``git cat-file --batch-check`` per run, and
+a directory's files with ``git ls-tree -r <sha> -- <dir>``. A path or tree entry absent from
+HEAD but present on disk (untracked or ignored, such as a once-tracked runtime artefact) counts
+as resolved (R66). A version floor is provable only when it equalled the manifest floor at the
+line's snapshot; otherwise it was never the project's floor and is summary-only (R59). A
+directory moved only when every file it held has a final name under one new directory; all
+deleted is ``deleted``, any mix is ``ambiguous`` (R60). A provable outcome with no evidence
+commit is a human decision (R64).
 """
 from __future__ import annotations
 
@@ -34,14 +45,19 @@ import posixpath
 import re
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote
 
 from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json, run_git, write_json
-from dd_history import History
+from dd_history import History, SnapshotTree
 from dd_manifests import (
+    SCRIPT_MANIFESTS,
+    VERSION_MANIFESTS,
+    Paths,
     Reader,
+    ancestors,
     at_precision,
     manifest_floor,
     same_floor,
@@ -61,9 +77,6 @@ _DUP_SUFFIX = re.compile(r"(.+)-(\d+)")
 # Ruling R30: a one-commit heading change is a rename only when the section bodies are this
 # similar (difflib ratio). An unmeasured convention, to be checked on the fixture corpus.
 HEADING_BODY_SIMILARITY = 0.6
-_SNAPSHOT_MODES = ("doc", "root")
-
-Tree = tuple[frozenset[str], frozenset[str]]
 
 
 # -- headings --------------------------------------------------------------------------------
@@ -183,9 +196,29 @@ class _Form:
         self.core = t.strip("/")
 
 
-def path_matches(text: str, doc: str, files: frozenset[str],
-                 dirs: frozenset[str]) -> tuple[str, tuple[str, ...]] | None:
-    """(mode, matching paths) of a path token; modes ``doc``, ``root``, ``suffix``, ``basename``."""
+def _strict_paths(text: str, doc: str) -> list[str]:
+    """The doc-relative then the root-relative reading of a path token, existing or not."""
+    form = _Form(text)
+    if not form.core:
+        return []
+    out: list[str] = []
+    if not form.absolute:
+        p = _norm(posixpath.join(posixpath.dirname(doc), form.core))
+        if p:
+            out.append(p)
+    p = _norm(form.core)
+    if p:
+        out.append(p)
+    return out
+
+
+def path_matches(text: str, doc: str, files: Paths, dirs: Paths,
+                 loose: bool = True) -> tuple[str, tuple[str, ...]] | None:
+    """(mode, matching paths) of a path token; modes ``doc``, ``root``, ``suffix``, ``basename``.
+
+    ``loose=False`` tries only ``doc`` and ``root`` (the snapshot modes, R26); suffix and
+    basename matching needs a listed tree (frozensets) and is skipped for a lazy one.
+    """
     form = _Form(text)
     if not form.core:
         return None
@@ -200,6 +233,8 @@ def path_matches(text: str, doc: str, files: frozenset[str],
     p = _norm(form.core)
     if p is not None and exists(p):
         return "root", (p,)
+    if not loose or not isinstance(files, frozenset) or not isinstance(dirs, frozenset):
+        return None
     segs = form.core.split("/")
     if form.absolute or any(s in ("", ".", "..") for s in segs):
         return None
@@ -224,7 +259,19 @@ def _tree_variants(token: dict[str, Any]) -> list[str]:
     return [text, stripped]
 
 
-def tree_match(token: dict[str, Any], files: frozenset[str], dirs: frozenset[str]) -> str | None:
+def _tree_paths(token: dict[str, Any]) -> list[str]:
+    """Every path a tree entry may name, in ``tree_match`` order (the label line excepted)."""
+    docdir = posixpath.dirname(token["doc"])
+    out: list[str] = []
+    for variant in _tree_variants(token):
+        for base in (docdir, ""):
+            p = _norm(posixpath.join(base, variant)) if variant else None
+            if p:
+                out.append(p)
+    return out
+
+
+def tree_match(token: dict[str, Any], files: Paths, dirs: Paths) -> str | None:
     """The path a tree entry names: with its label then without, doc-relative then root."""
     docdir = posixpath.dirname(token["doc"])
     for variant in _tree_variants(token):
@@ -241,13 +288,40 @@ def _outside(target: str) -> bool:
     return target == ".." or target.startswith("../")
 
 
-def resolve_token(token: dict[str, Any], files: frozenset[str], dirs: frozenset[str],
-                  read: Reader) -> str | None:
-    """What the token names in the tree (path, slug, script name or floor), or None."""
+def snapshot_paths(token: dict[str, Any]) -> set[str]:
+    """Every repository path the snapshot test may look up for ``token`` (ruling R63): the
+    doc-relative and root-relative readings of a path or tree entry (the only modes that
+    count at a snapshot, R26), an anchor's target doc, and the manifests a script or a
+    version floor is looked up in. Anything else is looked up on demand."""
+    kind, doc = token["kind"], token["doc"]
+    if kind == "path":
+        return set(_strict_paths(str(token["text"]), doc))
+    if kind == "tree":
+        return set(_tree_paths(token))
+    if kind == "anchor":
+        target = token.get("target_doc") or doc
+        return set() if _outside(target) else {target}
+    if kind == "script":
+        names = SCRIPT_MANIFESTS.get(token.get("script_tool") or "", ())
+    elif kind == "version":
+        names = VERSION_MANIFESTS.get((token.get("version") or {}).get("runtime", ""), ())
+    else:
+        return set()
+    return {f"{d}/{n}" if d else n for d in ancestors(doc) for n in names}
+
+
+def resolve_token(token: dict[str, Any], files: Paths, dirs: Paths, read: Reader,
+                  snapshot: bool = False) -> str | None:
+    """What the token names in the tree (path, slug, script name or floor), or None.
+
+    ``snapshot=True`` is the strict reading at a line snapshot: a path resolves only
+    doc-relative or root-relative (R26) and an open script manifest proves only the names it
+    shows (R25).
+    """
     kind = token["kind"]
     doc = token["doc"]
     if kind == "path":
-        found = path_matches(token["text"], doc, files, dirs)
+        found = path_matches(token["text"], doc, files, dirs, loose=not snapshot)
         return found[1][0] if found else None
     if kind == "tree":
         return tree_match(token, files, dirs)
@@ -259,7 +333,7 @@ def resolve_token(token: dict[str, Any], files: frozenset[str], dirs: frozenset[
         return None if text is None else _match_slug(_fragment(token["text"]), heading_slugs(text))
     if kind == "script":
         tool = token.get("script_tool") or ""
-        found_in = script_source(doc, tool, token["text"], files, read)
+        found_in = script_source(doc, tool, token["text"], files, read, strict=snapshot)
         return token["text"] if found_in is not None else None
     if kind == "version":
         version = token.get("version") or {}
@@ -291,43 +365,84 @@ class Resolver:
     def _read_head(self, path: str) -> str | None:
         return self.history.show("HEAD", path)
 
+    def _sha(self, token: dict[str, Any]) -> str | None:
+        """The token's line snapshot: the commit that last changed its line, or None."""
+        snaps = self.history.line_snapshots(token["doc"])
+        return snaps.get(token["line"]) if snaps else None
+
+    def _on_disk(self, token: dict[str, Any]) -> bool:
+        """Ruling R66: a path or tree entry absent from HEAD but present in the working tree
+        (untracked or ignored, such as a once-tracked runtime artefact) counts as resolved."""
+        if token["kind"] == "path":
+            paths = _strict_paths(str(token["text"]), token["doc"])
+        elif token["kind"] == "tree":
+            paths = _tree_paths(token)
+        else:
+            return False
+        for p in paths:
+            try:
+                where = self.root / p
+                if where.is_file() or (where.is_dir() and any(
+                        x.is_file() for x in where.rglob("*"))):
+                    return True  # an empty directory is a leftover of a move, not a path
+            except (OSError, ValueError):
+                continue
+        return False
+
+    def _unresolved(self, token: dict[str, Any]) -> bool:
+        """True when a path, anchor, script or tree token needs the snapshot test: it is
+        checkable and does not resolve at HEAD (nor on disk)."""
+        kind = token["kind"]
+        if kind not in ("path", "anchor", "script", "tree"):
+            return False
+        if kind == "anchor":
+            target = token.get("target_doc") or token["doc"]
+            if _outside(target) or target not in self.files:
+                return False  # outside: routed by classify; else the path token's finding
+        if kind == "script" and not script_manifests(
+            token["doc"], token.get("script_tool") or "", self.files
+        ):
+            return False  # no manifest of the tool: not checkable, not a finding
+        if resolve_token(token, self.files, self.dirs, self._read_head) is not None:
+            return False
+        return not self._on_disk(token)
+
+    def prefetch(self, tokens: Iterable[dict[str, Any]]) -> None:
+        """Ruling R63: look up every snapshot path the run may ask about in one batched
+        ``git cat-file --batch-check`` call, instead of listing each snapshot's tree."""
+        wanted: dict[str, set[str]] = defaultdict(set)
+        for token in tokens:
+            if token["kind"] == "version":
+                if self._version_mismatch(token) is None:
+                    continue
+            elif not self._unresolved(token):
+                continue
+            sha = self._sha(token)
+            if sha is not None:
+                wanted[sha] |= snapshot_paths(token)
+        if wanted:
+            self.history.prefetch(wanted)
+
     def classify(self, token: dict[str, Any]) -> dict[str, Any] | None:
         """A Candidate for a token that does not resolve at HEAD (or a version mismatch)."""
         kind = token["kind"]
         if kind == "version":
             return self._version(token)
-        if kind not in ("path", "anchor", "script", "tree"):
+        if kind == "anchor" and _outside(token.get("target_doc") or token["doc"]):
+            return self._route(token, evidence="anchor target is outside the repository")
+        if not self._unresolved(token):
             return None
-        if kind == "anchor":
-            target = token.get("target_doc") or token["doc"]
-            if _outside(target):
-                return self._route(token, evidence="anchor target is outside the repository")
-            if target not in self.files:
-                return None  # the unresolved path part is the path token's finding
-        if kind == "script" and not script_manifests(
-            token["doc"], token.get("script_tool") or "", self.files
-        ):
-            return None  # no manifest of the tool: not checkable, not a finding
-        if resolve_token(token, self.files, self.dirs, self._read_head) is not None:
-            return None
-        snaps = self.history.line_snapshots(token["doc"])
-        sha = snaps.get(token["line"]) if snaps else None
-        tree = self.history.tree_at(sha) if sha else None
-        if sha is None or tree is None:
+        sha = self._sha(token)
+        snap = self.history.snapshot(sha) if sha else None
+        if sha is None or snap is None:
             return self._route(token, snapshot=sha, history_unavailable=True,
                                evidence="history unavailable")
-        files, dirs = tree
         read: Reader = functools.partial(self.history.show, sha)
-        then = resolve_token(token, files, dirs, read)
-        if then is not None and kind == "script":
-            # strict at the snapshot: an open manifest proves only the names it shows
+        if kind == "script":  # the manifest that showed the name then
             then = script_source(token["doc"], token.get("script_tool") or "", token["text"],
-                                 files, read, strict=True)
-        if then is not None and kind == "path":
-            # R26: a suffix or basename match at the snapshot is a guess, not proof
-            found = path_matches(token["text"], token["doc"], files, dirs)
-            if found is None or found[0] not in _SNAPSHOT_MODES:
-                then = None
+                                 snap.files, read, strict=True)
+        else:
+            then = resolve_token(token, snap.files, snap.dirs, read, snapshot=True)
         if then is None:
             return self._route(token, snapshot=sha, evidence=f"not present at {sha[:7]}")
         if kind == "anchor":
@@ -337,7 +452,7 @@ class Resolver:
             commit = self.history.last_commit_touching(sha, then, token["text"])
             fields.update(evidence_commit=commit, evidence=_ev("removed", commit))
         else:
-            fields = self._path(token, sha, (files, dirs))
+            fields = self._path(token, sha, snap)
         return self._route(token, snapshot=sha, existed_then=True, **fields)
 
     def _route(self, token: dict[str, Any], **fields: Any) -> dict[str, Any] | None:
@@ -367,7 +482,12 @@ class Resolver:
             human = "ambiguous-rename"
         if human is not None:
             cand.update({"class": "human", "human_kind": human})
-        elif cand["outcome"] in ("unique", "version-mismatch"):
+        elif cand["outcome"] == "version-mismatch":
+            cand["class"] = "provable-replace"
+        elif not cand["evidence_commit"]:
+            # R64: an edit without the commit that proves it is a guess, never provable
+            cand.update({"class": "human", "human_kind": "ambiguous-rename"})
+        elif cand["outcome"] == "unique":
             cand["class"] = "provable-replace"
         else:
             cand["class"] = "provable-delete"
@@ -377,17 +497,37 @@ class Resolver:
 
     # -- versions ----------------------------------------------------------------------------
 
-    def _version(self, token: dict[str, Any]) -> dict[str, Any] | None:
+    def _version_mismatch(self, token: dict[str, Any]) -> tuple[str, str, str] | None:
+        """The HEAD manifest's (path, raw value, floor) when it contradicts the doc's floor."""
         version = token.get("version") or {}
         stated = manifest_floor(token["doc"], version.get("runtime", ""), self.files,
                                 self._read_head)
+        if stated is None or same_floor(version.get("floor") or token["text"], stated[2]):
+            return None
+        return stated
+
+    def _version(self, token: dict[str, Any]) -> dict[str, Any] | None:
+        """Ruling R59: a floor that contradicts the manifest is provable only when it equalled
+        the manifest floor at the line's snapshot (the manifest moved on and the doc did not);
+        a floor that was never the manifest's (a historical sentence, another package's
+        version) is summary-only."""
+        stated = self._version_mismatch(token)
         if stated is None:
             return None
         path, raw, floor = stated
+        version = token.get("version") or {}
         doc_floor = version.get("floor") or token["text"]
-        if same_floor(doc_floor, floor):
-            return None
-        return self._route(token, existed_then=True, resolved_then=path,
+        sha = self._sha(token)
+        snap = self.history.snapshot(sha) if sha else None
+        if sha is None or snap is None:
+            return self._route(token, snapshot=sha, history_unavailable=True,
+                               evidence="history unavailable")
+        then = manifest_floor(token["doc"], version.get("runtime", ""), snap.files,
+                              functools.partial(self.history.show, sha))
+        if then is None or not same_floor(doc_floor, then[2]):
+            return self._route(token, snapshot=sha,
+                               evidence=f"not the manifest floor at {sha[:7]}")
+        return self._route(token, snapshot=sha, existed_then=True, resolved_then=path,
                            outcome="version-mismatch",
                            replacement=at_precision(doc_floor, floor),
                            evidence=f"manifest {path} says {raw}")
@@ -462,18 +602,17 @@ class Resolver:
 
     # -- paths and tree entries --------------------------------------------------------------
 
-    def _path(self, token: dict[str, Any], sha: str, tree: Tree) -> dict[str, Any]:
-        files, dirs = tree
+    def _path(self, token: dict[str, Any], sha: str, snap: SnapshotTree) -> dict[str, Any]:
         mode = "tree"
         if token["kind"] == "tree":
-            old = tree_match(token, files, dirs) or ""
+            old = tree_match(token, snap.files, snap.dirs) or ""
         else:
-            found = path_matches(token["text"], token["doc"], files, dirs)
+            found = path_matches(token["text"], token["doc"], snap.files, snap.dirs, loose=False)
             assert found is not None  # the caller checked a doc or root match then (R26)
             mode, old = found[0], found[1][0]
-        news, commit = self._moved(sha, old, files)
+        state, news, commit, note = self._moved(sha, old, snap)
         fields: dict[str, Any] = {"resolved_then": old, "evidence_commit": commit}
-        if not news:
+        if state == "deleted":
             gone = self.history.deleting_commit(sha, old)
             fields.update(outcome="deleted", evidence_commit=gone, evidence=_ev("deleted", gone))
             # R27: a same-named path at HEAD may be the file moved and rewritten
@@ -482,37 +621,64 @@ class Resolver:
                 fields.update(outcome="ambiguous",
                               evidence=_ev("deleted", gone) + "; HEAD has " + ", ".join(same))
             return fields
-        if len(news) == 1:
+        if state == "moved" and len(news) == 1:
             replacement = self._rewrite(token, mode, old, next(iter(news)))
             if replacement is not None:
                 fields.update(outcome="unique", replacement=replacement,
                               evidence=_ev("renamed", commit))
                 return fields
         names = ", ".join(sorted(n for n in news if n)) or "several paths"
-        fields.update(outcome="ambiguous", evidence=_ev("renamed", commit) + f" to {names}")
+        evidence = _ev("renamed", commit) + f" to {names}" + (f"; {note}" if note else "")
+        fields.update(outcome="ambiguous", evidence=evidence)
         return fields
 
-    def _moved(self, sha: str, old: str, files: frozenset[str]) -> tuple[set[str], str | None]:
-        """Final names of a snapshot path; a directory's from the final names of its files."""
-        if old in files:
+    def _moved(self, sha: str, old: str,
+               snap: SnapshotTree) -> tuple[str, set[str], str | None, str]:
+        """How a snapshot path left: ``(state, final names, commit, note)``.
+
+        A file follows its renames: ``moved`` with its final names, or ``deleted``. A directory
+        (ruling R60) is ``moved`` to one new directory only when every file it held at the
+        snapshot has a final name and all of them sit under that one directory (a direct
+        child's new directory is its own new parent; a deeper file must keep its path below
+        the directory); ``deleted`` when every file was deleted; anything else, such as some
+        files deleted and some moved, files moved apart, or a directory that cannot be
+        listed, is ``mixed`` and never provable.
+        """
+        if old in snap.files:
             finals, commit = self.history.final_name(sha, old)
-            return set(finals), commit
+            if finals:
+                return "moved", set(finals), commit, ""
+            return "deleted", set(), None, ""
+        children = self.history.list_dir(sha, old)
+        if not children:
+            return "mixed", set(), None, "its files could not be listed"
         prefixes: set[str] = set()
         commits: Counter[str] = Counter()
-        for child in sorted(p for p in files if p.startswith(old + "/")):
+        deleted = 0
+        apart = False
+        for child in sorted(children):
             rel = child[len(old) + 1 :]
             finals, commit = self.history.final_name(sha, child)
+            if not finals:
+                deleted += 1
+                continue
             for new in finals:
-                if new.endswith("/" + rel):
-                    prefixes.add(new[: -len(rel) - 1])
-                elif "/" not in rel:
+                if "/" not in rel:
                     prefixes.add(posixpath.dirname(new))
+                elif new == rel or new.endswith("/" + rel):
+                    prefixes.add(new[: -len(rel) - 1] if new != rel else "")
                 else:
-                    prefixes.add("")  # layout changed below the directory: never unique
-            if commit and finals:
+                    apart = True  # the layout below the directory changed
+            if commit:
                 commits[commit] += 1
         best = min(commits, key=lambda c: (-commits[c], c)) if commits else None
-        return prefixes, best
+        if deleted == len(children):
+            return "deleted", set(), None, ""
+        if deleted:
+            return "mixed", prefixes, best, f"{deleted} of {len(children)} files deleted"
+        if apart or len(prefixes) != 1:
+            return "mixed", prefixes, best, "its files moved apart"
+        return "moved", prefixes, best, ""
 
     def _rewrite(self, token: dict[str, Any], mode: str, old: str, new: str) -> str | None:
         """The token's new text in its own mode, when it resolves at HEAD to exactly ``new``."""
@@ -546,6 +712,7 @@ def run(root: Path, workdir: Path, history: History | None = None) -> dict[str, 
             raise StepError(f"missing {workdir / name}; run the earlier steps first", EXIT_MISSING)
     tokens = read_json(workdir / "tokens.json")
     resolver = Resolver(root, history or History(root))
+    resolver.prefetch(t for doc in sorted(tokens["docs"]) for t in tokens["docs"][doc])
     candidates: list[dict[str, Any]] = []
     for doc in sorted(tokens["docs"]):
         for token in tokens["docs"][doc]:

@@ -241,6 +241,19 @@ def test_drift_ignore_file_marker_only_as_real_comment(tmp_path):
     assert _reasons(inv) == {"b.md": "marker:kept for history", "c.md": "marker:inline comment"}
 
 
+def test_drift_ignore_file_marker_without_reason_excludes_nothing(tmp_path):
+    """Ruling R66 (spec 8): no colon or an empty reason is a marker without a reason; the doc
+    stays in scope and extraction reports the marker."""
+    inv = _inv(tmp_path, {
+        "a.md": "# A\n\n<!-- drift-ignore-file -->\n",
+        "b.md": "# B\n\n<!-- drift-ignore-file:   -->\n",
+        "c.md": "# C\n\n<!-- drift-ignore-file kept for history -->\n",
+        "d.md": "# D\n\n<!-- drift-ignore-file: a reason -->\n",
+    })
+    assert inv["docs"] == ["a.md", "b.md", "c.md"]
+    assert _reasons(inv) == {"d.md": "marker:a reason"}
+
+
 def test_config_exclude_glob(tmp_path):
     inv = _inv(
         tmp_path,

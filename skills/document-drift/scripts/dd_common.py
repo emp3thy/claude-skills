@@ -25,24 +25,38 @@ class StepError(Exception):
         self.code = code
 
 
-def _git(root: Path, args: Sequence[str]) -> subprocess.CompletedProcess[str] | None:
+def _git(root: Path, args: Sequence[str],
+         stdin: str | None = None) -> subprocess.CompletedProcess[str] | None:
     try:
-        return subprocess.run(
+        if stdin is None:
+            return subprocess.run(
+                ["git", "-C", str(root), *args],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=GIT_TIMEOUT,
+                check=False,
+            )
+        # bytes in and out, so no newline translation touches the batch input on Windows
+        raw = subprocess.run(
             ["git", "-C", str(root), *args],
+            input=stdin.encode("utf-8"),
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=GIT_TIMEOUT,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
+    return subprocess.CompletedProcess(
+        raw.args, raw.returncode, raw.stdout.decode("utf-8", "replace"),
+        raw.stderr.decode("utf-8", "replace"))
 
 
-def run_git(root: Path, args: Sequence[str]) -> str | None:
-    """Run ``git -C root <args>``; return stdout, or None on any failure."""
-    proc = _git(root, args)
+def run_git(root: Path, args: Sequence[str], stdin: str | None = None) -> str | None:
+    """Run ``git -C root <args>`` (feeding ``stdin`` when given); return stdout, or None on
+    any failure."""
+    proc = _git(root, args, stdin)
     if proc is None or proc.returncode != 0:
         return None
     return proc.stdout

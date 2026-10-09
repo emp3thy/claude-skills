@@ -1,6 +1,7 @@
 """Manifest parsing for the resolvers: script names per tool and runtime version floors.
 
-Every function is pure over a tree: ``files`` is the set of repository paths in it and
+Every function is pure over a tree: ``files`` answers ``path in files`` for the repository
+paths in it (a frozenset at HEAD, a lazy snapshot view at a line snapshot, ruling R63) and
 ``read(path)`` returns a file's text in that same tree (or None), so the same code answers for
 HEAD, for a line snapshot and for an in-memory re-check.
 
@@ -27,11 +28,18 @@ import posixpath
 import re
 import tomllib
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
 import yaml
 
 Reader = Callable[[str], str | None]
+
+
+class Paths(Protocol):
+    """Anything that answers ``path in paths``: a frozenset or a snapshot tree's members."""
+
+    def __contains__(self, path: object, /) -> bool: ...
+
 
 SCRIPT_MANIFESTS: dict[str, tuple[str, ...]] = {
     "make": ("Makefile", "makefile", "GNUmakefile"),
@@ -83,13 +91,13 @@ def _join(d: str, name: str) -> str:
     return f"{d}/{name}" if d else name
 
 
-def script_manifests(doc: str, tool: str, files: frozenset[str]) -> list[str]:
+def script_manifests(doc: str, tool: str, files: Paths) -> list[str]:
     """Every manifest of ``tool`` from the doc's directory up to the root, nearest first."""
     names = SCRIPT_MANIFESTS.get(tool, ())
     return [p for d in ancestors(doc) for n in names if (p := _join(d, n)) in files]
 
 
-def _make_targets(path: str, text: str, files: frozenset[str], read: Reader,
+def _make_targets(path: str, text: str, files: Paths, read: Reader,
                   depth: int = 0) -> Names:
     names: set[str] = set()
     for m in _MAKE_RULE.finditer(text):
@@ -110,7 +118,7 @@ def _make_targets(path: str, text: str, files: frozenset[str], read: Reader,
     return names, is_open
 
 
-def _script_names(tool: str, path: str, text: str, files: frozenset[str],
+def _script_names(tool: str, path: str, text: str, files: Paths,
                   read: Reader) -> Names:
     if tool == "make":
         return _make_targets(path, text, files, read)
@@ -136,7 +144,7 @@ def _script_names(tool: str, path: str, text: str, files: frozenset[str],
     return found, is_open
 
 
-def script_source(doc: str, tool: str, name: str, files: frozenset[str], read: Reader,
+def script_source(doc: str, tool: str, name: str, files: Paths, read: Reader,
                   strict: bool = False) -> str | None:
     """The nearest manifest of ``tool`` that defines ``name``, else None.
 
@@ -205,7 +213,7 @@ def _value(name: str, text: str) -> tuple[str, str] | None:
     return None
 
 
-def manifest_floor(doc: str, runtime: str, files: frozenset[str],
+def manifest_floor(doc: str, runtime: str, files: Paths,
                    read: Reader) -> tuple[str, str, str] | None:
     """(manifest path, raw value, floor) of the nearest manifest declaring the runtime floor."""
     for d in ancestors(doc):

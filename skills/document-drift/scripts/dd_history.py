@@ -1,7 +1,14 @@
-"""Git history primitives: per-line blame snapshots, trees at a commit, renames, deletions."""
+"""Git history primitives: per-line blame snapshots, trees at a commit, renames, deletions.
+
+HEAD's tree is listed once (``head_files``). A line snapshot's tree is never listed (ruling
+R63): ``snapshot(sha)`` answers membership for the paths it is asked about with ``git cat-file
+--batch-check`` (``prefetch`` asks for many in one call), and ``list_dir`` lists one directory
+with ``git ls-tree -r --name-only <sha> -- <dir>``.
+"""
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from dd_common import run_git
@@ -10,6 +17,36 @@ _BLAME_HEADER = re.compile(r"^([0-9a-f]{40}) \d+ (\d+)")
 _QUIET = ("-c", "core.quotePath=false")
 _LITERAL = "--literal-pathspecs"
 _EMPTY: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
+# What a tree entry is to the resolvers: a blob (file or symlink) or a gitlink (submodule) is a
+# file, as it is in an ``ls-tree -r`` listing; a tree is a directory.
+_FILE_TYPES = frozenset({"blob", "commit"})
+_DIR_TYPES = frozenset({"tree"})
+_OBJECT_TYPES = _FILE_TYPES | _DIR_TYPES
+_NL = chr(10)
+_UNNAMEABLE = (_NL, chr(13), chr(0))  # characters a batch input line cannot carry
+
+
+class _Members:
+    """``path in members``: whether the tree at ``sha`` holds ``path`` as one of ``types``."""
+
+    def __init__(self, history: History, sha: str, types: frozenset[str]) -> None:
+        self.history = history
+        self.sha = sha
+        self.types = types
+
+    def __contains__(self, path: object) -> bool:
+        if not isinstance(path, str) or not path:
+            return False
+        return self.history.object_type(self.sha, path) in self.types
+
+
+class SnapshotTree:
+    """The tree at one commit as ``files`` and ``dirs`` that answer ``in`` lazily."""
+
+    def __init__(self, history: History, sha: str) -> None:
+        self.sha = sha
+        self.files = _Members(history, sha, _FILE_TYPES)
+        self.dirs = _Members(history, sha, _DIR_TYPES)
 
 
 class History:
@@ -24,6 +61,9 @@ class History:
         self._finals: dict[tuple[str, str], tuple[frozenset[str], str | None]] = {}
         self._deletions: dict[tuple[str, str], str | None] = {}
         self._touches: dict[tuple[str, str, str], str | None] = {}
+        self._types: dict[tuple[str, str], str | None] = {}
+        self._failed: set[str] = set()
+        self._listings: dict[tuple[str, str], frozenset[str] | None] = {}
 
     def line_snapshots(self, doc: str) -> dict[int, str] | None:
         """Map 1-based final line number to the full sha that last changed it, at HEAD.
@@ -60,6 +100,60 @@ class History:
                         dirs.add("/".join(parts[:i]))
                 self._trees[sha] = (files, frozenset(dirs))
         return self._trees[sha]
+
+    def prefetch(self, wanted: Mapping[str, Iterable[str]]) -> None:
+        """Look up every ``<sha>:<path>`` not yet known in one ``git cat-file --batch-check``.
+
+        Each sha's root (``<sha>:``) is looked up too, so ``snapshot`` can tell a readable
+        commit from an unreadable one. A path git reports missing is cached as None; when the
+        call itself fails, every sha in it is marked unreadable.
+        """
+        pairs: list[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for sha, paths in wanted.items():
+            for path in ("", *paths):
+                key = (sha, path)
+                if key in self._types or key in seen or sha in self._failed:
+                    continue
+                if any(c in path for c in _UNNAMEABLE):
+                    self._types[key] = None  # cannot be named on a batch line
+                    continue
+                seen.add(key)
+                pairs.append(key)
+        if not pairs:
+            return
+        out = run_git(self.root, ["cat-file", "--batch-check=%(objecttype)"],
+                      stdin="".join(f"{sha}:{path}{_NL}" for sha, path in pairs))
+        lines = out.split(_NL)[: len(pairs)] if out is not None else []
+        if len(lines) != len(pairs):
+            self._failed.update(sha for sha, _ in pairs)
+            return
+        for key, line in zip(pairs, lines, strict=True):
+            kind = line.strip()
+            self._types[key] = kind if kind in _OBJECT_TYPES else None
+
+    def object_type(self, sha: str, path: str) -> str | None:
+        """``blob``, ``tree`` or ``commit`` for ``path`` in the tree at ``sha``; None if absent."""
+        key = (sha, path)
+        if key not in self._types:
+            self.prefetch({sha: (path,)})
+        return self._types.get(key)
+
+    def snapshot(self, sha: str) -> SnapshotTree | None:
+        """The tree at ``sha`` for membership lookups; None when the commit cannot be read."""
+        if self.object_type(sha, "") != "tree" or sha in self._failed:
+            return None
+        return SnapshotTree(self, sha)
+
+    def list_dir(self, sha: str, directory: str) -> frozenset[str] | None:
+        """Every file under ``directory`` at ``sha`` (full paths); None when git fails."""
+        key = (sha, directory)
+        if key not in self._listings:
+            out = run_git(self.root, [_LITERAL, *_QUIET, "ls-tree", "-r", "--name-only", sha,
+                                      "--", directory])
+            self._listings[key] = None if out is None else frozenset(
+                line for line in out.splitlines() if line.startswith(directory + "/"))
+        return self._listings[key]
 
     def head_files(self) -> tuple[frozenset[str], frozenset[str]]:
         """``tree_at("HEAD")``; two empty sets when HEAD does not exist (empty repository)."""

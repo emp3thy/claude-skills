@@ -17,6 +17,7 @@ from typing import Any
 
 from dd_common import EXIT_OK, EXIT_REFUSED, MAX_DOC_BYTES, StepError, run_git, write_json
 from dd_config import load_config
+from dd_extract import parse_marker
 from dd_md_scan import scan
 
 DEFAULT_NEVER_EDIT = (
@@ -86,9 +87,6 @@ EXCLUDED_BASENAMES: tuple[str, ...] = (
 )
 TEMPLATE_DIRS: frozenset[str] = frozenset({"templates", "template", "skeleton"})
 HEADER_MARKERS: tuple[str, ...] = ("DO NOT EDIT", "Code generated")
-# The body of a real HTML comment (dd_md_scan's Comment list), so a marker quoted in inline code
-# or a fence, as docs about the marker do, is not one (ruling R55).
-IGNORE_MARKER_RE = re.compile(r"drift-ignore-file:\s*(.*?)\s*", re.DOTALL)
 
 MODE_GITLINK = "160000"
 MODE_SYMLINK = "120000"
@@ -433,13 +431,18 @@ class _Inventory:
         return "template" if parts[-1].lower().endswith(".tmpl.md") else None
 
     def _marker(self, rel: str) -> str | None:
+        """The file marker is read from the body of a real HTML comment (dd_md_scan's Comment
+        list), so a marker quoted in inline code or a fence, as docs about the marker do, is
+        not one (ruling R55). Ruling R66: only a file marker with a reason excludes the doc;
+        one with no colon or an empty reason is reported by extraction as a marker without a
+        reason."""
         text = self._content(rel)
         if text is None:
             return None
         for comment in scan(text).comments:
-            match = IGNORE_MARKER_RE.fullmatch(comment.body)
-            if match:
-                return f"marker:{match.group(1)}"
+            parsed = parse_marker(comment.body)
+            if parsed is not None and parsed[0] == "drift-ignore-file" and parsed[1]:
+                return f"marker:{parsed[1]}"
         return None
 
     def _config(self, rel: str) -> str | None:

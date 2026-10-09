@@ -9,7 +9,7 @@ import pytest
 from dd_common import EXIT_MISSING, EXIT_OK, read_json, write_json
 from dd_extract import extract_doc
 from dd_helpers import make_repo
-from dd_history import History
+from dd_history import History, SnapshotTree
 from dd_inventory import DEFAULT_NEVER_EDIT
 from dd_manifests import script_source
 from dd_resolve import (
@@ -279,7 +279,133 @@ def test_two_candidates_is_ambiguous_human(tmp_path: Path) -> None:
     assert _shape(cand) == ("human", "ambiguous", None, "ambiguous-rename")
 
 
-# -- anchors ---------------------------------------------------------------------------------
+def test_partly_salvaged_directory_is_ambiguous(tmp_path: Path) -> None:
+    # R60, final review C2: four files deleted and one moved is not a directory move
+    body = "print('a long enough body for rename detection, file {}')\n"
+    legacy = {f"legacy/mod{i}.py": body.format(i) for i in range(5)}
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={
+            "README.md": "# X\n\n- `legacy/` holds the old v1 engine.\n- `src/` holds the app.\n",
+            "src/app.py": "a = 1\n", **legacy,
+        }),
+        _c("02", "salvage", rename={"legacy/mod0.py": "src/mod0.py"},
+           delete=[f"legacy/mod{i}.py" for i in range(1, 5)]),
+    ])
+    cand = _one(repo)
+    assert _shape(cand) == ("human", "ambiguous", None, "ambiguous-rename")
+    assert cand["evidence"] == f"renamed in {_sha7(repo)} to src; 4 of 5 files deleted"
+
+
+def test_directory_with_every_file_deleted_is_deleted(tmp_path: Path) -> None:
+    # R60: every file of the directory deleted, none moved
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": "Code lives in `lib/`.\n", "lib/a.py": "a = 1\n",
+                               "lib/b.py": "b = 2\n", "keep.py": "k = 1\n"}),
+        _c("02", "drop", delete=["lib/a.py", "lib/b.py"]),
+    ])
+    cand = _one(repo)
+    assert _shape(cand) == ("provable-delete", "deleted", None, None)
+    assert cand["evidence"] == f"deleted in {_sha7(repo)}"
+
+
+def test_directory_moved_apart_is_ambiguous(tmp_path: Path) -> None:
+    # R60: a nested file whose path below the directory changed is not a directory move
+    body = "print('a long enough body for rename detection, file {}')\n"
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": "Code lives in `lib/`.\n",
+                               "lib/a.py": body.format("a"), "lib/sub/b.py": body.format("b")}),
+        _c("02", "move", rename={"lib/a.py": "src/a.py", "lib/sub/b.py": "src/other/b.py"}),
+    ])
+    cand = _one(repo)
+    assert _shape(cand) == ("human", "ambiguous", None, "ambiguous-rename")
+    assert cand["evidence"].endswith("; its files moved apart")
+
+
+class _NoEvidence(History):
+    def deleting_commit(self, sha: str, path: str) -> str | None:
+        return None
+
+    def last_commit_touching(self, sha: str, path: str, needle: str) -> str | None:
+        return None
+
+
+def test_provable_outcome_without_evidence_commit_is_human(tmp_path: Path) -> None:
+    # R64, final review I2: no commit proves the delete, so it is never provable
+    make = "build:\n\techo b\n\nlint:\n\techo l\n"
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": "- `old.py`: x\n- `keep.py`: y\n\n"
+                                            "```bash\nmake build\nmake lint\n```\n",
+                               "old.py": "print('x')\n", "keep.py": "k = 1\n",
+                               "Makefile": make}),
+        _c("02", "drop", delete=["old.py"], files={"Makefile": "build:\n\techo b\n"}),
+    ])
+    assert [_shape(c) for c in _cands(repo)] == [
+        ("provable-delete", "deleted", None, None),
+        ("provable-delete", "deleted", None, None),
+    ]
+    resolver = Resolver(repo, _NoEvidence(repo))
+    cands = [c for t in _tokens(repo, "README.md") if (c := resolver.classify(t))]
+    assert [(c["kind"], *_shape(c)) for c in cands] == [
+        ("path", "human", "deleted", None, "ambiguous-rename"),
+        ("script", "human", "deleted", None, "ambiguous-rename"),
+    ]
+    assert all(c["evidence_commit"] is None for c in cands)
+
+
+def test_path_present_on_disk_counts_as_resolved(tmp_path: Path) -> None:
+    # R66: a once-tracked runtime artefact, now untracked and ignored, is still on disk
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": "- `state.json` holds the cursor.\n- `a.py`: a\n",
+                               "state.json": "{}\n", "a.py": "a = 1\n"}),
+        _c("02", "untrack", delete=["state.json"], files={".gitignore": "state.json\n"}),
+    ])
+    assert _shape(_one(repo)) == ("provable-delete", "deleted", None, None)
+    (repo / "state.json").write_text("{}\n", encoding="utf-8")
+    assert _cands(repo) == []
+
+
+def test_classify_never_lists_a_whole_snapshot_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # R63, final review I1: membership at a snapshot comes from one batched cat-file per run
+    import dd_history
+
+    calls: list[list[str]] = []
+    real = dd_history.run_git
+
+    def spy(root: Path, args: list[str], stdin: str | None = None) -> str | None:
+        calls.append(list(args))
+        return real(root, args, stdin)
+
+    monkeypatch.setattr(dd_history, "run_git", spy)
+    body = "print('a long enough body for rename detection, file {}')\n"
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": "- `old.py`: renamed\n- `gone.py`: deleted\n",
+                               "old.py": body.format("o"), "gone.py": body.format("g"),
+                               "lib/a.py": body.format("a"), "lib/b.py": body.format("b")}),
+        _c("02", "more docs", files={"README.md": "- `old.py`: renamed\n- `gone.py`: deleted\n"
+                                                  "- `lib/`: moved\n"}),
+        _c("03", "move", rename={"old.py": "new.py", "lib/a.py": "src/a.py",
+                                 "lib/b.py": "src/b.py"}, delete=["gone.py"]),
+    ])
+    workdir = tmp_path / "work"
+    write_json(workdir / "inventory.json", {"docs": ["README.md"], "files": [], "excluded": [],
+                                            "never_edit_re": DEFAULT_NEVER_EDIT})
+    write_json(workdir / "tokens.json", {"docs": {"README.md": _tokens(repo, "README.md")},
+                                         "markers": [], "skipped": []})
+    out = run(repo, workdir)
+    assert [(c["text"], c["class"], c["replacement"]) for c in out["candidates"]] == [
+        ("old.py", "provable-replace", "new.py"),
+        ("gone.py", "provable-delete", None),
+        ("lib/", "provable-replace", "src/"),
+    ]
+    assert len({c["snapshot"] for c in out["candidates"]}) == 2
+    for args in calls:
+        if "ls-tree" in args:
+            rest = args[args.index("ls-tree") + 1 :]
+            rev = next(a for a in rest if not a.startswith("-"))
+            assert rev == "HEAD" or "--" in rest, args
+    assert sum("cat-file" in args for args in calls) == 1
 
 
 GUIDE = "# Guide\n\n## Install\n\nSteps here.\n\n## Usage\n\nUse it.\n"
@@ -659,14 +785,21 @@ def test_justfile_and_taskfile_recipes_resolve() -> None:
 
 
 def test_version_mismatch_python_and_node(tmp_path: Path) -> None:
-    repo = make_repo(tmp_path, [_c("01", "one", files={
-        "README.md": (
-            "Requires Python 3.10+.\n\nAlso fine with Python 3.11+.\n\n"
-            "The web app needs Node 18+.\n\nRust 1.70+ is unrelated.\n"
-        ),
-        "pyproject.toml": '[project]\nname = "x"\nrequires-python = ">=3.11"\n',
-        "package.json": '{"engines": {"node": ">=20.1"}}\n',
-    })])
+    # R59: each floor equalled the manifest when its line was written; the manifests moved on
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={
+            "README.md": (
+                "Requires Python 3.10+.\n\nAlso fine with Python 3.11+.\n\n"
+                "The web app needs Node 18+.\n\nRust 1.70+ is unrelated.\n"
+            ),
+            "pyproject.toml": '[project]\nname = "x"\nrequires-python = ">=3.10"\n',
+            "package.json": '{"engines": {"node": ">=18"}}\n',
+        }),
+        _c("02", "bump", files={
+            "pyproject.toml": '[project]\nname = "x"\nrequires-python = ">=3.11"\n',
+            "package.json": '{"engines": {"node": ">=20.1"}}\n',
+        }),
+    ])
     cands = _cands(repo)
     assert [(c["text"], *_shape(c)) for c in cands] == [
         ("3.10", "provable-replace", "version-mismatch", "3.11", None),
@@ -675,6 +808,49 @@ def test_version_mismatch_python_and_node(tmp_path: Path) -> None:
     assert cands[0]["evidence"] == "manifest pyproject.toml says >=3.11"
     assert cands[1]["evidence"] == "manifest package.json says >=20.1"
     assert cands[0]["evidence_commit"] is None
+    assert len(cands[0]["snapshot"]) == 40
+
+
+def test_version_floor_never_the_manifests_is_summary_only(tmp_path: Path) -> None:
+    # R59, final review C1: a historical floor sentence was never the project's floor
+    repo = make_repo(tmp_path, [_c("01", "one", files={
+        "README.md": "# X\n\nRequires Python 3.11+.\n\n"
+                     "- Python 2.7+ support was dropped in v2.\n",
+        "pyproject.toml": '[project]\nname = "x"\nrequires-python = ">=3.11"\n',
+    })])
+    cand = _one(repo)
+    assert cand["text"] == "2.7"
+    assert _shape(cand) == ("summary-only", None, None, None)
+    assert cand["existed_then"] is False
+    assert cand["evidence"] == f"not the manifest floor at {_sha7(repo)}"
+
+
+def test_version_floor_written_at_old_manifest_floor_is_replaced(tmp_path: Path) -> None:
+    # R59: "Python 3.10+" written while requires-python was >=3.10, later bumped to >=3.11
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={
+            "README.md": "# X\n\nRequires Python 3.10+.\n",
+            "pyproject.toml": '[project]\nname = "x"\nrequires-python = ">=3.10"\n',
+        }),
+        _c("02", "bump", files={
+            "pyproject.toml": '[project]\nname = "x"\nrequires-python = ">=3.11"\n',
+        }),
+    ])
+    assert _shape(_one(repo)) == ("provable-replace", "version-mismatch", "3.11", None)
+
+
+def test_version_without_history_is_summary_only(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={
+            "README.md": "Requires Python 3.10+.\n",
+            "pyproject.toml": '[project]\nrequires-python = ">=3.10"\n',
+        }),
+        _c("02", "bump", files={"pyproject.toml": '[project]\nrequires-python = ">=3.11"\n'}),
+    ])
+    resolver = Resolver(repo, _NoBlame(repo))
+    cands = [c for t in _tokens(repo, "README.md") if (c := resolver.classify(t))]
+    assert [_shape(c) for c in cands] == [("summary-only", None, None, None)]
+    assert cands[0]["history_unavailable"] is True
 
 
 def test_version_compared_at_lower_precision() -> None:
@@ -802,8 +978,9 @@ class _NoBlame(History):
 
 
 class _NoTree(History):
-    def tree_at(self, sha: str) -> tuple[frozenset[str], frozenset[str]] | None:
-        return super().tree_at(sha) if sha == "HEAD" else None
+    # R63: the snapshot is a lazy view now; an unreadable one is None, as tree_at was
+    def snapshot(self, sha: str) -> SnapshotTree | None:
+        return None
 
 
 def test_no_history_means_no_edit(tmp_path: Path) -> None:

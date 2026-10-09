@@ -80,7 +80,9 @@ _SEP = re.compile(r"&&|\|\||;|\|")
 _GAP = re.compile(r"[ \t]+")
 _TOOL = re.compile(r"(make|npm|yarn|pnpm|just|task)[ \t]+")
 _WORD = re.compile(r"[A-Za-z0-9_][\w:.\-]*(?=$|[ \t;&|)])")
-_RUNTIME = r"(?i)\b(python|node(?:\.js)?|go|golang|rust)"
+# Ruling R59: the runtime word starts a word that no `.`, `-` or word character precedes, so a
+# package name such as `opencv-python>=4.8` or `my.node >= 2` is not a runtime floor.
+_RUNTIME = r"(?i)(?<![\w.-])(python|node(?:\.js)?|go|golang|rust)"
 _VERSIONS = (
     re.compile(
         _RUNTIME + r"\s+(?:version\s+)?(?:>=\s*|≥\s*|v)?(\d+(?:\.\d+){0,2})\s*"
@@ -96,7 +98,10 @@ _GLYPH = re.compile(r"(?:├──|└──|\|--|`--)[─-]*[ \t]+(?=\S)")
 _TREE_PREFIX = re.compile(r"[\s│|]*")
 _BOX_CHARS = re.compile(r"[─-╿]")
 _TREE_NAME_END = re.compile(r"\s+(?:#|<-|←)|\s{2,}|\t")
-_MARKER = re.compile(r"drift-ignore(?P<kind>-next-line|-file)?(?:\s*:(?P<reason>.*))?", re.DOTALL)
+# A marker comment's body. Ruling R66: a body with no colon after the marker word, or with an
+# empty reason after it, is a marker without a reason (reported, never honoured).
+_MARKER = re.compile(
+    r"drift-ignore(?P<kind>-next-line|-file)?(?:\s*:(?P<reason>.*)|\s+(?P<bare>.*))?", re.DOTALL)
 # Generated-region markers (spec 8). Begin markers must open the line, so a marker quoted in
 # prose or inline code does not open a region; end markers may follow content on the line.
 _GENERATED = (
@@ -106,6 +111,19 @@ _GENERATED = (
     (re.compile(r"\s*<!--\s*BEGIN GENERATED"), re.compile(r"<!--\s*END GENERATED")),
 )
 _EMBEDME = re.compile(r"\s*<!--\s*embedme\b")
+
+
+def parse_marker(body: str) -> tuple[str, str | None] | None:
+    """``(kind, reason)`` of a ``drift-ignore`` comment body, or None when it is not one.
+
+    ``kind`` is ``drift-ignore``, ``drift-ignore-next-line`` or ``drift-ignore-file``. The
+    reason is None when the marker has no colon or nothing after it (ruling R66): such a
+    marker is reported as a marker without a reason and suppresses nothing.
+    """
+    m = _MARKER.fullmatch(body)
+    if m is None:
+        return None
+    return "drift-ignore" + (m["kind"] or ""), (m["reason"] or "").strip() or None
 
 
 def _ext(text: str) -> str:
@@ -444,20 +462,25 @@ class _Extractor:
     # -- flags -------------------------------------------------------------------------------
 
     def markers(self) -> list[dict[str, Any]]:
+        """Block and line markers, and a file marker without a reason (ruling R66: it does not
+        exclude the doc, so it is reported here; one with a reason never reaches extraction)."""
         out: list[dict[str, Any]] = []
         for c in self.sc.comments:
-            m = _MARKER.fullmatch(c.body)
-            if m is None or m["kind"] == "-file":
+            parsed = parse_marker(c.body)
+            if parsed is None:
                 continue
-            reason = (m["reason"] or "").strip() or None
-            start: int | None
-            end: int | None
-            if m["kind"] == "-next-line":
+            kind, reason = parsed
+            start: int | None = None
+            end: int | None = None
+            if kind == "drift-ignore-file":
+                if reason is not None:
+                    continue
+            elif kind == "drift-ignore-next-line":
                 start = end = c.line_end + 1 if c.line_end < self.count else None
             else:
                 start, end = self.next_block(c.line_end)
             out.append({
-                "doc": self.doc, "line": c.line_start, "kind": "drift-ignore" + (m["kind"] or ""),
+                "doc": self.doc, "line": c.line_start, "kind": kind,
                 "reason": reason, "target_line_start": start, "target_line_end": end,
             })
         return out
