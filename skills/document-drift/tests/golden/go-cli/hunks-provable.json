@@ -14,7 +14,7 @@
    "line_end": 5,
    "line_start": 5,
    "new_text": "internal/cli/options.go",
-   "reason": "renamed in bd0a781",
+   "reason": "renamed in e998791",
    "token_kind": "path",
    "token_text": "internal/cli/flags.go",
    "verb": "replace"
@@ -50,7 +50,7 @@
    "line_end": 9,
    "line_start": 9,
    "new_text": null,
-   "reason": "deleted in 5bcc916",
+   "reason": "deleted in 7ac778c",
    "token_kind": "path",
    "token_text": "internal/report/csv.go",
    "verb": "delete"
@@ -69,7 +69,7 @@
    "line_end": 15,
    "line_start": 15,
    "new_text": "internal/storage/",
-   "reason": "renamed in bf2e761",
+   "reason": "renamed in fee2351",
    "token_kind": "path",
    "token_text": "internal/store/",
    "verb": "replace"
@@ -86,7 +86,7 @@
    "line_end": 21,
    "line_start": 21,
    "new_text": null,
-   "reason": "removed in 3a72e6a",
+   "reason": "removed in 4a8a87f",
    "token_kind": "script",
    "token_text": "vet",
    "verb": "delete"
@@ -100,12 +100,12 @@
     "- [Building](#building)"
    ],
    "doc": "docs/usage.md",
-   "finding_id": "F010",
+   "finding_id": "F011",
    "id": "H006",
    "line_end": 3,
    "line_start": 3,
    "new_text": "building-from-source",
-   "reason": "heading renamed in 479e39c",
+   "reason": "heading renamed in 44ce8ed",
    "token_kind": "anchor",
    "token_text": "building",
    "verb": "replace"

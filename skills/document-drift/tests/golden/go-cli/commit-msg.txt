@@ -1,17 +1,19 @@
 docs(drift): provable fixes
 
-Drift-Run: 7e092c9c6080
-Drift-Base: 3a72e6a856951542501f0378ed2e661e3f56d57f
+Drift-Run: 3ea447d70afa
+Drift-Base: 6a06cb8ce75df2e9f131014be89f5f298099f5f4
 Drift-Scope: all
 
-- CLAUDE.md:5 replace `internal/cli/flags.go` -> `internal/cli/options.go` (renamed in bd0a781)
+- CLAUDE.md:5 replace `internal/cli/flags.go` -> `internal/cli/options.go` (renamed in e998791)
 - README.md:5 replace `1.20` -> `1.22` (manifest go.mod says 1.22)
-- README.md:9 delete `internal/report/csv.go` (deleted in 5bcc916)
-- README.md:15 replace `internal/store/` -> `internal/storage/` (renamed in bf2e761)
-- README.md:21 delete `make vet` (removed in 3a72e6a)
-- docs/usage.md:3 replace `building` -> `building-from-source` (heading renamed in 479e39c)
+- README.md:9 delete `internal/report/csv.go` (deleted in 7ac778c)
+- README.md:15 replace `internal/store/` -> `internal/storage/` (renamed in fee2351)
+- README.md:21 delete `make vet` (removed in 4a8a87f)
+- docs/usage.md:3 replace `building` -> `building-from-source` (heading renamed in 44ce8ed)
 
 Needs a human decision:
 - README.md:13 [prose-mention] `internal/compat/v1shim.go` no longer exists and is mentioned in running prose
-  evidence: deleted in 5bcc916
+  evidence: deleted in 7ac778c
+- docs/legacy.md:3 [ambiguous-rename] `internal/legacy/` was renamed or moved and no single new name is provable
+  evidence: renamed in 6a06cb8 to internal/cli; 2 of 3 files deleted
 

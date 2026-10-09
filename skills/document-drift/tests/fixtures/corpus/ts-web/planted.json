@@ -5,7 +5,7 @@
     {"id": "p3", "doc": "docs/frontend.md", "line": 16, "kind": "path", "text": "../src/legacy/polyfills.ts", "what": "doc-relative prose link to the deleted ../src/legacy/polyfills.ts", "expect": "unlink"},
     {"id": "p4", "doc": "README.md", "line": 17, "kind": "path", "text": "src/workers/sync_worker.ts", "what": "the only item of its list names the deleted src/workers/sync_worker.ts", "expect": "human:large-deletion"},
     {"id": "p5", "doc": "README.md", "line": 24, "kind": "script", "text": "storybook", "what": "npm run storybook in a bash fence after the script was removed", "expect": "delete"},
-    {"id": "p6", "doc": "README.md", "line": 5, "kind": "version", "text": "16", "what": "Node >= 16 behind engines.node >=18", "expect": "replace:18"},
+    {"id": "p6", "doc": "README.md", "line": 5, "kind": "version", "text": "16", "what": "Node >= 16, written when engines.node said >=16, behind its later >=18 (R59)", "expect": "replace:18"},
     {"id": "p7", "doc": "docs/frontend.md", "line": 11, "kind": "tree", "text": "src/components/Sidebar.tsx", "what": "tree entry components/Sidebar.tsx renamed to components/NavRail.tsx", "expect": "replace:NavRail.tsx"},
     {"id": "p8", "doc": "docs/frontend.md", "line": 10, "kind": "tree", "text": "src/components/OldModal.tsx", "what": "tree leaf components/OldModal.tsx deleted", "expect": "delete"}
   ],
@@ -13,6 +13,8 @@
     {"id": "d1", "doc": "docs/frontend.md", "line": 22, "why": "the deliberate removal sentence, committed in the deleting commit (its snapshot never had the file)", "expect": "none"},
     {"id": "d2", "doc": "docs/frontend.md", "line": 18, "why": "an illustrative directory that never existed", "expect": "none"},
     {"id": "d3", "doc": "third_party/lib/README.md", "line": 6, "why": "a vendored README list subject naming third_party/lib/legacy.js, written while it existed and deleted later (a provable delete if scanned); third_party/ is never scanned", "expect": "excluded"},
-    {"id": "d4", "doc": "templates/README.md", "line": 4, "why": "a templates/ README list subject naming templates/legacy_page.tsx.tmpl, written while it existed and deleted later (a provable delete if scanned); templates/ is never scanned", "expect": "excluded"}
+    {"id": "d4", "doc": "templates/README.md", "line": 4, "why": "a templates/ README list subject naming templates/legacy_page.tsx.tmpl, written while it existed and deleted later (a provable delete if scanned); templates/ is never scanned", "expect": "excluded"},
+    {"id": "d5", "doc": "docs/api.md", "line": 3, "why": "a heading naming src/api/session.ts, renamed later; docs/auth.md links to the heading's slug, so rewriting it would break the link (R62)", "expect": "human:heading-reference"},
+    {"id": "d6", "doc": "docs/auth.md", "line": 3, "why": "the link to that heading's slug still resolves, because the heading is left alone", "expect": "none"}
   ]
 }

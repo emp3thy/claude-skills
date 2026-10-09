@@ -15,7 +15,7 @@ commits:
           "version": "2.0.0",
           "private": true,
           "engines": {
-            "node": ">=18"
+            "node": ">=16"
           },
           "scripts": {
             "dev": "vite",
@@ -124,6 +124,23 @@ commits:
       docs/frontend.md: "@final"
   - author: "Rosalind Franklin <rosalind@example.com>"
     date: "2025-04-22T08:00:00+00:00"
-    subject: "build: remove storybook"
+    subject: "build: remove storybook and require Node 18"
     files:
       package.json: "@final"
+  # Final-review additions (R62, R68): a heading that names a file, linked from another doc by
+  # its slug; the file is renamed later, and rewriting the heading would break the link.
+  - author: "Linus Pauling <linus@example.com>"
+    date: "2025-05-05T10:00:00+00:00"
+    subject: "feat: session store and its api notes"
+    files:
+      src/api/session.ts: |
+        export function readToken(): string | null {
+          return sessionStorage.getItem("token");
+        }
+      docs/api.md: "@final"
+      docs/auth.md: "@final"
+  - author: "Rosalind Franklin <rosalind@example.com>"
+    date: "2025-06-01T09:00:00+00:00"
+    subject: "refactor: session.ts becomes authSession.ts"
+    rename:
+      src/api/session.ts: src/api/authSession.ts

@@ -1,23 +1,23 @@
 docs(drift): provable fixes
 
-Drift-Run: a65c928356c8
-Drift-Base: 2de8f1c54e0d44847d3ecc639fe07774c962489a
+Drift-Run: 54e8e46f63e9
+Drift-Base: 4b235dd4bf2ed5af4c47aac0a9bc504ac61ff5dd
 Drift-Scope: all
 
 - README.md:5 replace `3.10` -> `3.11` (manifest pyproject.toml says >=3.11)
-- README.md:10 replace `src/svc/routes.py` -> `src/svc/handlers.py` (renamed in ef1be45)
-- README.md:11 delete `src/svc/legacy_cache.py` (deleted in 77adab0)
-- README.md:14 replace `local-setup` -> `local-development` (heading renamed in 58ea0b8)
-- README.md:16 unlink `src/svc/old_auth.py` (deleted in 77adab0)
-- README.md:24 delete `make lint` (removed in 2de8f1c)
-- docs/architecture.md:9 delete `src/svc/tasks/cleanup_job.py` (deleted in 77adab0)
-- docs/architecture.md:10 replace `src/svc/tasks/scheduler.py` -> `src/svc/tasks/runner.py` (renamed in a915dee)
+- README.md:10 replace `src/svc/routes.py` -> `src/svc/handlers.py` (renamed in 56adb77)
+- README.md:11 delete `src/svc/legacy_cache.py` (deleted in c3439e4)
+- README.md:14 replace `local-setup` -> `local-development` (heading renamed in 2b2802f)
+- README.md:16 unlink `src/svc/old_auth.py` (deleted in c3439e4)
+- README.md:24 delete `make lint` (removed in 5d4a36f)
+- docs/architecture.md:9 delete `src/svc/tasks/cleanup_job.py` (deleted in c3439e4)
+- docs/architecture.md:10 replace `src/svc/tasks/scheduler.py` -> `src/svc/tasks/runner.py` (renamed in 988a30b)
 
 Needs a human decision:
 - README.md:18 [prose-mention] `src/svc/mailer_v1.py` no longer exists and is mentioned in running prose
-  evidence: deleted in 77adab0
+  evidence: deleted in c3439e4
 - docs/architecture.md:18 [generated-region] `scripts/seed_v0.py` no longer exists inside a generated region; regenerate it
-  evidence: deleted in 77adab0
+  evidence: deleted in c3439e4
 - docs/architecture.md:23 [never-edit-section] `src/svc/retry_v0.py` no longer exists, in a section headed 'Rationale'
-  evidence: deleted in 77adab0
+  evidence: deleted in c3439e4
 

@@ -9,7 +9,7 @@ commits:
     date: "2024-03-04T09:00:00+00:00"
     subject: "feat: cli skeleton"
     files:
-      go.mod: "@final"
+      go.mod: "module github.com/acme/drift-cli\n\ngo 1.20\n"
       Makefile: ".PHONY: build vet test\n\nbuild:\n\tgo build -o bin/drift ./cmd/drift\n\nvet:\n\tgo vet ./...\n\ntest:\n\tgo test ./...\n"
       cmd/drift/main.go: "@final"
       internal/cli/flags.go: "package cli\n\nimport \"flag\"\n\n// Run parses the command line options and returns an exit code.\nfunc Run(args []string) int {\n\tfs := flag.NewFlagSet(\"drift\", flag.ContinueOnError)\n\tif err := fs.Parse(args); err != nil {\n\t\treturn 2\n\t}\n\treturn 0\n}\n"
@@ -99,3 +99,27 @@ commits:
     subject: "build: drop the vet target"
     files:
       Makefile: "@final"
+  # Final-review additions (R59, R60, R68): the go directive the README states was the
+  # manifest's when it was written (commit 1 says go 1.20) and is raised here; then a directory
+  # of version 1 parsers of which one file is kept (moved) and the rest deleted.
+  - author: "Barbara Liskov <barbara@example.com>"
+    date: "2025-06-15T08:00:00+00:00"
+    subject: "build: require Go 1.22"
+    files:
+      go.mod: "@final"
+  - author: "Ken Thompson <ken@example.com>"
+    date: "2025-07-01T09:00:00+00:00"
+    subject: "feat: version 1 parsers and their notes"
+    files:
+      internal/legacy/flags.go: "package legacy\n\n// ParseFlags translates version 1 flags.\nfunc ParseFlags(args []string) []string {\n\treturn args\n}\n"
+      internal/legacy/config.go: "package legacy\n\n// ParseConfig reads a version 1 config file.\nfunc ParseConfig(path string) error {\n\treturn nil\n}\n"
+      internal/legacy/env.go: "package cli\n\n// ParseEnv reads the version 1 settings from the environment.\nfunc ParseEnv() map[string]string {\n\treturn map[string]string{}\n}\n"
+      docs/legacy.md: "@final"
+  - author: "Barbara Liskov <barbara@example.com>"
+    date: "2025-08-01T08:00:00+00:00"
+    subject: "refactor: keep only the environment parser"
+    rename:
+      internal/legacy/env.go: internal/cli/env.go
+    delete:
+      - internal/legacy/flags.go
+      - internal/legacy/config.go

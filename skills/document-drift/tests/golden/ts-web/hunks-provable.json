@@ -33,7 +33,7 @@
    "line_end": 10,
    "line_start": 10,
    "new_text": "src/api/httpClient.ts",
-   "reason": "renamed in c9b98e7",
+   "reason": "renamed in a6e39df",
    "token_kind": "path",
    "token_text": "src/api/client.ts",
    "verb": "replace"
@@ -52,7 +52,7 @@
    "line_end": 13,
    "line_start": 13,
    "new_text": "src/helpers/",
-   "reason": "renamed in 01789e9",
+   "reason": "renamed in f38113b",
    "token_kind": "path",
    "token_text": "src/utils/",
    "verb": "replace"
@@ -69,7 +69,7 @@
    "line_end": 24,
    "line_start": 24,
    "new_text": null,
-   "reason": "removed in 40fa581",
+   "reason": "removed in e7d4a8b",
    "token_kind": "script",
    "token_text": "storybook",
    "verb": "delete"
@@ -81,12 +81,12 @@
     "    ├── OldModal.tsx"
    ],
    "doc": "docs/frontend.md",
-   "finding_id": "F006",
+   "finding_id": "F007",
    "id": "H005",
    "line_end": 10,
    "line_start": 10,
    "new_text": null,
-   "reason": "deleted in df50d88",
+   "reason": "deleted in 4e0dba7",
    "token_kind": "tree",
    "token_text": "src/components/OldModal.tsx",
    "verb": "delete"
@@ -100,12 +100,12 @@
     "    ├── Sidebar.tsx"
    ],
    "doc": "docs/frontend.md",
-   "finding_id": "F007",
+   "finding_id": "F008",
    "id": "H006",
    "line_end": 11,
    "line_start": 11,
    "new_text": "NavRail.tsx",
-   "reason": "renamed in cd2ba44",
+   "reason": "renamed in 87fc681",
    "token_kind": "tree",
    "token_text": "src/components/Sidebar.tsx",
    "verb": "replace"
@@ -119,12 +119,12 @@
     "Older browsers load [the legacy polyfills](../src/legacy/polyfills.ts) before the app boots."
    ],
    "doc": "docs/frontend.md",
-   "finding_id": "F008",
+   "finding_id": "F009",
    "id": "H007",
    "line_end": 16,
    "line_start": 16,
    "new_text": null,
-   "reason": "deleted in df50d88",
+   "reason": "deleted in 4e0dba7",
    "token_kind": "path",
    "token_text": "../src/legacy/polyfills.ts",
    "verb": "unlink"

@@ -8,7 +8,12 @@ commits:
     date: "2024-01-10T09:00:00+00:00"
     subject: "feat: service skeleton"
     files:
-      pyproject.toml: "@final"
+      pyproject.toml: |
+        [project]
+        name = "svc"
+        version = "1.4.0"
+        requires-python = ">=3.10"
+        dependencies = ["flask>=3.0"]
       Makefile: ".PHONY: install lint test\n\ninstall:\n\tpip install -e .\n\nlint:\n\truff check src\n\ntest:\n\tpytest -q\n"
       src/svc/__init__.py: "@final"
       src/svc/app.py: "@final"
@@ -178,3 +183,16 @@ commits:
     subject: "build: drop the lint target"
     files:
       Makefile: "@final"
+  # Final-review additions (R59, R68): the floor the README states was the manifest's when it
+  # was written (commit 1 says >=3.10) and is bumped here; then a doc with a package floor and a
+  # historical floor sentence, neither of which is the project's runtime floor.
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2025-06-10T09:00:00+00:00"
+    subject: "build: require Python 3.11"
+    files:
+      pyproject.toml: "@final"
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2025-07-01T10:00:00+00:00"
+    subject: "docs: install notes"
+    files:
+      docs/install.md: "@final"

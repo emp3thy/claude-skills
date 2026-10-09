@@ -6,7 +6,7 @@
     {"id": "p4", "doc": "README.md", "line": 18, "kind": "path", "text": "src/svc/mailer_v1.py", "what": "inline prose mention of the deleted src/svc/mailer_v1.py", "expect": "human:prose-mention"},
     {"id": "p5", "doc": "README.md", "line": 14, "kind": "anchor", "text": "local-setup", "what": "docs/setup.md#local-setup after '## Local Setup' became '## Local Development' in one commit", "expect": "replace:local-development"},
     {"id": "p6", "doc": "README.md", "line": 24, "kind": "script", "text": "lint", "what": "make lint in a bash fence after the lint target was removed", "expect": "delete"},
-    {"id": "p7", "doc": "README.md", "line": 5, "kind": "version", "text": "3.10", "what": "Python 3.10+ behind requires-python >=3.11", "expect": "replace:3.11"},
+    {"id": "p7", "doc": "README.md", "line": 5, "kind": "version", "text": "3.10", "what": "Python 3.10+, written when requires-python said >=3.10, behind its later >=3.11 (R59)", "expect": "replace:3.11"},
     {"id": "p8", "doc": "docs/architecture.md", "line": 10, "kind": "tree", "text": "src/svc/tasks/scheduler.py", "what": "tree entry tasks/scheduler.py renamed to tasks/runner.py", "expect": "replace:runner.py"},
     {"id": "p9", "doc": "docs/architecture.md", "line": 9, "kind": "tree", "text": "src/svc/tasks/cleanup_job.py", "what": "tree leaf tasks/cleanup_job.py deleted", "expect": "delete"}
   ],
@@ -22,6 +22,8 @@
     {"id": "d9", "doc": "docs/superpowers/plans/2024-03-01-cache-plan.md", "line": 4, "why": "a docs/superpowers plan list subject naming src/svc/legacy_cache.py, written while it existed and deleted later (a provable delete if scanned); docs/superpowers is never scanned", "expect": "excluded"},
     {"id": "d10", "doc": "docs/architecture.md", "line": 23, "why": "a deleted file under a '## Rationale' heading", "expect": "human:never-edit-section"},
     {"id": "d11", "doc": "docs/architecture.md", "line": 18, "why": "a deleted file inside an embedme generated region", "expect": "human:generated-region"},
-    {"id": "d12", "doc": "README.md", "line": 44, "why": "a deleted file under drift-ignore with a reason", "expect": "none"}
+    {"id": "d12", "doc": "README.md", "line": 44, "why": "a deleted file under drift-ignore with a reason", "expect": "none"},
+    {"id": "d13", "doc": "docs/install.md", "line": 5, "why": "a package floor opencv-python>=4.8: the runtime word needs a left boundary, so no version token (R59)", "expect": "no-token"},
+    {"id": "d14", "doc": "docs/install.md", "line": 6, "why": "a historical floor sentence (Python 2.7+ support was dropped) that was never the manifest's floor: summary-only (R59)", "expect": "none"}
   ]
 }

@@ -6,12 +6,13 @@
     {"id": "p4", "doc": "README.md", "line": 13, "kind": "path", "text": "internal/compat/v1shim.go", "what": "inline prose mention of the deleted internal/compat/v1shim.go", "expect": "human:prose-mention"},
     {"id": "p5", "doc": "docs/usage.md", "line": 3, "kind": "anchor", "text": "building", "what": "same-doc #building after '## Building' became '## Building from Source' in one commit", "expect": "replace:building-from-source"},
     {"id": "p6", "doc": "README.md", "line": 21, "kind": "script", "text": "vet", "what": "make vet in a sh fence after the vet target was removed", "expect": "delete"},
-    {"id": "p7", "doc": "README.md", "line": 5, "kind": "version", "text": "1.20", "what": "Go 1.20 or later behind the go.mod go 1.22 directive", "expect": "replace:1.22"}
+    {"id": "p7", "doc": "README.md", "line": 5, "kind": "version", "text": "1.20", "what": "Go 1.20 or later, written when go.mod said go 1.20, behind its later go 1.22 directive (R59)", "expect": "replace:1.22"}
   ],
   "decoys": [
     {"id": "d1", "doc": "README.md", "line": 33, "why": "the deliberate removal sentence, committed in the deleting commit (its snapshot never had the file)", "expect": "none"},
     {"id": "d2", "doc": "README.md", "line": 27, "why": "a runtime artefact state.json", "expect": "none"},
     {"id": "d3", "doc": "README.md", "line": 29, "why": "an illustrative path that never existed", "expect": "none"},
-    {"id": "d4", "doc": "README.md", "line": 31, "why": "a ratio 4/5: the ratio guard gives no token", "expect": "no-token"}
+    {"id": "d4", "doc": "README.md", "line": 31, "why": "a ratio 4/5: the ratio guard gives no token", "expect": "no-token"},
+    {"id": "d5", "doc": "docs/legacy.md", "line": 3, "why": "directory internal/legacy/ partly salvaged: one file moved to internal/cli/, two deleted, so no single new name (R60)", "expect": "human:ambiguous-rename"}
   ]
 }
