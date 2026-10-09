@@ -28,6 +28,7 @@ import contextlib
 import os
 import re
 import shutil
+import stat
 import sys
 from collections import Counter
 from pathlib import Path
@@ -220,7 +221,9 @@ def _write_atomic(path: Path, text: str) -> None:
         os.replace(tmp, path)
     except OSError:
         with contextlib.suppress(OSError):
-            tmp.unlink(missing_ok=True)
+            if tmp.is_file():  # never a directory the user happens to have at that name
+                os.chmod(tmp, stat.S_IREAD | stat.S_IWRITE)  # copymode may have made it read-only
+                tmp.unlink()
         raise
 
 

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import os
 import re
+import stat
+import sys
 from pathlib import Path
 from typing import Any
 
+import dd_apply
+import pytest
 from dd_apply import main, run
 from dd_common import EXIT_MISSING, EXIT_OK, read_json, write_json
 from dd_extract import extract_doc
@@ -179,6 +184,28 @@ def test_failed_write_reverts_the_doc_hunks(tmp_path: Path):
     ]}
     assert (root / "README.md").read_bytes() == LIST_DOC.encode()
     assert _findings(workdir)["F001"]["recheck_reason"] == "write-failed"
+
+
+def test_read_only_doc_is_write_failed_and_leaves_no_temp_file(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    root, workdir, _ = _setup(tmp_path, LIST_DOC, _list_cands(LIST_DOC))
+    doc = root / "README.md"
+    os.chmod(doc, stat.S_IREAD)
+    if sys.platform != "win32":  # replacing a read-only file only fails on Windows
+
+        def refuse(src: object, dst: object) -> None:
+            raise PermissionError(13, "read-only", str(dst))
+
+        monkeypatch.setattr(dd_apply.os, "replace", refuse)
+    try:
+        result = run(root, workdir)
+        assert result["applied"] == [] and result["docs"] == []
+        assert result["reverted"] == [{"hunk": "H001", "reason": "write-failed"},
+                                      {"hunk": "H002", "reason": "write-failed"}]
+        assert doc.read_bytes() == LIST_DOC.encode()
+        assert list(root.glob("*.dd-tmp")) == []
+    finally:
+        os.chmod(doc, stat.S_IREAD | stat.S_IWRITE)
 
 
 def test_missing_doc_reverts_every_hunk_and_writes_nothing(tmp_path: Path):
