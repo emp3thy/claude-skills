@@ -21,7 +21,8 @@ placeholder label is always dropped); a renamed entry's replacement is its own l
 segment only, and a rename that changes a parent directory is a human decision (rulings R12,
 R16, R22). Anchors whose target doc climbs above the repository never existed. An anchor is
 judged by the one commit that removed its slug (a rename keeps the level and a similar section
-body, R30), and a ``-N`` duplicate-suffix anchor is never provable (R24). An ``ignored`` token
+body, R30); more than one removing commit is a human decision (R35), and a ``-N``
+duplicate-suffix anchor is never provable (R24). An ``ignored`` token
 never yields a candidate (R29).
 """
 from __future__ import annotations
@@ -400,17 +401,24 @@ class Resolver:
         then = heading_slugs(self.history.show(sha, target) or "")
         slug = _match_slug(frag, then) or frag
         now = heading_slugs(self._read_head(target) or "")
-        found = self._heading_commit(sha, target, frag)
+        removers = self._heading_commits(sha, target, frag)
+        found = removers[-1] if removers else None
         commit = found[0][:7] if found else None
         fields: dict[str, Any] = {"resolved_then": target, "evidence_commit": commit,
                                   "outcome": "ambiguous",
                                   "evidence": _ev("headings changed", commit)}
+        if len(removers) > 1:  # R35: parallel (or repeated) removals make any one a guess
+            shas = ", ".join(r[0][:7] for r in removers)
+            fields.update(evidence=f"heading removed in {shas}")
+            return fields
         dup = _DUP_SUFFIX.fullmatch(slug)
         if found is None or (dup is not None and (dup.group(1) in then or dup.group(1) in now)):
             return fields  # a -N anchor names a position among repeats: never provable
         removed, added = found[1], found[2]
         if _match_slug(frag, removed) is None:
-            return fields  # R32: that commit did not remove this anchor against its parent
+            # defensive: _heading_commits only lists commits whose first parent defined the slug
+            # and which lack it, so the slug is always in `removed` and this cannot fire (R32)
+            return fields
         if not added:  # R34: however many subsections went with it
             fields.update(outcome="deleted", evidence=_ev("heading removed", commit))
         elif len(removed) == 1 and len(added) == 1:
@@ -431,25 +439,25 @@ class Resolver:
         ratio = difflib.SequenceMatcher(None, before[1], after[1]).ratio()
         return ratio >= HEADING_BODY_SIMILARITY
 
-    def _heading_commit(self, sha: str, target: str,
-                        frag: str) -> tuple[str, set[str], set[str]] | None:
-        """The last commit (in topological order) that removed the anchor against its own first
-        parent, with the slugs that commit removed and added there.
+    def _heading_commits(self, sha: str, target: str,
+                         frag: str) -> list[tuple[str, set[str], set[str]]]:
+        """Every listed commit (in topological order) that removed the anchor against its own
+        first parent, each with the slugs it removed and added there.
 
         Each commit is judged against its first parent, never against the previously listed
-        commit, so a merge whose first parent already lacked the anchor is not the remover
-        (ruling R32).
+        commit, so a merge whose first parent already lacked the anchor is not a remover
+        (ruling R32). More than one remover is ambiguous (ruling R35).
         """
         out = run_git(self.root, ["--literal-pathspecs", "log", "--topo-order", "--reverse",
                                   "--format=%H", f"{sha}..HEAD", "--", target])
-        found: tuple[str, set[str], set[str]] | None = None
+        found: list[tuple[str, set[str], set[str]]] = []
         for commit in (out or "").split():
             after = heading_slugs(self.history.show(commit, target) or "")
             if _match_slug(frag, after) is not None:
                 continue
             before = heading_slugs(self.history.show(f"{commit}^", target) or "")
             if _match_slug(frag, before) is not None:
-                found = (commit, before - after, after - before)
+                found.append((commit, before - after, after - before))
         return found
 
     # -- paths and tree entries --------------------------------------------------------------

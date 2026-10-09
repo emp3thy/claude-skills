@@ -425,6 +425,42 @@ def test_anchor_removed_on_one_branch_and_other_heading_renamed_on_merge_side(
     assert cand["evidence"] == f"heading removed in {a_sha}"
 
 
+MERGE_USAGE = "## Usage\n\nUse it daily and often.\n"
+
+
+@pytest.mark.parametrize("first", ["main", "side"])
+@pytest.mark.parametrize("renamer", ["main", "side"])
+def test_anchor_removed_on_two_parallel_branches_is_human(
+    tmp_path: Path, renamer: str, first: str
+) -> None:
+    # R35, reviewer probe_parallel2: R renames Install to Setup, D deletes it, M keeps Setup
+    rename = MERGE_LINK + MERGE_INST.replace("## Install", "## Setup") + MERGE_USAGE
+    delete = MERGE_LINK + MERGE_USAGE
+    deleter = "side" if renamer == "main" else "main"
+    by_branch = {
+        renamer: _c("", "R rename install to setup", branch=renamer,
+                    files={"README.md": rename}),
+        deleter: _c("", "D delete install", branch=deleter, files={"README.md": delete}),
+    }
+    order = [first, "side" if first == "main" else "main"]
+    commits = [
+        _c("01", "S", files={"README.md": MERGE_LINK + MERGE_INST + MERGE_USAGE}),
+        _c("02", "branch point", branch="side"),  # side forks from S
+    ]
+    for day, branch in zip(("03", "04"), order, strict=True):
+        commits.append({**by_branch[branch], "date": f"2026-01-{day}T00:00:00Z"})
+    repo = make_repo(tmp_path, commits)
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "merge", "-q", "--no-ff", "side", "-m", "M")  # conflicts; resolved below
+    (repo / "README.md").write_bytes((rename + "\nMore usage text.\n").encode())
+    assert _git(repo, "add", "README.md").returncode == 0
+    assert _git(repo, "commit", "-q", "--no-edit", "-m", "M merge").returncode == 0
+    assert _git(repo, "rev-parse", "-q", "--verify", "HEAD^2").returncode == 0  # a merge
+    listed = _git(repo, "log", "--format=%s", "--", "README.md").stdout.split("\n")
+    assert {"R rename install to setup", "D delete install", "M merge"} <= set(listed)
+    assert _shape(_one(repo)) == ("human", "ambiguous", None, "ambiguous-rename")
+
+
 def test_anchor_swap_with_empty_body_is_human(tmp_path: Path) -> None:
     # R33, reviewer probe_empty: two empty bodies compare as identical
     repo = make_repo(tmp_path, [
