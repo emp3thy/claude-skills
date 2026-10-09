@@ -14,18 +14,23 @@ Sources (spec section 5, phase 1):
 
 A token from an inline whose span crosses a line break is not ``editable``; when its text cannot
 be placed on the inline's first line it keeps the whole inline span.
+
+Beyond the shared Token shape (controller rulings R13 to R17): a path span covers exactly its
+``text``; a table header row's block kind is ``table_header``; every Token has ``tree_label``
+(the first ``name`` of a labelled tree, else null); anchor ``target_doc`` is repository-relative.
 """
 from __future__ import annotations
 
 import argparse
 import bisect
+import posixpath
 import re
 import sys
 from pathlib import Path
 from typing import Any
 
 from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json, write_json
-from dd_md_scan import Block, Inline, Scan, scan
+from dd_md_scan import Inline, Scan, scan
 
 KNOWN_EXTS = frozenset(
     {
@@ -55,13 +60,14 @@ PM_BUILTINS = frozenset({"install", "add", "remove", "init", "upgrade", "dlx", "
                          "why", "link", "publish", "version", "info", "run"})
 SUBJECT_KINDS = frozenset({"code", "link", "image", "refdef"})
 VERSION_PROSE_BLOCKS = frozenset({"paragraph", "list_item", "table_row", "heading"})
+_TABLE_KINDS = frozenset({"table_row", "table_delim"})
 
 _URL = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*:(?!\d)|//|www\.")
 _LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
 _LINE_FRAGMENT = re.compile(r"L\d+")
 _PLACEHOLDER = re.compile(r"(?i)\b(your|my)[-_]|\bexample\b|\b(foo|bar|baz|xxx|todo)\b")
 _PLACEHOLDER_PARTS = ("<", ">", "{{", "${", "*")
-_RATIO = re.compile(r"\w{1,3}/\w{1,3}")
+_RATIO = re.compile(r"\d+/\d+|[A-Za-z]/[A-Za-z]")  # ruling R14: 3/5, X/Y
 _CALL = re.compile(r"^\w+\(|\)$")
 _CREATE = re.compile(r"(?i)\b(?:mkdir|touch|create|creates|new file)\b")
 _ARG_CHARS = r"[^\s'\"`;|&<>()]"
@@ -89,8 +95,7 @@ _RUNTIME_NAMES = {"python": "python", "node": "node", "node.js": "node", "go": "
 _GLYPH = re.compile(r"(?:├──|└──|\|--|`--)[─-]*[ \t]+(?=\S)")
 _TREE_PREFIX = re.compile(r"[\s│|]*")
 _BOX_CHARS = re.compile(r"[─-╿]")
-_TREE_COMMENT = re.compile(r"\s+(?:#|<-|←)")
-_DIR_NAME = re.compile(r"[ \t]*[^\s│|├└]+/[ \t]*")
+_TREE_NAME_END = re.compile(r"\s+(?:#|<-|←)|\s{2,}|\t")
 _MARKER = re.compile(r"drift-ignore(?P<kind>-next-line|-file)?(?:\s*:(?P<reason>.*))?", re.DOTALL)
 # Generated-region markers (spec 8). Begin markers must open the line, so a marker quoted in
 # prose or inline code does not open a region; end markers may follow content on the line.
@@ -123,31 +128,30 @@ def is_path(text: str, line: str, prev: str) -> bool:
         return False
     if text.startswith("/") and "/" not in text[1:]:
         return False  # URL routes and slash commands
-    if _RATIO.fullmatch(text) and "." not in text:
+    if _RATIO.fullmatch(text):
         return False
     return not (_CREATE.search(line) or _CREATE.search(prev))
 
 
-def _split_target(raw: str) -> tuple[str, int, str | None, int]:
-    """(path text, path span end, fragment or None, fragment start) of a reference as written.
+def _split_target(raw: str) -> tuple[str, str | None, int]:
+    """(path text, fragment or None, fragment start) of a reference as written.
 
-    A ``#L<n>`` fragment and a ``:<n>[-<m>]`` suffix stay in the span but not in the text; a
-    ``?query`` is in neither.
+    The path is a prefix of ``raw``, so its span is ``[0, len(path))``. A ``#L<n>`` fragment, a
+    ``:<n>[-<m>]`` suffix and a ``?query`` are in neither the text nor the span (ruling R13).
     """
     frag: str | None = None
     frag_start = -1
     hash_at = raw.find("#")
     if hash_at >= 0 and _LINE_FRAGMENT.match(raw, hash_at + 1):
-        path, span_end = raw[:hash_at], len(raw)
+        path = raw[:hash_at]
     else:
         if hash_at >= 0:
             frag, frag_start, raw = raw[hash_at + 1 :], hash_at + 1, raw[:hash_at]
         query = raw.find("?")
         path = raw[:query] if query >= 0 else raw
-        span_end = len(path)
     if m := _LINE_SUFFIX.search(path):
         path = path[: m.start()]
-    return path, span_end, frag, frag_start
+    return path, frag, frag_start
 
 
 def _command_starts(s: str) -> list[int]:
@@ -196,9 +200,47 @@ def _glyph(t: str) -> re.Match[str] | None:
     return m if m and _TREE_PREFIX.fullmatch(t, 0, m.start()) else None
 
 
+_TreeEntry = tuple[int, int, bool, str]  # (column, name start, has glyph, name)
+
+
+def _tree_entry(t: str) -> _TreeEntry | None:
+    """A tree line's entry, or None for a line of rails only.
+
+    The column is the glyph's for a glyph line and the name's otherwise. The name ends at a
+    ``#``/``<-``/``←`` comment or at a run of two or more spaces (a description column).
+    """
+    glyph = _glyph(t)
+    if glyph:
+        col, start = glyph.start(), glyph.end()
+    else:
+        prefix = _TREE_PREFIX.match(t)
+        col = start = prefix.end() if prefix else 0
+    name = _TREE_NAME_END.split(t[start:], 1)[0].rstrip()
+    return (col, start, glyph is not None, name) if name else None
+
+
+def _unit(cols: list[int], base: int) -> int:
+    """The smallest positive step between distinct indentation columns (4 when none)."""
+    levels = sorted({base, *cols})
+    steps = [b - a for a, b in zip(levels, levels[1:], strict=False) if b > a]
+    return min(steps) if steps else 4
+
+
 def _tree_shape(lines: list[str]) -> bool:
-    hits = sum(1 for t in lines if _glyph(t) or _DIR_NAME.fullmatch(t))
-    return hits >= 2
+    """Ruling R16: two glyph lines, or an indented list of single names with two ``name/``."""
+    if sum(1 for t in lines if _glyph(t)) >= 2:
+        return True
+    entries = [_tree_entry(t) for t in lines]
+    names: list[_TreeEntry] = [e for e in entries if e is not None]
+    if len(names) != len(lines) or any(any(c.isspace() for c in e[3]) for e in names):
+        return False
+    if sum(1 for e in names if e[3].endswith("/")) < 2:
+        return False
+    return any(
+        e[3].endswith("/") and later[0] > e[0]
+        for i, e in enumerate(names)
+        for later in names[i + 1 :]
+    )
 
 
 class _Extractor:
@@ -216,9 +258,16 @@ class _Extractor:
     def line(self, no: int) -> str:
         return self.lines[no - 1] if 1 <= no <= len(self.lines) else ""
 
+    def is_header(self, idx: int) -> bool:
+        """A table header row: a ``table_row`` followed by the ``table_delim`` line."""
+        blocks = self.sc.blocks
+        return (blocks[idx].kind == "table_row" and idx + 1 < len(blocks)
+                and blocks[idx + 1].kind == "table_delim")
+
     def block_of(self, idx: int, kind: str | None = None) -> dict[str, Any]:
         b = self.sc.blocks[idx]
-        return {"kind": kind or b.kind, "line_start": b.line_start, "line_end": b.line_end}
+        kind = kind or ("table_header" if self.is_header(idx) else b.kind)
+        return {"kind": kind, "line_start": b.line_start, "line_end": b.line_end}
 
     def add(self, kind: str, line: int, col: int, end_col: int, text: str, context: str,
             block: dict[str, Any], source: int | None = None, **extra: Any) -> None:
@@ -227,7 +276,7 @@ class _Extractor:
             "text": text, "target_doc": None, "script_tool": None, "version": None,
             "context": context, "link": None, "block": block, "subject": False,
             "heading_path": [], "never_edit": False, "generated": False, "ignored": None,
-            "editable": True,
+            "editable": True, "tree_label": None,
         }
         tok.update(extra)
         self.tokens.append(tok)
@@ -252,9 +301,9 @@ class _Extractor:
         editable = inl.line == inl.end_line
         text = inl.text
         lead = len(text) - len(text.lstrip())
-        path, span_end, _, _ = _split_target(text.strip())
+        path, _, _ = _split_target(text.strip())
         if is_path(path, self.line(inl.line), self.line(inl.line - 1)):
-            line, col, end_col = self.code_span(inl, lead, lead + span_end)
+            line, col, end_col = self.code_span(inl, lead, lead + len(path))
             self.add("path", line, col, end_col, path, "inline-code", block, idx,
                      editable=editable)
         for tool, name, a, b in _scripts(text):
@@ -271,17 +320,22 @@ class _Extractor:
             link = {"col": inl.outer_col, "end_col": inl.outer_end_col, "text": inl.label}
         block = self.block_of(inl.block)
         editable = inl.line == inl.end_line
-        path, span_end, frag, frag_start = _split_target(raw)
+        path, frag, frag_start = _split_target(raw)
         has_path = is_path(path, self.line(inl.line), self.line(inl.line - 1))
         if has_path:
-            self.add("path", inl.line, inl.col, inl.col + span_end, path, inl.kind, block, idx,
+            self.add("path", inl.line, inl.col, inl.col + len(path), path, inl.kind, block, idx,
                      link=link, editable=editable)
         markdown_target = not path or path.lower().endswith((".md", ".markdown"))
         if (frag and markdown_target and (has_path or not path)
                 and not any(p in frag for p in ("<", ">", "{", "$", "*", "#"))):
             self.add("anchor", inl.line, inl.col + frag_start, inl.col + frag_start + len(frag),
                      frag, inl.kind, block, idx, link=link, editable=editable,
-                     target_doc=path or self.doc)
+                     target_doc=self.repo_path(path) if path else self.doc)
+
+    def repo_path(self, path: str) -> str:
+        """A link path part as a repository-relative path (ruling R17)."""
+        base = "" if path.startswith("/") else posixpath.dirname(self.doc)
+        return posixpath.normpath(posixpath.join(base, path.lstrip("/")))
 
     # -- fences ------------------------------------------------------------------------------
 
@@ -305,45 +359,55 @@ class _Extractor:
                     group = "arg" if m["arg"] is not None else "dot"
                     if group == "dot" and m.start(group) not in starts:
                         continue  # ./x counts only when it is the command being run
-                    path, span_end, _, _ = _split_target(m[group])
+                    path, _, _ = _split_target(m[group])
                     if is_path(path, text, self.line(no - 1)):
                         start = m.start(group)
-                        self.add("path", no, start, start + span_end, path, "fence", block)
+                        self.add("path", no, start, start + len(path), path, "fence", block)
                 if info in SHELL_INFOS:
                     for tool, name, a, b2 in _scripts(text):
                         self.add("script", no, a, b2, name, "fence", block, script_tool=tool)
 
     def tree(self, idx: int, body: list[int]) -> None:
+        """Tree tokens of a fence (ruling R16).
+
+        Levels count indentation units: for glyph lines the step between glyph columns, for
+        plain lines the smallest positive indentation step. A name with no glyph is the parent
+        of glyph lines at its own level. A first ``name/`` line whose following lines are all
+        its descendants stays in every path and is reported as ``tree_label``; a first ``.`` or
+        ``./`` line is the repository root and is dropped.
+        """
         block = self.block_of(idx, "tree")
-        rows = [(no, self.line(no)) for no in body if self.line(no).strip()]
-        base = min(len(t) - len(t.lstrip()) for _, t in rows)
-        first = rows[0][1]
-        indent = len(first) - len(first.lstrip())
-        if (not _glyph(first) and re.fullmatch(r"[ \t]*(?:[^\s/]+/|\./?)[ \t]*", first)
-                and all(_glyph(t) or len(t) - len(t.lstrip()) > indent for _, t in rows[1:])):
-            rows = rows[1:]  # a root label, not an entry
-        stack: list[tuple[int, str]] = []
-        for no, t in rows:
-            glyph = _glyph(t)
-            if glyph:
-                level_col, start = glyph.start(), glyph.end()
-            else:
-                prefix = _TREE_PREFIX.match(t)
-                start = level_col = prefix.end() if prefix else 0
-            name = _TREE_COMMENT.split(t[start:], 1)[0].rstrip()
-            if not name or _BOX_CHARS.search(name):
+        entries = [(no, e) for no in body if (e := _tree_entry(self.line(no))) is not None]
+        if entries and not entries[0][1][2] and entries[0][1][3] in (".", "./"):
+            entries = entries[1:]
+        if not entries:
+            return
+        base = min(e[0] for _, e in entries)
+        unit_glyph = _unit([e[0] for _, e in entries if e[2]], base)
+        unit_plain = _unit([e[0] for _, e in entries if not e[2]], base)
+        label: str | None = None
+        col0, _, glyph0, name0 = entries[0][1]
+        if (not glyph0 and name0.endswith("/") and not any(c.isspace() for c in name0)
+                and len(entries) > 1
+                and all((e[2] and e[0] >= col0) or e[0] > col0 for _, e in entries[1:])):
+            label = name0.rstrip("/")
+        stack: list[tuple[tuple[int, int], str]] = []
+        for no, (col, start, glyph, name) in entries:
+            if _BOX_CHARS.search(name):
                 continue
-            level = (level_col - base) // 4
-            while stack and stack[-1][0] >= level:
+            key = ((col - base) // (unit_glyph if glyph else unit_plain), int(glyph))
+            while stack and stack[-1][0] >= key:
                 stack.pop()
             if name in ("...", "…"):
                 continue
             path = "/".join([s for _, s in stack] + [name])
-            stack.append((level, name.rstrip("/")))
+            stack.append((key, name.rstrip("/")))
+            # placeholder filters apply below the label: `my-project/` is a common label
+            own = path[len(label) + 1 :] if label is not None else path
             if (any(c.isspace() for c in path) or ":" in path
-                    or any(p in path for p in _PLACEHOLDER_PARTS) or _PLACEHOLDER.search(path)):
+                    or any(p in own for p in _PLACEHOLDER_PARTS) or _PLACEHOLDER.search(own)):
                 continue
-            self.add("tree", no, start, start + len(name), path, "tree", block)
+            self.add("tree", no, start, start + len(name), path, "tree", block, tree_label=label)
 
     # -- versions ----------------------------------------------------------------------------
 
@@ -398,18 +462,28 @@ class _Extractor:
             })
         return out
 
-    def block_after(self, line: int) -> Block | None:
-        """The outermost non-blank block starting first after ``line``."""
-        cands = [b for b in self.sc.blocks if b.line_start > line and b.kind != "blank"]
-        return min(cands, key=lambda b: (b.line_start, -b.line_end)) if cands else None
+    def block_after(self, line: int) -> int | None:
+        """Index of the outermost non-blank block starting first after ``line``."""
+        blocks = self.sc.blocks
+        cands = [i for i, b in enumerate(blocks) if b.line_start > line and b.kind != "blank"]
+        if not cands:
+            return None
+        return min(cands, key=lambda i: (blocks[i].line_start, -blocks[i].line_end, i))
 
     def next_block(self, after: int) -> tuple[int | None, int | None]:
-        top = self.block_after(after)
-        if top is None:
+        """Lines a ``drift-ignore`` covers: the next block, a whole list or a whole table."""
+        blocks = self.sc.blocks
+        idx = self.block_after(after)
+        if idx is None:
             return None, None
+        top = blocks[idx]
         end = top.line_end
-        if top.kind == "list_item":  # the next block is the whole list
-            end = max(b.line_end for b in self.sc.blocks if b.list_id == top.list_id)
+        if top.kind == "list_item":
+            end = max(b.line_end for b in blocks if b.list_id == top.list_id)
+        elif top.kind in _TABLE_KINDS:
+            while idx + 1 < len(blocks) and blocks[idx + 1].kind in _TABLE_KINDS:
+                idx += 1
+            end = blocks[idx].line_end
         return top.line_start, end
 
     def generated(self) -> list[tuple[int, int]]:
@@ -438,8 +512,9 @@ class _Extractor:
             else:
                 if _EMBEDME.match(t):  # embedme covers the fenced block that follows
                     nxt = self.block_after(no)
-                    if nxt is not None and nxt.kind == "fence":
-                        regions.append((nxt.line_start, nxt.line_end))
+                    if nxt is not None and self.sc.blocks[nxt].kind == "fence":
+                        regions.append((self.sc.blocks[nxt].line_start,
+                                        self.sc.blocks[nxt].line_end))
         if open_at is not None:
             regions.append((open_at[0], self.count))
         return regions
@@ -465,7 +540,8 @@ class _Extractor:
             if inl.kind not in SUBJECT_KINDS:
                 continue
             if not ((b.kind == "list_item" and inl.line == b.line_start)
-                    or (b.kind == "table_row" and inl.cell == 0)):
+                    or (b.kind == "table_row" and inl.cell == 0
+                        and not self.is_header(inl.block))):
                 continue
             key = (inl.line, inl.outer_col if inl.outer_col is not None else inl.col)
             cur = firsts.get(inl.block)

@@ -48,6 +48,7 @@ def test_inline_code_path_token():
             "generated": False,
             "ignored": None,
             "editable": True,
+            "tree_label": None,
         }
     ]
 
@@ -75,14 +76,26 @@ def test_same_doc_anchor_target_doc_is_self():
     ]
 
 
-def test_line_suffix_stripped_from_text_not_span():
+def test_line_suffix_stripped_from_text_and_span():
+    # ruling R13: the span covers exactly the text, never the stripped suffix
     text = "Edit `src/app.py:12`, `lib/x.go:3-9` and [code](src/app.py#L3-L9).\n"
     toks = _toks(text)
     assert [(t["kind"], t["text"], _span(text, t)) for t in toks] == [
-        ("path", "src/app.py", "src/app.py:12"),
-        ("path", "lib/x.go", "lib/x.go:3-9"),
-        ("path", "src/app.py", "src/app.py#L3-L9"),
+        ("path", "src/app.py", "src/app.py"),
+        ("path", "lib/x.go", "lib/x.go"),
+        ("path", "src/app.py", "src/app.py"),
     ]
+    fence = "```bash\npython tools/run.py:3\n```\n"
+    (tok,) = _toks(fence, "path")
+    assert (tok["text"], _span(fence, tok)) == ("tools/run.py", "tools/run.py")
+
+
+def test_ratio_filter_drops_only_fractions_and_single_letters():
+    # ruling R14
+    assert [t["text"] for t in _toks("Code in `src/lib` and `app/api`.\n")] == [
+        "src/lib", "app/api",
+    ]
+    assert _toks("Scores `3/5`, `10/12` and `X/Y`.\n") == []
 
 
 @pytest.mark.parametrize(
@@ -91,6 +104,7 @@ def test_line_suffix_stripped_from_text_not_span():
         "Edit `<name>/x.py` now.\n",
         "Run `/pipeline` now.\n",
         "Score `3/5` now.\n",
+        "Axes `X/Y` now.\n",
         "Clone `my-project/x` now.\n",
         "Run mkdir `out/` first.\n",
         "Create this file:\n`out/new.py`\n",
@@ -235,11 +249,60 @@ def test_tree_indentation_only_and_ascii_glyphs():
     assert [t["text"] for t in _toks(ascii_tree)] == ["src", "src/app.py", "README.md"]
 
 
-def test_tree_root_label_skipped():
+def test_tree_root_label_kept_as_prefix_with_tree_label():
+    # ruling R16: the label stays in `text`, every token of the tree carries `tree_label`
     glyphs = "```\nproject/\n├── src/\n│   └── app.py\n└── README.md\n```\n"
-    assert [t["text"] for t in _toks(glyphs)] == ["src/", "src/app.py", "README.md"]
+    toks = _toks(glyphs)
+    assert [(t["text"], t["tree_label"]) for t in toks] == [
+        ("project/", "project"),
+        ("project/src/", "project"),
+        ("project/src/app.py", "project"),
+        ("project/README.md", "project"),
+    ]
+    assert (toks[0]["line"], _span(glyphs, toks[0])) == (2, "project/")
+    src = "```\nsrc/\n├── app.py\n└── lib/\n```\n"
+    assert [t["text"] for t in _toks(src)] == ["src/", "src/app.py", "src/lib/"]
+    mine = "```\nmy-project/\n├── src/\n└── docs/\n```\n"
+    assert [t["text"] for t in _toks(mine)] == [
+        "my-project/", "my-project/src/", "my-project/docs/",
+    ]
     indented = "```\nproject/\n    src/\n        app.py\n```\n"
-    assert [t["text"] for t in _toks(indented)] == ["src/", "src/app.py"]
+    assert [t["text"] for t in _toks(indented)] == [
+        "project/", "project/src/", "project/src/app.py",
+    ]
+    dot = "```\n.\n├── src/\n└── docs/\n```\n"
+    assert [(t["text"], t["tree_label"]) for t in _toks(dot)] == [("src/", None), ("docs/", None)]
+
+
+def test_tree_label_null_without_label_and_on_other_tokens():
+    text = "`src/a.py`\n\n```\n├── src/\n└── docs/\n```\n"
+    assert {t["tree_label"] for t in _toks(text)} == {None}
+
+
+def test_tree_two_space_indentation():
+    text = "```\nsrc/\n  app.py\ndocs/\n  guide.md\n```\n"
+    assert [t["text"] for t in _toks(text)] == ["src/", "src/app.py", "docs/", "docs/guide.md"]
+
+
+def test_tree_description_column_ends_the_name():
+    text = (
+        "```\n"
+        "├── src/      source code\n"
+        "│   └── app.py    entry point\n"
+        "└── docs/     documentation\n"
+        "```\n"
+    )
+    toks = _toks(text)
+    assert [t["text"] for t in toks] == ["src/", "src/app.py", "docs/"]
+    assert [_span(text, t) for t in toks] == ["src/", "app.py", "docs/"]
+
+
+def test_unindented_name_lists_are_not_trees():
+    gitignore = "```\nnode_modules/\ndist/\n.env\n```\n"
+    assert _toks(gitignore, "tree") == []
+    mixed = "```\ncd app/\nbuild/\nlogs/\npython scripts/run.py\n```\n"
+    assert _toks(mixed, "tree") == []
+    assert [t["text"] for t in _toks(mixed, "path")] == ["scripts/run.py"]
 
 
 def test_plain_fence_without_tree_shape_is_not_a_tree():
@@ -287,6 +350,45 @@ def test_subject_flag_list_and_table():
     blocks = {t["text"]: t["block"] for t in _toks(text, "path")}
     assert blocks["src/h.py"] == {"kind": "list_item", "line_start": 4, "line_end": 5}
     assert blocks["src/e.py"] == {"kind": "table_row", "line_start": 9, "line_end": 9}
+
+
+def test_table_header_row_kind_and_never_subject():
+    # ruling R15
+    text = "| `src/h.py` | Notes |\n|---|---|\n| `src/b.py` | body |\n"
+    head, body = _toks(text)
+    assert (head["text"], head["block"]["kind"], head["subject"]) == (
+        "src/h.py", "table_header", False,
+    )
+    assert (body["text"], body["block"]["kind"], body["subject"]) == ("src/b.py", "table_row", True)
+
+
+def test_drift_ignore_before_table_covers_the_table():
+    text = (
+        "<!-- drift-ignore: legacy table -->\n"
+        "| File | Notes |\n"
+        "|------|-------|\n"
+        "| `src/a.py` | x |\n"
+        "| `src/b.py` | y |\n"
+        "\n"
+        "`src/c.py`\n"
+    )
+    tokens, markers = _extract(text)
+    assert {t["text"]: t["ignored"] for t in tokens} == {
+        "src/a.py": "legacy table", "src/b.py": "legacy table", "src/c.py": None,
+    }
+    assert (markers[0]["target_line_start"], markers[0]["target_line_end"]) == (2, 5)
+
+
+def test_anchor_target_doc_is_repository_relative():
+    # ruling R17
+    text = "[a](../guide/x.md#f) [b](sub/y.md#g) [c](/docs/root.md#h) [d](#i)\n"
+    toks = _toks(text, "anchor", doc="docs/a.md")
+    assert [(t["text"], t["target_doc"]) for t in toks] == [
+        ("f", "guide/x.md"),
+        ("g", "docs/sub/y.md"),
+        ("h", "docs/root.md"),
+        ("i", "docs/a.md"),
+    ]
 
 
 def test_never_edit_from_ancestor_heading():
