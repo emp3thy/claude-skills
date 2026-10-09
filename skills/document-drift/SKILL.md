@@ -95,7 +95,8 @@ HEAD, has uncommitted changes, already has the target branch, has no git author 
 - No branch at all when nothing is provable; the human-decision list is then in the summary
   only.
 - Markers the user can add to a doc: `<!-- drift-ignore: reason -->` (the next block),
-  `<!-- drift-ignore-next-line: reason -->`, `<!-- drift-ignore-file: reason -->`.
+  `<!-- drift-ignore-next-line: reason -->`, and the same HTML comment reading
+  `drift-ignore-file: reason` for the whole file.
 - Optional `.document-drift.yaml` at the repository root: `exclude` (extra globs),
   `never_edit_heading` (extra regex for sections never edited), `branch`, `commit_trailers`.
 

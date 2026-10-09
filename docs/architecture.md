@@ -914,7 +914,8 @@ Each recorded with its reason in `inventory.json` and the summary:
   `third_party/`, `deps/`);
 - a path component in `node_modules`, `.venv`, `venv`, `site-packages`, `dist`, `target`,
   `.tox`, `__pycache__`, or `build`/`bin` holding no manifest;
-- `<!-- drift-ignore-file: reason -->` and config `exclude` globs.
+- a file-level ignore marker (an HTML comment reading `drift-ignore-file: reason`) and config
+  `exclude` globs.
 
 Inside an in-scope doc, a section whose heading matches the never-edit regex (why, rationale,
 decisions, history, roadmap, deprecation, migration, changelog, release notes, licence, plus
