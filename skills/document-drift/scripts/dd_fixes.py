@@ -3,7 +3,10 @@
 ``findings.json`` is ``{"findings": [...], "history_unavailable": bool, "honoured": [...]}``:
 every candidate of every class with an ``id`` (``F001``...) in (doc, line, col) order; the two
 other keys pass through from ``candidates.json`` unchanged. ``hunks-provable.json`` is
-``{"hunks": [Hunk...]}``; each Hunk also carries ``also`` (ids of the findings folded into it).
+``{"hunks": [Hunk...]}``. A Hunk's ``verb``, ``token_kind``, ``token_text`` and ``new_text``
+describe its first finding (``finding_id``); every other finding folded into it is an ``also``
+entry ``{"finding_id", "verb", "token_text", "new_text", "reason"}`` (ruling R42). In a
+``delete`` hunk every ``also`` entry is a ``delete`` (the lines take the token with them).
 
 Deletion units (spec 7.1 as amended), tried in order; the first rule that applies decides:
 
@@ -11,22 +14,26 @@ Deletion units (spec 7.1 as amended), tried in order; the first rule that applie
    (and the blank lines up to its next sibling);
 2. the subject of a table body row, when the table keeps another body row: the row;
 3. a script or fence path on a single-command line of a shell fence that is a command list and
-   keeps another non-empty line: the line;
+   keeps another command line: the line;
 4. a tree entry with no deeper entry directly beneath it: the line;
 5. a link target (not an image): the whole ``[label](target)`` becomes ``label`` (``unlink``);
 6. anything else: ``human``/``prose-mention``.
 
 A rule that applies but whose unit is unsafe gives ``human``/``large-deletion``; so does a
-reference definition (removing it breaks every usage) and an edit overlapping an earlier hunk's
-lines without matching them. Edits with the same line range merge into the first one's hunk.
-A demoted finding whose token sits inside lines another hunk deletes joins that hunk instead.
-A span that no longer holds the token's text is ``human``/``recheck-failed``.
+reference definition (removing it breaks every usage), any delete inside a block quote (R40),
+an edit overlapping an earlier hunk's lines without matching them, and every delete of a list,
+table body, fence or tree whose planned deletes together would remove all of its items, body
+rows, command lines or entries (R39). Edits with the same line range merge into the first one's
+hunk. A demoted finding whose token sits inside lines another hunk deletes joins that hunk.
+A span that no longer holds the token's text is ``human``/``recheck-failed``. A replacement in a
+link, image or refdef destination is percent-encoded (R41).
 """
 from __future__ import annotations
 
 import argparse
 import re
 import sys
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -37,16 +44,19 @@ from dd_md_scan import Block, scan
 
 PROVABLE = ("provable-replace", "provable-delete")
 _TABLE_KINDS = frozenset({"table_row", "table_delim"})
-_PROMPT = re.compile(r"\$(?:[ \t]+|$)")
+_DESTINATIONS = frozenset({"link", "image", "refdef"})
+_PROMPT = re.compile(r"^\$(?:[ \t]+|$)")
 _SEPARATORS = ("&", "|", ";")  # `&` covers `&&` and a background job, `|` covers `||`
 _CONTINUED = ("\\", "`", "^")
 _COMPOUND = re.compile(
-    r"(?:if|then|else|elif|fi|for|while|until|do|done|case|esac|function|select)(?:\s|;|$)"
+    r"^(?:if|then|else|elif|fi|for|while|until|do|done|case|esac|function|select)(?:\s|;|$)"
 )
-_ORDERED = re.compile(r"[ \t>]*\d{1,9}[.)]")
+_ORDERED = re.compile(r"^[ \t>]*\d{1,9}[.)]")
+_ENCODE = {" ": "%20", "(": "%28", ")": "%29", "<": "%3C", ">": "%3E"}
 
 Cand = dict[str, Any]
 Span = tuple[int, int, str]  # [col, end_col) on line_start and its new text
+Unit = tuple[str, int]  # (unit kind, id) of a line deletion, for ruling R39
 
 
 @dataclass
@@ -56,28 +66,45 @@ class _Edit:
     verb: str
     spans: list[Span] = field(default_factory=list)  # empty for a line deletion
     new_text: str | None = None
+    unit: Unit | None = None  # the list, table, fence or tree a line deletion belongs to
+    total: int = 0  # how many members (items, body rows, commands, entries) the unit has
+
+
+@dataclass
+class _Also:
+    pos: int
+    verb: str
+    new_text: str | None
 
 
 @dataclass
 class _Hunk:
-    cand: Cand
+    pos: int
     edit: _Edit
-    also: list[int] = field(default_factory=list)  # positions of folded candidates
+    also: list[_Also] = field(default_factory=list)
 
-    def merge(self, edit: _Edit) -> bool:
+    def merge(self, pos: int, edit: _Edit) -> bool:
         """Fold ``edit`` into this hunk when both have the same lines and do not conflict."""
         mine = self.edit
         if (mine.line_start, mine.line_end) != (edit.line_start, edit.line_end):
             return False
         if mine.verb == "delete":
-            return True  # the deleted lines take every edit on them along
+            self.also.append(_Also(pos, "delete", None))  # the lines take every edit along
+            return True
         if edit.verb == "delete":
             return False
         fresh = [s for s in edit.spans if s not in mine.spans]
         if any(a < y and x < b for a, b, _ in fresh for x, y, _ in mine.spans):
             return False
         mine.spans.extend(fresh)
+        self.also.append(_Also(pos, edit.verb, edit.new_text))
         return True
+
+
+def _encode(text: str, angle: bool) -> str:
+    """Ruling R41: a destination escapes what would end or break it."""
+    chars = "<>" if angle else "".join(_ENCODE)
+    return "".join(_ENCODE[ch] if ch in chars else ch for ch in text)
 
 
 class _Doc:
@@ -97,6 +124,12 @@ class _Doc:
                  and (end is None or b.line_end == end)]
         return found[0] if len(found) == 1 else None
 
+    def quoted(self, start: int, end: int) -> bool:
+        """True when a block quote encloses lines ``start..end`` (blocks in a quote keep the
+        quote's own parent, so enclosure is judged by lines)."""
+        return any(b.kind == "blockquote" and b.line_start <= start and end <= b.line_end
+                   for b in self.blocks)
+
     # -- rules -------------------------------------------------------------------------------
 
     def edit(self, c: Cand) -> _Edit | str:
@@ -110,20 +143,29 @@ class _Doc:
             return "recheck-failed"  # the doc no longer holds the token where it was found
         if c["class"] == "provable-replace":
             return self.replace(c, line)
-        return self.delete(c)
+        found = self.delete(c)
+        if isinstance(found, _Edit) and self.quoted(found.line_start, found.line_end):
+            return "large-deletion"  # ruling R40
+        return found
 
     def replace(self, c: Cand, line: str) -> _Edit | str:
         new = c.get("replacement")
         if not new:
             return "recheck-failed"
-        spans: list[Span] = [(c["col"], c["end_col"], new)]
+        written = str(new)
+        if c["context"] in _DESTINATIONS:
+            start = c["col"]
+            while start > 0 and line[start - 1] not in "(< \t":
+                start -= 1
+            written = _encode(written, angle=line[start - 1 : start] == "<")
+        spans: list[Span] = [(c["col"], c["end_col"], written)]
         link = c.get("link")
         if c["context"] == "link" and link and link.get("text") == c["text"]:
             a = link["col"] + 1
             b = a + len(c["text"])
             if line[a - 1 : a] == "[" and line[a:b] == c["text"] and line[b : b + 1] == "]":
-                spans.append((a, b, new))
-        return _Edit(c["line"], c["line"], "replace", spans, new)
+                spans.append((a, b, str(new)))  # the label is text, not a destination
+        return _Edit(c["line"], c["line"], "replace", spans, written)
 
     def delete(self, c: Cand) -> _Edit | str:
         if c["context"] == "refdef":
@@ -162,7 +204,8 @@ class _Doc:
         after = [b.line_start for b in siblings if b.line_start > item.line_end]
         if after and all(not self.line(n).strip() for n in range(end + 1, min(after))):
             end = min(after) - 1
-        return _Edit(item.line_start, end, "delete")
+        return _Edit(item.line_start, end, "delete", unit=("list", item.list_id),
+                     total=len(siblings) + 1)
 
     def table_row(self, line: int) -> _Edit | str:
         idx = self.find("table_row", line, line)
@@ -181,7 +224,7 @@ class _Doc:
         body = [b for b in table[2:] if b.kind == "table_row"]
         if len(body) < 2:
             return "large-deletion"
-        return _Edit(line, line, "delete")
+        return _Edit(line, line, "delete", unit=("table", first), total=len(body))
 
     def _same_table(self, b: Block, parent: int | None, neighbour: int) -> bool:
         near = self.blocks[neighbour]
@@ -209,16 +252,17 @@ class _Doc:
         if len(commands) < 2 or not _command_list(rows):
             return "large-deletion"  # a fence left with only comments says nothing
         command = _PROMPT.sub("", self.line(line).strip(), count=1)
-        if not command or any(s in command for s in _SEPARATORS):
+        if not command or command.startswith("#") or any(s in command for s in _SEPARATORS):
             return "large-deletion"
-        return _Edit(line, line, "delete")
+        return _Edit(line, line, "delete", unit=("fence", fence.line_start),
+                     total=len(commands))
 
     def tree_line(self, c: Cand, block: dict[str, Any]) -> _Edit | str:
         found = self._fence(block)
         line = c["line"]
         if found is None or line not in found[1]:
             return "large-deletion"
-        body = found[1]
+        fence, body = found
         entry = _tree_entry(self.line(line))
         if entry is None or entry[1] != c["col"]:
             return "large-deletion"
@@ -232,7 +276,17 @@ class _Doc:
             if deeper:
                 return "large-deletion"
             break
-        return _Edit(line, line, "delete")
+        return _Edit(line, line, "delete", unit=("tree", fence.line_start),
+                     total=self._tree_entries(body))
+
+    def _tree_entries(self, body: list[int]) -> int:
+        """Entries of a tree, less a first root or label line every other entry sits under."""
+        entries = [e for n in body if (e := _tree_entry(self.line(n))) is not None]
+        if entries and not entries[0][2] and all(
+            (e[2] and e[0] >= entries[0][0]) or e[0] > entries[0][0] for e in entries[1:]
+        ):
+            return len(entries) - 1
+        return len(entries)
 
     def unlink(self, c: Cand) -> _Edit | str:
         link = c.get("link")
@@ -270,6 +324,34 @@ def _order(c: Cand) -> tuple[Any, ...]:
     return (c["doc"], c["line"], c["col"], c["end_col"], c["kind"])
 
 
+def _build(edits: list[_Edit | str], excluded: set[int]) -> tuple[list[_Hunk], dict[int, str]]:
+    """Hunks from the edits in document order; the overlapping ones demoted."""
+    hunks: list[_Hunk] = []
+    demoted: dict[int, str] = {}
+    for pos, edit in enumerate(edits):
+        if isinstance(edit, str) or pos in excluded:
+            continue
+        hit = [h for h in hunks
+               if h.edit.line_start <= edit.line_end and edit.line_start <= h.edit.line_end]
+        if not hit:
+            hunks.append(_Hunk(pos, edit))
+        elif not (len(hit) == 1 and hit[0].merge(pos, edit)):
+            demoted[pos] = "large-deletion"
+    return hunks, demoted
+
+
+def _emptied(hunks: list[_Hunk]) -> set[int]:
+    """Ruling R39: findings of every delete in a unit whose deletes would remove all of it."""
+    members: dict[Unit, set[int]] = defaultdict(set)
+    totals: dict[Unit, int] = {}
+    for h in hunks:
+        if h.edit.unit is not None:
+            members[h.edit.unit].add(h.edit.line_start)
+            totals[h.edit.unit] = h.edit.total
+    full = {u for u, lines in members.items() if len(lines) >= totals[u]}
+    return {p for h in hunks if h.edit.unit in full for p in [h.pos, *(a.pos for a in h.also)]}
+
+
 def plan_hunks(doc_text: str, candidates: list[Cand]) -> tuple[list[Cand], list[Cand]]:
     """Hunks for the provable candidates of one doc, and the candidates demoted to human.
 
@@ -277,36 +359,31 @@ def plan_hunks(doc_text: str, candidates: list[Cand]) -> tuple[list[Cand], list[
     """
     doc = _Doc(doc_text)
     cands = sorted((c for c in candidates if c.get("class") in PROVABLE), key=_order)
-    hunks: list[_Hunk] = []
-    pending: list[tuple[int, str]] = []
-    demoted: dict[int, str] = {}
-    for pos, c in enumerate(cands):
-        edit = doc.edit(c)
-        if isinstance(edit, str):
-            pending.append((pos, edit))
+    edits = [doc.edit(c) for c in cands]
+    excluded: set[int] = set()
+    while True:  # each round can only exclude more, so this ends
+        hunks, demoted = _build(edits, excluded)
+        emptied = _emptied(hunks)
+        if not emptied:
+            break
+        excluded |= emptied
+    demoted.update(dict.fromkeys(excluded, "large-deletion"))
+    for pos, edit in enumerate(edits):
+        if not isinstance(edit, str):
             continue
-        hit = [h for h in hunks
-               if h.edit.line_start <= edit.line_end and edit.line_start <= h.edit.line_end]
-        if not hit:
-            hunks.append(_Hunk(c, edit))
-        elif len(hit) == 1 and hit[0].merge(edit):
-            hit[0].also.append(pos)
-        else:
-            demoted[pos] = "large-deletion"
-    for pos, kind in pending:
         line = cands[pos]["line"]
         home = next((h for h in hunks if h.edit.verb == "delete"
                      and h.edit.line_start <= line <= h.edit.line_end), None)
-        if home is not None and kind != "recheck-failed":
-            home.also.append(pos)  # the deleted lines take this mention along
+        if home is not None and edit != "recheck-failed":
+            home.also.append(_Also(pos, "delete", None))  # the lines take it along
         else:
-            demoted[pos] = kind
+            demoted[pos] = edit
     out = [_hunk_record(doc, h, n, cands) for n, h in enumerate(hunks, 1)]
     return out, [_demote(cands[pos], demoted[pos]) for pos in sorted(demoted)]
 
 
 def _hunk_record(doc: _Doc, h: _Hunk, n: int, cands: list[Cand]) -> Cand:
-    e, c = h.edit, h.cand
+    e, c = h.edit, cands[h.pos]
     before = [doc.line(no) for no in range(e.line_start, e.line_end + 1)]
     after: list[str] = []
     if e.verb != "delete":
@@ -314,12 +391,16 @@ def _hunk_record(doc: _Doc, h: _Hunk, n: int, cands: list[Cand]) -> Cand:
         for a, b, new in sorted(e.spans, reverse=True):
             text = text[:a] + new + text[b:]
         after = [text]
+    also = [{"finding_id": cands[a.pos].get("id"), "verb": a.verb,
+             "token_text": cands[a.pos]["text"], "new_text": a.new_text,
+             "reason": cands[a.pos].get("evidence", "")}
+            for a in sorted(h.also, key=lambda a: a.pos)]
     return {
         "id": f"H{n:03d}", "finding_id": c.get("id"), "doc": c["doc"],
         "line_start": e.line_start, "line_end": e.line_end, "before": before, "after": after,
         "verb": e.verb, "token_kind": c["kind"], "token_text": c["text"],
         "new_text": e.new_text if e.verb == "replace" else None,
-        "reason": c.get("evidence", ""), "also": [cands[p].get("id") for p in sorted(h.also)],
+        "reason": c.get("evidence", ""), "also": also,
     }
 
 

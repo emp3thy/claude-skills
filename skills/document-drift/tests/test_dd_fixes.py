@@ -42,6 +42,10 @@ def _plan(text: str, *cands: Cand) -> tuple[list[Cand], list[Cand]]:
     return plan_hunks(text, list(cands))
 
 
+def _also_ids(hunk: Cand) -> list[str]:
+    return [a["finding_id"] for a in hunk["also"]]
+
+
 def _demoted_kind(text: str, cand: Cand) -> str | None:
     hunks, demoted = _plan(text, cand)
     assert hunks == []
@@ -76,7 +80,7 @@ def test_replace_link_target_and_matching_label():
     assert demoted == []
     assert len(hunks) == 1  # same line: one hunk
     assert hunks[0]["after"] == ["Read [docs/b.md](docs/b.md) and [the guide](docs/b.md)."]
-    assert hunks[0]["also"] == ["F002"]
+    assert _also_ids(hunks[0]) == ["F002"]
 
 
 def test_replace_version_in_prose():
@@ -174,7 +178,10 @@ def test_mention_inside_deleted_item_joins_the_hunk():
     other = _cand(text, "src/x.py", fid="F002")
     hunks, demoted = _plan(text, subject, other)
     assert demoted == []
-    assert [(h["finding_id"], h["also"]) for h in hunks] == [("F001", ["F002"])]
+    assert [(h["finding_id"], _also_ids(h)) for h in hunks] == [("F001", ["F002"])]
+    assert hunks[0]["also"][0] == {"finding_id": "F002", "verb": "delete",
+                                   "token_text": "src/x.py", "new_text": None,
+                                   "reason": "deleted in a1b2c3d"}
 
 
 def test_link_label_code_and_subject_link_in_one_item():
@@ -183,7 +190,7 @@ def test_link_label_code_and_subject_link_in_one_item():
     link = _cand(text, "src/app.py", context="link", fid="F002")
     hunks, demoted = _plan(text, code, link)
     assert demoted == []
-    assert [(h["finding_id"], h["verb"], h["also"]) for h in hunks] == [
+    assert [(h["finding_id"], h["verb"], _also_ids(h)) for h in hunks] == [
         ("F002", "delete", ["F001"])
     ]
 
@@ -327,7 +334,7 @@ def test_same_range_hunks_merge():
     assert demoted == []
     assert len(hunks) == 1
     assert hunks[0]["finding_id"] == "F001"
-    assert hunks[0]["also"] == ["F002"]
+    assert _also_ids(hunks[0]) == ["F002"]
     assert hunks[0]["after"] == ["- [`src/main.py`](src/main.py) x"]
 
 
@@ -415,3 +422,117 @@ def test_shell_infos_allow_line_delete(info: str):
     text = f"```{info}\nmake build\nmake test\n```\n"
     hunks, _ = _plan(text, _cand(text, "build", kind="script"))
     assert hunks[0]["before"] == ["make build"]
+
+
+# -- fix round 1: rulings R39 to R42 ---------------------------------------------------------
+
+
+def _all_demoted(text: str, *cands: Cand) -> list[str | None]:
+    hunks, demoted = _plan(text, *cands)
+    assert hunks == []
+    assert [d["id"] for d in demoted] == [c["id"] for c in cands]
+    return [d["human_kind"] for d in demoted]
+
+
+def test_r39_deleting_every_table_body_row_is_large_deletion():
+    text = "| File | Use |\n|---|---|\n| `src/a.py` | a |\n| `src/b.py` | b |\n"
+    a, b = _cand(text, "src/a.py", fid="F001"), _cand(text, "src/b.py", fid="F002")
+    assert _all_demoted(text, a, b) == ["large-deletion", "large-deletion"]
+
+
+def test_r39_deleting_every_list_item_is_large_deletion():
+    text = "# H\n\n- `src/a.py`\n- `src/b.py`\n"
+    a, b = _cand(text, "src/a.py", fid="F001"), _cand(text, "src/b.py", fid="F002")
+    assert _all_demoted(text, a, b) == ["large-deletion", "large-deletion"]
+
+
+def test_r39_deleting_every_fence_command_is_large_deletion():
+    text = "```bash\n# build\nmake build\nmake test\n```\n"
+    a = _cand(text, "build", kind="script", fid="F001")
+    b = _cand(text, "test", kind="script", fid="F002")
+    assert _all_demoted(text, a, b) == ["large-deletion", "large-deletion"]
+
+
+def test_r39_deleting_every_tree_entry_is_large_deletion():
+    text = "```text\nrepo/\n├── a/\n└── b/\n```\n"
+    a, b = _cand(text, "repo/a/", fid="F001"), _cand(text, "repo/b/", fid="F002")
+    assert _all_demoted(text, a, b) == ["large-deletion", "large-deletion"]
+
+
+def test_r39_two_of_three_items_stay_provable():
+    text = "- `src/a.py`\n- `src/b.py`\n- `src/c.py`\n"
+    a, b = _cand(text, "src/a.py", fid="F001"), _cand(text, "src/b.py", fid="F002")
+    hunks, demoted = _plan(text, a, b)
+    assert demoted == []
+    assert [(h["finding_id"], h["line_start"], h["verb"]) for h in hunks] == [
+        ("F001", 1, "delete"), ("F002", 2, "delete")
+    ]
+
+
+def test_r39_two_of_three_table_rows_stay_provable():
+    text = "| F | U |\n|---|---|\n| `src/a.py` | a |\n| `src/b.py` | b |\n| `src/c.py` | c |\n"
+    a, b = _cand(text, "src/a.py", fid="F001"), _cand(text, "src/b.py", fid="F002")
+    hunks, demoted = _plan(text, a, b)
+    assert demoted == [] and len(hunks) == 2
+
+
+def test_r40_quoted_fence_delete_is_large_deletion():
+    text = "> ```bash\n> make build\n> make test\n> ```\n"
+    assert _demoted_kind(text, _cand(text, "build", kind="script")) == "large-deletion"
+
+
+def test_r40_quoted_list_item_delete_is_large_deletion():
+    text = "> - `src/a.py`\n> - `src/b.py`\n> - `src/c.py`\n"
+    assert _demoted_kind(text, _cand(text, "src/a.py")) == "large-deletion"
+
+
+def test_r41_link_destination_is_percent_encoded():
+    text = "Read [the guide](docs/a.md).\n"
+    cand = _cand(text, "docs/a.md", "provable-replace", replacement="docs/my file (1).md")
+    hunks, _ = _plan(text, cand)
+    assert hunks[0]["after"] == ["Read [the guide](docs/my%20file%20%281%29.md)."]
+    assert hunks[0]["new_text"] == "docs/my%20file%20%281%29.md"
+
+
+def test_r41_matching_label_stays_plain_text():
+    text = "Read [docs/a.md](docs/a.md).\n"
+    cand = _cand(text, "docs/a.md", "provable-replace", replacement="docs/my file.md")
+    hunks, _ = _plan(text, cand)
+    assert hunks[0]["after"] == ["Read [docs/my file.md](docs/my%20file.md)."]
+
+
+def test_r41_angle_destination_encodes_only_angle_brackets():
+    text = "Read [the guide](<docs/a.md>).\n"
+    cand = _cand(text, "docs/a.md", "provable-replace", replacement="docs/my <x> (1).md")
+    hunks, _ = _plan(text, cand)
+    assert hunks[0]["after"] == ["Read [the guide](<docs/my %3Cx%3E (1).md>)."]
+
+
+def test_r41_refdef_destination_is_percent_encoded():
+    text = "See [the guide][g].\n\n[g]: docs/a.md\n"
+    cand = _cand(text, "docs/a.md", "provable-replace", replacement="docs/my file.md")
+    hunks, _ = _plan(text, cand)
+    assert hunks[0]["after"] == ["[g]: docs/my%20file.md"]
+
+
+def test_r41_inline_code_replacement_is_verbatim():
+    text = "See `docs/a.md` here.\n"
+    cand = _cand(text, "docs/a.md", "provable-replace", replacement="docs/my file.md")
+    hunks, _ = _plan(text, cand)
+    assert hunks[0]["after"] == ["See `docs/my file.md` here."]
+    assert hunks[0]["new_text"] == "docs/my file.md"
+
+
+def test_r42_unlink_and_replace_on_one_line_keep_their_verbs():
+    text = "See [the guide](docs/gone.md) and `src/old.py`.\n"
+    gone = _cand(text, "docs/gone.md", fid="F001")
+    old = _cand(text, "src/old.py", "provable-replace", replacement="src/new.py", fid="F002")
+    hunks, demoted = _plan(text, gone, old)
+    assert demoted == []
+    assert len(hunks) == 1
+    h = hunks[0]
+    assert (h["finding_id"], h["verb"], h["token_text"], h["new_text"]) == (
+        "F001", "unlink", "docs/gone.md", None)
+    assert h["after"] == ["See the guide and `src/new.py`."]
+    assert h["also"] == [{"finding_id": "F002", "verb": "replace", "token_text": "src/old.py",
+                          "new_text": "src/new.py", "reason": "renamed in a1b2c3d"}]
