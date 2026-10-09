@@ -24,6 +24,9 @@ jobs:
       - run: python skills/tech-debt-scan/scripts/skill_check.py
       - run: python skills/karate-bootstrap/scripts/kb_check_skill.py
       - run: python skills/document-drift/scripts/dd_check_skill.py
+      # A pull_request checkout is a detached HEAD, which preflight refuses; name it first.
+      - run: git switch -c dd-self-scan
+      - run: python skills/document-drift/scripts/dd_run.py . --check --workdir "${{ runner.temp }}/dd-self"
       - run: pytest -v
 
   karate-templates:

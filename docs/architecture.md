@@ -781,3 +781,151 @@ fixtures. That run set no bar, because a decoy reached tier A on
 web-ts, so the provisional 0.80 figure stays until a run clears the
 hard gate (see `docs/evaluation-log.md`). Autonomously applying fixes
 without review is a separate follow-on, deferred and out of scope.
+
+## document-drift
+
+`skills/document-drift/` is a second skill in this repository: it finds markdown that names
+files, anchors, scripts, runtime version floors or directory entries that no longer exist,
+fixes the provable ones and leaves one commit on a new branch. The canonical design is
+[`docs/superpowers/specs/2026-10-09-document-drift-design.md`](superpowers/specs/2026-10-09-document-drift-design.md),
+with the phase 1 amendments listed at the end of its section 10. Phase 1 is the deterministic
+core: no agents, no network, standard library plus `pyyaml`. As above, where this page and the
+scripts disagree, the scripts win.
+
+### Pipeline
+
+`python scripts/dd_run.py <repo> [--base REF] [--branch NAME] [--workdir DIR] [--date
+YYYY-MM-DD] [--check]` chains the steps below. Each writes one pinned output under the workdir
+(default `<repo>/.document-drift`, added to `.git/info/exclude` when it is inside the
+repository). Before the first step every pinned output is deleted, so a stale file can neither
+satisfy a check nor be read again. A step that crashes or does not write its output ends the
+run with exit 5 naming the step.
+
+| Step | Script | Output | Does |
+|---|---|---|---|
+| 1 | `dd_preflight.py` | `preflight.json` | Refuses (exit 2): not a repository, no commits, detached HEAD, invalid branch name; outside `--check` also a dirty tree, an existing branch, no author identity |
+| 2 | `dd_inventory.py` | `inventory.json` | The doc list from `git ls-files` (`.md`, case-insensitive) and every exclusion with its reason |
+| 3 | `dd_extract.py` | `tokens.json` | Typed tokens per doc from the block and inline scanner `dd_md_scan.py`; markers |
+| 4 | `dd_resolve.py` | `candidates.json` | Resolution at HEAD, the per-line two-snapshot test, history lookups (`dd_history.py`, `dd_manifests.py`), the class of each unresolved token |
+| (4b) | `dd_run.py` | `inventory.json` | With `--base`, drops docs that neither changed in `REF...HEAD` nor name a changed path |
+| 5 | `dd_fixes.py` | `findings.json`, `hunks-provable.json` | One finding per candidate (`F001`...), deletion units, provable hunks (`H001`...) |
+| 6 | `dd_apply.py` | `applied.json` | Applies hunks bottom-up per doc, writes atomically, re-extracts and re-resolves each touched doc, reverts a hunk that fails the re-check |
+| 7 | `dd_commit.py` | `commits.json` | Creates the branch with `git switch -c` and makes the one commit |
+| 8 | `dd_summary.py` | `summary.md` | The terminal summary |
+
+`--check` stops after step 5 (no apply, no commit), writes the summary and exits 1 when any
+provable hunk exists. Exit codes: 0 success, 1 `--check` found provable edits, 2 refused, 5 a
+missing output or a crashed step, 6 the commit failed after edits were applied.
+
+### Token kinds
+
+| Kind | Source |
+|---|---|
+| `path` | Inline code, link, image and reference-definition targets without a scheme, and command arguments on fence lines. The span covers the path only; a `:<n>` or `#L<n>` suffix is stripped and left outside it. Reference-style usages give nothing: the target lives at the definition |
+| `anchor` | `#fragment` in a link, image or reference-definition target; `target_doc` is repository-relative |
+| `script` | `make`, `npm run`, `yarn`, `pnpm`, `just`, `task` followed by a target, in shell fences and inline code |
+| `version` | A runtime word (`Python`, `Node`, `Go`, `Rust`) with a floor marker: `3.11+`, `>= 18`, `1.22 or later` |
+| `tree` | Entries of a fence with no info string (or `text`, `txt`) that is a directory tree: two or more glyph lines (`├──`, `└──`, `\|--`), or an indented `name/` outline. A first `name/` line with every other line beneath it is a root label (`tree_label`), tried with and without |
+
+Placeholders (`<...>`, `{{...}}`, `${...}`, `your-`, `example`, `foo`, globs), paths under a
+directory the line or the line before tells the reader to create, leading-slash routes and
+slash commands, ratios (`3/5`, `X/Y`) and URLs are never tokens. Each token records its doc,
+line, column span, context, block (paragraph, list item, table row or header, fence, heading,
+tree), whether it is the subject of its list item or table row, its heading path, and whether
+it is in a never-edit section, a generated region or under a marker.
+
+### Classes
+
+| Class | When | Edit |
+|---|---|---|
+| `provable-replace` | Resolved at the line's snapshot (only doc-relative or root-relative resolution counts there), gone now, and a unique rename to a path that exists at HEAD; an anchor whose heading was renamed in one commit (same level, both section bodies non-empty and at least `HEADING_BODY_SIMILARITY = 0.6` similar); a version floor the nearest declared manifest floor contradicts | Token-exact replacement |
+| `provable-delete` | Resolved at the snapshot, gone now, deleted with no rename | The deletion unit below |
+| `human` | `ambiguous-rename` (several names, a parent directory rename, an anchor with a `-N` suffix, several commits removing the anchor, a deleted path whose basename a HEAD file shares), `large-deletion`, `prose-mention`, `never-edit-section`, `generated-region`, `recheck-failed` | None; listed under "Needs a human decision" |
+| `summary-only` | Did not resolve at its snapshot: a runtime artefact, an illustrative name, a line written to say the file is gone | None; counted |
+
+A token under a `drift-ignore` marker never becomes a candidate. Version floors come only from
+declared floors (`requires-python`, `engines.node`, the `go` directive, `[package]`
+`rust-version`), never from pin files (`.python-version`, `.nvmrc`, `.tool-versions`), and are
+compared at the lower precision of the two. A Makefile with an include it cannot follow, a
+pattern or variable target, a justfile with `import` or `mod`, or a Taskfile with `includes` is
+treated as defining every target.
+
+### Deletion units
+
+Tried in order; the first rule that applies decides:
+
+1. the subject of a list item with no nested item and at least one sibling: the item;
+2. the subject of a table body row, when the table keeps another body row: the row;
+3. a script or path on a single-command line of a shell fence that is a command list and keeps
+   another command line: the line;
+4. a tree entry with nothing beneath it: the line;
+5. a link target (never an image): `[label](target)` becomes `label` (`unlink`);
+6. anything else: `human`/`prose-mention`.
+
+A rule whose unit is unsafe gives `human`/`large-deletion`: a reference definition, any delete
+inside a block quote, an overlap with another hunk, and every delete of a list, table, fence or
+tree whose planned deletes together would empty it. A replacement written into a link, image or
+definition destination percent-encodes space, `(`, `)`, `<` and `>`. Line endings and the
+trailing newline of each doc are preserved. A human or summary-only finding inside lines an
+applied delete removed is marked `superseded_by` that hunk and left out of the human list.
+
+### Commit grammar
+
+```
+docs(drift): provable fixes
+
+Drift-Run: <run-id>
+Drift-Base: <starting HEAD sha>
+Drift-Scope: all | base:<ref>
+
+- <doc>:<line> replace `<old>` -> `<new>` (<reason>)
+- <doc>:<line> delete `<token>` (<reason>)
+- <doc>:<line> unlink `<token>` (<reason>)
+
+Needs a human decision:
+- <doc>:<line> [<kind>] <one-line statement>
+  evidence: <evidence>
+```
+
+`<reason>` is `renamed in <sha7>`, `deleted in <sha7>`, `removed in <sha7>` (a script),
+`heading renamed in <sha7>`, `heading removed in <sha7>` or `manifest <file> says <value>`. A
+script is shown as its invocation (`make lint`, `npm run lint`); a tree replace shows full
+paths on both sides. Line numbers are those of the original doc. The run id is the first 12
+hex characters of `sha256("<head>:<scope>:<date>")`. The commit stages each doc by literal
+pathspec, is written with `git commit -F` from a file, and is refused (exit 6, no branch) when
+HEAD moved during the run. Every repository-derived string passes through the redactor copied
+from tech-debt-scan. Trailers come from config `commit_trailers`, empty by default.
+
+### Exclusions
+
+Each recorded with its reason in `inventory.json` and the summary:
+
+- paths: `docs/superpowers/**`, `.superpowers/**`, `docs/research/**`, `**/research_notes/**`,
+  `**/archive/**`, `**/adr/**`, `**/adrs/**`, `**/decisions/**`, `**/rfcs/**`, `**/rfc/**`;
+- basenames: `CHANGELOG*`, `CHANGES*`, `HISTORY*`, `RELEASE_NOTES*`, `LICENSE*`, `LICENCE*`,
+  `NOTICE*`, `COPYING*`, `CODE_OF_CONDUCT*`, `SECURITY*`, `AUTHORS*`, `CONTRIBUTORS*`,
+  `MAINTAINERS*`, `CODEOWNERS` (case-sensitive globs, plus the exact conventional stem in any
+  case, so `changelog.md` is excluded and `license-faq.md` is not);
+- the tech-debt-scan path classes vendored, generated and tests; `.gitattributes`
+  `linguist-generated` and `linguist-vendored`; a `DO NOT EDIT` or `Code generated` header;
+  submodules; templates (`templates/`, `template/`, `skeleton/`, `cookiecutter*`, `*.tmpl.md`);
+- vendored nested libraries (a directory with its own `LICENSE*` and a manifest naming a
+  different project, or any directory under `libraries/`, `extern/`, `external/`,
+  `third_party/`, `deps/`);
+- a path component in `node_modules`, `.venv`, `venv`, `site-packages`, `dist`, `target`,
+  `.tox`, `__pycache__`, or `build`/`bin` holding no manifest;
+- `<!-- drift-ignore-file: reason -->` and config `exclude` globs.
+
+Inside an in-scope doc, a section whose heading matches the never-edit regex (why, rationale,
+decisions, history, roadmap, deprecation, migration, changelog, release notes, licence, plus
+config `never_edit_heading`) is scanned but its findings are human decisions; so are findings
+in generated regions (embedme, mdsh, cog, terraform-docs, `BEGIN GENERATED`).
+
+### Tests
+
+The fixture corpus under `skills/document-drift/tests/fixtures/corpus/` (`py-service`,
+`ts-web`, `go-cli`) replays a git history per fixture and carries planted drift and decoys;
+byte goldens pin every output and commit message; `md_scan` spans are compared with
+`markdown-it-py` (a dev-only dependency) on real documents. CI runs
+`dd_check_skill.py` over `skills/document-drift/SKILL.md` and runs the skill on this
+repository with `--check`, which must exit 0.

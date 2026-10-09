@@ -123,6 +123,50 @@ defect is quarantined rather than fixed. Reproduce a run locally with Docker or 
 KB_CONTAINERS=1 pytest -m containers -k spring-shipments -v
 ```
 
+## Also in this repo: document-drift
+
+`document-drift` finds the markdown documents in a repository and checks every reference they
+make to the code: file paths, `#anchors`, `make`/`npm`/`yarn`/`pnpm`/`just`/`task` scripts,
+runtime version floors (`Python 3.11+`, `Node >= 18`) and directory-tree entries. A reference
+is fixed only when git history proves it stale: it resolved at the commit that last wrote its
+line, it does not resolve now, and the history gives one outcome (a unique rename, a deletion,
+a renamed heading, or a manifest stating a different floor). Everything else is counted in the
+summary or listed for a human decision. It never pushes, never opens a pull request, never
+runs the project's code and never edits changelogs, licences, ADRs, plans and specs, research
+or archive folders, vendored libraries, templates or generated files.
+
+Install it the same way:
+
+```bash
+ln -s "$PWD/claude-skills/skills/document-drift" ~/.claude/skills/document-drift
+```
+
+```powershell
+New-Item -ItemType SymbolicLink -Path "$HOME\.claude\skills\document-drift" `
+  -Target "$PWD\claude-skills\skills\document-drift"
+```
+
+Then, in Claude Code:
+
+```
+/document-drift <repo-path> [--base <ref>] [--branch <name>] [--check]
+```
+
+The output contract is a branch with one commit, `docs(drift): provable fixes`, created from
+the starting HEAD (default name `docs/drift-<YYYY-MM-DD>`); the run leaves you on it. The
+commit body lists each edit as `- <doc>:<line> replace|delete|unlink ... (<reason>)` and ends
+with a `Needs a human decision:` list when there is one. Pushing the branch and opening the
+pull request are your own process. When nothing is provable, no branch is created and the
+summary is the whole output. `--check` reports without touching the repository and exits 1
+when a provable edit exists; this repository's CI runs it on itself.
+
+Phase 1 (this release) is the deterministic core: paths, anchors, scripts, version floors and
+tree entries, with no agents. Identifiers, flags, environment variables and config keys are
+phase 2; judged prose rewrites by agents are phase 3. See
+[`skills/document-drift/SKILL.md`](skills/document-drift/SKILL.md) for the command and exit
+codes, [`docs/architecture.md`](docs/architecture.md#document-drift) for the pipeline, and
+`docs/superpowers/specs/2026-10-09-document-drift-design.md` for the design.
+
 ## Output formats
 
 | Artefact | Written by | Shape |

@@ -203,3 +203,31 @@ tier-A bar (provisional at 0.80 since phase 5b) is still waiting on.
 | 2026-09-09 | service-py | sonnet | 240 | 0.57 | 0.50 | 0 | 0 | dead-code=1.00 dependency-debt=1.00 doc-drift=1.00 error-masking=1.00 half-finished=1.00 ownership=1.00 pipeline-infra=1.00 security=0.40 test-gaps=1.00 test-quality=1.00 | 14 | 5 | 3.43 | 5/5 |
 | 2026-09-09 | web-ts | sonnet | 240 | 0.28 | 0.19 | 1 | 0 | architecture=0.00 dead-code=0.00 dependency-debt=1.00 duplication=0.00 error-masking=1.00 half-finished=0.50 migration=0.00 pipeline-infra=1.00 | 13 | 5 | 3.36 | 5/5 |
 | 2026-09-09 | mixed-decoys | sonnet | 240 | 0.50 | 0.52 | 0 | 0 | dead-code=0.00 error-masking=1.00 half-finished=1.00 pipeline-infra=1.00 security=0.40 test-quality=1.00 | 14 | 5 | 3.82 | 5/5 |
+
+## document-drift
+
+One row per live check of `skills/document-drift/scripts/dd_run.py` on an owner repository,
+run against a throwaway local clone (never the owner's checkout, never pushed) with `--date`
+fixed and the workdir outside the clone. Every edit in the drift commit and every human finding
+is read by hand and judged; a wrong provable edit is a defect, not a rate (spec 1.4 criterion
+3). `candidates` lists the classes in the order provable-replace / provable-delete / human /
+summary-only. `tokens` lists path / anchor / script / version / tree.
+
+**The two `2026-10-09` rows are the phase 1 live check.** Neither repository produced a
+candidate other than `summary-only`, so no branch was created and there was nothing to judge:
+zero edits, zero human findings. To check that this was not a missed-drift artefact, every
+`summary-only` reference was looked up in each clone's full history (`git log --all`): of 253
+(166 in ralph, all paths; 87 in better-memory, 74 paths and 13 tree entries), exactly two had
+ever existed, `PROMPT.md` in ralph's `prompt/README.md` and
+`better_memory/hooks/_claude_md_sentinel.py` in better-memory's `website/architecture.md`.
+Both are the deliberate "no longer exists" sentences of the spec's validation pass (11.2 S3),
+written in the commit that deleted the file, and both were correctly classed `summary-only` by
+the per-line snapshot. The 13 better-memory tree entries are the runtime `.better-memory/`
+directory layout in `website/configuration.md`, never tracked. The clones needed a local
+`user.name` and `user.email` (the owner's identity is set per repository, not globally) for
+the non-`--check` run to pass preflight.
+
+| date | repo | head | docs_scanned | docs_excluded | tokens | candidates | edits | edits_correct | human |
+|---|---|---|---|---|---|---|---|---|---|
+| 2026-10-09 | ralph | 6a94669 | 37 | 74 | 449 (422/7/0/3/17) | 0/0/0/166 | 0 | 0/0 | 0 |
+| 2026-10-09 | better-memory | 9d5be26 | 38 | 97 | 377 (327/35/0/1/14) | 0/0/0/87 | 0 | 0/0 | 0 |

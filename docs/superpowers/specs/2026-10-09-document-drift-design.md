@@ -61,46 +61,50 @@ A skill, `/document-drift <repo>`, that finds the markdown documents in a reposi
 ## 2. Command contract
 
 ```
-/document-drift <repo> [--base <ref>] [--branch <name>] [--workdir <dir>] [--no-agents]
+/document-drift <repo> [--base <ref>] [--branch <name>] [--workdir <dir>] [--check] [--date <YYYY-MM-DD>]
 ```
 
 - `<repo>` defaults to the current directory.
-- `--base <ref>`: scope to docs that reference (at HEAD or at a token's line snapshot) a path changed in `git diff --name-only <ref>...HEAD`, plus docs changed in that range.
-- `--branch <name>`: default `docs/drift-<YYYY-MM-DD>`; a pattern can be set in config.
-- `--workdir`: default `.document-drift`. The skill adds the workdir to `.git/info/exclude` (never to `.gitignore`, which would be a repository change) and never commits it.
-- `--no-agents`: run only the deterministic stages (always the behaviour in phases 1 and 2).
+- `--base <ref>`: scope to docs that reference (at HEAD or at a token's line snapshot) a path changed in `git diff --name-only --no-renames <ref>...HEAD`, plus docs changed in that range. `--no-renames` lists both sides of a rename, so a doc naming the old path stays in scope. An unknown ref is refused.
+- `--branch <name>`: default `docs/drift-<YYYY-MM-DD>`; a pattern can be set in config. A name `git check-ref-format --branch` rejects is refused (R48).
+- `--workdir`: default `.document-drift`. The skill adds the workdir to `.git/info/exclude` (never to `.gitignore`, which would be a repository change) and never commits it. A workdir outside the repository is not added (R47).
+- `--check` (amendment 7): run to the planned hunks and stop; no edit, no branch, no commit. Exit 1 when any provable hunk exists.
+- `--date` (amendment 7): fixes the branch date and the run id, for tests.
+- `--no-agents` arrives with phase 3, the first phase that has agents to skip; phases 1 and 2 are always deterministic.
 
-Exit codes: 0 success (with or without a branch); 2 refused (dirty tree, detached HEAD, branch exists, not a git repository); 5 an expected step output is missing (the no-improvisation rule); 6 commit failed after edits were applied (edits left in the working tree, branch left in place, the summary says which step failed).
+Exit codes: 0 success (with or without a branch); 1 `--check` found provable edits; 2 refused (not a git repository, no commits yet, detached HEAD, an invalid branch name; outside `--check` also a dirty tree, an existing branch, or no git author identity); 5 an expected step output is missing or a step crashed (the no-improvisation rule; R49: any exception other than a step's own refusal prints its traceback and exits 5 naming the step, so exit 1 stays reserved for `--check`); 6 commit failed after edits were applied (edits left in the working tree, the message names the branch the user is on and whether the edits are staged).
 
-The run never switches the user's checkout away from where it started except to create the drift branch at commit time; it creates the branch from the starting HEAD with `git switch -c`, carrying the working-tree edits, commits, and leaves the user on the drift branch. The summary prints the branch name and the commit hashes.
+The run never switches the user's checkout away from where it started except to create the drift branch at commit time; it creates the branch from the starting HEAD with `git switch -c`, carrying the working-tree edits, commits, and leaves the user on the drift branch. Before `switch -c` it checks that HEAD still equals the preflight HEAD; if not it exits 6 before any branch is made (R48). The summary prints the branch name and the commit hashes.
 
 ## 3. Pipeline
 
-Script steps run from `skills/document-drift/` with pinned commands and pinned outputs under `--workdir`. Agent steps dispatch read-only agents whose prompts are rendered to files by a script.
+Script steps run from `skills/document-drift/` with pinned commands and pinned outputs under `--workdir`. Agent steps dispatch read-only agents whose prompts are rendered to files by a script. Script modules are `dd_`-prefixed (amendment 1: the three skills share one pytest process and one mypy run), and `dd_run.py` chains the steps.
 
 | Step | Layer | Command or agent | Output | Phase |
 |---|---|---|---|---|
-| 1 | Script | `preflight.py` | `preflight.json` (HEAD sha, branch, clean tree, git version, workdir excluded) | 1 |
-| 2 | Script | `inventory.py` | `inventory.json` (every file classified; in-scope docs; exclusions with reasons; per-file last-touched; per-doc last substantive commit) | 1 |
-| 3 | Script | `extract.py` | `tokens.json` (typed tokens per doc with line, column, block context, section heading path, ignore state) | 1 |
-| 4 | Script | `resolve.py` | `candidates.json` (unresolved tokens with history lookups, proposed class, evidence) | 1, extended in 2 |
+| 1 | Script | `dd_preflight.py` | `preflight.json` (HEAD sha, branch, clean tree, git version, workdir excluded; `dd_run.py` adds the run id, scope, check flag, date and config warnings) | 1 |
+| 2 | Script | `dd_inventory.py` | `inventory.json` (every tracked file; in-scope docs; exclusions and skips with reasons; the never-edit regex; `scope_dropped` under `--base`) | 1 |
+| 3 | Script | `dd_extract.py` | `tokens.json` (typed tokens per doc with line, column span, block context, section heading path, ignore state; markers; skipped docs) | 1 |
+| 4 | Script | `dd_resolve.py` | `candidates.json` (unresolved tokens with history lookups, proposed class, evidence; `honoured`, the tokens a marker suppressed) | 1, extended in 2 |
 | 5 | Script | `leads.py` | `leads.json` and `prompts/judge-<nn>.md` | 3 |
 | 6 | Agent | judge | `judged/judge-<nn>.json` | 3 |
 | 7 | Script | `verify_prompts.py` | `prompts/verify-<nn>.md` | 3 |
 | 8 | Agent | verifier | `verdicts/verify-<nn>.json` | 3 |
-| 9 | Script | `merge.py` | `findings.json` (every finding, quote re-found on disk, fingerprinted, final class) | 1 |
-| 10 | Script | `fixes.py` | `hunks-provable.json` | 1 |
+| 9 | Script | `merge.py`; in phase 1 folded into `dd_fixes.py` (amendment 1) | `findings.json` (every finding with an id, final class) | 1 |
+| 10 | Script | `dd_fixes.py` | `hunks-provable.json` | 1 |
 | 11 | Agent | rewriter | `rewrites/rewrite-<nn>.json` | 3 |
 | 12 | Agent | checker | `checks/check-<nn>.json` | 3 |
-| 13 | Script | `apply.py` | edited docs in the working tree; `applied.json` (applied, reverted with reason) | 1 |
-| 14 | Script | `commit.py` | the branch and commits; `commits.json` | 1 |
-| 15 | Script | `summary.py` | `summary.md` printed to the terminal | 1 |
+| 13 | Script | `dd_apply.py` | edited docs in the working tree; `applied.json` (applied, reverted with reason) | 1 |
+| 14 | Script | `dd_commit.py` | the branch and commits; `commits.json` | 1 |
+| 15 | Script | `dd_summary.py` | `summary.md` printed to the terminal | 1 |
 
-In phases 1 and 2, steps 5 to 8, 11 and 12 do not exist; `merge.py` reads only `candidates.json`.
+In phases 1 and 2, steps 5 to 8, 11 and 12 do not exist, and there is no agent output to merge, so `dd_fixes.py` reads `candidates.json` and writes both `findings.json` and `hunks-provable.json`. With `--base`, `dd_run.py` filters the docs out of scope between steps 4 and 9. `--check` stops after step 10 and runs only the summary.
+
+Before step 1, `dd_run.py` deletes every pinned output in the workdir, so a stale `applied.json` or `findings.json` can neither satisfy an exit-5 check nor be consumed again (R45); `dd_apply.py` only ever runs after `dd_fixes.py` in the same chain.
 
 ## 4. Inventory and scope
 
-**Walk.** Copied from tech-debt-scan's `inventory.py` walk and path classification (section 9), with symlinks skipped, files over 2 MB or with a NUL in the first KB skipped, and the standard ignore list (`.git`, `node_modules`, `vendor`, `third_party`, `.venv`, `venv`, `site-packages`, `dist`, `build` under the existing conditional rule, `target`, `.tox`, `__pycache__`).
+**Doc list (amendment 2).** No filesystem walk: the doc list comes from `git ls-files` (preflight already requires a clean tree, so every doc is tracked), with tech-debt-scan's path-class globs copied. Symlinks are skipped, and files over 2 MB, not UTF-8 or with a NUL byte are skipped with a reason. The walk's ignore list still applies as an exclusion (R10): a doc with a path component in `node_modules`, `.venv`, `venv`, `site-packages`, `dist`, `target`, `.tox` or `__pycache__`, or in `build` or `bin` when that directory holds no manifest file (tech-debt-scan's `MANIFEST_NAMES`), is excluded with reason `ignored-dir:<name>`.
 
 **In scope.** Files ending `.md` (case-insensitive) that survive the exclusions. CLAUDE.md and AGENTS.md at any depth are in scope.
 
@@ -108,7 +112,7 @@ In phases 1 and 2, steps 5 to 8, 11 and 12 do not exist; `merge.py` reads only `
 
 - Paths: `docs/superpowers/**` (plans, specs, and the archive and research folders beside them), `.superpowers/**`, `docs/research/**`, `**/research_notes/**`, `**/archive/**`, `**/adr/**`, `**/adrs/**`, `**/decisions/**`, `**/rfcs/**`, `**/rfc/**`. The validation pass (11.2) found nearly every stale-looking reference in the owner's repositories inside archive and research folders, which are dated records by nature.
 - Vendored nested libraries: a directory below the root that holds its own `LICENSE*` file and a package or library manifest (`package.json`, `pyproject.toml`, `setup.py`, `Cargo.toml`, `go.mod`, `library.json`, `library.properties`, `CMakeLists.txt` with a `project(` line) whose name differs from the root project's, or any directory under `libraries/`, `extern/`, `external/`, `third_party/`, `deps/`. The validation pass found a copied Arduino library's own docs producing findings.
-- Basenames: `CHANGELOG*`, `CHANGES*`, `HISTORY*`, `RELEASE_NOTES*`, `LICENSE*`, `LICENCE*`, `NOTICE*`, `COPYING*`, `CODE_OF_CONDUCT*`, `SECURITY*`, `AUTHORS*`, `CONTRIBUTORS*`, `MAINTAINERS*`, `CODEOWNERS`.
+- Basenames: `CHANGELOG*`, `CHANGES*`, `HISTORY*`, `RELEASE_NOTES*`, `LICENSE*`, `LICENCE*`, `NOTICE*`, `COPYING*`, `CODE_OF_CONDUCT*`, `SECURITY*`, `AUTHORS*`, `CONTRIBUTORS*`, `MAINTAINERS*`, `CODEOWNERS`. The globs are case-sensitive; in addition the exact conventional stem (the name before its first dot, including the hyphen variants `RELEASE-NOTES` and `CODE-OF-CONDUCT`) matches in any case (R9). So `changelog.md` and `LICENSE-MIT` are excluded, while `license-faq.md` and `notice-board.md` stay in scope.
 - Classes from the copied path classifier: vendored, generated, tests (a `README.md` under `tests/` is a fixture, not a doc).
 - `.gitattributes` entries marking a path `linguist-generated` or `linguist-vendored`.
 - A file whose first five lines contain `DO NOT EDIT` or `Code generated`.
@@ -117,7 +121,9 @@ In phases 1 and 2, steps 5 to 8, 11 and 12 do not exist; `merge.py` reads only `
 - `<!-- drift-ignore-file: reason -->` anywhere in the file.
 - Config `exclude` globs.
 
-**Never-edit sections.** Inside an in-scope doc, a section whose heading matches the never-edit regex (default `(?i)\b(why|rationale|decision|decisions|history|roadmap|deprecated|deprecation|migration|changelog|release notes|license|licence)\b`) is scanned for the summary but every finding in it becomes a human decision. Config may extend the regex.
+The recorded reason strings are stable (R8), checked in this order with the first match recorded: `path:<glob>`, `ignored-dir:<name>`, `vendored-library:<dir>`, `basename:<glob>`, `class:vendored|generated|tests`, `gitattributes:linguist-generated|linguist-vendored`, `header:do-not-edit`, `submodule:<path>`, `template`, `marker:<reason>`, `config:<glob>`.
+
+**Never-edit sections.** Inside an in-scope doc, a section whose heading matches the never-edit regex (default `(?i)\b(why|rationale|decision|decisions|history|roadmap|deprecated|deprecation|migration|changelog|release notes|license|licence)\b`) is scanned for the summary but every finding in it becomes a human decision. Config may extend the regex; the default and the extra pattern are OR-ed with each part's leading inline flag scoped to its own group (R8a), because a global `(?i)` in the middle of a pattern is an error on Python 3.11 and later.
 
 **Line snapshot.** For each token that does not resolve at HEAD, the snapshot is the commit that last changed the token's line: `git blame -w -M --porcelain -L <n>,<n> -- <doc>`. Ignoring whitespace (`-w`) and in-file moves (`-M`) keeps formatting commits from resetting it. This sha is the token's **snapshot** for the two-snapshot test (6.2). A per-line snapshot, not the doc's last commit, is required: the validation pass (11.2) found docs edited after a file's deletion, and lines written in the deleting commit to say the file is gone ("There is no `PROMPT.md` file"); both must read as deliberate, never as drift.
 
@@ -127,24 +133,30 @@ In phases 1 and 2, steps 5 to 8, 11 and 12 do not exist; `merge.py` reads only `
 
 ## 5. Extraction
 
-`md_scan.py` is a pure-Python block scanner sufficient for CommonMark structure the resolvers need: ATX and setext headings, fenced code blocks (backtick and tilde, info string, length-aware closing, fences indented inside list items), indented code, block quotes, list items, tables (with escaped pipes), HTML comments, link reference definitions and reference-style links, inline code spans (including spans that continue across a line break and multi-backtick spans), inline links, images and autolinks. It is not a renderer; it reports spans with line and column. The constructs listed after the basics are the ones a naive line scanner got wrong in the validation pass (11.2). A parity test compares its spans with `markdown-it-py` on a fixed corpus of real documents; `markdown-it-py` is a dev-only test dependency, so the runtime stays pyyaml-only.
+`dd_md_scan.py` is a pure-Python block scanner sufficient for CommonMark structure the resolvers need: ATX and setext headings, fenced code blocks (backtick and tilde, info string, length-aware closing, fences indented inside list items), indented code, block quotes, list items, tables (with escaped pipes), HTML comments, link reference definitions and reference-style links, inline code spans (including spans that continue across a line break and multi-backtick spans), inline links, images and autolinks. It is not a renderer; it reports spans with line and column. The constructs listed after the basics are the ones a naive line scanner got wrong in the validation pass (11.2). A parity test compares its spans with `markdown-it-py` on a fixed corpus of real documents; `markdown-it-py` is a dev-only test dependency, so the runtime stays pyyaml-only.
 
-`extract.py` emits one token per occurrence with: `doc`, `line`, `col`, `kind`, `text`, `context` (`prose`, `inline-code`, `fence:<info>`, `link-target`, `table-cell`, `heading`, `tree-block`), `heading_path`, `ignored` (and the marker reason).
+Reference-style images are their own inline kind (`refimage`, beside `image`), because images are never unlinked (R5). A link reference definition is exposed as a `refdef` inline whose span is its destination (R6), and reference-style usages carry only their label span.
+
+`dd_extract.py` emits one token per occurrence with: `doc`, `line`, `col`, `end_col`, `kind`, `text`, `context` (`inline-code`, `link`, `image`, `refdef`, `fence`, `tree`, `prose`), `link` (the whole `[text](target)` span when the token is a link target), `block` (`paragraph`, `list_item`, `table_row`, `table_header`, `fence`, `heading`, `tree`, with its line range), `subject`, `heading_path`, `target_doc`, `script_tool`, `version`, `tree_label`, `never_edit`, `generated`, `ignored` (the marker reason) and `editable` (false when the span crosses a line break). Path and anchor tokens come from `refdef` inlines, never from `reflink` or `refimage` usages, so an edit lands on the definition and a reference used three times is one token (R11). `subject` is true when the token comes from the first code, link, image or refdef inline of a list item's first line or of a table body row's first cell; when that inline yields no token there is no subject (R18). A table header row has block kind `table_header` and is never a subject, and a `drift-ignore` before a table covers the whole contiguous table (R15). `target_doc` is always repository-relative: the doc's directory joined and normalised for `x.md#f`, the doc itself for `#f` (R17).
+
+**Spans (R13).** A path token's span covers exactly its `text`. A trailing `:<n>` or `#L<n>` is stripped before resolving and stays outside the span, so a replace keeps the suffix; deletion units are whole items, rows, lines or links and never need it.
 
 | Kind | Where it comes from | Phase |
 |---|---|---|
 | `path` | Inline code or a fence line that looks like a path (contains `/` or a known extension, no spaces, not a URL); link and image targets without a scheme | 1 |
 | `anchor` | `#fragment` in a link target, same doc or another doc | 1 |
-| `script` | `make <t>`, `npm run <t>`, `yarn <t>`, `pnpm <t>`, `just <t>`, `task <t>`, `./<path>`, `python <path>`, `bash <path>`, `sh <path>` in fences and inline code | 1 |
-| `version` | Runtime floors and versions near a runtime word: `Python 3.11+`, `Node >= 18`, `requires Go 1.22`, `rust 1.75`, and the project's own name followed by a version | 1 |
-| `tree` | A fenced block without an info string (or `text`) whose lines look like a directory tree (`├──`, `└──`, `|--`, or indented names ending `/`) | 1 |
+| `script` | `make <t>`, `npm run <t>`, `yarn <t>`, `pnpm <t>`, `just <t>`, `task <t>` in shell fences and inline code (`script_tool` names the tool; package-manager built-ins such as `install` are not targets). `./<path>`, `python <path>`, `bash <path>` and `sh <path>` arguments on fence lines are `path` tokens | 1 |
+| `version` | Runtime floors near a runtime word (`Python`, `Node`, `Node.js`, `Go`, `golang`, `Rust`) carrying a floor marker: `Python 3.11+`, `Node >= 18`, `Go 1.22 or later`. Amendment 6: a floor marker (`+`, `>=`, `or later`, `or newer`) is required in phase 1; a bare version (`requires Go 1.22`, `rust 1.75`) and the project's own version are deferred | 1 |
+| `tree` | A fenced block without an info string (or `text`, `txt`) whose lines look like a directory tree, by the rule below | 1 |
 | `identifier` | Inline code that matches an identifier shape (`snake_case`, `camelCase`, `PascalCase`, dotted `a.b.c`, `Name()`), not a path, not a keyword | 2 |
 | `flag` | `--long-flag` and `-x` tokens in fences and inline code following a command word | 2 |
 | `envvar` | `UPPER_SNAKE` tokens of at least two segments in inline code, fences, or after `$`/`${`/`%`/`env.` | 2 |
 | `configkey` | Inline code `a.b.c` or `snake_key` inside a section whose heading matches `(?i)config|settings|options|environment`, or in a table row in such a section | 2 |
 | `claim` | Sentences containing a capability or time word (`not supported`, `does not`, `doesn't`, `cannot`, `only`, `currently`, `not yet`, `no longer`, `by default`, `always`, `never`) that also contain another token | 3 (lead source) |
 
-Placeholders are dropped at extraction: anything containing `<...>`, `{{...}}`, `${...}` as the whole token, `your-`, `my-`, `example`, `foo`, `bar`, `baz`, `xxx`, `TODO`, `*` globs, and paths under a directory the doc instructs the reader to create (a `mkdir`, `touch` or "create" verb on the same line or the preceding line). Not paths: a token whose only `/` is a leading one (`/pipeline`, `/tech-debt-promote`, URL routes and slash commands), a fraction or ratio (`3/5`, `X/Y`), a dotted name with no `/` and no known extension.
+Placeholders are dropped at extraction: anything containing `<...>`, `{{...}}`, `${...}` as the whole token, `your-`, `my-`, `example`, `foo`, `bar`, `baz`, `xxx`, `TODO`, `*` globs, and paths under a directory the doc instructs the reader to create (a `mkdir`, `touch` or "create" verb on the same line or the preceding line). Not paths: a token whose only `/` is a leading one (`/pipeline`, `/tech-debt-promote`, URL routes and slash commands), a fraction or ratio (`3/5`, `X/Y`), a dotted name with no `/` and no known extension. The ratio filter drops only `^\d+/\d+$` and `^[A-Za-z]/[A-Za-z]$` (R14): a wider shape would drop real paths such as `src/lib` and `cmd/api`.
+
+**Tree detection (R16, R19).** A fence is a tree when it has at least two glyph lines (`├──`, `└──`, `|--`, `` `-- ``), or when every non-empty line is a single name (with an optional trailing comment), at least two lines end with `/`, and at least one line is indented deeper than a preceding `name/` line; a list of unindented `name/` lines alone is never a tree. The indentation unit is the smallest positive indentation step (for glyph trees, the glyph prefix width per level). A description column without a comment marker ends the name at the first run of two or more spaces. A first line `name/` with no glyph whose following lines are all its descendants is a root label: tokens keep it as a path prefix in `text`, and `tree_label` names it so resolution tries the path with the label first and then without it. A first line `.` or `./` is a root marker: it is dropped, `tree_label` is null, and the children are doc-relative or root paths.
 
 Runtime artefacts are a large share of unresolved paths in practice (`.tech-debt/`, `inventory.json`, `state.json`): they are produced by running the project and are never in the tree. They resolve `never-existed` and are summary-only, which is the intended outcome; no special rule is needed.
 
@@ -154,11 +166,11 @@ Runtime artefacts are a large share of unresolved paths in practice (`.tech-debt
 
 All resolvers are language-neutral by union of idioms; none executes project code.
 
-- **Path.** Resolved relative to the doc's directory, then the repository root. A path that resolves to a directory is resolved. A trailing `:line` or `#L<n>` is stripped before resolving.
-- **Anchor.** Target doc's headings slugged GitHub-style (lower-case, punctuation other than `-` and `_` removed, spaces to `-`, duplicate suffix `-1`, `-2`), plus explicit `<a name>` and `id=` anchors.
-- **Script.** Makefile targets (`^name:` rules, excluding `.PHONY` lines), `package.json` `scripts` keys at the nearest enclosing package, `justfile` recipes, `Taskfile.yml` tasks, and file existence for path-invoked scripts.
-- **Version.** The nearest manifest: `pyproject.toml` `requires-python`, `package.json` `engines.node`, `Cargo.toml` `rust-version`, `go.mod` `go` directive, `.nvmrc`, `.python-version`, `.tool-versions`, and the project's own version from the same manifests. TOML is parsed with `tomllib` (standard library). A version claim is drift only when the manifest states a different floor; a doc floor higher than the manifest is drift too.
-- **Tree.** Each entry's path, assembled from indentation, must exist. Entries the doc omits are never drift.
+- **Path.** Percent-decoded and stripped of a leading `./`, then resolved relative to the doc's directory, then the repository root, then by suffix (a token with `/`) or basename (a bare name), so monorepo docs that name package-relative paths and bare filenames are not reported. A path that resolves to a directory is resolved. A trailing `:line` or `#L<n>` is stripped before resolving. HEAD is the tree `git ls-tree HEAD` lists, the same source as the snapshot trees (R23). Suffix and basename matches are leniency at HEAD only; at the snapshot see 6.2 (R26).
+- **Anchor.** Target doc's headings slugged GitHub-style (lower-case, punctuation other than `-` and `_` removed, spaces to `-`, duplicate suffix `-1`, `-2`), plus explicit `<a name>` and `id=` anchors. An anchor whose `target_doc` climbs above the repository never existed (R22).
+- **Script.** Makefile targets (`^name:` rules, excluding `.PHONY` lines), `package.json` `scripts` keys at the nearest enclosing package, `justfile` recipes, `Taskfile.yml` tasks, and file existence for path-invoked scripts. A manifest this parser cannot see into counts as defining every name, the same lenient rule as an unparsable one (R25): a Makefile with an include it cannot follow (a glob or a variable), a pattern rule (`%`) or a variable target; a justfile with `import` or `mod`; a Taskfile with `includes`.
+- **Version.** The nearest declared floor: `pyproject.toml` `requires-python`, `package.json` `engines.node`, `Cargo.toml` `[package]` `rust-version`, `go.mod` `go` directive. Pin files (`.python-version`, `.nvmrc`, `.tool-versions`) never produce a candidate: a pin is not a floor (R28); the `[workspace.package]` `rust-version` fallback is dropped (R31). TOML is parsed with `tomllib` (standard library). A version claim is drift only when the manifest states a different floor; a doc floor higher than the manifest is drift too. The two are compared at the lower of their precisions, so a doc `3.10` against `>=3` resolves (R29).
+- **Tree.** Each entry's path, assembled from indentation, must exist, resolved doc-relative first and then root-relative (R12), with the `tree_label` prefix first and then without it; a label containing `<`, `>`, `{{` or `${` is always dropped (R22). Entries the doc omits are never drift.
 - **Identifier (phase 2).** Present when it appears as a whole token in any tracked non-markdown text file at HEAD: source, config and data files alike (CSV headers and JSON keys name things docs talk about). The same file classes are used at the snapshot, so the two sides of the test are comparable. Dotted names resolve when the last segment resolves and, if the other segments name a module path, that path exists. A name that also appears with `_` and `.` swapped (`memory_record_use` and `memory.record_use`), or with a prefix stripped, resolves: tool and command names are often derived at runtime.
 - **Flag (phase 2).** Present when it appears as a string literal in any source file (`"--name"`, `'--name'`), or in a definition idiom for argparse, click, typer, clap (`long = "name"`, `#[arg(long)]` on a field `name`), cobra and pflag (`Flags().<Type>("name"`), commander and yargs (`.option('--name`), picocli (`names = {"--name"`), System.CommandLine (`"--name"`), or in a checked-in man page or `--help` text file.
 - **Envvar (phase 2).** Present when it appears in any source, config, Dockerfile, compose, CI workflow or `.env.example` file.
@@ -167,7 +179,11 @@ All resolvers are language-neutral by union of idioms; none executes project cod
 ### 6.2 History lookups for unresolved tokens
 
 - **Two-snapshot test.** Did the token resolve at its line snapshot (section 4)? Paths: `git cat-file -e <sha>:<path>` for each candidate resolution. Anchors: the target doc's headings at that sha. Identifiers, flags, env vars, config keys: `git grep -w -F -q <token> <sha> -- <the same pathspecs as the HEAD resolver>`. Result: `existed-then` (resolved when the line was last written, and not now) or `never-existed` (did not resolve when the line was written: a deliberate mention of something removed, an illustrative name, a runtime artefact, or a mistake at birth).
-- **Path rename.** `git log --follow -M --diff-filter=R --name-status --format=%H <snapshot>..HEAD -- <path>`, and when that finds nothing (the path no longer exists so `--follow` cannot start), `git log -M --diff-filter=R --name-status <snapshot>..HEAD` filtered to entries whose old path equals the token. Chains are followed to the final name. Unique final name existing at HEAD: `rename-unique`. Several: `rename-ambiguous`. None: `deleted`.
+- **Snapshot resolution modes (R26).** At the snapshot only doc-relative and root-relative resolution count as existed-then. A suffix or basename-only match at the snapshot is treated as never-existed (summary-only): loose matches are leniency at HEAD, not evidence. A replacement is therefore written in one of those two modes and must itself resolve at HEAD to exactly the new path.
+- **Path rename.** `git log --follow -M --diff-filter=R --name-status --format=%H <snapshot>..HEAD -- <path>`, and when that finds nothing (the path no longer exists so `--follow` cannot start), `git log -M --diff-filter=R --name-status <snapshot>..HEAD` filtered to entries whose old path equals the token. Chains are followed to the final name, in `--topo-order` so oldest-first holds under skewed dates (R21). Unique final name existing at HEAD: `rename-unique`. Several: `rename-ambiguous`. None: `deleted`. A path that exists at HEAD is never rewritten (a recreated or never-renamed path is not drift), and a chain that returns to an earlier name finishes on that name (R20). History lookups by path pass `--literal-pathspecs` (R21).
+- **Same basename (R27).** Before a path is classified `deleted`, if any HEAD file has the same basename as the snapshot path, the outcome is `rename-ambiguous` (human), with the HEAD candidates in the evidence: git misses heavy rewrites and renames inside large commits.
+- **Tree rename (R22).** A renamed tree entry's replacement is the entry's own last segment only; a rename that changes a parent directory is `rename-ambiguous` (the edit would touch another line).
+- **Anchor rename (R24, R30, R32 to R35).** The commit that removed the anchor's slug is found by listing the commits that changed the target doc since the snapshot and comparing each with its first parent; the anchor's own slug must be defined in the parent and absent in the commit (R32). More than one such commit is `rename-ambiguous` (R35): parallel removals make any single choice a guess. In the one removing commit: exactly one slug removed (the anchor's) and exactly one added, with the new slug present at HEAD (R31), the two headings at the same level, both section bodies (the lines after the heading up to the next heading of the same or higher level) non-empty after stripping whitespace (R33), and a `difflib.SequenceMatcher` ratio of at least `HEADING_BODY_SIMILARITY = 0.6` between the bodies in the parent and in the commit (R30): `rename-unique`. The anchor's slug removed with none added in that commit, however many other slugs went with it: `deleted` (R34). Anything else, an anchor that carries a `-N` duplicate suffix, or an anchor whose base slug still exists at HEAD: `rename-ambiguous` (R24).
 - **Symbol rename (phase 2).** `git log -S<token> --format=%H <snapshot>..HEAD` gives the commits that changed the token's occurrence count. In the newest commit that removed the last occurrence, pair each removed line containing the token with the added lines of the same hunk; the replacement candidate is the token at the same position in the most similar added line (token-level alignment). One candidate across all such lines, which resolves at HEAD: `rename-unique`. Otherwise `rename-ambiguous` or `deleted`.
 - **Version.** The manifest value is the fix.
 
@@ -183,29 +199,35 @@ All resolvers are language-neutral by union of idioms; none executes project cod
 
 A normative sentence contains `must`, `must not`, `shall`, `guarantee`, `guarantees`, `always`, `never` or `is required`. Phase 2 routes any finding in such a sentence to `human`; phase 3 routes judged mismatches on such sentences to `human` with both sides quoted.
 
+**Recent-change rule (amendment 5).** The recent-change rule does not apply to `path`, `anchor`, `script`, `tree` or `version` findings: a rename or deletion is a deliberate act recorded in history. It applies from phase 2 to symbol findings and in phase 3 to judged findings.
+
+**Phase 1 routing.** In phase 1 the `human` kinds produced are `ambiguous-rename`, `large-deletion`, `prose-mention` (amendment 3), `never-edit-section`, `generated-region` and `recheck-failed`; the routing order is generated region, never-edit section, a span that is not `editable` (`prose-mention`), then an ambiguous outcome. `normative-mismatch`, `recent-code-change`, `obsolete-doc`, `possible-typo` and `removed-symbol` arrive with phase 2. A token under a `drift-ignore` marker never yields a candidate of any class and never sets `history_unavailable`; it is listed in `honoured` so the summary can tell live markers from stale ones (R29, R23).
+
 ## 7. Fixing, applying and committing
 
 ### 7.1 Provable edits
 
-- **Replace.** Exactly the token's characters at the recorded span; the surrounding text is untouched. When the token is a link target, only the target changes; link text that equals the old target changes too.
-- **Delete.** The smallest unit containing the token, in order: the inline code span and a dangling article or comma when the token is one item of an inline list; the list item; the table row; the fenced-block line when the fence is a command list and the line is a single command; the link (its text stays as plain text). A unit of a whole paragraph, heading or fenced block becomes `human`. After a deletion that empties a list, table or section, the deletion is reverted and the finding becomes `human`.
-- Every edit is a hunk record: `doc`, `line_start`, `line_end`, `before`, `after`, `finding_id`, `class`, `evidence`.
+- **Replace.** Exactly the token's characters at the recorded span; the surrounding text is untouched. When the token is a link target, only the target changes; link text that equals the old target changes too. A replacement written into a `link`, `image` or `refdef` destination percent-encodes space, `(`, `)`, `<` and `>`; when the original destination used the `<...>` form only `<` and `>` are encoded (R41). Inline-code and tree replacements are verbatim. A `refdef` token may be replaced (R11).
+- **Delete (amendment 3).** Phase 1 deletes only these units, tried in order, the first that applies deciding: the list item whose subject is the token, when it has no nested item and at least one sibling; the table body row whose subject is the token, when the table keeps another body row; a single-command line of a shell fence that is a command list and keeps another command line; a tree leaf line (no deeper entry directly beneath it); the link, whose text stays as plain text (`unlink`; images are never unlinked). An inline prose mention is `human` with kind `prose-mention`: prose is phase 3's rewrite job. A unit of a whole paragraph, heading or fenced block is `human`/`large-deletion`.
+- **Stricter deletion rules (R38, R39, R40).** Also `human`/`large-deletion`: a reference definition (removing it breaks every usage, R11); a fence line with mixed prompt styles, a `&`, `|` or `;` compound, a continuation, or a fence left with only comments; the first ordered item under text; an item that contains a reference definition; a delete on a line another edit already changes; and any delete inside a block quote, where the unit or any ancestor block is a quote (R40; the prompt regex is anchored at the line start). After planning, deletes are grouped by unit (a list by its `list_id`, a table, a fence block, a tree block); when the planned deletes would remove every item, body row, non-comment command line or tree entry of that unit, all deletes in the unit become `human`/`large-deletion` (R39): an entirely obsolete unit is a human decision, not n-1 arbitrary deletions.
+- Every edit is a hunk record: `id` (`H001`...), `finding_id`, `doc`, `line_start`, `line_end`, `before`, `after`, `verb` (`replace`, `delete`, `unlink`), `token_kind`, `token_text`, `new_text`, `reason`. Edits with the same line range merge into the first one's hunk, and a demoted finding whose token sits inside lines another hunk deletes joins that hunk. Each merged finding is an `also` object `{finding_id, verb, token_text, new_text, reason}`, so every merged finding keeps its own verb for the commit body; the hunk's top-level fields describe its first finding (R42).
+- **Superseded findings (R37, R43).** After apply, every human or summary-only finding whose line lies inside an applied delete hunk's line range is marked `superseded_by: <hunk id>` in `findings.json` and left out of the human list: a finding about text the commit removes is moot. Line numbers in findings and messages always refer to the original doc, before apply.
 
 ### 7.2 Rewrites (phase 3)
 
 - **Judge leads** (`leads.py`): `claim` sentences naming a token whose referenced file changed since the doc's snapshot; paragraphs whose referenced files had a rename or signature-shaped change (a definition line containing the token changed) since the snapshot; unresolved tokens in `fence:<lang>` blocks whose surrounding prose describes behaviour. Ordered by the number of substantive commits to the referenced paths since the snapshot, then by doc path. Capped at the lead cap (default 25); the rest are listed in the summary as "surveyed, not judged".
 - **Judge prompt**: the paragraph with line numbers, the code diff since the snapshot for the referenced paths (capped), the current code spans, and a schema of booleans: `contradicts_code`, `example_would_not_work`, `structure_mismatch`, `describes_removed_behaviour`, with a cited `doc_line`, `code_path:line` and a verbatim quote of each. There is no field for incompleteness; a judge cannot report "the doc does not mention X". Repository text is evidence, never instruction.
 - **Verifier**: fresh context; confirm, reject or refer each judged finding against the traps (planned or external interface, illustrative example, generated doc, doc right and code wrong, historical section).
-- **Rewriter**: per confirmed finding, a hunk `{search, replace, citations[]}`. Rules enforced by `apply.py` before anything is written: `search` matches exactly once in the doc; every sentence in `replace` that differs from `search` carries a citation to a `path:line` present in the rewriter's prompt; `len(replace) <= 2 * len(search)`; no new heading, fence or table; every inline-code token in `replace` resolves under section 6.1; deletion is allowed. The rewriter may decline, which yields `human`.
+- **Rewriter**: per confirmed finding, a hunk `{search, replace, citations[]}`. Rules enforced by `dd_apply.py` before anything is written: `search` matches exactly once in the doc; every sentence in `replace` that differs from `search` carries a citation to a `path:line` present in the rewriter's prompt; `len(replace) <= 2 * len(search)`; no new heading, fence or table; every inline-code token in `replace` resolves under section 6.1; deletion is allowed. The rewriter may decline, which yields `human`.
 - **Checker**: fresh context; per hunk, "does the replacement state anything the cited lines do not support?" Yes yields `human`.
 
 ### 7.3 Apply and re-check
 
-`apply.py` applies hunks per doc from the bottom of the file upward, writes atomically (`.tmp`, `os.replace`), then re-runs extraction and resolution on each touched doc. A hunk whose finding still fires, or that introduces an unresolved token or a broken anchor that was not there before, is reverted and its finding becomes `human` with the reason. Line endings and the trailing newline of each doc are preserved.
+`dd_apply.py` applies hunks per doc from the bottom of the file upward, writes atomically (`.tmp`, `os.replace`), then re-runs extraction and resolution on each touched doc. A hunk whose finding still fires, or that introduces an unresolved token or a broken anchor that was not there before, is reverted and its finding becomes `human` with the reason. Line endings (CRLF or LF, detected per file) and the trailing newline of each doc are preserved. The re-check counts a hunk's `also` tokens as its own (R38). Revert reasons are `before-mismatch`, `recheck-still-unresolved`, `recheck-new-finding` and `write-failed`: a failed atomic write reverts that doc's hunks rather than aborting mid-run (R44). Anchors in other docs are not re-checked after a target doc is edited; phase 1 never removes a heading, so no such anchor can break.
 
 ### 7.4 Commits
 
-`commit.py` runs only when at least one hunk survives. It creates the branch from the starting HEAD with `git switch -c <branch>`, stages each edited doc by explicit path (never `git add -A`), and makes at most two commits: provable hunks, then rewrite hunks. Message grammar (a test pins it):
+This section moves into phase 1, because phase 1 already yields human findings (amendment 4). `dd_commit.py` runs only when at least one hunk survives. It checks that HEAD still equals the preflight HEAD (exit 6 before any branch is made otherwise), creates the branch from the starting HEAD with `git switch -c <branch>`, stages each edited doc by explicit path with `git --literal-pathspecs add -- <docs>` (never `git add -A`; pathspec magic would let `docs/[a].md` stage `docs/a.md` too), and commits with `git commit --cleanup=verbatim -F <file>`. An applied hunk whose finding id is missing from `findings.json` is exit 6, never skipped (R48). It makes at most two commits: provable hunks, then rewrite hunks (phase 3); phase 1 makes one. Message grammar (a test pins it):
 
 ```
 docs(drift): provable fixes
@@ -216,7 +238,10 @@ Drift-Scope: all | base:<ref>
 
 - <doc>:<line> replace `<old>` -> `<new>` (<reason>)
 - <doc>:<line> delete `<token>` (<reason>)
+- <doc>:<line> unlink `<token>` (<reason>)
 ```
+
+The verb `unlink` is added by amendment 4. Bullets are ordered by doc, line and column, one per finding (a hunk's `also` findings each get their own bullet with their own verb, R42). A `script` token is shown as its invocation (`make lint`, `npm run lint`, `yarn lint`, `pnpm lint`, `just lint`, `task lint`) in bullets and human statements, and a `tree` replace shows full paths on both sides, the new one being the old path with its last segment replaced (R51).
 
 ```
 docs(drift): rewrite stale prose
@@ -227,15 +252,15 @@ Drift-Run: <run-id>
   evidence: <code_path>:<line>[, <code_path>:<line>...]
 ```
 
-`<reason>` is one of `renamed in <short-sha>`, `deleted in <short-sha>`, `manifest <file> says <value>`, `heading renamed in <short-sha>`. The last commit's body then ends with:
+`<reason>` is one of `renamed in <short-sha>`, `deleted in <short-sha>`, `removed in <short-sha>` (a script target), `manifest <file> says <value>`, `heading renamed in <short-sha>`, `heading removed in <short-sha>`. The last commit's body then ends with:
 
 ```
 Needs a human decision:
 - <doc>:<line> [<kind>] <one-line statement>
-  evidence: <code_path>:<line> | <commit short-sha> | <manifest value>
+  evidence: <the finding's evidence string, or none>
 ```
 
-`<kind>` is one of `ambiguous-rename`, `removed-symbol`, `large-deletion`, `never-edit-section`, `generated-region`, `normative-mismatch`, `recent-code-change`, `obsolete-doc`, `possible-typo`, `rewrite-declined`, `rewrite-rejected`, `recheck-failed`. Commit trailers (attribution) come from config `commit_trailers`, empty by default. Every string written passes through `redact`. When no hunk survives, no branch is created and the same "Needs a human decision" list is printed in the summary.
+`<kind>` is one of `ambiguous-rename`, `removed-symbol`, `large-deletion`, `prose-mention` (amendment 4), `never-edit-section`, `generated-region`, `normative-mismatch`, `recent-code-change`, `obsolete-doc`, `possible-typo`, `rewrite-declined`, `rewrite-rejected`, `recheck-failed`. The statement for `ambiguous-rename` is "`<token>` was renamed or moved and no single new name is provable" (anchors and same-basename cases share the kind); the evidence line is the finding's `evidence` string (for example `deleted in a1b2c3d; HEAD has src/x.py`), and the `recheck-failed` statement names the revert reason, `write-failed` included (R46). Superseded findings are left out (R37). Commit trailers (attribution) come from config `commit_trailers`, empty by default. Every string written passes through `redact`. When no hunk survives, no branch is created and the same "Needs a human decision" list is printed in the summary.
 
 ## 8. Configuration, markers and summary
 
@@ -254,13 +279,13 @@ Inline markers (HTML comments, so they do not render): `<!-- drift-ignore-file: 
 
 Generated regions: blocks between markers of embedme (`<!-- embedme ... -->`), mdsh (`<!-- BEGIN mdsh -->`), cog (`[[[cog` ... `[[[end]]]`), terraform-docs (`<!-- BEGIN_TF_DOCS -->`), and `<!-- BEGIN GENERATED`/`<!-- END GENERATED` are never edited; findings inside become `human` with kind `generated-region`.
 
-`summary.md`: run id; scope; docs scanned and docs excluded by reason; tokens per kind and resolution rate; findings per class; hunks applied and reverted; the human-decision list; markers without reasons and stale markers; "surveyed, not judged" docs; the branch and commit hashes or "no branch created".
+`summary.md`: run id; scope; the starting HEAD (`Base:`); docs scanned and docs excluded by reason; tokens per kind and the resolved count (tokens minus findings minus those a marker suppressed); findings per class; hunks applied and reverted; the human-decision list; markers without reasons and stale markers (a marker with a reason is stale when the lines it covers hold no token it suppressed, read from `honoured`); "surveyed, not judged" docs (phase 3); the branch and commit hashes or "no branch created" (R50). Every repository-derived string passes through `redact`.
 
 ## 9. Code inventory
 
 New skill directory `skills/document-drift/` with `SKILL.md`, `scripts/`, `prompts/` (phase 3), `tests/`.
 
-Copied from `skills/tech-debt-scan/scripts/` with a test asserting byte equality against the source or naming an intended divergence: `redaction.py`, `validation.py`, `slugs.py`, `evidence.py` (`find_quote`, `fingerprint`), `git_history.py`, `reference_graph.py` (`identifier_tokens`, `file_stem`), `skill_check.py`. Copied and adapted: the walk, ignore and path-classification parts of `inventory.py`, `config.py`, `tests/helpers/make_history.py` (gaining a `rename` key so fixtures can express renames git detects). New: `preflight.py`, `md_scan.py`, `extract.py`, `resolve.py`, `history.py` (two-snapshot, path and symbol rename), `merge.py`, `fixes.py`, `apply.py`, `commit.py`, `summary.py`, and in phase 3 `leads.py`, `verify_prompts.py`, the prompt templates and a `live_run.py` harness adapted from tech-debt-scan's.
+Amendment 1: every module is `dd_`-prefixed and every test file `test_dd_*.py` (the three skills share one pytest process and one mypy run, as karate-bootstrap's `kb_` prefix does). Copied byte-for-byte from `skills/tech-debt-scan/scripts/`, with a test asserting byte equality: `redaction.py` as `dd_redaction.py`, the only one phase 1 needs. `git_history.py`, `evidence.py`, `validation.py`, `slugs.py` and `reference_graph.py` are not needed until phase 2 or 3. Copied and adapted: `dd_check_skill.py` (from karate-bootstrap's `kb_check_skill.py`), the path-classification globs and `MANIFEST_NAMES` of `inventory.py`, `dd_config.py`, `tests/dd_make_history.py` (from `tests/helpers/make_history.py`, gaining a `rename` key so fixtures can express renames git detects). New in phase 1: `dd_common.py`, `dd_preflight.py`, `dd_inventory.py`, `dd_md_scan.py`, `dd_extract.py`, `dd_history.py` (blame snapshots, trees at a sha, renames, heading history), `dd_resolve.py`, `dd_manifests.py` (script and version manifest parsing, split from resolve, R23), `dd_fixes.py` (with `merge.py` folded in), `dd_apply.py`, `dd_commit.py`, `dd_summary.py` and `dd_run.py`, which chains the steps. Later: symbol rename in `dd_history.py` (phase 2); `leads.py`, `verify_prompts.py`, the prompt templates and a `live_run.py` harness adapted from tech-debt-scan's (phase 3).
 
 ### 9.1 Tests and evaluation
 
@@ -269,17 +294,69 @@ Copied from `skills/tech-debt-scan/scripts/` with a test asserting byte equality
 - **Planted decoys**, each with `why` and must produce no edit: a sentence written in the deleting commit saying the file no longer exists (S3's shape); an illustrative identifier that never existed; an external API name; a path the doc tells the reader to create; a runtime artefact path; a URL route and a slash command; a CHANGELOG entry; a file under `docs/superpowers/plans/`; a vendored library's README; a section under a "Rationale" heading; a generated region; a block under `drift-ignore`; a normative "must" sentence where the code regressed (expected `human`, never an edit); a reference whose code changed within the recent-change window (expected `human`).
 - **Goldens**: `inventory.json`, `tokens.json`, `candidates.json`, `findings.json`, `hunks-provable.json`, the edited docs and the commit messages, byte-compared, regenerated only under `UPDATE_GOLDENS=1`. Phase 3 agent outputs are canned files from the first live run.
 - **End to end**: replay a fixture, run the whole chain with canned agent files, assert the branch name, the commit count, the commit-message grammar of 7.4 exactly, that only in-scope docs changed, that a second run on the drift branch makes no commit, and that a dirty tree is refused.
-- **Parity**: `md_scan.py` spans against `markdown-it-py` (dev-only dependency) on a fixed set of real documents copied into `tests/fixtures/markdown/`.
+- **Parity**: `dd_md_scan.py` spans against `markdown-it-py` (dev-only dependency) on a fixed set of real documents copied into `tests/fixtures/markdown/`.
 - **Byte equality** of every file copied from tech-debt-scan (section 9).
-- **Self-scan**: the skill runs on this repository in CI and must produce no provable edit.
+- **Corpus expectations (R53).** Besides a class per planted item and "no edit" per decoy, a decoy can expect `excluded` (the doc is absent from `tokens.json` and from the findings) or `no-token` (no token at that doc and line). Excluded-doc decoys are written so that, if scanned, they would yield a provable edit, so the exclusion is what the test proves. The corpus and goldens are pinned to LF in `.gitattributes`, so `core.autocrlf=true` cannot change a golden sha (R52).
+- **Self-scan**: the skill runs on this repository in CI as `dd_run.py . --check` with a workdir outside the checkout and must exit 0 (no provable edit). A `pull_request` checkout is a detached HEAD, which preflight refuses, so the workflow first names the checkout with `git switch -c`.
 - **Live evaluation** (phase 3): an opt-in harness runs real agents on the corpus and on one owner repository, appends a row to `docs/evaluation-log.md` with per-class precision and the rewrite acceptance rate judged by the owner.
 
 ## 10. Phases and the tech-debt-scan seam
 
-1. **Phase 1, deterministic core.** Steps 1 to 4 for `path`, `anchor`, `script`, `version`, `tree`; path rename and two-snapshot for paths; steps 9, 10, 13 to 15; markers, exclusions, never-edit sections, generated regions; the commit grammar; the corpus with history in three languages; the skill passes its own scan on this repository.
-2. **Phase 2, identifiers and interfaces.** `identifier`, `flag`, `envvar`, `configkey` extraction and resolution; symbol rename; the human-decision routing rules (normative, recent change, obsolete doc, possible typo); the "Needs a human decision" section.
+1. **Phase 1, deterministic core.** Steps 1 to 4 for `path`, `anchor`, `script`, `version`, `tree`; path rename and two-snapshot for paths; steps 9, 10, 13 to 15; markers, exclusions, never-edit sections, generated regions; the commit grammar and the "Needs a human decision" section (amendment 4); `--check` and `--date`; the corpus with history in three languages; the skill passes its own scan on this repository.
+2. **Phase 2, identifiers and interfaces.** `identifier`, `flag`, `envvar`, `configkey` extraction and resolution; symbol rename; the human-decision routing rules (normative, recent change, obsolete doc, possible typo).
 3. **Phase 3, agents.** Steps 5 to 8, 11 and 12; the rewrite commit; the live harness; the first evaluation-log row, which sets the rewrite bar.
 4. **Later.** `--from-evidence <path>`: parse a tech-debt-scan `evidence.md` whose metadata names the `doc-drift` family, seed the run with that finding's doc and lines, and run the normal pipeline scoped to that doc; `/tech-debt-promote` gains a branch that routes `doc-drift` findings here instead of to a brainstorm (a tech-debt-scan spec amendment). Also `.rst` and `.adoc`, translated README families, external links behind a `--network` flag.
+
+### Amendments in phase 1 (2026-10-09)
+
+The plan's seven amendments, each applied in the section it changes:
+
+- Amendment 1 (sections 3, 9): modules are `dd_`-prefixed; `merge.py` is folded into `dd_fixes.py`; `dd_run.py` chains the steps; only `redaction.py` is copied byte-for-byte.
+- Amendment 2 (section 4): the doc list comes from `git ls-files`, with tech-debt-scan's path-class globs copied; no filesystem walk.
+- Amendment 3 (sections 6.3, 7.1): phase 1 deletes only subject list items and table rows, single-command fence lines and tree leaf lines, and unlinks links; an inline prose mention is `human`/`prose-mention`.
+- Amendment 4 (sections 7.4, 10): the commit body gains the verb `unlink`, the human kinds gain `prose-mention`, and section 7.4 moves into phase 1.
+- Amendment 5 (section 6.3): the recent-change rule does not apply to path, anchor, script, tree or version findings.
+- Amendment 6 (section 5): phase 1 `version` tokens are runtime floors with a floor marker only; the project's own version is deferred.
+- Amendment 7 (section 2): `--check` and `--date` are added; preflight refuses when git has no author identity; `--no-agents` arrives with phase 3.
+
+Rulings made during implementation that change designed behaviour (ledger `.superpowers/sdd/2026-10-09-document-drift-phase-1/progress.md`):
+
+- R5 (section 5): reference-style images are a separate inline kind `refimage`, so they are never unlinked.
+- R6, R11 (sections 5, 7.1): path and anchor tokens come from reference definitions, never from reference usages; a definition may be replaced, and deleting one is `large-deletion`.
+- R8, R8a (section 4): exclusion reason strings are fixed, and the never-edit regex parts keep their inline flags scoped to their own group.
+- R9 (section 4): basename exclusions also match the exact conventional stem case-insensitively, and otherwise stay case-sensitive.
+- R10 (section 4): the walk's ignore list still excludes docs under `node_modules`, `dist`, `target` and the like, with `build` and `bin` only when they hold no manifest.
+- R12 (section 6.1): tree entries resolve doc-relative first, then root-relative.
+- R13 (section 5): a path token's span covers only the path, never a `:<n>` or `#L<n>` suffix.
+- R14 (section 5): the ratio filter drops only digit ratios and single-letter ratios, so `src/lib` stays a path.
+- R15 (section 5): table header rows are never subjects, and a `drift-ignore` before a table covers the whole table.
+- R16, R19 (section 5): tree detection, indentation unit, description columns, root labels (`tree_label`) and the `.` root marker are defined.
+- R17 (section 5): an anchor's `target_doc` is always repository-relative.
+- R18 (section 5): the subject is the first code, link, image or refdef inline of an item's first line or a row's first cell, and no subject when that inline yields no token.
+- R20, R21 (section 6.2): a path present at HEAD is never rewritten, rename chains finish on a name they return to, renames are walked in topological order, and path lookups use literal pathspecs.
+- R22 (sections 6.1, 6.2): a tree rename replaces only the entry's last segment, a parent rename is human, placeholder labels are dropped, and anchors above the repository never existed.
+- R23 (sections 3, 6.1, 9): `dd_manifests.py` is split from resolve, `candidates.json` carries `honoured`, and HEAD is read with `git ls-tree HEAD`.
+- R24, R30 to R35 (section 6.2): an anchor rename is provable only from a single removing commit with one slug removed and one added at the same level and similar non-empty bodies (`HEADING_BODY_SIMILARITY = 0.6`); `-N` suffixes, surviving base slugs and several removing commits are human.
+- R25 (section 6.1): a script manifest with includes, imports, pattern rules or variable targets the parser cannot follow counts as defining every name.
+- R26 (section 6.2): at the snapshot only doc-relative and root-relative resolution count as existed-then.
+- R27 (section 6.2): a deleted path whose basename a HEAD file shares is a human decision.
+- R28, R31 (section 6.1): pin files never produce a version candidate, and the Cargo workspace floor fallback is dropped.
+- R29 (sections 6.1, 6.3): an ignored token never yields a candidate, and versions compare at the lower of the two precisions.
+- R37, R43 (sections 7.1, 7.4): a human or summary-only finding inside an applied delete's lines is marked `superseded_by` and left out of the human list; line numbers refer to the original doc.
+- R38 (section 7.1): stricter deletion rules (compound or continued fence lines, comment-only remainders, first ordered items, items holding a definition, a second edit on one line) and folding demoted deletes into the hunk that removes their lines.
+- R39 (section 7.1): when the planned deletes would empty a list, table, fence or tree, every delete in that unit becomes `large-deletion`.
+- R40 (section 7.1): any delete inside a block quote is `large-deletion`.
+- R41 (section 7.1): a replacement in a link, image or definition destination is percent-encoded.
+- R42 (sections 7.1, 7.4): a hunk's merged findings are `also` objects that keep their own verb, token and reason.
+- R44 (section 7.3): a failed atomic write reverts that doc's hunks with reason `write-failed`.
+- R45 (section 3): `dd_run.py` deletes every pinned output before the first step.
+- R46 (section 7.4): human statements and evidence lines have fixed wording, the evidence line being the finding's evidence string.
+- R47 (section 2): a workdir outside the repository is not added to `info/exclude`, and a repository with no commits is refused.
+- R48 (sections 2, 7.4): staging uses literal pathspecs, a moved HEAD and a missing finding id are exit 6, and an invalid branch name is refused.
+- R49 (section 2): a crashed step exits 5 naming the step, so exit 1 stays reserved for `--check`.
+- R50 (section 8): the summary carries a `Base:` line and counts resolved tokens as tokens minus findings minus suppressed ones.
+- R51 (section 7.4): scripts are shown as their invocation and tree replaces as full paths in the commit body.
+- R52, R53 (section 9.1): corpus and goldens are LF-pinned, and decoys can expect `excluded` or `no-token`.
 
 ## 11. Assumptions
 
@@ -288,11 +365,11 @@ Copied from `skills/tech-debt-scan/scripts/` with a test asserting byte equality
 | # | Assumption | Status | Cost if wrong |
 |---|---|---|---|
 | A1 | Token resolution (paths, anchors, scripts, versions, identifiers, flags, env vars, config keys) covers most real drift fixes | Measured on [02]'s sample of 82 fixes across 32 repositories; not on this owner's repositories | The provable commit is thin; most value moves to phase 3 |
-| A2 | The per-line two-snapshot test separates `existed-then` from `never-existed` correctly for paths, so `existed-then` unresolved paths are safe to delete | Measured, small sample (11.2 S2, S3): it correctly protected both deliberate "no longer exists" sentences found; no false `existed-then` path in a live doc after the exclusions. For identifiers it is not sufficient (all live-doc hits were false positives), hence identifiers never delete | Wrong deletions of correct prose; the re-check cannot catch these because the deleted token no longer fires. The corpus carries the deliberate-mention decoy (9.1) |
-| A3 | Git rename detection gives a unique final name often enough to make `provable-replace` worthwhile for paths | Measured (11.2 S4): 0 to 52 percent of vanished paths, typically about 20; ambiguous never observed | Provable replace stays a minority edit; the provable commit is mostly deletions, which is consistent with maintainer behaviour in [02] |
+| A2 | The per-line two-snapshot test separates `existed-then` from `never-existed` correctly for paths, so `existed-then` unresolved paths are safe to delete | Measured, small sample (11.2 S2, S3): it correctly protected both deliberate "no longer exists" sentences found; no false `existed-then` path in a live doc after the exclusions. For identifiers it is not sufficient (all live-doc hits were false positives), hence identifiers never delete. Partly measured by the phase 1 implementation: the corpus (three fixtures, 24 planted items, 20 decoys) passes with every planted item at its expected class and no decoy edited, and the 2026-10-09 live run of the built pipeline on ralph and better-memory classed both S3 sentences `summary-only` again, with no provable edit in either repository. The live sample still holds no true `existed-then` path, so delete precision on real drift rests on the corpus | Wrong deletions of correct prose; the re-check cannot catch these because the deleted token no longer fires. The corpus carries the deliberate-mention decoy (9.1) |
+| A3 | Git rename detection gives a unique final name often enough to make `provable-replace` worthwhile for paths | Measured (11.2 S4): 0 to 52 percent of vanished paths, typically about 20; ambiguous never observed. Phase 1 adds routes to `ambiguous-rename` that S4 did not model (same basename at HEAD, R27; parent-directory tree renames, R22); their frequency on real repositories is unmeasured, since the live run produced no rename candidate | Provable replace stays a minority edit; the provable commit is mostly deletions, which is consistent with maintainer behaviour in [02] |
 | A4 | Symbol rename pairing by hunk alignment gives a unique, correct candidate often enough to be worth phase 2 | Unverified; validation planned as a phase 2 spike on real history | Symbol renames fall back to `human`; phase 2 shrinks to existence checks |
 | A5 | Union-of-idioms flag detection finds defined flags precisely across languages | Unverified; regexes in the sibling skill were measured on Python only | `flag` findings produce false deletes; phase 2 must measure before enabling provable deletes for flags |
-| A6 | A hand-written block scanner (no markdown library) is adequate for the spans the resolvers need | Measured (11.2 S5): even a naive line scanner agreed with CommonMark on 99.6 percent of inline code spans and 98.8 percent of fence lines over 321 docs; the residual constructs are now named requirements of `md_scan.py`, guarded by a parity test | A mis-located span makes a provable edit hit the wrong text; the exact-span replace and the re-check are the backstops |
+| A6 | A hand-written block scanner (no markdown library) is adequate for the spans the resolvers need | Measured (11.2 S5): even a naive line scanner agreed with CommonMark on 99.6 percent of inline code spans and 98.8 percent of fence lines over 321 docs; the residual constructs are now named requirements of `dd_md_scan.py`, guarded by a parity test. Phase 1: `dd_md_scan.py` passes the parity test against `markdown-it-py` on the committed real-document corpus (`tests/fixtures/markdown/`), counting autolinks with links (R2); refdef titles on a later line and link validation are not modelled | A mis-located span makes a provable edit hit the wrong text; the exact-span replace and the re-check are the backstops |
 | A7 | `git blame -w -M` on the token's line gives the right snapshot | Measured on the two real cases (11.2 S3); `-w -M` behaviour on reformatted docs unmeasured | A reflowed paragraph moves the snapshot forward, turning `existed-then` into `never-existed`: a missed finding, never a wrong edit |
 | A8 | Placeholder, "create this path", slash-route and fraction filtering, plus `never-existed` being summary-only, keeps noise out of the edits | Measured (11.2 S1): unresolved paths that never existed are dominated by runtime artefacts, URL routes, slash commands and fractions; none can produce an edit by construction | The summary's counts are noisy; the `possible-typo` promotion is the only path to a human decision and is restricted to tokens with a file extension |
 | A9 | Constrained rewrites plus a checker exceed the published 55 to 65 percent correctness | Unverified; measured in phase 3 by design (D14) | Rewrites become `human` by default; the skill is a provable fixer plus a reporter |
@@ -301,6 +378,7 @@ Copied from `skills/tech-debt-scan/scripts/` with a test asserting byte equality
 | A12 | Default lead cap 25 and recent-change window 14 days are reasonable | Unmeasured conventions; rest on no input yet (guardrail 0(d)) | Too many or too few judged leads; tune from the first live run |
 | A13 | Copy-with-byte-equality is acceptable for sharing code with tech-debt-scan | Repository precedent (karate-bootstrap) | A shared package would need a change to the direct-path rule |
 | A14 | Running inside the target repository's working tree (not a worktree) is safe given the clean-tree refusal | Inferred | A worktree mode would isolate the user's checkout |
+| A15 | `HEADING_BODY_SIMILARITY = 0.6` (difflib ratio between the old and new section bodies) separates a heading rename from a section replaced in the same commit (R30) | Unmeasured convention; rests on no input (guardrail 0(d)). Two of the three corpus fixtures (`py-service`, `go-cli`) carry a renamed-heading item that clears it, and the 2026-10-09 live run produced no anchor candidate, so neither side of the threshold has been observed on real history | Too high: renamed headings with edited bodies become human decisions. Too low: an anchor is followed to a heading that replaced a different section. Measure on the first live run with anchor drift |
 
 ### 11.2 Validation pass
 
@@ -341,3 +419,4 @@ Disagreements came from code spans continuing across a line break, reference-sty
 - A9 rewrite quality: the phase 3 live run.
 - A10 to A14 need the owner's word or the first real run.
 - Real path drift in live docs was rare in this sample. After the exclusions, no `existed-then` path remained in a live doc at HEAD, so `provable-delete` precision rests on two protected true negatives and the design argument. The corpus must carry the evidence.
+- Phase 1 live check (2026-10-09, `docs/evaluation-log.md`): the built pipeline on throwaway clones of ralph and better-memory scanned 37 and 38 docs, produced 166 and 87 candidates, all `summary-only`, no human finding and no edit, and no branch. Of the 253 unresolved path and tree references, exactly two had ever existed in history, the two S3 sentences, both correctly protected by the per-line snapshot.
