@@ -68,11 +68,11 @@ A skill, `/document-drift <repo>`, that finds the markdown documents in a reposi
 - `--base <ref>`: scope to docs that reference (at HEAD or at a token's line snapshot) a path changed in `git diff --name-only --no-renames <ref>...HEAD`, plus docs changed in that range. `--no-renames` lists both sides of a rename, so a doc naming the old path stays in scope. An unknown ref is refused.
 - `--branch <name>`: default `docs/drift-<YYYY-MM-DD>`; a pattern can be set in config. A name `git check-ref-format --branch` rejects is refused (R48).
 - `--workdir`: default `.document-drift`. The skill adds the workdir to `.git/info/exclude` (never to `.gitignore`, which would be a repository change) and never commits it. A workdir outside the repository is not added (R47).
-- `--check` (amendment 7): run to the planned hunks and stop; no edit, no branch, no commit. Exit 1 when any provable hunk exists.
+- `--check` (amendment 7): run to the planned hunks and stop; no doc edit, no branch, no commit (the workdir is still created and, when inside the repository, added to `.git/info/exclude`). Exit 1 when any provable hunk exists. It runs from a detached HEAD (R56).
 - `--date` (amendment 7): fixes the branch date and the run id, for tests.
 - `--no-agents` arrives with phase 3, the first phase that has agents to skip; phases 1 and 2 are always deterministic.
 
-Exit codes: 0 success (with or without a branch); 1 `--check` found provable edits; 2 refused (not a git repository, no commits yet, detached HEAD, an invalid branch name; outside `--check` also a dirty tree, an existing branch, or no git author identity); 5 an expected step output is missing or a step crashed (the no-improvisation rule; R49: any exception other than a step's own refusal prints its traceback and exits 5 naming the step, so exit 1 stays reserved for `--check`); 6 commit failed after edits were applied (edits left in the working tree, the message names the branch the user is on and whether the edits are staged).
+Exit codes: 0 success (with or without a branch); 1 `--check` found provable edits; 2 refused (not a git repository, no commits yet, an unknown `--base` ref; outside `--check` also a detached HEAD, an invalid branch name, a dirty tree, an existing branch, or no git author identity; `--check` creates no branch, so it runs from a detached HEAD, as a CI checkout is, R56); 5 an expected step output is missing or a step crashed (the no-improvisation rule; R49: any exception other than a step's own refusal prints its traceback and exits 5 naming the step, so exit 1 stays reserved for `--check`). When the step is apply, commit or summary, docs may already be edited, and after commit the drift branch and its commit may exist (a summary crash after a successful commit exits 5 with both in place, R50), so the user is told to check `git status` and `git branch` (R57); 6 commit failed after edits were applied, and the message says where the edits are: a moved HEAD, a failed `git switch -c` or an applied hunk with no finding stops before any branch exists, with the edits in the working tree on the original branch; a failed `git add` or `git commit` names the drift branch the user is on and whether the edits are staged (R57).
 
 The run never switches the user's checkout away from where it started except to create the drift branch at commit time; it creates the branch from the starting HEAD with `git switch -c`, carrying the working-tree edits, commits, and leaves the user on the drift branch. Before `switch -c` it checks that HEAD still equals the preflight HEAD; if not it exits 6 before any branch is made (R48). The summary prints the branch name and the commit hashes.
 
@@ -82,7 +82,7 @@ Script steps run from `skills/document-drift/` with pinned commands and pinned o
 
 | Step | Layer | Command or agent | Output | Phase |
 |---|---|---|---|---|
-| 1 | Script | `dd_preflight.py` | `preflight.json` (HEAD sha, branch, clean tree, git version, workdir excluded; `dd_run.py` adds the run id, scope, check flag, date and config warnings) | 1 |
+| 1 | Script | `dd_preflight.py` | `preflight.json` (`head`, `branch_from` (null when `--check` runs from a detached HEAD), `branch`, `git_version`; `dd_run.py` adds `run_id`, `scope`, `check`, `date` and `config_warnings`) | 1 |
 | 2 | Script | `dd_inventory.py` | `inventory.json` (every tracked file; in-scope docs; exclusions and skips with reasons; the never-edit regex; `scope_dropped` under `--base`) | 1 |
 | 3 | Script | `dd_extract.py` | `tokens.json` (typed tokens per doc with line, column span, block context, section heading path, ignore state; markers; skipped docs) | 1 |
 | 4 | Script | `dd_resolve.py` | `candidates.json` (unresolved tokens with history lookups, proposed class, evidence; `honoured`, the tokens a marker suppressed) | 1, extended in 2 |
@@ -104,7 +104,7 @@ Before step 1, `dd_run.py` deletes every pinned output in the workdir, so a stal
 
 ## 4. Inventory and scope
 
-**Doc list (amendment 2).** No filesystem walk: the doc list comes from `git ls-files` (preflight already requires a clean tree, so every doc is tracked), with tech-debt-scan's path-class globs copied. Symlinks are skipped, and files over 2 MB, not UTF-8 or with a NUL byte are skipped with a reason. The walk's ignore list still applies as an exclusion (R10): a doc with a path component in `node_modules`, `.venv`, `venv`, `site-packages`, `dist`, `target`, `.tox` or `__pycache__`, or in `build` or `bin` when that directory holds no manifest file (tech-debt-scan's `MANIFEST_NAMES`), is excluded with reason `ignored-dir:<name>`.
+**Doc list (amendment 2).** No filesystem walk: the doc list comes from `git ls-files` (outside `--check` preflight requires a clean tree, so every doc is tracked; under `--check` an untracked doc is not scanned and a modified one is read as it is in the working tree), with tech-debt-scan's path-class globs copied. Symlinks are skipped, and files over 2 MB, not UTF-8 or with a NUL byte are skipped with a reason. The walk's ignore list still applies as an exclusion (R10): a doc with a path component in `node_modules`, `.venv`, `venv`, `site-packages`, `dist`, `target`, `.tox` or `__pycache__`, or in `build` or `bin` when that directory holds no manifest file (tech-debt-scan's `MANIFEST_NAMES`), is excluded with reason `ignored-dir:<name>`.
 
 **In scope.** Files ending `.md` (case-insensitive) that survive the exclusions. CLAUDE.md and AGENTS.md at any depth are in scope.
 
@@ -118,7 +118,7 @@ Before step 1, `dd_run.py` deletes every pinned output in the workdir, so a stal
 - A file whose first five lines contain `DO NOT EDIT` or `Code generated`.
 - Git submodules (paths listed in `.gitmodules`).
 - Templates: a file under a directory named `templates`, `template`, `skeleton` or `cookiecutter*`, or whose name ends `.tmpl.md`.
-- `<!-- drift-ignore-file: reason -->` anywhere in the file.
+- `<!-- drift-ignore-file: reason -->` anywhere in the file, as a real HTML comment: the same text quoted in inline code, a fence or indented code (as docs about the marker quote it) does not count (R55).
 - Config `exclude` globs.
 
 The recorded reason strings are stable (R8), checked in this order with the first match recorded: `path:<glob>`, `ignored-dir:<name>`, `vendored-library:<dir>`, `basename:<glob>`, `class:vendored|generated|tests`, `gitattributes:linguist-generated|linguist-vendored`, `header:do-not-edit`, `submodule:<path>`, `template`, `marker:<reason>`, `config:<glob>`.
@@ -129,7 +129,7 @@ The recorded reason strings are stable (R8), checked in this order with the firs
 
 **Doc lag.** The doc's last substantive commit (newest commit whose diff for the doc changes a line outside link targets and whitespace, author not a bot by the copied `bot_authors` rule) is kept only as an ordering key for phase 3 judge leads.
 
-**`--base` scope.** Changed paths from `git diff --name-only <ref>...HEAD`. A doc is in scope when it changed in the range, or when any of its path tokens resolves (at HEAD or at the doc's snapshot) to a changed path or a directory containing one, or when any identifier token appears in a changed file at the base ref.
+**`--base` scope.** Changed paths from `git diff --name-only --no-renames <ref>...HEAD` (both sides of a rename). A doc is in scope when it changed in the range, or when any of its path tokens resolves (at HEAD, or at that token's line snapshot as its `resolved_then`) to a changed path or a directory containing one, or (phase 2) when any identifier token appears in a changed file at the base ref.
 
 ## 5. Extraction
 
@@ -208,7 +208,7 @@ A normative sentence contains `must`, `must not`, `shall`, `guarantee`, `guarant
 ### 7.1 Provable edits
 
 - **Replace.** Exactly the token's characters at the recorded span; the surrounding text is untouched. When the token is a link target, only the target changes; link text that equals the old target changes too. A replacement written into a `link`, `image` or `refdef` destination percent-encodes space, `(`, `)`, `<` and `>`; when the original destination used the `<...>` form only `<` and `>` are encoded (R41). Inline-code and tree replacements are verbatim. A `refdef` token may be replaced (R11).
-- **Delete (amendment 3).** Phase 1 deletes only these units, tried in order, the first that applies deciding: the list item whose subject is the token, when it has no nested item and at least one sibling; the table body row whose subject is the token, when the table keeps another body row; a single-command line of a shell fence that is a command list and keeps another command line; a tree leaf line (no deeper entry directly beneath it); the link, whose text stays as plain text (`unlink`; images are never unlinked). An inline prose mention is `human` with kind `prose-mention`: prose is phase 3's rewrite job. A unit of a whole paragraph, heading or fenced block is `human`/`large-deletion`.
+- **Delete (amendment 3).** Phase 1 deletes only these units, tried in order, the first that applies deciding: the list item whose subject is the token, when it has no nested item and at least one sibling; the table body row whose subject is the token, when the table keeps another body row; a single-command line of a shell fence that is a command list and keeps another command line; a tree leaf line (no deeper entry directly beneath it); the link, whose text stays as plain text (`unlink`; images are never unlinked). Any other token, such as a non-subject mention in a paragraph, list item, table cell or heading, is `human` with kind `prose-mention`: prose is phase 3's rewrite job. Only a rule that applies but whose unit is unsafe (below) gives `human`/`large-deletion`.
 - **Stricter deletion rules (R38, R39, R40).** Also `human`/`large-deletion`: a reference definition (removing it breaks every usage, R11); a fence line with mixed prompt styles, a `&`, `|` or `;` compound, a continuation, or a fence left with only comments; the first ordered item under text; an item that contains a reference definition; a delete on a line another edit already changes; and any delete inside a block quote, where the unit or any ancestor block is a quote (R40; the prompt regex is anchored at the line start). After planning, deletes are grouped by unit (a list by its `list_id`, a table, a fence block, a tree block); when the planned deletes would remove every item, body row, non-comment command line or tree entry of that unit, all deletes in the unit become `human`/`large-deletion` (R39): an entirely obsolete unit is a human decision, not n-1 arbitrary deletions.
 - Every edit is a hunk record: `id` (`H001`...), `finding_id`, `doc`, `line_start`, `line_end`, `before`, `after`, `verb` (`replace`, `delete`, `unlink`), `token_kind`, `token_text`, `new_text`, `reason`. Edits with the same line range merge into the first one's hunk, and a demoted finding whose token sits inside lines another hunk deletes joins that hunk. Each merged finding is an `also` object `{finding_id, verb, token_text, new_text, reason}`, so every merged finding keeps its own verb for the commit body; the hunk's top-level fields describe its first finding (R42).
 - **Superseded findings (R37, R43).** After apply, every human or summary-only finding whose line lies inside an applied delete hunk's line range is marked `superseded_by: <hunk id>` in `findings.json` and left out of the human list: a finding about text the commit removes is moot. Line numbers in findings and messages always refer to the original doc, before apply.
@@ -275,7 +275,7 @@ branch: "docs/drift-{date}"
 commit_trailers: []
 ```
 
-Inline markers (HTML comments, so they do not render): `<!-- drift-ignore-file: reason -->`, `<!-- drift-ignore: reason -->` (the next block), `<!-- drift-ignore-next-line: reason -->`. A marker without a reason is itself reported in the summary and ignored. A marker whose block produces no finding is reported as stale; the skill never removes markers.
+Inline markers (HTML comments, so they do not render): `<!-- drift-ignore-file: reason -->`, `<!-- drift-ignore: reason -->` (the next block), `<!-- drift-ignore-next-line: reason -->`. A marker counts only as a real HTML comment found by the scanner; the same text inside inline code or a fence is documentation, not a marker (R55). A marker without a reason is itself reported in the summary and ignored. A marker whose block produces no finding is reported as stale; the skill never removes markers.
 
 Generated regions: blocks between markers of embedme (`<!-- embedme ... -->`), mdsh (`<!-- BEGIN mdsh -->`), cog (`[[[cog` ... `[[[end]]]`), terraform-docs (`<!-- BEGIN_TF_DOCS -->`), and `<!-- BEGIN GENERATED`/`<!-- END GENERATED` are never edited; findings inside become `human` with kind `generated-region`.
 
@@ -297,7 +297,7 @@ Amendment 1: every module is `dd_`-prefixed and every test file `test_dd_*.py` (
 - **Parity**: `dd_md_scan.py` spans against `markdown-it-py` (dev-only dependency) on a fixed set of real documents copied into `tests/fixtures/markdown/`.
 - **Byte equality** of every file copied from tech-debt-scan (section 9).
 - **Corpus expectations (R53).** Besides a class per planted item and "no edit" per decoy, a decoy can expect `excluded` (the doc is absent from `tokens.json` and from the findings) or `no-token` (no token at that doc and line). Excluded-doc decoys are written so that, if scanned, they would yield a provable edit, so the exclusion is what the test proves. The corpus and goldens are pinned to LF in `.gitattributes`, so `core.autocrlf=true` cannot change a golden sha (R52).
-- **Self-scan**: the skill runs on this repository in CI as `dd_run.py . --check` with a workdir outside the checkout and must exit 0 (no provable edit). A `pull_request` checkout is a detached HEAD, which preflight refuses, so the workflow first names the checkout with `git switch -c`.
+- **Self-scan**: the skill runs on this repository in CI as `dd_run.py . --check` with a workdir outside the checkout and must exit 0 (no provable edit). A `pull_request` checkout is a detached HEAD, which `--check` accepts (R56).
 - **Live evaluation** (phase 3): an opt-in harness runs real agents on the corpus and on one owner repository, appends a row to `docs/evaluation-log.md` with per-class precision and the rewrite acceptance rate judged by the owner.
 
 ## 10. Phases and the tech-debt-scan seam
@@ -354,9 +354,12 @@ Rulings made during implementation that change designed behaviour (ledger `.supe
 - R47 (section 2): a workdir outside the repository is not added to `info/exclude`, and a repository with no commits is refused.
 - R48 (sections 2, 7.4): staging uses literal pathspecs, a moved HEAD and a missing finding id are exit 6, and an invalid branch name is refused.
 - R49 (section 2): a crashed step exits 5 naming the step, so exit 1 stays reserved for `--check`.
-- R50 (section 8): the summary carries a `Base:` line and counts resolved tokens as tokens minus findings minus suppressed ones.
+- R50 (sections 2, 8): the summary carries a `Base:` line and counts resolved tokens as tokens minus findings minus suppressed ones; a summary crash after a successful commit exits 5, and the branch and commit exist.
 - R51 (section 7.4): scripts are shown as their invocation and tree replaces as full paths in the commit body.
 - R52, R53 (section 9.1): corpus and goldens are LF-pinned, and decoys can expect `excluded` or `no-token`.
+- R55 (sections 4, 8): the `drift-ignore-file` marker counts only as a real HTML comment from the scanner, so a doc that quotes it in inline code or a fence stays in scope.
+- R56 (sections 2, 3, 9.1): `--check` creates no branch, so it runs from a detached HEAD (as a CI checkout is) and skips the branch-name check; `branch_from` is then null.
+- R57 (sections 2, 4, 7.1): documentation accuracy: what exit 5 and exit 6 leave behind, the two-snapshot test's scope (not version floors), `--base` mechanics, `--check` side effects and the `prose-mention` and `large-deletion` split.
 
 ## 11. Assumptions
 

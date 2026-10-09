@@ -1,4 +1,10 @@
-"""Preflight: refuse early when a run could not end in a clean commit (spec 7.1)."""
+"""Preflight: refuse early when a run could not end in a clean commit (spec 7.1).
+
+Every mode refuses a path that is not a git repository and a repository with no commits (there
+is nothing to scan). Outside ``--check`` it also refuses a detached HEAD, an invalid branch
+name, a dirty tree, an existing branch and a missing author identity; ``--check`` creates no
+branch, so it runs from a detached HEAD too and ``branch_from`` is then null (ruling R56).
+"""
 from __future__ import annotations
 
 import argparse
@@ -41,12 +47,14 @@ def run(root: Path, workdir: Path, branch: str, check: bool) -> dict[str, Any]:
     if head_out is None:
         raise StepError("the repository has no commits yet", EXIT_REFUSED)
     branch_from = (run_git(root, ["symbolic-ref", "--short", "-q", "HEAD"]) or "").strip()
-    if not branch_from:
-        raise StepError("HEAD is detached; check out a branch first", EXIT_REFUSED)
-    if not git_ok(root, ["check-ref-format", "--branch", branch]):
-        raise StepError(f"branch name {branch!r} is not valid; choose another with --branch",
-                        EXIT_REFUSED)
-    _exclude_workdir(root, workdir)
+    if not check:  # ruling R56: check mode creates no branch, so these do not apply
+        if not branch_from:
+            raise StepError("HEAD is detached; check out a branch first", EXIT_REFUSED)
+        if not git_ok(root, ["check-ref-format", "--branch", branch]):
+            raise StepError(
+                f"branch name {branch!r} is not valid; choose another with --branch",
+                EXIT_REFUSED)
+    _exclude_workdir(root, workdir)  # before the status check, so the workdir is not dirty
     if not check:
         status = run_git(root, ["status", "--porcelain"])
         if status is None or status.strip():
@@ -60,7 +68,7 @@ def run(root: Path, workdir: Path, branch: str, check: bool) -> dict[str, Any]:
     version = (run_git(root, ["--version"]) or "").strip()
     result: dict[str, Any] = {
         "head": head_out.strip(),
-        "branch_from": branch_from,
+        "branch_from": branch_from or None,
         "branch": branch,
         "git_version": version,
     }

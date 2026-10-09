@@ -17,6 +17,7 @@ from typing import Any
 
 from dd_common import EXIT_OK, EXIT_REFUSED, MAX_DOC_BYTES, StepError, run_git, write_json
 from dd_config import load_config
+from dd_md_scan import scan
 
 DEFAULT_NEVER_EDIT = (
     r"(?i)\b(why|rationale|decision|decisions|history|roadmap|deprecated|deprecation"
@@ -85,7 +86,9 @@ EXCLUDED_BASENAMES: tuple[str, ...] = (
 )
 TEMPLATE_DIRS: frozenset[str] = frozenset({"templates", "template", "skeleton"})
 HEADER_MARKERS: tuple[str, ...] = ("DO NOT EDIT", "Code generated")
-IGNORE_MARKER_RE = re.compile(r"<!--\s*drift-ignore-file:\s*(.*?)\s*-->", re.DOTALL)
+# The body of a real HTML comment (dd_md_scan's Comment list), so a marker quoted in inline code
+# or a fence, as docs about the marker do, is not one (ruling R55).
+IGNORE_MARKER_RE = re.compile(r"drift-ignore-file:\s*(.*?)\s*", re.DOTALL)
 
 MODE_GITLINK = "160000"
 MODE_SYMLINK = "120000"
@@ -433,8 +436,11 @@ class _Inventory:
         text = self._content(rel)
         if text is None:
             return None
-        match = IGNORE_MARKER_RE.search(text)
-        return f"marker:{match.group(1)}" if match else None
+        for comment in scan(text).comments:
+            match = IGNORE_MARKER_RE.fullmatch(comment.body)
+            if match:
+                return f"marker:{match.group(1)}"
+        return None
 
     def _config(self, rel: str) -> str | None:
         for glob in self.config.get("exclude") or []:

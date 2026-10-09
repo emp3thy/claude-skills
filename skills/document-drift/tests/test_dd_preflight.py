@@ -102,11 +102,23 @@ def test_check_mode_allows_dirty_tree(tmp_path: Path) -> None:
     assert out["branch_from"] == "main"
 
 
-def test_check_mode_still_refuses_detached(tmp_path: Path) -> None:
+def test_check_mode_allows_detached_head(tmp_path: Path) -> None:
+    """Ruling R56: --check creates no branch, so a detached HEAD (a CI checkout) runs."""
     root, workdir = _repo(tmp_path)
+    head = _git(root, "rev-parse", "HEAD")
     _git(root, "checkout", "-q", "--detach")
-    with pytest.raises(StepError):
-        run(root, workdir, "drift/x", True)
+    out = run(root, workdir, "drift fixes", True)
+    assert out["branch_from"] is None
+    assert out["head"] == head
+    assert read_json(workdir / "preflight.json")["branch_from"] is None
+
+
+def test_check_mode_still_refuses_non_repository(tmp_path: Path) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    with pytest.raises(StepError) as exc:
+        run(plain, plain / ".document-drift", "drift/x", True)
+    assert exc.value.code == EXIT_REFUSED
 
 
 def test_workdir_added_to_info_exclude_once(tmp_path: Path) -> None:

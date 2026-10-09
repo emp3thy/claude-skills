@@ -227,6 +227,20 @@ def test_drift_ignore_file_marker_excluded(tmp_path):
     assert _reasons(inv) == {"a.md": "marker:historical record"}
 
 
+def test_drift_ignore_file_marker_only_as_real_comment(tmp_path):
+    """Ruling R55: a doc that quotes the marker in inline code or a fence stays in scope."""
+    quoted = (
+        "# Markers\n\nAdd `<!-- drift-ignore-file: x -->` to skip a file.\n\n"
+        "```markdown\n<!-- drift-ignore-file: y -->\n```\n\n"
+        "    <!-- drift-ignore-file: indented code -->\n"
+    )
+    real = "# B\n\n<!-- drift-ignore-file: kept for history -->\n\ntext\n"
+    inline = "# C\n\nText <!-- drift-ignore-file: inline comment --> here.\n"
+    inv = _inv(tmp_path, {"a.md": quoted, "b.md": real, "c.md": inline})
+    assert inv["docs"] == ["a.md"]
+    assert _reasons(inv) == {"b.md": "marker:kept for history", "c.md": "marker:inline comment"}
+
+
 def test_config_exclude_glob(tmp_path):
     inv = _inv(
         tmp_path,

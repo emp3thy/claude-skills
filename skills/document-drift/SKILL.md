@@ -14,11 +14,12 @@ one commit on a new branch; the user's own process pushes it, reads the change a
 pull request. Everything here is a deterministic script: there are no agents in phase 1, and
 your job is to run one command, relay its summary, and stop.
 
-A reference is fixed only when it resolved at the commit that last wrote its line and does not
-resolve now (the two-snapshot test), and git history gives one provable outcome: a unique
-rename (replace the token), a deletion (delete the list item, table row, command line or tree
-line it is the subject of, or unlink the link), a renamed heading, or a manifest that states a
-different runtime floor. Everything else is either counted in the summary (a name that never
+A path, anchor, script or tree reference is fixed only when it resolved at the commit that last
+wrote its line and does not resolve now (the two-snapshot test), and git history gives one
+provable outcome: a unique rename (replace the token), a deletion (delete the list item, table
+row, command line or tree line it is the subject of, or unlink the link), or a renamed heading.
+A runtime version floor is fixed when the nearest declared manifest floor (`requires-python`,
+`engines.node`, the `go` directive, `rust-version`) contradicts it. Everything else is either counted in the summary (a name that never
 existed, such as a runtime artefact or an illustrative path) or listed under "Needs a human
 decision".
 
@@ -63,7 +64,7 @@ python scripts/dd_run.py <repo> --check
 |------|--------|
 | `--base <ref>` | Only docs that changed in `<ref>...HEAD`, or that name a path changed in that range (at HEAD or at the line's snapshot). |
 | `--branch <name>` | The branch to create. Default `docs/drift-<YYYY-MM-DD>`, or the `branch` pattern in `.document-drift.yaml`. |
-| `--check` | Stop after planning the fixes; exit 1 when any provable edit exists. Nothing is written to the repository. |
+| `--check` | Stop after planning the fixes; exit 1 when any provable edit exists. No doc edit, no branch, no commit (the workdir is still created and, inside the repository, added to `.git/info/exclude`). Runs from a detached HEAD too. |
 
 The scripts also accept `--workdir <dir>` (default `<repo>/.document-drift`, added to
 `.git/info/exclude`, never committed) and `--date YYYY-MM-DD` (fixes the branch date and run
@@ -73,8 +74,10 @@ id; for tests). Pass them only when the user asks.
 
 The run refuses (exit 2) when `<repo>` is not a git repository, has no commits, has a detached
 HEAD, has uncommitted changes, already has the target branch, has no git author identity
-(`user.name` and `user.email`), or when the branch name is not a valid git branch name. In
-`--check` mode only the first three and the branch-name check apply.
+(`user.name` and `user.email`), or when the branch name is not a valid git branch name. An
+unknown or invalid `--base` ref is refused with exit 2 too. In `--check` mode only "not a git
+repository", "no commits" and an unknown `--base` ref apply: check mode creates no branch, so
+it also runs from a detached HEAD or a dirty tree.
 
 ## Exit codes
 
@@ -83,8 +86,8 @@ HEAD, has uncommitted changes, already has the target branch, has no git author 
 | 0 | Success. With provable fixes, a branch exists with one commit and the user is now on it. Without them, no branch was created. | The printed summary and the branch name (or "No branch created"). |
 | 1 | `--check` only: provable edits exist. Nothing was changed. | The printed summary; a run without `--check` would commit those edits. |
 | 2 | Refused before any change. | The error line verbatim and what to fix (commit or stash, check out a branch, choose another `--branch`, set the git identity). |
-| 5 | An expected step output is missing, or a step crashed. | The error line verbatim (it names the step). Stop: do not edit docs by hand. |
-| 6 | The commit failed after the edits were applied to the working tree. | The error line verbatim: it names the branch the user is on and whether the edits are staged. Do not retry; the user decides. |
+| 5 | An expected step output is missing, or a step crashed. | The error line verbatim (it names the step). Stop: do not edit docs by hand. When the step is `apply`, `commit` or `summary`, docs may already be edited, and after `commit` the drift branch and its commit may exist: tell the user to check `git status` and `git branch`. |
+| 6 | The commit failed after the edits were applied to the working tree. | The error line verbatim: it says where the edits are. Some failures happen before any branch exists (HEAD moved during the run, `git switch -c` failed, an applied edit with no finding), leaving the edits in the working tree on the original branch; later ones name the drift branch the user is on and whether the edits are staged. Do not retry; the user decides. |
 
 ## What the user gets
 
@@ -95,13 +98,12 @@ HEAD, has uncommitted changes, already has the target branch, has no git author 
 - No branch at all when nothing is provable; the human-decision list is then in the summary
   only.
 - Markers the user can add to a doc: `<!-- drift-ignore: reason -->` (the next block),
-  `<!-- drift-ignore-next-line: reason -->`, and the same HTML comment reading
-  `drift-ignore-file: reason` for the whole file.
+  `<!-- drift-ignore-next-line: reason -->`, `<!-- drift-ignore-file: reason -->`.
 - Optional `.document-drift.yaml` at the repository root: `exclude` (extra globs),
   `never_edit_heading` (extra regex for sections never edited), `branch`, `commit_trailers`.
 
 ## Final message
 
 Your final message to the user is the summary the command printed, verbatim, followed by the
-branch name (or "No branch created"). Add nothing that is not in the summary; say that pushing
-and opening the pull request are theirs to do.
+branch name (or "No branch created"). Add nothing else except one line saying that pushing the
+branch and opening the pull request are theirs to do.

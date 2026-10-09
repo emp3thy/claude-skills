@@ -803,7 +803,7 @@ run with exit 5 naming the step.
 
 | Step | Script | Output | Does |
 |---|---|---|---|
-| 1 | `dd_preflight.py` | `preflight.json` | Refuses (exit 2): not a repository, no commits, detached HEAD, invalid branch name; outside `--check` also a dirty tree, an existing branch, no author identity |
+| 1 | `dd_preflight.py` | `preflight.json` | Refuses (exit 2): not a repository, no commits; outside `--check` also a detached HEAD, an invalid branch name, a dirty tree, an existing branch, no author identity. `--check` creates no branch, so it runs from a detached HEAD (`branch_from` is then null) |
 | 2 | `dd_inventory.py` | `inventory.json` | The doc list from `git ls-files` (`.md`, case-insensitive) and every exclusion with its reason |
 | 3 | `dd_extract.py` | `tokens.json` | Typed tokens per doc from the block and inline scanner `dd_md_scan.py`; markers |
 | 4 | `dd_resolve.py` | `candidates.json` | Resolution at HEAD, the per-line two-snapshot test, history lookups (`dd_history.py`, `dd_manifests.py`), the class of each unresolved token |
@@ -914,13 +914,14 @@ Each recorded with its reason in `inventory.json` and the summary:
   `third_party/`, `deps/`);
 - a path component in `node_modules`, `.venv`, `venv`, `site-packages`, `dist`, `target`,
   `.tox`, `__pycache__`, or `build`/`bin` holding no manifest;
-- a file-level ignore marker (an HTML comment reading `drift-ignore-file: reason`) and config
-  `exclude` globs.
+- `<!-- drift-ignore-file: reason -->` as a real HTML comment (quoted in inline code or a fence,
+  as here, it does not count), and config `exclude` globs.
 
-Inside an in-scope doc, a section whose heading matches the never-edit regex (why, rationale,
-decisions, history, roadmap, deprecation, migration, changelog, release notes, licence, plus
-config `never_edit_heading`) is scanned but its findings are human decisions; so are findings
-in generated regions (embedme, mdsh, cog, terraform-docs, `BEGIN GENERATED`).
+Inside an in-scope doc, a section whose heading matches the never-edit regex is scanned but
+its findings are human decisions. The default regex is
+`(?i)\b(why|rationale|decision|decisions|history|roadmap|deprecated|deprecation|migration|changelog|release notes|license|licence)\b`
+(`dd_inventory.DEFAULT_NEVER_EDIT`), OR-ed with config `never_edit_heading`. Findings in generated regions
+(embedme, mdsh, cog, terraform-docs, `BEGIN GENERATED`) are human decisions too.
 
 ### Tests
 

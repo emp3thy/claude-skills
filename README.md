@@ -127,10 +127,12 @@ KB_CONTAINERS=1 pytest -m containers -k spring-shipments -v
 
 `document-drift` finds the markdown documents in a repository and checks every reference they
 make to the code: file paths, `#anchors`, `make`/`npm`/`yarn`/`pnpm`/`just`/`task` scripts,
-runtime version floors (`Python 3.11+`, `Node >= 18`) and directory-tree entries. A reference
-is fixed only when git history proves it stale: it resolved at the commit that last wrote its
-line, it does not resolve now, and the history gives one outcome (a unique rename, a deletion,
-a renamed heading, or a manifest stating a different floor). Everything else is counted in the
+runtime version floors (`Python 3.11+`, `Node >= 18`) and directory-tree entries. A path,
+anchor, script or tree reference is fixed only when git history proves it stale: it resolved at
+the commit that last wrote its line, it does not resolve now, and the history gives one outcome
+(a unique rename, a deletion or a renamed heading). A version floor is fixed when the declared
+floor in the nearest manifest (`requires-python`, `engines.node`, the `go` directive,
+`rust-version`) contradicts it. Everything else is counted in the
 summary or listed for a human decision. It never pushes, never opens a pull request, never
 runs the project's code and never edits changelogs, licences, ADRs, plans and specs, research
 or archive folders, vendored libraries, templates or generated files.
@@ -157,8 +159,9 @@ the starting HEAD (default name `docs/drift-<YYYY-MM-DD>`); the run leaves you o
 commit body lists each edit as `- <doc>:<line> replace|delete|unlink ... (<reason>)` and ends
 with a `Needs a human decision:` list when there is one. Pushing the branch and opening the
 pull request are your own process. When nothing is provable, no branch is created and the
-summary is the whole output. `--check` reports without touching the repository and exits 1
-when a provable edit exists; this repository's CI runs it on itself.
+summary is the whole output. `--check` reports with no doc edit, no branch and no commit (it
+still creates its workdir, adding it to `.git/info/exclude` when it is inside the repository),
+exits 1 when a provable edit exists, and runs from a detached HEAD; this repository's CI runs it on itself.
 
 Phase 1 (this release) is the deterministic core: paths, anchors, scripts, version floors and
 tree entries, with no agents. Identifiers, flags, environment variables and config keys are
