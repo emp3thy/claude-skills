@@ -226,3 +226,65 @@ def test_second_run_on_drift_branch_makes_no_commit(tmp_path: Path,
     out = capsys.readouterr().out
     assert "No branch created." in out
     assert re.search(r"^Run: [0-9a-f]{12}$", out, re.M)
+
+
+TREE_DOC = "# Tree\n\n```\n.\n├── lib/\n│   └── x.py\n└── README.md\n```\n"
+
+
+def test_base_scope_counts_tree_tokens(tmp_path: Path) -> None:
+    # R66: a doc whose only reference to a changed path is a tree entry stays in scope
+    repo = _identity(make_repo(tmp_path, [
+        _c("01", "one", files={
+            "README.md": README,
+            "docs/tree.md": TREE_DOC,
+            "docs/other.md": "# Other\n\n- `other/y.py` y\n",
+            "src/old.py": BODY.format("old"),
+            "src/util.py": BODY.format("util"),
+            "lib/x.py": BODY.format("x"),
+            "other/y.py": BODY.format("y"),
+        }, tag="base"),
+        _c("02", "change", rename={"src/old.py": "src/new.py"},
+           files={"lib/x.py": BODY.format("x, changed")}),
+    ]))
+    assert _main(repo, "--base", "base") == 0
+    inventory = read_json(repo / ".document-drift" / "inventory.json")
+    assert inventory["docs"] == ["README.md", "docs/tree.md"]
+    assert inventory["scope_dropped"] == ["docs/other.md"]
+
+
+@pytest.mark.parametrize("where", ["_write_stdout", "write_json", "read_json"])
+def test_crash_outside_a_step_exits_5_with_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    where: str,
+) -> None:
+    # R65, final review I3: the preflight.json rewrite, the stdout write and the final hunks
+    # read are outside every step; a crash there is exit 5, never exit 1
+    import dd_run
+
+    repo = _rename_repo(tmp_path)
+
+    def boom(*args: object, **kwargs: object) -> Any:
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(dd_run, where, boom)
+    assert _main(repo, "--check") == 5
+    err = capsys.readouterr().err
+    assert "Traceback" in err and "OSError: disk on fire" in err
+    assert "crashed outside a step" in err
+
+
+def test_unlink_failure_before_the_first_step_exits_5(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    # R65: the R45 clean-up of stale outputs runs before any step
+    repo = _rename_repo(tmp_path)
+    real = Path.unlink
+
+    def unlink(self: Path, missing_ok: bool = False) -> None:
+        if self.name == "summary.md":
+            raise PermissionError("locked")
+        real(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    assert _main(repo, "--check") == 5
+    assert "PermissionError: locked" in capsys.readouterr().err

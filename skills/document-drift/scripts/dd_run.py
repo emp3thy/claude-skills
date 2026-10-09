@@ -12,16 +12,18 @@ fields (``run_id``, ``scope``, ``check``, ``date``, ``config_warnings``) are add
 ``preflight.json`` for the summary.
 
 ``--base REF`` keeps a doc when it is itself in ``git diff --name-only --no-renames
-REF...HEAD`` or one of its ``path`` tokens resolves, at HEAD or at its snapshot
-(``resolved_then``), to a changed path or a directory holding one. ``--no-renames`` lists both
-sides of a rename, so a doc naming the old path stays in scope. The filter runs after resolve:
-the other docs' tokens, markers, candidates and honoured entries are dropped and the docs are
-recorded in ``inventory.json`` as ``scope_dropped`` (sorted; empty without ``--base``).
+REF...HEAD`` or one of its ``path`` or ``tree`` tokens (ruling R66) resolves, at HEAD or at its
+snapshot (``resolved_then``), to a changed path or a directory holding one. ``--no-renames``
+lists both sides of a rename, so a doc naming the old path stays in scope. The filter runs after
+resolve: the other docs' tokens, markers, candidates and honoured entries are dropped and the
+docs are recorded in ``inventory.json`` as ``scope_dropped`` (sorted; empty without ``--base``).
 
 ``--check`` stops after fixes (no apply, no commit), writes the summary and exits 1 when
 ``hunks-provable.json`` holds any hunk, else 0. Exit codes: a ``StepError`` exits with its own
 code and message; a step that does not write its output exits 5 naming the file; any other
-exception prints its traceback and exits 5 naming the step.
+exception prints its traceback and exits 5 naming the step. Ruling R65: an exception anywhere
+else in the chain (clearing the old outputs, rewriting ``preflight.json`` or ``inventory.json``,
+writing to stdout, reading the final hunks) also prints its traceback and exits 5.
 """
 from __future__ import annotations
 
@@ -54,7 +56,7 @@ from dd_common import (
 )
 from dd_config import load_config
 from dd_history import History
-from dd_resolve import path_matches
+from dd_resolve import path_matches, tree_match
 
 OUTPUTS = (
     "preflight.json", "inventory.json", "tokens.json", "candidates.json", "findings.json",
@@ -120,12 +122,13 @@ def apply_base_scope(root: Path, workdir: Path, changed: set[str]) -> list[str]:
         if doc in changed:
             return True
         for tok in tokens["docs"].get(doc, []):
-            if tok.get("kind") != "path":
-                continue
-            found = path_matches(str(tok["text"]), doc, files, dirs)
-            if found is not None and any(p in touched for p in found[1]):
-                return True
-        return any(c["doc"] == doc and c.get("kind") == "path"
+            if tok.get("kind") == "path":
+                found = path_matches(str(tok["text"]), doc, files, dirs)
+                if found is not None and any(p in touched for p in found[1]):
+                    return True
+            elif tok.get("kind") == "tree" and tree_match(tok, files, dirs) in touched:
+                return True  # ruling R66: tree entries name paths too
+        return any(c["doc"] == doc and c.get("kind") in ("path", "tree")
                    and c.get("resolved_then") in touched for c in cands["candidates"])
 
     dropped = sorted(doc for doc in inventory["docs"] if not in_scope(doc))
@@ -219,6 +222,11 @@ def main(argv: list[str] | None = None) -> int:
     except StepError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return exc.code
+    except Exception as exc:  # ruling R65: never exit 1 (reserved for --check) on a crash
+        traceback.print_exc(file=sys.stderr)
+        print(f"error: the run crashed outside a step: {type(exc).__name__}: {exc}; "
+              "check git status and git branch", file=sys.stderr)
+        return EXIT_MISSING
 
 
 if __name__ == "__main__":

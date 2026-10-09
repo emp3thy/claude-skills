@@ -1,7 +1,9 @@
 """Preflight: refuse early when a run could not end in a clean commit (spec 7.1).
 
-Every mode refuses a path that is not a git repository and a repository with no commits (there
-is nothing to scan). Outside ``--check`` it also refuses a detached HEAD, an invalid branch
+Every mode refuses a path that is not a git repository, a path that is not the top level of a
+working tree (a subdirectory, a bare repository or a ``.git`` directory, ruling R61: every
+path the run reads and writes is relative to the top level) and a repository with no commits
+(there is nothing to scan). Outside ``--check`` it also refuses a detached HEAD, an invalid branch
 name, a dirty tree, an existing branch and a missing author identity; ``--check`` creates no
 branch, so it runs from a detached HEAD too and ``branch_from`` is then null (ruling R56).
 """
@@ -39,10 +41,25 @@ def _exclude_workdir(root: Path, workdir: Path) -> None:
         handle.write(f"{prefix}{entry}\n")
 
 
+def _same_dir(a: Path, b: Path) -> bool:
+    try:
+        return a.resolve().samefile(b.resolve())
+    except OSError:
+        return False
+
+
 def run(root: Path, workdir: Path, branch: str, check: bool) -> dict[str, Any]:
     """Run the refusal checks; write and return ``preflight.json``."""
-    if run_git(root, ["rev-parse", "--is-inside-work-tree"]) is None:
+    inside = run_git(root, ["rev-parse", "--is-inside-work-tree"])
+    if inside is None:
         raise StepError(f"{root} is not a git repository", EXIT_REFUSED)
+    if inside.strip() != "true":  # ruling R61: a bare repository, or inside .git
+        raise StepError(f"{root} is not inside a working tree (a bare repository or a .git "
+                        "directory); run on the repository's top level", EXIT_REFUSED)
+    top = (run_git(root, ["rev-parse", "--show-toplevel"]) or "").strip()
+    if not top or not _same_dir(root, Path(top)):  # ruling R61: every path is root-relative
+        raise StepError(f"{root} is not the repository's top level; run on {top or 'it'}",
+                        EXIT_REFUSED)
     head_out = run_git(root, ["rev-parse", "HEAD"])
     if head_out is None:
         raise StepError("the repository has no commits yet", EXIT_REFUSED)

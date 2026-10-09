@@ -135,3 +135,40 @@ def test_refuses_invalid_branch_name(tmp_path: Path) -> None:
         run(root, workdir, "drift fixes", False)
     assert exc.value.code == EXIT_REFUSED
     assert "drift fixes" in str(exc.value)
+
+
+@pytest.mark.parametrize("check", [False, True])
+def test_refuses_a_subdirectory_of_the_repository(tmp_path: Path, check: bool) -> None:
+    # R61, final review C3: every path is root-relative, so <repo> must be the top level
+    root, _ = _repo(tmp_path)
+    sub = root / "pkg"
+    sub.mkdir()
+    (sub / "README.md").write_text("pkg\n", encoding="utf-8")
+    _git(root, "add", "pkg/README.md")
+    _git(root, "commit", "-q", "-m", "pkg")
+    with pytest.raises(StepError) as exc:
+        run(sub, tmp_path / "work", "drift/x", check)
+    assert exc.value.code == EXIT_REFUSED
+    assert "top level" in str(exc.value)
+    assert _git(root, "rev-parse", "--show-toplevel") in str(exc.value)
+    assert not (tmp_path / "work" / "preflight.json").exists()
+
+
+@pytest.mark.parametrize("check", [False, True])
+def test_refuses_a_bare_repository_and_the_git_directory(tmp_path: Path, check: bool) -> None:
+    # R61: --is-inside-work-tree prints false there
+    root, _ = _repo(tmp_path)
+    bare = tmp_path / "bare.git"
+    _git(tmp_path, "clone", "-q", "--bare", str(root), str(bare))
+    for where in (bare, root / ".git"):
+        with pytest.raises(StepError) as exc:
+            run(where, tmp_path / "work", "drift/x", check)
+        assert exc.value.code == EXIT_REFUSED
+        assert "not inside a working tree" in str(exc.value)
+
+
+def test_accepts_the_top_level_through_another_spelling(tmp_path: Path) -> None:
+    root, workdir = _repo(tmp_path)
+    (root / "sub").mkdir()
+    out = run(root / "." / "sub" / "..", workdir, "drift/x", True)
+    assert out["head"] == _git(root, "rev-parse", "HEAD")
