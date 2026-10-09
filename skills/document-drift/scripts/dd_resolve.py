@@ -409,13 +409,15 @@ class Resolver:
         if found is None or (dup is not None and (dup.group(1) in then or dup.group(1) in now)):
             return fields  # a -N anchor names a position among repeats: never provable
         removed, added = found[1], found[2]
-        if len(removed) == 1 and len(added) == 1:
+        if _match_slug(frag, removed) is None:
+            return fields  # R32: that commit did not remove this anchor against its parent
+        if not added:  # R34: however many subsections went with it
+            fields.update(outcome="deleted", evidence=_ev("heading removed", commit))
+        elif len(removed) == 1 and len(added) == 1:
             new = next(iter(added))
             if new in now and self._same_section(target, found[0], next(iter(removed)), new):
                 fields.update(outcome="unique", replacement=new,
                               evidence=_ev("heading renamed", commit))
-        elif len(removed) == 1 and not added:
-            fields.update(outcome="deleted", evidence=_ev("heading removed", commit))
         return fields
 
     def _same_section(self, target: str, commit: str, old: str, new: str) -> bool:
@@ -424,26 +426,31 @@ class Resolver:
         after = heading_sections(self.history.show(commit, target) or "").get(new)
         if before is None or after is None or before[0] != after[0]:
             return False  # an HTML id, not a heading, or the level changed
+        if not before[1] or not after[1]:
+            return False  # R33: two empty bodies would compare as identical
         ratio = difflib.SequenceMatcher(None, before[1], after[1]).ratio()
         return ratio >= HEADING_BODY_SIMILARITY
 
     def _heading_commit(self, sha: str, target: str,
                         frag: str) -> tuple[str, set[str], set[str]] | None:
-        """The last commit where the anchor went from defined to undefined in the doc, with
-        the slugs that commit removed and added (against its first parent)."""
+        """The last commit (in topological order) that removed the anchor against its own first
+        parent, with the slugs that commit removed and added there.
+
+        Each commit is judged against its first parent, never against the previously listed
+        commit, so a merge whose first parent already lacked the anchor is not the remover
+        (ruling R32).
+        """
         out = run_git(self.root, ["--literal-pathspecs", "log", "--topo-order", "--reverse",
                                   "--format=%H", f"{sha}..HEAD", "--", target])
-        present, found = True, None
+        found: tuple[str, set[str], set[str]] | None = None
         for commit in (out or "").split():
-            now = _match_slug(frag, heading_slugs(self.history.show(commit, target) or ""))
-            if present and now is None:
-                found = commit
-            present = now is not None
-        if found is None:
-            return None
-        before = heading_slugs(self.history.show(f"{found}^", target) or "")
-        after = heading_slugs(self.history.show(found, target) or "")
-        return found, before - after, after - before
+            after = heading_slugs(self.history.show(commit, target) or "")
+            if _match_slug(frag, after) is not None:
+                continue
+            before = heading_slugs(self.history.show(f"{commit}^", target) or "")
+            if _match_slug(frag, before) is not None:
+                found = (commit, before - after, after - before)
+        return found
 
     # -- paths and tree entries --------------------------------------------------------------
 

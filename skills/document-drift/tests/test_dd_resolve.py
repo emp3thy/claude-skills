@@ -377,6 +377,77 @@ def test_anchor_one_commit_rename_needs_same_level_and_similar_body(
     assert _shape(_one(repo)) == expected
 
 
+MERGE_LINK = "See [install](#install).\n\n"
+MERGE_INST = (
+    "## Install\n\nRun the installer with the default options.\nThen restart the shell.\n\n"
+)
+MERGE_CONF = "## Configure\n\nEdit the config file and set the port number.\n\n"
+
+
+def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.name=Fixture", "-c", "user.email=f@example.com",
+         "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false", *args],
+        capture_output=True, text=True, check=False,
+    )
+
+
+@pytest.mark.parametrize("order", ["main_first", "side_first"])
+def test_anchor_removed_on_one_branch_and_other_heading_renamed_on_merge_side(
+    tmp_path: Path, order: str
+) -> None:
+    # R32, reviewer probe_merge: main drops Install, side renames Configure, then a merge
+    drop = _c("02" if order == "main_first" else "03", "A drop install", branch="main",
+              files={"README.md": MERGE_LINK + MERGE_CONF})
+    rename = _c("03" if order == "main_first" else "02", "B rename configure", branch="side",
+                files={"README.md": MERGE_LINK + MERGE_INST
+                       + MERGE_CONF.replace("## Configure", "## Configuration")})
+    commits = [_c("01", "S", files={"README.md": MERGE_LINK + MERGE_INST + MERGE_CONF})]
+    if order == "main_first":
+        # side must branch from S: an empty commit creates it there before main moves on
+        commits += [_c("02", "branch point", branch="side"), drop, rename]
+    else:
+        commits += [rename, drop]
+    repo = make_repo(tmp_path, commits)
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "merge", "-q", "--no-ff", "side", "-m", "M")  # may conflict; resolved below
+    (repo / "README.md").write_bytes(
+        (MERGE_LINK + MERGE_CONF.replace("## Configure", "## Configuration")).encode())
+    assert _git(repo, "add", "README.md").returncode == 0
+    commit = _git(repo, "commit", "-q", "--no-edit", "-m", "M merge")
+    assert commit.returncode == 0 or "nothing to commit" in commit.stdout
+    assert _git(repo, "rev-parse", "-q", "--verify", "HEAD^2").returncode == 0  # a merge
+    cand = _one(repo)
+    assert cand["class"] != "provable-replace"
+    a_sha = _git(repo, "log", "--format=%h", "--abbrev=7", "-1", "--grep=A drop install",
+                 "main").stdout.strip()
+    assert _shape(cand) == ("provable-delete", "deleted", None, None)
+    assert cand["evidence"] == f"heading removed in {a_sha}"
+
+
+def test_anchor_swap_with_empty_body_is_human(tmp_path: Path) -> None:
+    # R33, reviewer probe_empty: two empty bodies compare as identical
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": "See [install](#install).\n\n## Install\n\n"
+                               "## Usage\n\nUse it.\n"}),
+        _c("02", "swap", files={"README.md": "See [install](#install).\n\n## Troubleshooting\n\n"
+                                "## Usage\n\nUse it.\n"}),
+    ])
+    assert _shape(_one(repo)) == ("human", "ambiguous", None, "ambiguous-rename")
+
+
+def test_anchor_section_removed_with_subsections_is_deleted(tmp_path: Path) -> None:
+    # R34: removing a section with its subsections is a normal deletion
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"README.md": "See [install](#install).\n\n## Install\n\nx\n\n"
+                               "### Linux\n\ny\n\n## Usage\n\nz\n"}),
+        _c("02", "drop", files={"README.md": "See [install](#install).\n\n## Usage\n\nz\n"}),
+    ])
+    cand = _one(repo)
+    assert _shape(cand) == ("provable-delete", "deleted", None, None)
+    assert cand["evidence"] == f"heading removed in {_sha7(repo)}"
+
+
 def test_heading_sections_level_and_body() -> None:
     text = "# Top\n\nintro\n\n## A\n\nbody a\n\n### A.1\n\nnested\n\n## B\n\nbody b\n"
     sections = heading_sections(text)
