@@ -101,6 +101,63 @@ def test_render_human_statements() -> None:
     assert "the proposed edit for `p` did not pass the re-check (before-mismatch)" in out
 
 
+def _hunk(hid: str, fid: str, verb: str, new_text: str | None = None,
+          also: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    return {"id": hid, "finding_id": fid, "doc": "a.md", "line_start": 1, "verb": verb,
+            "token_text": "", "new_text": new_text, "reason": "why", "also": also or []}
+
+
+@pytest.mark.parametrize(("tool", "shown"), [
+    ("make", "make lint"), ("npm", "npm run lint"), ("yarn", "yarn lint"),
+    ("pnpm", "pnpm lint"), ("just", "just lint"), ("task", "task lint"),
+])
+def test_script_findings_display_as_their_invocation(tool: str, shown: str) -> None:
+    # R51: a script name alone (`lint`) does not tell the reader which command was removed
+    findings = [
+        _f("F1", "a.md", 1, 0, "lint", kind="script", script_tool=tool),
+        _f("F2", "a.md", 2, 0, "lint", kind="script", script_tool=tool,
+           **{"class": "human", "human_kind": "large-deletion", "block": {"kind": "fence"}}),
+    ]
+    msg = render_message(findings, [_hunk("H1", "F1", "delete")], ["H1"], run_id="r",
+                         base=BASE, scope="all", trailers=[])
+    assert f"- a.md:1 delete `{shown}` (why)\n" in msg
+    assert (f"- a.md:2 [large-deletion] `{shown}` no longer exists and removing it would "
+            "remove a whole fence\n") in msg
+
+
+def test_script_finding_in_an_also_entry_displays_as_its_invocation() -> None:
+    findings = [_f("F1", "a.md", 1, 0, "src/x.py", kind="path"),
+                _f("F2", "a.md", 1, 9, "e2e", kind="script", script_tool="npm")]
+    also = [{"finding_id": "F2", "verb": "delete", "token_text": "e2e", "new_text": None,
+             "reason": "removed in 1234567"}]
+    msg = render_message(findings, [_hunk("H1", "F1", "delete", also=also)], ["H1"],
+                         run_id="r", base=BASE, scope="all", trailers=[])
+    assert "- a.md:1 delete `src/x.py` (why)\n- a.md:1 delete `npm run e2e` (removed in" in msg
+
+
+@pytest.mark.parametrize(("text", "new_text", "shown"), [
+    ("src/svc/tasks/scheduler.py", "runner.py", "src/svc/tasks/runner.py"),
+    ("src/components/", "widgets/", "src/widgets/"),
+    ("top.py", "main.py", "main.py"),
+])
+def test_tree_replace_bullet_shows_full_paths(text: str, new_text: str, shown: str) -> None:
+    # R51: the hunk replaces only the entry's own segment; the bullet shows both full paths
+    findings = [_f("F1", "a.md", 1, 0, text, kind="tree")]
+    msg = render_message(findings, [_hunk("H1", "F1", "replace", new_text)], ["H1"],
+                         run_id="r", base=BASE, scope="all", trailers=[])
+    assert f"- a.md:1 replace `{text}` -> `{shown}` (why)\n" in msg
+
+
+def test_path_and_unknown_tool_findings_display_their_text() -> None:
+    findings = [_f("F1", "a.md", 1, 0, "src/old.py", kind="path"),
+                _f("F2", "a.md", 2, 0, "build", kind="script", script_tool=None)]
+    hunks = [_hunk("H1", "F1", "replace", "src/new.py"), _hunk("H2", "F2", "delete")]
+    msg = render_message(findings, hunks, ["H1", "H2"], run_id="r", base=BASE, scope="all",
+                         trailers=[])
+    assert "- a.md:1 replace `src/old.py` -> `src/new.py` (why)\n" in msg
+    assert "- a.md:2 delete `build` (why)\n" in msg
+
+
 def test_message_is_redacted() -> None:
     secret = "ghp_" + "A1b2C3d4E5" * 3 + "abcdef"
     findings = [_f("F1", "a.md", 1, 0, secret)]

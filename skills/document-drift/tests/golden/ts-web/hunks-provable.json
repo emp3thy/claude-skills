@@ -33,7 +33,7 @@
    "line_end": 10,
    "line_start": 10,
    "new_text": "src/api/httpClient.ts",
-   "reason": "renamed in 9c3e91d",
+   "reason": "renamed in c9b98e7",
    "token_kind": "path",
    "token_text": "src/api/client.ts",
    "verb": "replace"
@@ -52,7 +52,7 @@
    "line_end": 13,
    "line_start": 13,
    "new_text": "src/helpers/",
-   "reason": "renamed in 4e12520",
+   "reason": "renamed in 01789e9",
    "token_kind": "path",
    "token_text": "src/utils/",
    "verb": "replace"
@@ -69,7 +69,7 @@
    "line_end": 24,
    "line_start": 24,
    "new_text": null,
-   "reason": "removed in 9f1bc0a",
+   "reason": "removed in 40fa581",
    "token_kind": "script",
    "token_text": "storybook",
    "verb": "delete"
@@ -86,7 +86,7 @@
    "line_end": 10,
    "line_start": 10,
    "new_text": null,
-   "reason": "deleted in a26f07b",
+   "reason": "deleted in df50d88",
    "token_kind": "tree",
    "token_text": "src/components/OldModal.tsx",
    "verb": "delete"
@@ -105,7 +105,7 @@
    "line_end": 11,
    "line_start": 11,
    "new_text": "NavRail.tsx",
-   "reason": "renamed in 5fdf1bd",
+   "reason": "renamed in cd2ba44",
    "token_kind": "tree",
    "token_text": "src/components/Sidebar.tsx",
    "verb": "replace"
@@ -124,7 +124,7 @@
    "line_end": 16,
    "line_start": 16,
    "new_text": null,
-   "reason": "deleted in a26f07b",
+   "reason": "deleted in df50d88",
    "token_kind": "path",
    "token_text": "../src/legacy/polyfills.ts",
    "verb": "unlink"

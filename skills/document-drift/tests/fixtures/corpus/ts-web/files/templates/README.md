@@ -1,3 +1,4 @@
 # Page templates
 
-Each page starts from `templates/page.tsx.tmpl`.
+- `templates/page.tsx.tmpl` starts every page
+- `templates/legacy_page.tsx.tmpl` starts the IE11 pages

@@ -1,4 +1,4 @@
 # Cache plan
 
-1. Move caching out of `src/svc/legacy_cache.py` into `src/svc/storage.py`.
-2. Delete `src/svc/legacy_cache.py` once nothing imports it.
+1. `src/svc/storage.py` takes over response caching.
+2. `src/svc/legacy_cache.py` goes once nothing imports it.

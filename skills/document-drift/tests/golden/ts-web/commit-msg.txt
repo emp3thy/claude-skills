@@ -1,18 +1,18 @@
 docs(drift): provable fixes
 
-Drift-Run: b82843d6e054
-Drift-Base: 9f1bc0a562c2d0cc39d235de8f263418f7d81feb
+Drift-Run: 6f5bc987e91d
+Drift-Base: 40fa581ca893fe96bcb160e06b0e8b799fb8ce3e
 Drift-Scope: all
 
 - README.md:5 replace `16` -> `18` (manifest package.json says >=18)
-- README.md:10 replace `src/api/client.ts` -> `src/api/httpClient.ts` (renamed in 9c3e91d)
-- README.md:13 replace `src/utils/` -> `src/helpers/` (renamed in 4e12520)
-- README.md:24 delete `storybook` (removed in 9f1bc0a)
-- docs/frontend.md:10 delete `src/components/OldModal.tsx` (deleted in a26f07b)
-- docs/frontend.md:11 replace `src/components/Sidebar.tsx` -> `NavRail.tsx` (renamed in 5fdf1bd)
-- docs/frontend.md:16 unlink `../src/legacy/polyfills.ts` (deleted in a26f07b)
+- README.md:10 replace `src/api/client.ts` -> `src/api/httpClient.ts` (renamed in c9b98e7)
+- README.md:13 replace `src/utils/` -> `src/helpers/` (renamed in 01789e9)
+- README.md:24 delete `npm run storybook` (removed in 40fa581)
+- docs/frontend.md:10 delete `src/components/OldModal.tsx` (deleted in df50d88)
+- docs/frontend.md:11 replace `src/components/Sidebar.tsx` -> `src/components/NavRail.tsx` (renamed in cd2ba44)
+- docs/frontend.md:16 unlink `../src/legacy/polyfills.ts` (deleted in df50d88)
 
 Needs a human decision:
 - README.md:17 [large-deletion] `src/workers/sync_worker.ts` no longer exists and removing it would remove a whole list_item
-  evidence: deleted in a26f07b
+  evidence: deleted in df50d88
 

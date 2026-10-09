@@ -1,17 +1,17 @@
 {
   "planted": [
-    {"id": "p1", "doc": "CLAUDE.md", "line": 5, "kind": "path", "what": "CLAUDE.md names internal/cli/flags.go, renamed to internal/cli/options.go", "expect": "replace:internal/cli/options.go"},
-    {"id": "p2", "doc": "README.md", "line": 15, "kind": "path", "what": "directory internal/store/ renamed to internal/storage/", "expect": "replace:internal/storage/"},
-    {"id": "p3", "doc": "README.md", "line": 9, "kind": "path", "what": "list-item subject internal/report/csv.go deleted; the list keeps two siblings", "expect": "delete"},
-    {"id": "p4", "doc": "README.md", "line": 13, "kind": "path", "what": "inline prose mention of the deleted internal/compat/v1shim.go", "expect": "human:prose-mention"},
-    {"id": "p5", "doc": "docs/usage.md", "line": 3, "kind": "anchor", "what": "same-doc #building after '## Building' became '## Building from Source' in one commit", "expect": "replace:building-from-source"},
-    {"id": "p6", "doc": "README.md", "line": 21, "kind": "script", "what": "make vet in a sh fence after the vet target was removed", "expect": "delete"},
-    {"id": "p7", "doc": "README.md", "line": 5, "kind": "version", "what": "Go 1.20 or later behind the go.mod go 1.22 directive", "expect": "replace:1.22"}
+    {"id": "p1", "doc": "CLAUDE.md", "line": 5, "kind": "path", "text": "internal/cli/flags.go", "what": "CLAUDE.md names internal/cli/flags.go, renamed to internal/cli/options.go", "expect": "replace:internal/cli/options.go"},
+    {"id": "p2", "doc": "README.md", "line": 15, "kind": "path", "text": "internal/store/", "what": "directory internal/store/ renamed to internal/storage/", "expect": "replace:internal/storage/"},
+    {"id": "p3", "doc": "README.md", "line": 9, "kind": "path", "text": "internal/report/csv.go", "what": "list-item subject internal/report/csv.go deleted; the list keeps two siblings", "expect": "delete"},
+    {"id": "p4", "doc": "README.md", "line": 13, "kind": "path", "text": "internal/compat/v1shim.go", "what": "inline prose mention of the deleted internal/compat/v1shim.go", "expect": "human:prose-mention"},
+    {"id": "p5", "doc": "docs/usage.md", "line": 3, "kind": "anchor", "text": "building", "what": "same-doc #building after '## Building' became '## Building from Source' in one commit", "expect": "replace:building-from-source"},
+    {"id": "p6", "doc": "README.md", "line": 21, "kind": "script", "text": "vet", "what": "make vet in a sh fence after the vet target was removed", "expect": "delete"},
+    {"id": "p7", "doc": "README.md", "line": 5, "kind": "version", "text": "1.20", "what": "Go 1.20 or later behind the go.mod go 1.22 directive", "expect": "replace:1.22"}
   ],
   "decoys": [
     {"id": "d1", "doc": "README.md", "line": 33, "why": "the deliberate removal sentence, committed in the deleting commit (its snapshot never had the file)", "expect": "none"},
     {"id": "d2", "doc": "README.md", "line": 27, "why": "a runtime artefact state.json", "expect": "none"},
     {"id": "d3", "doc": "README.md", "line": 29, "why": "an illustrative path that never existed", "expect": "none"},
-    {"id": "d4", "doc": "README.md", "line": 31, "why": "a ratio 4/5", "expect": "none"}
+    {"id": "d4", "doc": "README.md", "line": 31, "why": "a ratio 4/5: the ratio guard gives no token", "expect": "no-token"}
   ]
 }

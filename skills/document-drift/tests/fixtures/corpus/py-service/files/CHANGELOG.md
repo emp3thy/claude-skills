@@ -1,5 +1,6 @@
-# Changelog
+# Releases
 
-## 1.4.0
+## 1.3.0
 
-- Removed `src/svc/legacy_cache.py`; the storage layer caches responses.
+- `src/svc/legacy_cache.py` caches responses in memory
+- `src/svc/storage.py` persists records in SQLite

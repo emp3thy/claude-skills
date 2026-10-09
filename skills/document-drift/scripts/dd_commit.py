@@ -1,4 +1,10 @@
-"""Commit the applied edits on a new branch with the owner-parsed message grammar (spec 7.4)."""
+"""Commit the applied edits on a new branch with the owner-parsed message grammar (spec 7.4).
+
+Display (ruling R51): a ``script`` finding is shown as its invocation (``make lint``,
+``npm run lint``, ``yarn lint``, ``pnpm lint``, ``just lint``, ``task lint``) in body bullets and
+human statements; a ``tree`` replace bullet shows full paths on both sides, the new one being
+the finding's path with its last segment replaced by the hunk's new text.
+"""
 from __future__ import annotations
 
 import argparse
@@ -24,12 +30,35 @@ def _pos(finding: dict[str, Any]) -> tuple[str, int, int]:
     return (str(finding.get("doc", "")), int(finding.get("line", 0)), int(finding.get("col", 0)))
 
 
+SCRIPT_INVOCATION: dict[str, str] = {
+    "make": "make {}", "npm": "npm run {}", "yarn": "yarn {}", "pnpm": "pnpm {}",
+    "just": "just {}", "task": "task {}",
+}
+
+
 def _tick(text: str) -> str:
     return f"`{redact(text)}`"
 
 
+def _shown(finding: dict[str, Any]) -> str:
+    """The token as a reader recognises it: a script as its invocation (ruling R51)."""
+    text = str(finding.get("text", ""))
+    if finding.get("kind") == "script":
+        template = SCRIPT_INVOCATION.get(str(finding.get("script_tool") or ""))
+        if template is not None:
+            return template.format(text)
+    return text
+
+
+def tree_new_path(text: str, new_text: str) -> str:
+    """A tree entry's path with its own last segment (and trailing ``/``) replaced."""
+    trail = "/" if text.endswith("/") else ""
+    own = text.rstrip("/").rsplit("/", 1)[-1] + trail
+    return text[: len(text) - len(own)] + new_text
+
+
 def _statement(finding: dict[str, Any]) -> str:
-    token = _tick(str(finding.get("text", "")))
+    token = _tick(_shown(finding))
     kind = finding.get("human_kind")
     if kind == "ambiguous-rename":
         return f"{token} was renamed or moved and no single new name is provable"
@@ -70,10 +99,13 @@ def render_human(findings: list[dict[str, Any]]) -> str:
 
 def _bullet(finding: dict[str, Any], verb: str, new_text: str | None, reason: str) -> str:
     where = f"{redact(str(finding['doc']))}:{finding['line']}"
-    old = _tick(str(finding.get("text", "")))
+    old = _tick(_shown(finding))
     why = f"({redact(reason)})"
     if verb == "replace":
-        return f"- {where} replace {old} -> {_tick(new_text or '')} {why}"
+        new = new_text or ""
+        if finding.get("kind") == "tree":
+            new = tree_new_path(str(finding.get("text", "")), new)
+        return f"- {where} replace {old} -> {_tick(new)} {why}"
     return f"- {where} {verb} {old} {why}"
 
 

@@ -87,7 +87,14 @@ commits:
     files:
       third_party/lib/README.md: "@final"
       third_party/lib/index.js: "@final"
+      third_party/lib/legacy.js: |
+        module.exports = function tinylibLegacy() { return 41; };
       templates/README.md: "@final"
+      templates/page.tsx.tmpl: "@final"
+      templates/legacy_page.tsx.tmpl: |
+        export default function LegacyPage() {
+          return <main className="ie11">{{body}}</main>;
+        }
   - author: "Rosalind Franklin <rosalind@example.com>"
     date: "2025-01-08T09:00:00+00:00"
     subject: "refactor: client.ts becomes httpClient.ts"
@@ -106,11 +113,13 @@ commits:
       src/components/Sidebar.tsx: src/components/NavRail.tsx
   - author: "Linus Pauling <linus@example.com>"
     date: "2025-03-03T17:45:00+00:00"
-    subject: "chore: drop IE11 polyfills, the old modal and the sync worker"
+    subject: "chore: drop IE11 polyfills, the old modal, the sync worker and the 1.x entry points"
     delete:
       - src/legacy/polyfills.ts
       - src/components/OldModal.tsx
       - src/workers/sync_worker.ts
+      - third_party/lib/legacy.js
+      - templates/legacy_page.tsx.tmpl
     files:
       docs/frontend.md: "@final"
   - author: "Rosalind Franklin <rosalind@example.com>"

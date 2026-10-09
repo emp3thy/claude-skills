@@ -137,8 +137,9 @@ commits:
       docs/architecture.md: "@final"
   - author: "Grace Hopper <grace@example.com>"
     date: "2024-03-01T11:00:00+00:00"
-    subject: "docs: plan the cache move"
+    subject: "docs: release notes for 1.3.0 and a plan for the cache move"
     files:
+      CHANGELOG.md: "@final"
       docs/superpowers/plans/2024-03-01-cache-plan.md: "@final"
   - author: "Grace Hopper <grace@example.com>"
     date: "2025-01-15T09:30:00+00:00"
@@ -172,7 +173,6 @@ commits:
       - scripts/seed_v0.py
     files:
       README.md: "@final"
-      CHANGELOG.md: "@final"
   - author: "Grace Hopper <grace@example.com>"
     date: "2025-05-20T08:45:00+00:00"
     subject: "build: drop the lint target"

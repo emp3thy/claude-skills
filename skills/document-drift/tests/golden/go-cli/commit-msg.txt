@@ -8,7 +8,7 @@ Drift-Scope: all
 - README.md:5 replace `1.20` -> `1.22` (manifest go.mod says 1.22)
 - README.md:9 delete `internal/report/csv.go` (deleted in 5bcc916)
 - README.md:15 replace `internal/store/` -> `internal/storage/` (renamed in bf2e761)
-- README.md:21 delete `vet` (removed in 3a72e6a)
+- README.md:21 delete `make vet` (removed in 3a72e6a)
 - docs/usage.md:3 replace `building` -> `building-from-source` (heading renamed in 479e39c)
 
 Needs a human decision:
