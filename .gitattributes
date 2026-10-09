@@ -6,3 +6,8 @@ skills/tech-debt-scan/tests/golden/** text eol=lf
 # tests/test_corpus.py; pin them to LF (the Go fixtures also rely on real
 # tabs, which eol=lf does not disturb) regardless of core.autocrlf.
 skills/tech-debt-scan/tests/fixtures/corpus/** text eol=lf
+
+# document-drift corpus fixtures are replayed into git (their bytes decide every sha in the
+# goldens) and its goldens are byte-compared; pin both to LF regardless of core.autocrlf.
+skills/document-drift/tests/fixtures/corpus/** text eol=lf
+skills/document-drift/tests/golden/** text eol=lf

@@ -1,0 +1,150 @@
+{
+ "hunks": [
+  {
+   "after": [
+    "Requires Python 3.11+."
+   ],
+   "also": [],
+   "before": [
+    "Requires Python 3.10+."
+   ],
+   "doc": "README.md",
+   "finding_id": "F001",
+   "id": "H001",
+   "line_end": 5,
+   "line_start": 5,
+   "new_text": "3.11",
+   "reason": "manifest pyproject.toml says >=3.11",
+   "token_kind": "version",
+   "token_text": "3.10",
+   "verb": "replace"
+  },
+  {
+   "after": [
+    "- `src/svc/handlers.py` maps URLs to views"
+   ],
+   "also": [],
+   "before": [
+    "- `src/svc/routes.py` maps URLs to views"
+   ],
+   "doc": "README.md",
+   "finding_id": "F002",
+   "id": "H002",
+   "line_end": 10,
+   "line_start": 10,
+   "new_text": "src/svc/handlers.py",
+   "reason": "renamed in 104a80f",
+   "token_kind": "path",
+   "token_text": "src/svc/routes.py",
+   "verb": "replace"
+  },
+  {
+   "after": [],
+   "also": [],
+   "before": [
+    "- `src/svc/legacy_cache.py` caches responses in memory"
+   ],
+   "doc": "README.md",
+   "finding_id": "F003",
+   "id": "H003",
+   "line_end": 11,
+   "line_start": 11,
+   "new_text": null,
+   "reason": "deleted in d50b51e",
+   "token_kind": "path",
+   "token_text": "src/svc/legacy_cache.py",
+   "verb": "delete"
+  },
+  {
+   "after": [
+    "Read the [local setup steps](docs/setup.md#local-development) before running anything."
+   ],
+   "also": [],
+   "before": [
+    "Read the [local setup steps](docs/setup.md#local-setup) before running anything."
+   ],
+   "doc": "README.md",
+   "finding_id": "F004",
+   "id": "H004",
+   "line_end": 14,
+   "line_start": 14,
+   "new_text": "local-development",
+   "reason": "heading renamed in a6e9fe6",
+   "token_kind": "anchor",
+   "token_text": "local-setup",
+   "verb": "replace"
+  },
+  {
+   "after": [
+    "Authentication is handled by the auth module for every request."
+   ],
+   "also": [],
+   "before": [
+    "Authentication is handled by [the auth module](src/svc/old_auth.py) for every request."
+   ],
+   "doc": "README.md",
+   "finding_id": "F005",
+   "id": "H005",
+   "line_end": 16,
+   "line_start": 16,
+   "new_text": null,
+   "reason": "deleted in d50b51e",
+   "token_kind": "path",
+   "token_text": "src/svc/old_auth.py",
+   "verb": "unlink"
+  },
+  {
+   "after": [],
+   "also": [],
+   "before": [
+    "make lint"
+   ],
+   "doc": "README.md",
+   "finding_id": "F007",
+   "id": "H006",
+   "line_end": 24,
+   "line_start": 24,
+   "new_text": null,
+   "reason": "removed in aafb092",
+   "token_kind": "script",
+   "token_text": "lint",
+   "verb": "delete"
+  },
+  {
+   "after": [],
+   "also": [],
+   "before": [
+    "│   ├── cleanup_job.py"
+   ],
+   "doc": "docs/architecture.md",
+   "finding_id": "F011",
+   "id": "H007",
+   "line_end": 9,
+   "line_start": 9,
+   "new_text": null,
+   "reason": "deleted in d50b51e",
+   "token_kind": "tree",
+   "token_text": "src/svc/tasks/cleanup_job.py",
+   "verb": "delete"
+  },
+  {
+   "after": [
+    "│   └── runner.py"
+   ],
+   "also": [],
+   "before": [
+    "│   └── scheduler.py"
+   ],
+   "doc": "docs/architecture.md",
+   "finding_id": "F012",
+   "id": "H008",
+   "line_end": 10,
+   "line_start": 10,
+   "new_text": "runner.py",
+   "reason": "renamed in b2bd4e4",
+   "token_kind": "tree",
+   "token_text": "src/svc/tasks/scheduler.py",
+   "verb": "replace"
+  }
+ ]
+}

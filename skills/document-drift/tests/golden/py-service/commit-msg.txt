@@ -1,0 +1,23 @@
+docs(drift): provable fixes
+
+Drift-Run: ef2de6d89112
+Drift-Base: aafb092cbe4ee2dac5ce7da9a982a6b12d3f9a32
+Drift-Scope: all
+
+- README.md:5 replace `3.10` -> `3.11` (manifest pyproject.toml says >=3.11)
+- README.md:10 replace `src/svc/routes.py` -> `src/svc/handlers.py` (renamed in 104a80f)
+- README.md:11 delete `src/svc/legacy_cache.py` (deleted in d50b51e)
+- README.md:14 replace `local-setup` -> `local-development` (heading renamed in a6e9fe6)
+- README.md:16 unlink `src/svc/old_auth.py` (deleted in d50b51e)
+- README.md:24 delete `lint` (removed in aafb092)
+- docs/architecture.md:9 delete `src/svc/tasks/cleanup_job.py` (deleted in d50b51e)
+- docs/architecture.md:10 replace `src/svc/tasks/scheduler.py` -> `runner.py` (renamed in b2bd4e4)
+
+Needs a human decision:
+- README.md:18 [prose-mention] `src/svc/mailer_v1.py` no longer exists and is mentioned in running prose
+  evidence: deleted in d50b51e
+- docs/architecture.md:18 [generated-region] `scripts/seed_v0.py` no longer exists inside a generated region; regenerate it
+  evidence: deleted in d50b51e
+- docs/architecture.md:23 [never-edit-section] `src/svc/retry_v0.py` no longer exists, in a section headed 'Rationale'
+  evidence: deleted in d50b51e
+

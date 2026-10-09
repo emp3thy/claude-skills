@@ -1,0 +1,180 @@
+# py-service: a Python HTTP service whose docs were written in early 2024 and whose code moved
+# on in 2025 (renames, deletions, a renamed heading, a dropped Make target). Every doc line is
+# blamed to a commit where its target existed; every rename or deletion comes later.
+# Editing an earlier commit re-hashes every later one and moves the goldens: add new history
+# as trailing commits and regenerate the goldens deliberately (UPDATE_GOLDENS=1).
+commits:
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2024-01-10T09:00:00+00:00"
+    subject: "feat: service skeleton"
+    files:
+      pyproject.toml: "@final"
+      Makefile: ".PHONY: install lint test\n\ninstall:\n\tpip install -e .\n\nlint:\n\truff check src\n\ntest:\n\tpytest -q\n"
+      src/svc/__init__.py: "@final"
+      src/svc/app.py: "@final"
+      src/svc/routes.py: |
+        """URL rules and their views."""
+        from __future__ import annotations
+
+        from flask import Flask, jsonify
+
+
+        def register(app: Flask) -> None:
+            app.add_url_rule("/health", "health", lambda: jsonify(status="ok"))
+      src/svc/storage.py: "@final"
+      src/svc/legacy_cache.py: |
+        """In-memory response cache (superseded by storage)."""
+        CACHE: dict[str, bytes] = {}
+
+
+        def get(key: str) -> bytes | None:
+            return CACHE.get(key)
+      src/svc/old_auth.py: |
+        """Bearer-token authentication for every request."""
+
+
+        def check(token: str) -> bool:
+            return token.startswith("svc-")
+      src/svc/mailer_v1.py: |
+        """Daily digest emails over SMTP."""
+        import smtplib
+
+
+        def send_digest(host: str) -> None:
+            smtplib.SMTP(host).quit()
+      src/svc/compat_shim.py: |
+        """Re-exports the 1.x import paths."""
+        from svc.storage import connect as open_db  # noqa: F401
+      src/svc/retry_v0.py: |
+        """First retry loop: three tries, no backoff."""
+
+
+        def retry(fn):
+            for _ in range(3):
+                if fn():
+                    return True
+            return False
+      src/svc/tasks/__init__.py: "@final"
+      src/svc/tasks/scheduler.py: |
+        """Runs background tasks on a fixed interval."""
+        from __future__ import annotations
+
+        import time
+
+
+        def run_forever(interval: float) -> None:
+            while True:
+                time.sleep(interval)
+      src/svc/tasks/cleanup_job.py: |
+        """Purges expired sessions every night."""
+
+
+        def purge(days: int = 30) -> int:
+            return days
+      scripts/seed_v0.py: |
+        """Seeds a development database with demo rows."""
+        print("seeded 12 demo rows")
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2024-02-05T10:00:00+00:00"
+    subject: "docs: readme, setup guide and architecture notes"
+    files:
+      README.md: |
+        # svc
+
+        A small HTTP service with background tasks.
+
+        Requires Python 3.10+.
+
+        ## Layout
+
+        - `src/svc/app.py` builds the application
+        - `src/svc/routes.py` maps URLs to views
+        - `src/svc/legacy_cache.py` caches responses in memory
+        - `src/svc/storage.py` persists records
+
+        Read the [local setup steps](docs/setup.md#local-setup) before running anything.
+
+        Authentication is handled by [the auth module](src/svc/old_auth.py) for every request.
+
+        Digest emails are sent by `src/svc/mailer_v1.py` once a day.
+
+        ## Commands
+
+        ```bash
+        make install
+        make lint
+        make test
+        ```
+
+        ## Notes
+
+        The service writes `state.json` next to the process for crash recovery.
+
+        Probes call `/health` every ten seconds.
+
+        Operators trigger a release with the `/deploy` chat command.
+
+        Retries back off after `3/5` failed attempts.
+
+        A future module such as `src/svc/handlers_admin.py` would sit beside the others.
+
+        The build steps create `out/` for the wheels.
+
+        <!-- drift-ignore: kept until the 1.x branch is retired -->
+
+        The `src/svc/compat_shim.py` module keeps 1.x imports working.
+      docs/setup.md: |
+        # Setup
+
+        ## Local Setup
+
+        Make a virtual environment and install the package in editable mode.
+        Run the tests once to confirm the toolchain works.
+
+        ## Configuration
+
+        Settings are read from environment variables prefixed with `SVC_`.
+      docs/architecture.md: "@final"
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2024-03-01T11:00:00+00:00"
+    subject: "docs: plan the cache move"
+    files:
+      docs/superpowers/plans/2024-03-01-cache-plan.md: "@final"
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2025-01-15T09:30:00+00:00"
+    subject: "refactor: routes.py becomes handlers.py"
+    rename:
+      src/svc/routes.py: src/svc/handlers.py
+    files:
+      src/svc/app.py: "@final"
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2025-02-03T14:00:00+00:00"
+    subject: "refactor: the scheduler is now the task runner"
+    rename:
+      src/svc/tasks/scheduler.py: src/svc/tasks/runner.py
+    files:
+      src/svc/tasks/runner.py: "@final"
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2025-03-10T16:00:00+00:00"
+    subject: "docs: call the local setup section local development"
+    files:
+      docs/setup.md: "@final"
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2025-04-02T10:15:00+00:00"
+    subject: "chore: remove the legacy modules"
+    delete:
+      - src/svc/legacy_cache.py
+      - src/svc/old_auth.py
+      - src/svc/mailer_v1.py
+      - src/svc/compat_shim.py
+      - src/svc/retry_v0.py
+      - src/svc/tasks/cleanup_job.py
+      - scripts/seed_v0.py
+    files:
+      README.md: "@final"
+      CHANGELOG.md: "@final"
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2025-05-20T08:45:00+00:00"
+    subject: "build: drop the lint target"
+    files:
+      Makefile: "@final"

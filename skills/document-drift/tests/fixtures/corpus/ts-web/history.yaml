@@ -1,0 +1,120 @@
+# ts-web: a Vite/React front end whose docs were written in early 2024 and whose code moved on
+# in 2025 (a renamed module, a renamed directory, a renamed component, deletions and a removed
+# npm script). Every doc line is blamed to a commit where its target existed; every rename or
+# deletion comes later.
+# Editing an earlier commit re-hashes every later one and moves the goldens: add new history
+# as trailing commits and regenerate the goldens deliberately (UPDATE_GOLDENS=1).
+commits:
+  - author: "Linus Pauling <linus@example.com>"
+    date: "2024-02-01T09:00:00+00:00"
+    subject: "feat: vite app skeleton"
+    files:
+      package.json: |
+        {
+          "name": "web",
+          "version": "2.0.0",
+          "private": true,
+          "engines": {
+            "node": ">=18"
+          },
+          "scripts": {
+            "dev": "vite",
+            "build": "vite build",
+            "storybook": "storybook dev -p 6006",
+            "test": "vitest run"
+          }
+        }
+      src/main.tsx: "@final"
+      src/App.tsx: "@final"
+      src/api/client.ts: |
+        export async function getJson<T>(url: string, tries = 3): Promise<T> {
+          const response = await fetch(url);
+          if (!response.ok && tries > 1) return getJson<T>(url, tries - 1);
+          return (await response.json()) as T;
+        }
+      src/utils/format.ts: |
+        export function formatPrice(cents: number): string {
+          return `$${(cents / 100).toFixed(2)}`;
+        }
+      src/utils/dates.ts: |
+        export function isoDay(date: Date): string {
+          return date.toISOString().slice(0, 10);
+        }
+      src/components/Header.tsx: "@final"
+      src/components/Footer.tsx: "@final"
+      src/components/Sidebar.tsx: |
+        export function NavRail({ items }: { items: string[] }) {
+          return <nav>{items.map((item) => <a key={item}>{item}</a>)}</nav>;
+        }
+      src/components/OldModal.tsx: |
+        export function OldModal({ open }: { open: boolean }) {
+          return open ? <dialog open>legacy modal</dialog> : null;
+        }
+      src/legacy/polyfills.ts: |
+        import "core-js/stable";
+        import "whatwg-fetch";
+      src/workers/sync_worker.ts: |
+        self.addEventListener("message", (event) => {
+          postMessage({ synced: event.data.length });
+        });
+  - author: "Linus Pauling <linus@example.com>"
+    date: "2024-02-20T10:30:00+00:00"
+    subject: "docs: readme and front-end guide"
+    files:
+      README.md: "@final"
+      docs/frontend.md: |
+        # Front end
+
+        ## Components
+
+        ```
+        src/
+        ├── App.tsx
+        ├── main.tsx
+        └── components/
+            ├── OldModal.tsx
+            ├── Sidebar.tsx
+            ├── Header.tsx
+            └── Footer.tsx
+        ```
+
+        Older browsers load [the legacy polyfills](../src/legacy/polyfills.ts) before the app boots.
+
+        Pages could later move into `src/pages/` once routing grows.
+  - author: "Rosalind Franklin <rosalind@example.com>"
+    date: "2024-04-11T13:00:00+00:00"
+    subject: "chore: vendor tinylib and add page templates"
+    files:
+      third_party/lib/README.md: "@final"
+      third_party/lib/index.js: "@final"
+      templates/README.md: "@final"
+  - author: "Rosalind Franklin <rosalind@example.com>"
+    date: "2025-01-08T09:00:00+00:00"
+    subject: "refactor: client.ts becomes httpClient.ts"
+    rename:
+      src/api/client.ts: src/api/httpClient.ts
+  - author: "Rosalind Franklin <rosalind@example.com>"
+    date: "2025-01-22T15:20:00+00:00"
+    subject: "refactor: utils are now helpers"
+    rename:
+      src/utils/format.ts: src/helpers/format.ts
+      src/utils/dates.ts: src/helpers/dates.ts
+  - author: "Linus Pauling <linus@example.com>"
+    date: "2025-02-14T11:00:00+00:00"
+    subject: "refactor: the sidebar is now the nav rail"
+    rename:
+      src/components/Sidebar.tsx: src/components/NavRail.tsx
+  - author: "Linus Pauling <linus@example.com>"
+    date: "2025-03-03T17:45:00+00:00"
+    subject: "chore: drop IE11 polyfills, the old modal and the sync worker"
+    delete:
+      - src/legacy/polyfills.ts
+      - src/components/OldModal.tsx
+      - src/workers/sync_worker.ts
+    files:
+      docs/frontend.md: "@final"
+  - author: "Rosalind Franklin <rosalind@example.com>"
+    date: "2025-04-22T08:00:00+00:00"
+    subject: "build: remove storybook"
+    files:
+      package.json: "@final"

@@ -1,0 +1,133 @@
+{
+ "hunks": [
+  {
+   "after": [
+    "Requires Node >= 18."
+   ],
+   "also": [],
+   "before": [
+    "Requires Node >= 16."
+   ],
+   "doc": "README.md",
+   "finding_id": "F001",
+   "id": "H001",
+   "line_end": 5,
+   "line_start": 5,
+   "new_text": "18",
+   "reason": "manifest package.json says >=18",
+   "token_kind": "version",
+   "token_text": "16",
+   "verb": "replace"
+  },
+  {
+   "after": [
+    "- `src/api/httpClient.ts` wraps fetch with retries"
+   ],
+   "also": [],
+   "before": [
+    "- `src/api/client.ts` wraps fetch with retries"
+   ],
+   "doc": "README.md",
+   "finding_id": "F002",
+   "id": "H002",
+   "line_end": 10,
+   "line_start": 10,
+   "new_text": "src/api/httpClient.ts",
+   "reason": "renamed in 9c3e91d",
+   "token_kind": "path",
+   "token_text": "src/api/client.ts",
+   "verb": "replace"
+  },
+  {
+   "after": [
+    "Shared helpers live in `src/helpers/`."
+   ],
+   "also": [],
+   "before": [
+    "Shared helpers live in `src/utils/`."
+   ],
+   "doc": "README.md",
+   "finding_id": "F003",
+   "id": "H003",
+   "line_end": 13,
+   "line_start": 13,
+   "new_text": "src/helpers/",
+   "reason": "renamed in 4e12520",
+   "token_kind": "path",
+   "token_text": "src/utils/",
+   "verb": "replace"
+  },
+  {
+   "after": [],
+   "also": [],
+   "before": [
+    "npm run storybook"
+   ],
+   "doc": "README.md",
+   "finding_id": "F005",
+   "id": "H004",
+   "line_end": 24,
+   "line_start": 24,
+   "new_text": null,
+   "reason": "removed in 9f1bc0a",
+   "token_kind": "script",
+   "token_text": "storybook",
+   "verb": "delete"
+  },
+  {
+   "after": [],
+   "also": [],
+   "before": [
+    "    ├── OldModal.tsx"
+   ],
+   "doc": "docs/frontend.md",
+   "finding_id": "F006",
+   "id": "H005",
+   "line_end": 10,
+   "line_start": 10,
+   "new_text": null,
+   "reason": "deleted in a26f07b",
+   "token_kind": "tree",
+   "token_text": "src/components/OldModal.tsx",
+   "verb": "delete"
+  },
+  {
+   "after": [
+    "    ├── NavRail.tsx"
+   ],
+   "also": [],
+   "before": [
+    "    ├── Sidebar.tsx"
+   ],
+   "doc": "docs/frontend.md",
+   "finding_id": "F007",
+   "id": "H006",
+   "line_end": 11,
+   "line_start": 11,
+   "new_text": "NavRail.tsx",
+   "reason": "renamed in 5fdf1bd",
+   "token_kind": "tree",
+   "token_text": "src/components/Sidebar.tsx",
+   "verb": "replace"
+  },
+  {
+   "after": [
+    "Older browsers load the legacy polyfills before the app boots."
+   ],
+   "also": [],
+   "before": [
+    "Older browsers load [the legacy polyfills](../src/legacy/polyfills.ts) before the app boots."
+   ],
+   "doc": "docs/frontend.md",
+   "finding_id": "F008",
+   "id": "H007",
+   "line_end": 16,
+   "line_start": 16,
+   "new_text": null,
+   "reason": "deleted in a26f07b",
+   "token_kind": "path",
+   "token_text": "../src/legacy/polyfills.ts",
+   "verb": "unlink"
+  }
+ ]
+}

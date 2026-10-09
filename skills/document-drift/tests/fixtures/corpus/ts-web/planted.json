@@ -1,0 +1,18 @@
+{
+  "planted": [
+    {"id": "p1", "doc": "README.md", "line": 10, "kind": "path", "what": "list-item subject src/api/client.ts renamed to src/api/httpClient.ts", "expect": "replace:src/api/httpClient.ts"},
+    {"id": "p2", "doc": "README.md", "line": 13, "kind": "path", "what": "directory src/utils/ renamed to src/helpers/", "expect": "replace:src/helpers/"},
+    {"id": "p3", "doc": "docs/frontend.md", "line": 16, "kind": "path", "what": "doc-relative prose link to the deleted ../src/legacy/polyfills.ts", "expect": "unlink"},
+    {"id": "p4", "doc": "README.md", "line": 17, "kind": "path", "what": "the only item of its list names the deleted src/workers/sync_worker.ts", "expect": "human:large-deletion"},
+    {"id": "p5", "doc": "README.md", "line": 24, "kind": "script", "what": "npm run storybook in a bash fence after the script was removed", "expect": "delete"},
+    {"id": "p6", "doc": "README.md", "line": 5, "kind": "version", "what": "Node >= 16 behind engines.node >=18", "expect": "replace:18"},
+    {"id": "p7", "doc": "docs/frontend.md", "line": 11, "kind": "tree", "what": "tree entry components/Sidebar.tsx renamed to components/NavRail.tsx", "expect": "replace:NavRail.tsx"},
+    {"id": "p8", "doc": "docs/frontend.md", "line": 10, "kind": "tree", "what": "tree leaf components/OldModal.tsx deleted", "expect": "delete"}
+  ],
+  "decoys": [
+    {"id": "d1", "doc": "docs/frontend.md", "line": 22, "why": "the deliberate removal sentence, committed in the deleting commit (its snapshot never had the file)", "expect": "none"},
+    {"id": "d2", "doc": "docs/frontend.md", "line": 18, "why": "an illustrative directory that never existed", "expect": "none"},
+    {"id": "d3", "doc": "third_party/lib/README.md", "line": 3, "why": "a vendored README naming a missing file (third_party/ is never scanned)", "expect": "none"},
+    {"id": "d4", "doc": "templates/README.md", "line": 3, "why": "a templates/ README naming a missing file (never scanned)", "expect": "none"}
+  ]
+}
