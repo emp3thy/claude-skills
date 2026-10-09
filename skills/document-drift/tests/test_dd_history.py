@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from dd_helpers import make_repo
+from dd_helpers import index_commit, make_repo
 from dd_history import History
 
 BODY = "".join(f"line number {i} of a reasonably long body\n" for i in range(30))
@@ -207,3 +207,32 @@ def test_results_are_cached(tmp_path: Path) -> None:
     h = History(repo)
     assert h.line_snapshots("a.md") is h.line_snapshots("a.md")
     assert h.tree_at("HEAD") is h.tree_at("HEAD")
+
+
+# Names git C-quotes in plain listings even with core.quotePath=false. Windows cannot hold
+# them on disk, so the tests record them with plumbing (dd_helpers.index_commit).
+QUOTED = ('legacy/q"x.py', "legacy/tab\there.py")
+
+
+def _quoted_repo(tmp_path: Path) -> Path:
+    repo = make_repo(tmp_path, [_c("01", "one", files={"legacy/a.py": "a = 1\n"})])
+    index_commit(repo, "2026-01-02T00:00:00Z", "quoted names",
+                 add={name: f"# {name}\n" for name in QUOTED})
+    return repo
+
+
+def test_list_dir_keeps_names_git_would_quote(tmp_path: Path) -> None:
+    # final-review residual R70: an `ls-tree` listing without -z C-quotes these names, and a
+    # prefix filter then drops them, so a partly deleted directory looked wholly moved
+    repo = _quoted_repo(tmp_path)
+    assert History(repo).list_dir(_rev(repo, "HEAD"), "legacy") == frozenset(
+        {"legacy/a.py", *QUOTED})
+
+
+def test_tree_at_keeps_names_git_would_quote(tmp_path: Path) -> None:
+    repo = _quoted_repo(tmp_path)
+    tree = History(repo).tree_at("HEAD")
+    assert tree is not None
+    files, dirs = tree
+    assert {"legacy/a.py", *QUOTED} <= files
+    assert "legacy" in dirs

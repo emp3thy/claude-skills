@@ -3,7 +3,7 @@
 HEAD's tree is listed once (``head_files``). A line snapshot's tree is never listed (ruling
 R63): ``snapshot(sha)`` answers membership for the paths it is asked about with ``git cat-file
 --batch-check`` (``prefetch`` asks for many in one call), and ``list_dir`` lists one directory
-with ``git ls-tree -r --name-only <sha> -- <dir>``.
+with ``git ls-tree -r -z --name-only <sha> -- <dir>``.
 """
 from __future__ import annotations
 
@@ -24,6 +24,13 @@ _DIR_TYPES = frozenset({"tree"})
 _OBJECT_TYPES = _FILE_TYPES | _DIR_TYPES
 _NL = chr(10)
 _UNNAMEABLE = (_NL, chr(13), chr(0))  # characters a batch input line cannot carry
+
+
+def _nul_split(out: str) -> list[str]:
+    """Names from ``git ls-tree -z`` output. Without ``-z`` git C-quotes a name holding ``"``,
+    ``\\``, a tab or a control character even with ``core.quotePath=false``, and the quoted
+    form then fails every path comparison (final-review residual, ruling R70)."""
+    return [name for name in out.split(chr(0)) if name]
 
 
 class _Members:
@@ -88,11 +95,11 @@ class History:
     def tree_at(self, sha: str) -> tuple[frozenset[str], frozenset[str]] | None:
         """Return ``(files, dirs)`` at ``sha``; dirs hold every ancestor. None on failure."""
         if sha not in self._trees:
-            out = run_git(self.root, [*_QUIET, "ls-tree", "-r", "--name-only", sha])
+            out = run_git(self.root, [*_QUIET, "ls-tree", "-r", "-z", "--name-only", sha])
             if out is None:
                 self._trees[sha] = None
             else:
-                files = frozenset(line for line in out.splitlines() if line)
+                files = frozenset(_nul_split(out))
                 dirs: set[str] = set()
                 for path in files:
                     parts = path.split("/")[:-1]
@@ -149,10 +156,10 @@ class History:
         """Every file under ``directory`` at ``sha`` (full paths); None when git fails."""
         key = (sha, directory)
         if key not in self._listings:
-            out = run_git(self.root, [_LITERAL, *_QUIET, "ls-tree", "-r", "--name-only", sha,
-                                      "--", directory])
+            out = run_git(self.root, [_LITERAL, *_QUIET, "ls-tree", "-r", "-z", "--name-only",
+                                      sha, "--", directory])
             self._listings[key] = None if out is None else frozenset(
-                line for line in out.splitlines() if line.startswith(directory + "/"))
+                name for name in _nul_split(out) if name.startswith(directory + "/"))
         return self._listings[key]
 
     def head_files(self) -> tuple[frozenset[str], frozenset[str]]:

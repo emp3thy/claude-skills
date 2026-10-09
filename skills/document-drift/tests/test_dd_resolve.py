@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -8,7 +9,7 @@ from typing import Any
 import pytest
 from dd_common import EXIT_MISSING, EXIT_OK, read_json, write_json
 from dd_extract import extract_doc
-from dd_helpers import make_repo
+from dd_helpers import index_commit, make_repo
 from dd_history import History, SnapshotTree
 from dd_inventory import DEFAULT_NEVER_EDIT
 from dd_manifests import script_source
@@ -294,6 +295,28 @@ def test_partly_salvaged_directory_is_ambiguous(tmp_path: Path) -> None:
     cand = _one(repo)
     assert _shape(cand) == ("human", "ambiguous", None, "ambiguous-rename")
     assert cand["evidence"] == f"renamed in {_sha7(repo)} to src; 4 of 5 files deleted"
+
+
+def test_partly_deleted_directory_with_a_quoted_child_name_is_ambiguous(tmp_path: Path) -> None:
+    # final-review residual R70: `legacy/` held a.py and q"x.py when the README line was
+    # written; a.py moved to src/, q"x.py was deleted. git C-quotes q"x.py in a plain
+    # ls-tree listing, so without -z the child dropped out and the move looked whole.
+    nl = chr(10)
+    body = "print('a long enough body for rename detection')" + nl
+    repo = make_repo(tmp_path, [
+        _c("01", "one", files={"legacy/a.py": body, "src/app.py": "a = 1" + nl}),
+    ])
+    readme = nl.join(["# X", "", "- `legacy/` holds the old engine.", "- `src/` holds the app.",
+                      ""])
+    (repo / "README.md").write_bytes(readme.encode("utf-8"))
+    index_commit(repo, "2026-01-02T00:00:00Z", "docs and a quoted name",
+                 add={"README.md": readme, 'legacy/q"x.py': "q = 1" + nl})
+    index_commit(repo, "2026-01-03T00:00:00Z", "salvage", add={"src/a.py": body},
+                 remove=["legacy/a.py", 'legacy/q"x.py'])
+    shutil.rmtree(repo / "legacy")  # R66e: a leftover directory on disk would count as present
+    cand = _one(repo)
+    assert _shape(cand) == ("human", "ambiguous", None, "ambiguous-rename")
+    assert cand["evidence"].endswith("1 of 2 files deleted")
 
 
 def test_directory_with_every_file_deleted_is_deleted(tmp_path: Path) -> None:
