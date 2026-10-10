@@ -6,7 +6,7 @@ Fixed constraints, unchanged from the repository's skills: Claude Code skill; SK
 
 ## 0. Guardrails for planning and implementation
 
-- **(a) Assumptions surfaced.** Section 12 lists every assumption with its cost if wrong.
+- **(a) Assumptions surfaced.** Section 12 lists every assumption with its status and cost if wrong; the validation pass in section 12.2 ran before owner review of the written spec.
 - **(b) Confidence per task.** Every plan task carries a confidence percentage; anything under 90 percent is resolved by investigation, a question or a spike before implementation.
 - **(c) Documentation ships with code.** `README.md`, `docs/architecture.md` and `skills/document-drift/SKILL.md` change in the same PR as the code they describe.
 - **(d) No input-specific rules.** No script, constant or test may depend on the identity of a fixture or a real repository. Constants are named in section 9 and their basis in section 12.
@@ -96,7 +96,7 @@ Exit codes:
 |---:|---|
 | 0 | Stage succeeded. From `finish`: with edits, the branch exists with its commits and the user is on it; without edits, no branch was created |
 | 1 | `finish` under `--check` only: accepted edits exist. Nothing was changed |
-| 2 | Refused before any change: the phase 1 preflight refusals (not a git repository, not the top level, no commits, unknown `--base`; outside `--check` also a detached HEAD, a dirty tree, an existing branch, no git author identity, an invalid branch name), a stage run out of order, or a flag that differs from the one `start` recorded |
+| 2 | Refused before any change: the phase 1 preflight refusals (not a git repository, not the top level, no commits, unknown `--base`; outside `--check` also a detached HEAD, a dirty tree, an existing branch, no git author identity, an invalid branch name), a stage run out of order, a flag that differs from the one `start` recorded, or (at `finish`) files outside the workdir that changed during the run |
 | 3 | The previous agent wave left missing or invalid output files. The stage wrote `retry.json`; the session re-dispatches those entries once and reruns the same stage with `--retried` |
 | 5 | A script step crashed or a script's own expected output is missing. The message names the step |
 | 6 | The commit failed after edits were applied; the message says where the edits are (phase 1 semantics) |
@@ -110,13 +110,13 @@ Exit codes:
 | `start` | preflight; inventory (docs and source); areas; hints; cache lookup | one sheet agent per area without a valid cached sheet (`plan-sheets.json`) |
 | `docs` | sheet validation and check; cache store; doc map; doc units; gap detection and targeting | one review agent per doc unit and one gap agent per target doc (`plan-docs.json`) |
 | `verify` | edit validation and script checks; overlap resolution; verify batches | one verifier agent per batch (`plan-verify.json`) |
-| `finish` | verdicts; apply; re-scan and revert; heading link updates; commits; summary | nothing |
+| `finish` | verdicts; tree check (any file outside the workdir that changed since preflight refuses the run, exit 2, naming the files); apply; re-scan and revert; heading link updates; commits; summary | nothing |
 
 Each stage checks that the previous stage completed (its output files exist and `preflight.json` matches); otherwise exit 2. Each stage prints one line naming its plan file and entry count, or, for `finish`, the summary.
 
 ### 3.2 Dispatch protocol
 
-A plan file is a JSON list of entries `{id, role, prompt, output, model}`. `role` is `sheet`, `review`, `gap` or `verify`; `prompt` and `output` are absolute paths inside the workdir; `model` comes from config (section 9). For each entry the session dispatches one Agent with the prompt file's content as its prompt and the given model, in parallel where the host allows. The agent may read any file in the repository (Read, Grep, Glob) and writes exactly one file, `output`, with the Write tool. It replies with a receipt only (path, bytes, item count); the session never transcribes a reply into a file.
+A plan file is a JSON list of entries `{id, role, prompt, output, model}`. `role` is `sheet`, `review`, `gap` or `verify`; `prompt` and `output` are absolute paths inside the workdir; `model` comes from config (section 9). For each entry the session dispatches one Agent, with the given model, whose prompt is a single instruction to read the prompt file in full and follow it; the session never pastes the prompt content (verifier prompts run to 25,000 characters, and pasted prompts would stay in the session's context for the rest of the run). Entries are dispatched in parallel where the host allows. The agent may read any file in the repository (Read, Grep, Glob) and writes exactly one file, `output`, with the Write tool. It replies with a receipt only (path, bytes, item count); the session never transcribes a reply into a file. Every prompt states that the agent runs no command and writes no helper script or other file: in validation, a sheet agent without that sentence wrote three helper scripts and ran Python, and agents with it wrote nothing else.
 
 At the start of the next stage the script validates every output of the previous wave against its schema. If any is missing or invalid and `--retried` was not given, the stage writes `retry.json` (the failed entries, in plan format) and exits 3, changing nothing else. The session dispatches those entries once and reruns the stage with `--retried`. With `--retried`, an output still missing or invalid marks its area or doc unit as unchecked, and the stage continues. One failed agent never fails the run.
 
@@ -146,7 +146,7 @@ Area ids are `a01`, `a02`, ... in path order of each area's first file, with the
 
 **Hints.** A pattern scan of each area's files collects likely surface names, each with its `path:line`:
 
-- Python: `add_argument("--x")` and `add_parser("x")` (argparse); `@click.command`, `@click.option("--x")`, `@app.command()` (click, typer); `os.environ["X"]`, `os.environ.get("X")`, `os.getenv("X")`; route decorators `@<name>.(get|post|put|patch|delete|route)("/x")`; MCP tool registrations `@<name>.tool(` and `Tool(name="x"`.
+- Python: `add_argument("--x")` and `add_parser("x")` (argparse); `@click.command`, `@click.option("--x")`, `@app.command()` (click, typer); `os.environ["X"]`, `os.environ.get("X")`, `os.getenv("X")`, and any string literal that starts with the prefix (up to and including the first `_`) of an environment variable read directly anywhere in the repository, such as `BETTER_MEMORY_` (projects read many variables through helpers); route decorators `@<name>.(get|post|put|patch|delete|route)("/x")`; MCP tool registrations `@<name>.tool(` and `Tool(` followed by `name="x"`. Every pattern matches across line breaks (`Tool(` and `name=` are usually on different lines).
 - JavaScript and TypeScript: `process.env.X` and `process.env["X"]`; commander `.command("x")` and `.option("--x")`; yargs `.option("x")`; route calls `<name>.(get|post|put|patch|delete)("/x"`.
 - Project files: `[project.scripts]` and `[project.entry-points]` names, `package.json` `scripts` and `bin`, Makefile and justfile targets, Taskfile tasks, `ENV` lines in Dockerfiles, keys in `.env.example`.
 
@@ -160,8 +160,8 @@ The sheet agent reads its area and writes `sheets/<area>.json`:
 {
   "area": "a03",
   "surface": [
-    {"kind": "envvar", "name": "BETTER_MEMORY_HOME", "summary": "Root directory for the database and spool",
-     "default": "~/.better-memory", "defined_at": "better_memory/config.py:41", "user_facing": true}
+    {"kind": "envvar", "name": "BETTER_MEMORY_HOME", "parent": null, "summary": "Root directory for the database and spool",
+     "default": "~/.better-memory", "defined_at": "better_memory/config.py:41", "user_facing": true, "hidden": false}
   ],
   "behaviours": [
     {"statement": "memory_retrieve returns at most 5 memories per bucket unless top_n is given",
@@ -176,6 +176,9 @@ The sheet agent reads its area and writes `sheets/<area>.json`:
 
 - `kind` is one of `tool`, `command`, `flag`, `envvar`, `configkey`, `route`, `hook`, `script`, `api`, `userfile`, `module`.
 - `user_facing` is true for anything a user, operator or integrator calls, sets or sees without editing the code. Internal modules and helpers are recorded with `user_facing: false` (kind `module` for modules) so a doc that lists them can be checked.
+- `parent` is the owning command or tool for a `flag` (a CLI option of `agentcore init` has parent `better-memory agentcore init`; an MCP tool parameter has the tool's name as parent), otherwise null. MCP tool parameters are recorded as `flag` entries.
+- A `hook` is named by its entry point (`better_memory.hooks.commit_checkpoint`, or the installed command), with the event it handles in `summary`; event names are not unique (two hooks may both handle `Stop`).
+- A `userfile` is named by its path below the home directory, written `<home>/spool/`, so it matches however the docs spell the home (`~/.better-memory/spool/`, `$BETTER_MEMORY_HOME/spool/`).
 - `default` is a string or null. `summary` and `statement` are single lines of at most 200 characters.
 - Every hint id given to the agent appears in `hints`, as `included` (a `surface` entry carries that name) or `internal` with a reason.
 - Items the code hides are recorded with `hidden: true`: argparse `help=argparse.SUPPRESS`, click `hidden=True`, names starting with `_`, items marked deprecated in code.
@@ -185,7 +188,8 @@ The sheet agent reads its area and writes `sheets/<area>.json`:
 At the start of `docs`, each sheet is validated against the schema, then checked by script:
 
 - every `defined_at` and every `evidence` entry names a tracked file and a line within it;
-- the cited line, or one of the two lines on either side, contains the item's `name` (for `surface`) or at least one inline-code token or identifier from the `statement` (for `behaviours`);
+- for `surface`: the cited line, or one of the two lines on either side, contains the item's name or its last segment (after the last `.`, `/` or space, without leading dashes), compared without case; a `module` or `hook` entry only needs its file to exist, since a module's name is its path and a hook's event rarely appears on any one line;
+- for `behaviours`: the window contains at least one word of four or more characters from the `statement` (identifiers, literals and numbers included, common English words excluded), compared without case;
 - an entry that fails is dropped and counted under its reason (`missing-file`, `bad-line`, `name-not-at-line`);
 - a hint id the sheet omits, or marks `included` while no `surface` entry carries its name, is reported as unaccounted in the summary.
 
@@ -249,9 +253,16 @@ The agent writes `review/<unit>.json`:
 
 ### 7.1 Detection
 
-A user-facing, non-hidden surface item is **documented** when its name appears as a whole word in any in-scope doc, fenced blocks included. Names are compared after normalising both sides: leading dashes are removed, `-` and `.` become `_`, and an MCP tool prefix `mcp__<server>__` is removed. Comparison is case-sensitive. Excluded docs do not count.
+A user-facing, non-hidden surface item is **documented** when its name appears in any in-scope doc, fenced blocks included. Excluded docs do not count. Names are compared after normalising both sides, case-sensitively:
 
-A **list** is a markdown table or bullet list in an in-scope doc in which at least 3 rows or items have a subject (the first cell, or the first inline-code span of the item) that matches a surface item, all of one kind. The list's scope is the set of areas its matched items come from. The list is **complete-intended** when it already holds at least half of the items of its kind in its scope that are user-facing and not hidden, or, for kind `module`, at least half of that scope's modules.
+- `-` and `.` inside a name become `_`, and an MCP tool prefix `mcp__<server>__` is removed (`memory.retrieve`, `memory_retrieve` and `mcp__better-memory__memory_retrieve` match);
+- a flag keeps its leading dashes (without them `--force` matches the word "force" in any sentence);
+- route placeholders `<id>`, `{id}` and `:id` become one placeholder;
+- a userfile's leading home spelling (`~/.<dir>/`, `$<VAR>/`, `{<expr>}/`) becomes `<home>/`;
+- a single-word name matches as a whole word; a name with spaces (`python -m better_memory.mcp`) matches as a substring of the normalised text;
+- an MCP tool parameter is documented only inside the section whose heading names its tool, since parameter names (`query`, `scope`, `id`) are shared by many tools.
+
+A **list** is a markdown table or bullet list in an in-scope doc in which at least 3 rows or items have a subject (the first cell, or the first inline-code span of the item) that matches a surface item, all of one kind. The list's scope is the set of areas its matched items come from; for a list of flags it is instead the parent named in the nearest heading above the list (for an MCP tool parameter table, the tool), or, when no heading names one, the parents of its matched flags. Scoping flags by area is wrong: a CLI area holds every command's flags, so the `agentcore` command's flag table would be measured against `setup`'s flags too. The list is **complete-intended** when it already holds at least half of the items of its kind in its scope that are user-facing and not hidden, or, for kind `module`, at least half of that scope's modules.
 
 Two kinds of gap:
 
@@ -274,6 +285,7 @@ One gap agent per target doc receives the doc, its gap items with their sheet en
 - In a list: add rows or items matching the list's format, columns and order; a sorted list stays sorted.
 - Without a list: write a short new section at the best place in the doc, under a heading at the level that fits its neighbours.
 - Descriptions come from the code; every added entry cites `evidence`.
+- Before adding, the agent searches the in-scope docs for the item under any spelling. An item that is in fact documented is refused as `already-documented` (dropped and counted in the summary, not listed for a human); this backs up the name matching, which cannot know every spelling.
 - The agent may refuse a target with a reason, as a `questions` entry of kind `target-refused`.
 
 ## 8. Checks, verification, apply and commits
@@ -284,7 +296,7 @@ Run at the start of `verify` on every edit from review and gap agents, in this o
 
 | Check | Fails when | Result |
 |---|---|---|
-| `old-mismatch` | `old` is not exactly the text of lines `start_line` to `end_line` | dropped |
+| `old-mismatch` | `old` is not exactly the text of lines `start_line` to `end_line`, after one repair: when the two differ only in leading whitespace, `old` is replaced by the doc's text and each line of `new` gets the indentation of the doc line it replaces | dropped |
 | `protected` | the lines touch a `drift-ignore` region, a generated region or a never-edit section | human (`protected`) |
 | `evidence` | an `evidence` entry names a missing file or a line outside it, or a `correct` or `add` edit has no evidence | dropped |
 | `still-in-source` | a `remove` edit's `subject`, normalised as in section 7.1, still appears as a whole word in a tracked source file | dropped |
@@ -357,7 +369,7 @@ caps:
   sheets: 12              # sheet agents per run (cached areas are free)
   docs: 40                # review agents per run
   gaps: 15                # gap agents per run
-  verify: 15              # verifier agents per run
+  verify: 25              # verifier agents per run (10 edits each)
 models:
   sheet: sonnet
   review: sonnet
@@ -424,16 +436,57 @@ An opt-in harness (`tests/dd_live_run.py`, adapted from tech-debt-scan's `live_r
 - The 2026-10-09 spec gets a first line marking it superseded by this spec. Its plan and rulings file stay as the record of phase 1.
 - The skill installed at `~/.claude/skills/document-drift` is a junction to the working copy, so it follows whichever branch is checked out.
 
-## 12. Assumptions
+## 12. Assumptions and validation
 
-| # | Assumption | Basis | Cost if wrong |
+### 12.1 Assumptions
+
+Status is from the validation pass in section 12.2.
+
+| # | Assumption | Status | Cost if wrong |
 |---|---|---|---|
-| A1 | A 5,000-line area fits one sheet agent with room to read it properly | Typical agent context; `better-memory` has about 25,000 non-test source lines, giving 6 to 8 areas | Shallow sheets that miss behaviours; lower `area_lines` |
-| A2 | Hints plus the `file:line` check catch most sheet omissions and inventions | The hint patterns cover how the corpus and `better-memory` declare their surface | Gaps missed and drift hidden; review agents opening the source is the second line of defence |
-| A3 | "A guarantee word in `old` but not in `new`" is a good enough proxy for an edit that rewrites a guarantee | Guarantees are phrased with those words in the corpus and in `better-memory` | Some guarantee rewrites applied, still visible in the PR; or harmless edits sent to a human |
-| A4 | A list holding at least half of its kind in its scope is meant to be complete | Judgement; selective lists ("common settings") usually hold a few items | Over-adding to selective lists; the owner removes rows in review or adds `undocumented_ok` |
-| A5 | The default caps cover a repository of `better-memory`'s size without being reached | `better-memory`: 38 in-scope docs (4,615 lines, none over 400) and 6 to 8 areas, so about 8 sheet agents, at most 38 review agents, and gap and verifier agents within 15 each | Unchecked docs on larger repositories, listed in the summary; raise the caps |
-| A6 | A full run on a repository of that size costs minutes and a few million tokens | About 60 to 75 agents, each reading a few thousand lines | Runs too slow or costly to repeat; the cache and `--base` make later runs cheaper, and the live log measures it |
-| A7 | The host dispatches a plan's agents in parallel | Claude Code runs several Agent calls from one message concurrently | Longer runs, same result |
-| A8 | Read-only agents write only their output file | The same contract tech-debt-scan relies on | A stray write shows up as a dirty tree; preflight of the next run refuses |
-| A9 | Verifiers with a fresh context and the source catch most wrong edits | Independent check, no access to the proposing agent's reasoning | Wrong edits reach the PR, where the owner rejects them; the live log measures the rate |
+| A0 | An agent comparing a doc with fact sheets and the source finds real drift, and its edits are right | Validated on two docs: 118 claims checked, 21 edits proposed, 18 accepted by verifiers, and every accepted edit I checked was right | The skill produces noise; the live log would show it |
+| A1 | A 5,000-line area fits one sheet agent with room to read it properly | Validated at 3,411 lines: 130,000 tokens over 17 tool calls, 148 surface entries and 129 behaviours. Holding at 5,000 is extrapolation | Shallow sheets that miss behaviours; lower `area_lines` |
+| A2 | Hints plus the citation check catch most sheet omissions and inventions | Hints validated after amendment (section 12.2). No invented citation was found in 277 entries, so the check's catch rate is unmeasured; it is kept because it is cheap | Drift hidden behind a wrong sheet; review agents opening the source is the second line of defence |
+| A3 | "A guarantee word in `old` but not in `new`" is a good enough proxy for an edit that rewrites a guarantee | Partly validated: 133 of 4,615 doc lines (2.9%) carry a guarantee word, and no spike edit tripped the check. Its precision is unmeasured | Some guarantee rewrites applied, still visible in the PR; or harmless edits sent to a human |
+| A4 | A list holding at least half of its kind in its scope is meant to be complete | Validated after amendment: both env var tables (12 of 16) are complete-intended, a tool list (3 of 22) is selective, and the `agentcore` flag table (11 of 12, once scoped by command) is complete-intended and its missing `--force` is a real gap | Over-adding to selective lists; the owner removes rows in review or adds `undocumented_ok` |
+| A5 | The default caps cover a repository of `better-memory`'s size without being reached | Validated for sheets and docs: 8 areas (`better-memory`), 6 (this repository), 4 (FusionHelper); 38 docs, none over 400 lines. Verifier cap raised to 25 (section 12.2) | Unchecked docs on larger repositories, listed in the summary; raise the caps |
+| A6 | A full run on a repository of that size costs minutes and a few million tokens | Estimated from the spike: about 5 to 6 million tokens and 10 to 15 minutes with each wave in parallel (section 12.2) | Runs too slow or costly to repeat; the cache and `--base` make later runs cheaper, and the live log measures it |
+| A7 | The host dispatches a plan's agents in parallel | Validated: two agents per wave ran concurrently | Longer runs, same result |
+| A8 | Read-only agents write only their output file | Validated only with an explicit prompt sentence (section 3.2); the `finish` tree check catches a stray write | A stray file in the repository; `finish` refuses the run |
+| A9 | Verifiers with a fresh context and the source catch most wrong edits | Partly validated: of 20 edits, the verifiers rejected 2, both rightly (a claim about other software, and a correction that was still inaccurate); none of the 18 accepted edits I checked was wrong | Wrong edits reach the PR, where the owner rejects them; the live log measures the rate |
+| A10 | Gap agents write additions that are correct and match the doc's style | Validated on two gaps: an env var table row and a sentence on a flag, both accurate and in the doc's format | Additions the owner has to rewrite |
+
+### 12.2 Validation pass (2026-10-10)
+
+Run before owner review of the written spec, on `better-memory` at `9d5be26` (25,956 non-test source lines, 38 in-scope docs), with throwaway scripts and seven real agents. Agent outputs and prompts are not kept; the measurements and the amendments they caused are.
+
+**Script measurements.**
+
+| Check | Result | Amendment |
+|---|---|---|
+| Area split (section 5.1) on three repositories | 8, 6 and 4 areas, each within 5,000 lines; a 185-line leftover area appeared once | None; a tiny leftover area costs one cheap agent |
+| Hint patterns as first written, against names found by broad search | Commands 7/7, routes 31/31, flags 19/19 of the program's own; **MCP tools 0/20** (`name=` is on the line after `Tool(`); **env vars 9/16** (7 read through a helper) | Patterns match across line breaks; string literals sharing a directly-read env var's prefix are env var hints. Both then 100% |
+| Citation check as first written, on the spike sheet | Wrongly dropped 53 of 277 entries (every module and hook entry, and behaviours whose cited line held a lower-case keyword) | Per-kind rule, case-insensitive, any distinctive word of the statement (section 5.3). Then 0 of 277 dropped |
+| Name matching as first written, on the spike sheet's 98 user-facing items | 7 flagged undocumented, 1 truly undocumented (`BETTER_MEMORY_DIAG_LOGGING`): a multi-word command, a hook named by its event, and four home-relative files were documented under other spellings | Section 7.1's normalisation rules, hook and userfile naming (section 5.2), and the gap agent's `already-documented` refusal |
+| Flag matching with dashes stripped | `--force` would match the word "force" anywhere | Flags keep their dashes |
+| List scoping by area | MCP parameter tables and the `agentcore` flag table measured against the wrong set (`query` and `scope` belong to many tools) | Flag and parameter lists are scoped by the parent named in the heading above them |
+| Guarantee words | 133 of 4,615 doc lines (2.9%) | None |
+
+**Spike with real agents.** One area (hooks and MCP server, 24 files, 3,411 lines), two docs (`website/mcp-tools.md`, 302 lines; `docs/hooks-setup.md`, 387 lines), and two gaps.
+
+| Agent | Model | Tokens | Time | Output |
+|---|---|---:|---:|---|
+| Sheet a02 | sonnet | 130,530 | 203 s | 148 surface entries, 129 behaviours, all 23 hints accounted |
+| Review `mcp-tools.md` | sonnet | 104,909 | 81 s | 70 claims, 6 edits, 1 unsure question |
+| Review `hooks-setup.md` | sonnet | 135,802 | 158 s | 48 claims, 15 edits |
+| Verify batch 1 (10 edits) | opus | 87,525 | 74 s | 10 accept |
+| Verify batch 2 (10 edits) | opus | 89,930 | 119 s | 8 accept, 2 reject |
+| Gap: env var table | sonnet | 53,164 | 24 s | 1 row, correct |
+| Gap: `agentcore init --force` | sonnet | 54,892 | 26 s | 1 sentence, correct |
+| **Total** | | **656,752** | about 8 min in waves | |
+
+Of the 21 review edits, one failed `old-mismatch` because the agent dropped the line's leading spaces; section 8.1 now repairs whitespace-only differences. The accepted edits include a wrong default inject mode (`legacy` documented, `deferred` in code), a required parameter that is optional, a wrong return shape, a removed per-session latch still documented, and sample SQL naming columns the schema does not have. The two rejections were right.
+
+**Cost extrapolation for a full `better-memory` run.** Eight sheet agents at about 150,000 tokens; about 25 review units (38 docs, small ones packed) at about 110,000; about 10 gap agents at about 55,000; and verifiers at about 90,000 per batch of 10. The spike's edit rate (21 edits in 689 lines) projects about 140 edits over 4,615 lines, or 14 verifier batches, close to the first default cap of 15, so the verify cap is 25. Total about 5 to 6 million tokens; with each wave in parallel, about 10 to 15 minutes. The first live run measures it (success criterion 6).
+
+**Still unvalidated.** The precision of the guarantee proxy (A3), the citation check's catch rate (A2), sheet quality at the full 5,000-line budget (A1), the cache, and every script stage end to end. The plan's first tasks should keep the live harness cheap to run early.
