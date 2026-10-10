@@ -1,3 +1,5 @@
+> **Superseded** on 2026-10-10 by [`2026-10-10-document-drift-agentic-design.md`](2026-10-10-document-drift-agentic-design.md). The first real run showed that a gate built on git history cannot check that the docs match the code; this spec stays as the record of phase 1.
+
 # document-drift: detect and fix stale markdown
 
 Provenance: brainstormed 2026-10-09 from the research series in `docs/research/document-drift/` (01 to 07). The brief `07-brainstorm-brief.md` carried fourteen open decisions; the owner settled the ones that shape the design in the session, recorded in section 1.3. Citations of the form [02] refer to those notes.
