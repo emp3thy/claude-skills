@@ -6,9 +6,9 @@ normalised first: ``-`` and ``.`` inside word-like tokens become ``_`` (a ``--fl
 dashes), ``mcp__<server>__`` prefixes go, and route placeholders ``<x>``, ``{x}`` and ``:x``
 (after a ``/``) become ``{}``. A single-word name matches as a whole word (a flag when preceded
 by the start, whitespace, a backtick, ``(``, ``[`` or ``|`` and not followed by a word
-character or dash); a name with spaces matches as a substring. Matching is case-sensitive. An
-MCP ``param`` is documented only inside a section whose heading names its tool; a section runs
-to the next heading of the same or higher level.
+character or dash); a name with spaces matches as a whole phrase (word boundaries at both
+ends). Matching is case-sensitive. An MCP ``param`` is documented only inside a section
+whose heading names its tool; a section runs to the next heading of the same or higher level.
 
 A **list** is a table (data rows) or a top-level bullet or numbered list whose items have a
 subject (a row's first cell, an item's first code span) naming scanned names; it qualifies at
@@ -24,6 +24,11 @@ the non-hidden names of its kind in its scope.
 ``missing-from-list``; ``reason`` is ``missing-from-list``, ``complete-list``, ``any-list``,
 ``most-names`` or ``no-home``. ``target_line`` is a list target's last line (insert after),
 else the line of the best section's heading, or 1.
+
+A documented name missing from complete lists gets one ``missing-from-list`` gap per such list,
+each targeting that list (spec 8.2 item 2); an undocumented name gets one gap and one target.
+On a later run a candidate must also lie in a changed file (``changes.json``), since
+``names_then`` covers only those files.
 """
 from __future__ import annotations
 
@@ -49,9 +54,9 @@ SCOPED_KINDS = frozenset({"flag", "param"})
 FLAG_LEAD = "`(|["
 NO_HOME = "no-home"
 
-_MCP_TEXT = re.compile(r"mcp__[A-Za-z0-9-]+?__(?=\w)")
+_MCP_TEXT = re.compile(r"mcp__[\w-]+?__(?=\w)")
 _PLACEHOLDER = re.compile(r"(?<=/)(?::[A-Za-z_]\w*|<[^<>/\s]*>|\{[^{}/\s]*\})")
-_TOKEN = re.compile(r"(?<![\w-])--\w[\w-]*|\w+(?:[-.]\w+)+")
+_TOKEN = re.compile(r"(?<![\w-])-{1,2}\w[\w-]*|\w+(?:[-.]\w+)+")
 _SUBJECT_SPLIT = re.compile(r"[\s,;|=]+")
 
 
@@ -79,7 +84,7 @@ class Gap(TypedDict):
 
 def _dashes(match: re.Match[str]) -> str:
     token = match.group(0)
-    return token if token.startswith("--") else token.replace("-", "_").replace(".", "_")
+    return token if token.startswith("-") else token.replace("-", "_").replace(".", "_")
 
 
 def normalise_text(text: str) -> str:
@@ -89,13 +94,20 @@ def normalise_text(text: str) -> str:
     return _TOKEN.sub(_dashes, text)
 
 
+def _norm_as(text: str, kind: str) -> str:
+    """Normalise a name of ``kind``; a flag (``-v`` or ``--verbose``) keeps its dashes."""
+    if kind == "flag" and text.startswith("-"):
+        return text
+    return norm(text, routes=kind == "route")
+
+
 def _norm(name: Name) -> str:
-    return norm(name["name"], routes=name["kind"] == "route")
+    return _norm_as(name["name"], name["kind"])
 
 
 def _pattern(norm_name: str, kind: str) -> re.Pattern[str]:
     body = re.escape(norm_name)
-    if kind == "flag" and norm_name.startswith("--"):
+    if kind == "flag" and norm_name.startswith("-"):
         lead = "(?:^|(?<=[\\s" + re.escape(FLAG_LEAD) + "]))"
         return re.compile(lead + body + r"(?![\w-])", re.MULTILINE)
     return re.compile(r"(?<!\w)" + body + r"(?!\w)")
@@ -256,7 +268,7 @@ def _match_row(row: _Row, index: Mapping[tuple[str, str], list[Name]],
                kinds: Sequence[str]) -> list[tuple[str, str]]:
     """The ``(kind, normalised subject)`` keys the row's subject matches."""
     for variant in _variants(row):
-        keys = [(kind, norm(variant, routes=kind == "route")) for kind in kinds]
+        keys = [(kind, _norm_as(variant, kind)) for kind in kinds]
         hits = [key for key in keys if key in index]
         if hits:
             return hits
@@ -288,7 +300,7 @@ def _build_lists(docs: Sequence[_Doc], names: Sequence[Name]) -> list[List]:
             for row in rows:
                 for key in _match_row(row, index, kinds):
                     shown = next(v for v in _variants(row)
-                                 if (key[0], norm(v, routes=key[0] == "route")) == key)
+                                 if (key[0], _norm_as(v, key[0])) == key)
                     hits.setdefault(key[0], []).append((shown, key))
             if not hits:
                 continue
@@ -327,8 +339,11 @@ def _key(name: Name) -> tuple[str, str, str | None]:
 
 
 def candidates(names: Sequence[Name], names_then: Sequence[Name] | None,
-               ok: Sequence[str]) -> list[Name]:
-    """Non-hidden names not matching ``undocumented_ok``; on a later run, new names only."""
+               changed_files: Sequence[str] | None, ok: Sequence[str]) -> list[Name]:
+    """Non-hidden names not matching ``undocumented_ok``. On a later run (``names_then`` not
+    null) only names in a changed file whose ``(kind, name, parent)`` is absent from
+    ``names_then``, which covers the changed files only (spec 6.3)."""
+    changed = None if names_then is None else set(changed_files or [])
     before = None if names_then is None else {_key(n) for n in names_then}
     seen: set[tuple[str, str, str | None]] = set()
     result: list[Name] = []
@@ -337,9 +352,9 @@ def candidates(names: Sequence[Name], names_then: Sequence[Name] | None,
         if name["hidden"] or key in seen:
             continue
         if any(fnmatchcase(text, pattern) for pattern in ok
-               for text in (name["name"], norm(name["name"]))):
+               for text in (name["name"], norm(name["name"]), _norm(name))):
             continue
-        if before is not None and key in before:
+        if before is not None and (key in before or name["file"] not in (changed or set())):
             continue
         seen.add(key)
         result.append(name)
@@ -347,7 +362,7 @@ def candidates(names: Sequence[Name], names_then: Sequence[Name] | None,
 
 
 def _held(name: Name, found: List) -> bool:
-    return _norm(name) in {norm(s, routes=name["kind"] == "route") for s in found["subjects"]}
+    return _norm(name) in {_norm_as(s, name["kind"]) for s in found["subjects"]}
 
 
 def _list_target(name: Name, found: Sequence[List], complete: bool) -> List | None:
@@ -401,11 +416,12 @@ def _aim(gap: Gap, doc: str, line: int, reason: str, gap_kind: str = "undocument
 
 
 def gaps(names: Sequence[Name], texts: Mapping[str, str], found: Sequence[List],
-         names_then: Sequence[Name] | None, ok: Sequence[str]) -> list[Gap]:
+         names_then: Sequence[Name] | None, ok: Sequence[str],
+         changed_files: Sequence[str] | None = None) -> list[Gap]:
     """The gaps among the candidates, each with its target (spec 8.2, 8.3)."""
     docs = _prepare(texts)
     result: list[Gap] = []
-    for name in candidates(names, names_then, ok):
+    for name in candidates(names, names_then, changed_files, ok):
         base: Gap = {"name": name["name"], "kind": name["kind"], "parent": name["parent"],
                      "file": name["file"], "line": name["line"], "gap_kind": "undocumented",
                      "target_doc": None, "target_line": None, "reason": NO_HOME}
@@ -414,9 +430,12 @@ def gaps(names: Sequence[Name], texts: Mapping[str, str], found: Sequence[List],
                        and _in_scope(name, x["scope"]) and not _held(name, x)]
             if not missing:
                 continue
-            target = min(missing, key=lambda x: (x["doc"], x["line_start"]))
-            _aim(base, target["doc"], target["line_end"], "missing-from-list",
-                 "missing-from-list")
+            for target in sorted(missing, key=lambda x: (x["doc"], x["line_start"])):
+                each = base.copy()
+                _aim(each, target["doc"], target["line_end"], "missing-from-list",
+                     "missing-from-list")
+                result.append(each)
+            continue
         else:
             listed = _list_target(name, found, True)
             reason = "complete-list"
@@ -451,6 +470,9 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any]) -> dict[str, Any]:
             raise StepError(f"{filename} is missing; run {step} first", EXIT_MISSING)
     patterns = read_json(workdir / "patterns.json")
     inventory = read_json(workdir / "inventory.json")
+    if not (workdir / "changes.json").is_file():
+        raise StepError("changes.json is missing; run dd_changes first", EXIT_MISSING)
+    changed_files: list[str] = list(read_json(workdir / "changes.json").get("changed_files", []))
     names: list[Name] = patterns["names"]
     names_then: list[Name] | None = patterns.get("names_then")
     texts: dict[str, str] = {}
@@ -462,11 +484,11 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any]) -> dict[str, Any]:
     ok: list[str] = list(config.get("undocumented_ok", []))
     cap = int(config.get("caps", {}).get("gaps", DEFAULT_GAP_CAP))
     found_lists = lists(texts, names)
-    found = gaps(names, texts, found_lists, names_then, ok)
+    found = gaps(names, texts, found_lists, names_then, ok, changed_files)
     targets, unchecked = split_by_cap(found, cap)
     lookup = {_key(n): n for n in names}
     result: dict[str, Any] = {
-        "candidates": candidates(names, names_then, ok),
+        "candidates": candidates(names, names_then, changed_files, ok),
         "lists": found_lists,
         "gaps": found,
         "targets": targets,

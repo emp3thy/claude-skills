@@ -144,7 +144,7 @@ def test_no_home_when_nothing_fits() -> None:
 
 def test_hidden_and_undocumented_ok_never_gaps() -> None:
     names = [_n("secret", hidden=True), _n("MY_DEBUG", "env"), _n("my-tool"), _n("shown")]
-    got = candidates(names, None, ["MY_*", "my_tool"])
+    got = candidates(names, None, None, ["MY_*", "my_tool"])
     assert [n["name"] for n in got] == ["shown"]
     found = gaps(names, {"a.md": "x\n"}, [], None, ["MY_*", "my_tool"])
     assert [g["name"] for g in found] == ["shown"]
@@ -153,9 +153,35 @@ def test_hidden_and_undocumented_ok_never_gaps() -> None:
 def test_later_run_candidates_are_new_names_only() -> None:
     now = [_n("old"), _n("new"), _n("--f", "flag", "old"), _n("--f", "flag", "new")]
     then = [_n("old"), _n("--f", "flag", "old")]
-    got = candidates(now, then, [])
+    got = candidates(now, then, ["src/a.py"], [])
     assert [(n["name"], n["parent"]) for n in got] == [("new", None), ("--f", "new")]
-    assert len(candidates(now, None, [])) == 4
+    assert len(candidates(now, None, None, [])) == 4
+
+
+def test_later_run_ignores_names_in_unchanged_files() -> None:
+    now = [_n("a", file="unchanged.py"), _n("b", file="changed.py"),
+           _n("new", file="changed.py")]
+    then = [_n("b", file="changed.py")]
+    got = candidates(now, then, ["changed.py"], [])
+    assert [n["name"] for n in got] == ["new"]
+
+
+def test_short_flag_documented() -> None:
+    v = _n("-v", "flag")
+    assert documented(v, {"a.md": "Pass `-v` for more.\n"})
+    assert documented(v, {"a.md": "usage: x [-v]\n"})
+    assert not documented(v, {"a.md": "The v option, a-v-b.\n"})
+    names = [_n("-a", "flag"), _n("-b", "flag"), _n("-c", "flag")]
+    assert lists({"a.md": _table("-a", "-b", "-c")}, names)[0]["subjects"] == ["-a", "-b", "-c"]
+
+
+def test_missing_from_two_lists_gives_two_gaps() -> None:
+    names = [_n("c0"), _n("c1"), _n("c2"), _n("c3")]
+    texts = {"docs/a.md": _table("c0", "c1", "c2"), "docs/b.md": _table("c0", "c1", "c2"),
+             "README.md": "c3 here\n"}
+    found = gaps(names, texts, lists(texts, names), None, [])
+    assert [(g["name"], g["target_doc"], g["gap_kind"]) for g in found] == [
+        ("c3", "docs/a.md", "missing-from-list"), ("c3", "docs/b.md", "missing-from-list")]
 
 
 def test_gap_cap_order() -> None:
@@ -176,6 +202,7 @@ def test_run_writes_gaps_json(tmp_path: Path) -> None:
     names = [_n("c0"), _n("c1"), _n("c2"), _n("c3"), _n("zz", hidden=True)]
     write_json(work / "patterns.json", {"names": names, "names_then": None, "skipped": []})
     write_json(work / "inventory.json", {"docs": ["docs/cli.md", "docs/gone.md"]})
+    write_json(work / "changes.json", {"last_run": None, "changed_files": []})
     config = {"undocumented_ok": [], "caps": {"review": 40, "gaps": 15, "verify": 25}}
     result = run(root, work, config)
     assert read_json(work / "gaps.json") == result
