@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -43,8 +44,8 @@ from dd_common import (
     write_json,
 )
 from dd_config import load_config
-from dd_defindex import Definition, at_commit, by_norm
-from dd_history import Hunk, changed_files, diff_hunks, drift_base_commits, is_ancestor
+from dd_defindex import Definition, at_commit, by_norm, norm
+from dd_history import History, Hunk, changed_files, diff_hunks, drift_base_commits, is_ancestor
 from dd_inventory import indexed_files, is_project_file, source_class
 from dd_md_scan import scan
 
@@ -228,21 +229,42 @@ def _read_doc(root: Path, doc: str) -> str | None:
         return None
 
 
+def _old_file_definition(path: str) -> Definition:
+    """The ``file`` definition ``dd_defindex`` gives a tracked file with a unique basename."""
+    name = path.rsplit("/", 1)[-1]
+    return Definition(name=name, norm=norm(name), file=path, start=1, end=1, kind="file",
+                      owners=[], change_ranges=[[1, 1]], reading=[1, 1])
+
+
 def _defs_then(root: Path, sha: str, changed: list[str], inventory: Mapping[str, Any],
                current: list[Definition]) -> dict[str, list[Definition]]:
     """The definition index as it was at ``sha``: the current definitions of unchanged files
-    plus the changed indexed files read at ``sha``. A changed file missing from HEAD's
-    inventory (deleted or renamed away) is classified by its path, as the inventory would."""
+    plus the changed files as they were at ``sha``. A changed indexed file is re-read there;
+    a changed file missing from HEAD's inventory (deleted or renamed away) is classified by
+    its path, as the inventory would. Any other changed non-test file that existed at ``sha``
+    keeps the ``file`` definition it had when its basename was unique in that tree, so a
+    deleted config or doc named by its basename can still be reported missing."""
     tests = set(inventory["sources"].get("test", []))
     indexed = set(indexed_files(dict(inventory))) - tests
     tracked = set(inventory["files"])
+
+    def is_test(path: str) -> bool:
+        return path in tests if path in tracked else source_class(path) == "test"
+
     reread = [path for path in changed
-              if path in indexed or (path not in tracked and path not in tests
+              if path in indexed or (path not in tracked and not is_test(path)
                                      and (source_class(path) == "source"
                                           or is_project_file(path)))]
+    tree = History(root).tree_at(sha)
+    old_files = tree[0] if tree is not None else frozenset()
+    names = Counter(path.rsplit("/", 1)[-1] for path in old_files)
+    done = set(reread)
+    file_only = [_old_file_definition(path) for path in changed
+                 if path not in done and path in old_files and not is_test(path)
+                 and names[path.rsplit("/", 1)[-1]] == 1]
     changed_set = set(changed)
     kept = [d for d in current if d["file"] not in changed_set]
-    return by_norm([*kept, *at_commit(root, sha, reread)])
+    return by_norm([*kept, *at_commit(root, sha, reread), *file_only])
 
 
 def run(root: Path, workdir: Path, config: Mapping[str, Any], base: str | None,

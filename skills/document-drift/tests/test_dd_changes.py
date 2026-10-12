@@ -277,6 +277,23 @@ def test_affected_by_reference_that_no_longer_resolves(tmp_path: Path) -> None:
     assert result["review"] == {"docs/store.md": [[3, 3], [5, 5]]}
 
 
+def test_deleted_config_named_by_basename_is_missing(tmp_path: Path) -> None:
+    # not a source file, so it is never re-read: its old ``file`` definition must survive
+    doc = "# Setup\n\nEdit `settings.yaml` before the first start.\n"
+    repo, work, _ = _later(tmp_path, {"config/settings.yaml": "debug: false\n",
+                                      "docs/setup.md": doc,
+                                      "svc/app.py": "def start_app():\n    pass\n"})
+    _commit(repo, "drop the settings file", delete=("config/settings.yaml",))
+    _start(repo, work)
+    result = run(repo, work, {**DEFAULTS}, None, False)
+    assert result["changed_files"] == ["config/settings.yaml"]
+    assert result["affected"] == {"docs/setup.md": {
+        "anchor_reasons": [], "doc_changed": False, "sections": [],
+        "missing": [{"ref": "settings.yaml", "line": 3, "file": "config/settings.yaml",
+                     "start": 1, "end": 1, "reading": [1, 1]}]}}
+    assert result["review"] == {"docs/setup.md": [[3, 3]]}
+
+
 SECTIONED = """\
 # Guide
 
