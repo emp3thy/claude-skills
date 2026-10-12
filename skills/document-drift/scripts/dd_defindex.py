@@ -6,11 +6,15 @@ Definition record is the shared contract in the plan. Definitions are sorted by
 
 - **Python** (``ast``): a ``module`` per dotted suffix of each file's path, every
   function, method and class with its exact ``lineno``..``end_lineno``, and every string literal
-  that looks like a name. A literal's range is the largest enclosing node chain within
-  ``LITERAL_NODE_LINES`` lines; it is a ``reg`` (registration) when it is a ``name=`` keyword
-  value or an argument of a registrar call, otherwise a ``literal``.
-- **SQL** (``.sql``): ``CREATE ... TABLE|VIEW|INDEX|TRIGGER`` objects up to their ``;`` (at most
-  ``SQL_STATEMENT_LINES`` lines), plus one-line ``sqlcol`` columns of a table and from
+  that looks like a name. A literal's range is its largest enclosing node within
+  ``LITERAL_NODE_LINES`` lines (walking up while the parent still fits), so a registration
+  call's whole argument list is the range of each name in it. A literal is a ``reg``
+  (registration) when it is a ``name=`` keyword value or an argument of a registrar call,
+  otherwise a ``literal``.
+- **SQL** (``.sql``): ``CREATE ... TABLE|VIEW|INDEX|TRIGGER`` objects up to the ``;`` that ends
+  the statement, ignoring comments, strings and ``BEGIN``/``CASE`` ... ``END`` bodies (at most
+  ``SQL_STATEMENT_LINES`` lines); one-line ``sqlcol`` columns for each ``identifier type``
+  element of a table's column list (constraint clauses excluded) and for
   ``ALTER TABLE ... ADD COLUMN``.
 - **JavaScript/TypeScript**: ``function``, ``class``, ``export const|let``, ``const|let x = (``
   arrows and class-body methods, ranged by brace matching over the text with strings, template
@@ -80,8 +84,11 @@ _SQL_OBJECT = re.compile(
     r"(TABLE|VIEW|INDEX|TRIGGER)\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w.\"`\[\]]+)",
     re.IGNORECASE,
 )
-_SQL_COLUMN = re.compile(
-    r"^\s+[\"`\[]?(\w+)[\"`\]]?\s+(?:TEXT|INTEGER|REAL|BLOB|NUMERIC)\b", re.IGNORECASE)
+_SQL_COLUMN = re.compile(r"\s*[\"`\[]?(\w+)[\"`\]]?\s+[\"`\[]?\w")
+_SQL_CONSTRAINTS = frozenset({"PRIMARY", "FOREIGN", "CONSTRAINT", "UNIQUE", "CHECK", "KEY",
+                              "INDEX"})
+_SQL_OPEN = re.compile(r"\s*\(")
+_SQL_TOKEN = re.compile(r"\b(?:BEGIN|CASE|END)\b|;", re.IGNORECASE)
 _SQL_ADD_COLUMN = re.compile(
     r"ALTER\s+TABLE\s+([\w.\"`\[\]]+)\s+ADD\s+COLUMN\s+[\"`\[]?(\w+)", re.IGNORECASE)
 _SQL_QUOTES = "\"`[]"
@@ -266,31 +273,97 @@ def _python(path: str, text: str) -> list[Definition] | None:
 
 # --- SQL ----------------------------------------------------------------------------------
 
+def _mask_sql(text: str) -> list[str]:
+    """The lines of ``text`` with ``--`` and ``/* */`` comments and ``'...'`` strings blanked
+    (same length), so a ``;`` or a keyword inside them is not seen."""
+    out = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        if text.startswith("--", i):
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+        elif text[i] == "'":
+            j = i + 1
+            while j < n and (text[j] != "'" or text.startswith("''", j)):
+                j += 2 if text[j] == "'" else 1
+            j = min(n, j + 1)
+        else:
+            i += 1
+            continue
+        for k in range(i, j):
+            if out[k] != "\n":
+                out[k] = " "
+        i = j
+    lines = "".join(out).split("\n")
+    return lines[:-1] if lines and lines[-1] == "" else lines
+
+
+def _sql_statement_end(lines: list[str], start: int) -> int:
+    """The line of the ``;`` ending the statement that starts on ``start``, outside any
+    ``BEGIN``/``CASE`` ... ``END`` block; at most ``SQL_STATEMENT_LINES`` lines."""
+    cap = min(len(lines), start + SQL_STATEMENT_LINES - 1)
+    depth = 0
+    for number in range(start, cap + 1):
+        for token in _SQL_TOKEN.finditer(lines[number - 1]):
+            word = token.group(0).upper()
+            if word in ("BEGIN", "CASE"):
+                depth += 1
+            elif word == "END":
+                depth = max(0, depth - 1)
+            elif depth == 0:
+                return number
+    return cap
+
+
+def _sql_columns(lines: list[str], start: int, end: int, offset: int) -> list[tuple[str, int]]:
+    """``(column, line)`` for each ``identifier type`` element of the parenthesised list that
+    follows a ``CREATE TABLE`` name ending at ``offset`` on line ``start``."""
+    text = "\n".join(lines[start - 1 : end])
+    opening = _SQL_OPEN.match(text, offset)
+    if opening is None:
+        return []
+    elements: list[tuple[int, int]] = []
+    depth, begin = 0, opening.end()
+    for i in range(opening.end() - 1, len(text)):
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            depth -= 1
+            if depth == 0:
+                elements.append((begin, i))
+                break
+        elif text[i] == "," and depth == 1:
+            elements.append((begin, i))
+            begin = i + 1
+    else:  # the list runs past the statement cap
+        elements.append((begin, len(text)))
+    columns: list[tuple[str, int]] = []
+    for a, b in elements:
+        column = _SQL_COLUMN.match(text[a:b])
+        if column and column.group(1).upper() not in _SQL_CONSTRAINTS:
+            columns.append((column.group(1), start + text.count("\n", 0, a + column.start(1))))
+    return columns
+
+
 def _sql(path: str, text: str) -> list[Definition]:
-    lines = text.splitlines()
+    lines = _mask_sql(text)
     defs: list[Definition] = []
-    table: str | None = None  # the CREATE TABLE whose column list is open
     for number, line in enumerate(lines, 1):
         created = _SQL_OBJECT.match(line)
-        added = _SQL_ADD_COLUMN.search(line)
-        column = _SQL_COLUMN.match(line)
         if created:
             name = created.group(2).strip(_SQL_QUOTES)
-            end = min(len(lines), number + SQL_STATEMENT_LINES - 1)
-            for later in range(number, end + 1):
-                if ";" in lines[later - 1]:
-                    end = later
-                    break
+            end = _sql_statement_end(lines, number)
             defs.append(_definition(name, path, number, end, "sql"))
-            table = name if created.group(1).upper() == "TABLE" else None
-        elif added:
+            if created.group(1).upper() == "TABLE":
+                defs += [_definition(column, path, at, at, "sqlcol", [norm(name)])
+                         for column, at in _sql_columns(lines, number, end, created.end())]
+        added = _SQL_ADD_COLUMN.search(line)
+        if added:
             owner = norm(added.group(1).strip(_SQL_QUOTES))
             defs.append(_definition(added.group(2), path, number, number, "sqlcol", [owner]))
-        elif column and table is not None:
-            defs.append(_definition(column.group(1), path, number, number, "sqlcol",
-                                    [norm(table)]))
-        if ";" in line:
-            table = None
     return defs
 
 

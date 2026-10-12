@@ -96,20 +96,23 @@ def test_literal_registration_kinds():
 LONG = "\n".join(
     ["def handler():"]
     + [f"    step_{i} = {i}" for i in range(1, 6)]
-    + ["    config = load(", "        'alpha_key',", "        retries=3,", "    )"]
-    + [f"    tail_{i} = {i}" for i in range(1, 20)]
+    + ["    config = {", '        "outer": 1,', '        "inner": load(',
+       "            'alpha_key',", "        ),"]
+    + [f'        "k{i}": {i},' for i in range(1, 5)]
+    + ["    }"]
+    + [f"    tail_{i} = {i}" for i in range(1, 14)]
     + ["    return config", ""]
 )
 
 
-def test_literal_range_is_smallest_node_within_15_lines():
+def test_literal_range_is_largest_enclosing_node_within_15_lines():
     defs = _build({"app/h.py": LONG})
-    alpha = _find(defs, "alpha_key")
-    # the call statement (lines 7-10) is the largest node within 15 lines; the 26-line
-    # function enclosing it is not
-    assert _span(alpha) == (7, 10)
     assert _span(_find(defs, "handler", "function")) == (1, 30)
-    assert alpha["change_ranges"] == [[7, 10]] and alpha["reading"] == [7, 10]
+    alpha = _find(defs, "alpha_key")
+    # the literal sits in a 3-line call (9-11) inside a 10-line statement (7-16) inside a
+    # 30-line function: the range is the statement, the largest node within 15 lines
+    assert _span(alpha) == (7, 16)
+    assert alpha["change_ranges"] == [[7, 16]] and alpha["reading"] == [7, 16]
 
 
 OWNERS = '''\
@@ -179,6 +182,34 @@ def test_sql_objects_and_columns():
     assert _span(_find(defs, "id", "sqlcol")) == (2, 2)
     added = _find(defs, "created_at", "sqlcol")
     assert _span(added) == (8, 8) and added["owners"] == ["items"]
+
+
+
+SQL_MORE = """\
+CREATE TABLE users (
+  id SERIAL,
+  email VARCHAR(255) NOT NULL, -- unique; checked by the app
+  active BOOLEAN DEFAULT 'yes;no',
+  CONSTRAINT users_email UNIQUE (email),
+  PRIMARY KEY (id)
+);
+CREATE TABLE t (id INTEGER, name TEXT);
+CREATE TRIGGER users_touch AFTER UPDATE ON users
+BEGIN
+  UPDATE users SET active = CASE WHEN 1 THEN 1 ELSE 0 END;
+  INSERT INTO log VALUES ('x;y');
+END;
+"""
+
+
+def test_sql_statement_ends_and_any_column_type():
+    defs = _build({"db/more.sql": SQL_MORE})
+    assert _span(_find(defs, "users", "sql")) == (1, 7)
+    assert _span(_find(defs, "t", "sql")) == (8, 8)
+    assert _span(_find(defs, "users_touch", "sql")) == (9, 13)
+    cols = sorted((d["owners"][0], d["name"], d["start"]) for d in defs if d["kind"] == "sqlcol")
+    assert cols == [("t", "id", 8), ("t", "name", 8),
+                    ("users", "active", 4), ("users", "email", 3), ("users", "id", 2)]
 
 
 TS = '''\
