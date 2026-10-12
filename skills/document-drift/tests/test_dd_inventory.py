@@ -9,7 +9,7 @@ import pytest
 from dd_common import MAX_DOC_BYTES, read_json
 from dd_config import DEFAULTS
 from dd_helpers import make_repo
-from dd_inventory import DEFAULT_NEVER_EDIT, main, run
+from dd_inventory import DEFAULT_NEVER_EDIT, indexed_files, main, run
 
 
 def _repo(tmp_path: Path, files: dict[str, str]) -> Path:
@@ -293,7 +293,9 @@ def test_files_lists_every_tracked_path_sorted_and_json_written(tmp_path):
     assert inv["files"] == ["README.md", "a/x.txt", "b.py"]
     on_disk = read_json(work / "inventory.json")
     assert on_disk == inv
-    assert set(on_disk) == {"docs", "excluded", "skipped", "files", "never_edit_re"}
+    assert set(on_disk) == {
+        "docs", "excluded", "skipped", "files", "sources", "project_files", "never_edit_re",
+    }
 
 
 def test_never_edit_re_default_and_extended(tmp_path):
@@ -385,3 +387,62 @@ def test_walk_ignore_dirs_excluded(tmp_path):
     assert r["dist/README.md"] == "ignored-dir:dist"
     assert r["build/notes.md"] == "ignored-dir:build"
     assert r["venv/a.md"] == "ignored-dir:venv"
+
+
+def test_sources_partition_every_tracked_file(tmp_path):
+    inv = _inv(
+        tmp_path,
+        {
+            "README.md": "r\n",
+            "src/app.py": "x = 1\n",
+            "tests/test_app.py": "x = 1\n",
+            "vendor/lib.py": "x = 1\n",
+            "api/foo_pb2.py": "x = 1\n",
+            "settings.yaml": "a: 1\n",
+            "data.bin": "zz\n",
+        },
+    )
+    classes = inv["sources"]
+    assert set(classes) == {"source", "test", "config", "generated", "vendored", "doc", "other"}
+    flat = [p for paths in classes.values() for p in paths]
+    assert sorted(flat) == inv["files"]
+    assert len(flat) == len(set(flat))
+    assert all(paths == sorted(paths) for paths in classes.values())
+    assert classes["source"] == ["src/app.py"]
+    assert classes["test"] == ["tests/test_app.py"]
+    assert classes["vendored"] == ["vendor/lib.py"]
+    assert classes["generated"] == ["api/foo_pb2.py"]
+    assert classes["config"] == ["settings.yaml"]
+    assert classes["other"] == ["data.bin"]
+
+
+def test_project_files_lists_only_tracked_spec_names(tmp_path):
+    repo = _repo(
+        tmp_path,
+        {
+            "Dockerfile.dev": "FROM x\n",
+            ".github/workflows/ci.yml": "on: push\n",
+            "package.json": "{}\n",
+            "sub/Cargo.toml": "[package]\n",
+            "README.md": "r\n",
+        },
+    )
+    (repo / "justfile").write_text("build:\n", encoding="utf-8")
+    inv = run(repo, tmp_path / "work", {**DEFAULTS})
+    assert inv["project_files"] == [
+        ".github/workflows/ci.yml", "Dockerfile.dev", "package.json", "sub/Cargo.toml",
+    ]
+
+
+def test_indexed_files_is_source_plus_project_files(tmp_path):
+    inv = _inv(
+        tmp_path,
+        {"src/b.py": "x\n", "a.py": "x\n", "Makefile": "all:\n", "README.md": "r\n"},
+    )
+    assert indexed_files(inv) == ["Makefile", "a.py", "src/b.py"]
+
+
+def test_markdown_is_doc_class_not_source(tmp_path):
+    inv = _inv(tmp_path, {"NOTES.MD": "n\n", "docs/guide.md": "g\n", "x.py": "x\n"})
+    assert inv["sources"]["doc"] == ["NOTES.MD", "docs/guide.md"]
+    assert inv["sources"]["source"] == ["x.py"]

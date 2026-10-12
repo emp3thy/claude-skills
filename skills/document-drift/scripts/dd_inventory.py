@@ -160,6 +160,53 @@ def _classify(rel: str) -> str | None:
     return None
 
 
+SOURCE_CLASSES: tuple[str, ...] = (
+    "source", "test", "config", "generated", "vendored", "doc", "other",
+)
+# _classify only knows vendored/generated/tests; the rest of the tree is split by extension.
+SOURCE_EXTENSIONS: frozenset[str] = frozenset({
+    ".py", ".pyi", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java", ".kt",
+    ".cs", ".c", ".h", ".cc", ".cpp", ".hpp", ".rb", ".php", ".swift", ".scala", ".sh",
+    ".bash", ".ps1", ".lua", ".pl", ".ino", ".vue", ".svelte",
+})
+CONFIG_EXTENSIONS: frozenset[str] = frozenset({
+    ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".env", ".properties",
+})
+PROJECT_FILE_NAMES: tuple[str, ...] = (
+    "pyproject.toml", "setup.cfg", "setup.py", "package.json", "Makefile", "justfile",
+    "Taskfile.yml", "Dockerfile*", "docker-compose*.yml", "compose*.yml", ".env.example",
+    "Cargo.toml", "go.mod",
+)
+WORKFLOW_PREFIX = ".github/workflows/"
+
+
+def _source_class(rel: str) -> str:
+    if rel.lower().endswith(".md"):
+        return "doc"
+    cls = _classify(rel)
+    if cls == "tests":
+        return "test"
+    if cls:
+        return cls
+    ext = "." + rel.rsplit("/", 1)[-1].rpartition(".")[2].lower() if "." in rel.rsplit(
+        "/", 1)[-1] else ""
+    if ext in SOURCE_EXTENSIONS:
+        return "source"
+    return "config" if ext in CONFIG_EXTENSIONS else "other"
+
+
+def _is_project_file(rel: str) -> bool:
+    if rel.startswith(WORKFLOW_PREFIX):
+        return True
+    name = rel.rsplit("/", 1)[-1]
+    return any(fnmatchcase(name, glob) for glob in PROJECT_FILE_NAMES)
+
+
+def indexed_files(inventory: dict[str, Any]) -> list[str]:
+    """The files the definition index and pattern scan read: source plus project files."""
+    return sorted(set(inventory["sources"]["source"]) | set(inventory["project_files"]))
+
+
 def _parse_gitattributes(text: str) -> list[tuple[str, dict[str, bool | None]]]:
     rules: list[tuple[str, dict[str, bool | None]]] = []
     for raw in text.splitlines():
@@ -494,11 +541,16 @@ def run(root: Path, workdir: Path, config: dict[str, Any]) -> dict[str, Any]:
             skipped.append({"path": rel, "reason": skip})
         else:
             docs.append(rel)
+    sources: dict[str, list[str]] = {cls: [] for cls in SOURCE_CLASSES}
+    for rel in files:
+        sources[_source_class(rel)].append(rel)
     result = {
         "docs": sorted(docs),
         "excluded": sorted(excluded, key=lambda e: e["path"]),
         "skipped": sorted(skipped, key=lambda e: e["path"]),
         "files": files,
+        "sources": sources,
+        "project_files": [rel for rel in files if _is_project_file(rel)],
         "never_edit_re": _combine_never_edit(config.get("never_edit_heading")),
     }
     write_json(workdir / "inventory.json", result)
