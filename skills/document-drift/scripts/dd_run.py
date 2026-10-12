@@ -194,7 +194,7 @@ def chain(root: Path, workdir: Path, *, base: str | None, branch: str | None, da
         _step("apply", workdir, ("applied.json",), lambda: dd_apply.run(root, workdir))
         trailers = [str(t) for t in config.get("commit_trailers", [])]
         _step("commit", workdir, ("commits.json",),
-              lambda: dd_commit.run(root, workdir, branch_name, run_id, scope, trailers))
+              lambda: dd_commit.run_hunks(root, workdir, branch_name, run_id, scope, trailers))
     text = _step("summary", workdir, ("summary.md",), lambda: dd_summary.run(workdir))
     _write_stdout(str(text))
     if check and read_json(workdir / "hunks-provable.json")["hunks"]:
