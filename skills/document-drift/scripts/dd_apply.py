@@ -29,17 +29,19 @@ HEAD resolution of a doc text, ``settled`` for docs already edited) and ``_write
 unchanged; ``_apply_doc`` and its hunk verdicts are not used. Per doc, bottom-up by
 ``(start_line, end_line)``: an edit applies when lines ``start_line..end_line`` (endings
 stripped, joined by ``\\n``) equal ``old``, else it reverts with ``old-mismatch``; ``new == ""``
-removes the lines, otherwise ``new.split("\\n")`` replaces them. After each edit the doc text is
-re-extracted and resolved: the multiset of unresolved ``(kind, text)`` for kinds ``path`` and
-``anchor`` must be a subset of the multiset before the edit, otherwise the edit reverts with
-``recheck-failed``. Both multisets are taken on the text with the heading-link rewrites known
-so far applied (the renames of earlier docs and of this doc's applied edits, including the edit
-under test), so a heading edit is not reverted for the links that ``update_heading_links``
-rewrites in the same run. ``update_heading_links`` then rewrites the links to renamed headings
-in the in-memory texts, and every changed doc is written once, atomically; a failed write
-reverts that doc's edits with ``write-failed`` and drops its link updates. ``applied.json`` is
-``{"applied": [ids], "reverted": [{"edit", "reason"}], "docs": [written docs], "link_updates":
-[{"doc", "line", "old", "new", "edit"}]}``, all sorted.
+removes the lines, otherwise ``new.split("\\n")`` (each line's trailing ``\\r`` dropped)
+replaces them. After each edit the doc text is re-extracted and resolved: the multiset of
+unresolved ``(kind, text)`` for kinds ``path`` and ``anchor`` must be a subset of the multiset
+before the edit, otherwise the edit reverts with ``recheck-failed``. Both multisets are taken on
+the text with the heading-link rewrites known so far applied (the renames of earlier docs and of
+this doc's applied edits, including the edit under test), so a heading edit is not reverted for
+the links that ``update_heading_links`` rewrites in the same run. ``update_heading_links`` then
+rewrites the links to renamed headings in the in-memory texts (a link names a slug as the
+resolver reads it: percent-decoded, ``user-content-`` dropped, case-insensitive), and every
+changed doc is written once, atomically; a failed write reverts that doc's edits with
+``write-failed`` and drops its link updates. ``applied.json`` is ``{"applied": [ids],
+"reverted": [{"edit", "reason"}], "docs": [written docs], "link_updates": [{"doc", "line",
+"old", "new", "edit"}]}``, all sorted.
 """
 from __future__ import annotations
 
@@ -54,11 +56,12 @@ from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json, write_json
 from dd_extract import extract_doc
 from dd_md_scan import scan
-from dd_resolve import _plain, resolve_token, slugify_heading
+from dd_resolve import _fragment, _match_slug, _plain, resolve_token, slugify_heading
 
 BEFORE_MISMATCH = "before-mismatch"
 NEW_FINDING = "recheck-new-finding"
@@ -309,7 +312,8 @@ def run(root: Path, workdir: Path) -> dict[str, Any]:
 
 Renames = dict[str, dict[str, str | None]]  # target doc -> {old slug: new slug, None: left}
 Heading = tuple[int, str, bool]  # (line, slug as linked, its base slug repeats in the doc)
-Found = tuple[int, str, str, str | None]  # (line, target doc, old slug, new slug or None)
+# (line, target doc, renamed slug, link text as written, its rewrite or None)
+Found = tuple[int, str, str, str, str | None]
 
 
 def _read_doc(root: Path, doc: str) -> str | None:
@@ -355,16 +359,24 @@ def _heading_changes(before: str, start: int, end: int, after: str, new_start: i
 def _rewrite_links(doc: str, text: str, tokens: list[dict[str, Any]],
                    renames: Renames) -> tuple[str, list[Found]]:
     """``text`` with every anchor token that names a renamed heading rewritten to the new slug,
-    and a ``Found`` per such token. ``new`` is None, and the token kept, when the rename is left
-    to the owner or the token cannot be rewritten in place (never-edit, generated or
-    marker-ignored, spanning lines, or its span not holding its text)."""
+    and a ``Found`` per such token. A token names a slug as the resolver reads it
+    (``dd_resolve._match_slug`` of ``_fragment``: percent-decoded, ``user-content-`` dropped,
+    case-insensitive fallback); the rewrite is the new slug, keeping a ``user-content-`` prefix.
+    The rewrite is None, and the token kept, when the rename is left to the owner or the token
+    cannot be rewritten in place (never-edit, generated or marker-ignored, spanning lines, or
+    its span not holding its text)."""
     cur = _Text(text)
     found: list[Found] = []
     for tok in sorted(tokens, key=lambda t: (t["line"], t["col"]), reverse=True):
         target = tok.get("target_doc") or doc
-        if tok["kind"] != "anchor" or tok["text"] not in renames.get(target, {}):
+        if tok["kind"] != "anchor" or target not in renames:
             continue
-        new = renames[target][tok["text"]]
+        slug = _match_slug(_fragment(tok["text"]), set(renames[target]))
+        if slug is None:
+            continue
+        new_slug = renames[target][slug]
+        prefix = "user-content-" if _fragment(tok["text"]) != unquote(tok["text"]) else ""
+        new = None if new_slug is None else prefix + new_slug
         line, col, end = int(tok["line"]), int(tok["col"]), int(tok["end_col"])
         content, ending = cur.lines[line - 1] if 1 <= line <= len(cur.lines) else ("", "")
         if (tok.get("never_edit") or tok.get("generated") or tok.get("ignored")
@@ -372,9 +384,9 @@ def _rewrite_links(doc: str, text: str, tokens: list[dict[str, Any]],
             new = None
         if new is not None:
             cur.lines[line - 1] = (content[:col] + new + content[end:], ending)
-        found.append((line, target, tok["text"], new))
-    found.sort(key=lambda f: (f[0], f[1], f[2]))
-    if all(f[3] is None for f in found):
+        found.append((line, target, slug, tok["text"], new))
+    found.sort(key=lambda f: (f[0], f[1], f[3]))
+    if all(f[4] is None for f in found):
         return text, found
     return _Text.join(cur.lines), found
 
@@ -406,7 +418,8 @@ def _settle_doc(doc: str, original: str, edits: list[dict[str, Any]], checker: _
                 or "\n".join(cur.contents(start, end)) != edit["old"]):
             reverted[edit["id"]] = OLD_MISMATCH
             continue
-        after = edit["new"].split("\n") if edit["new"] else []
+        # a "\r\n" inside an agent's ``new`` must not leave a stray "\r" before the line ending
+        after = [a.removesuffix("\r") for a in edit["new"].split("\n")] if edit["new"] else []
         lines = cur.replaced(start, end, after)
         new_text = _Text.join(lines)
         own = dict(renames.get(doc, {}))
@@ -476,7 +489,7 @@ def update_heading_links(root: Path, workdir: Path, applied_edits: Iterable[str]
                 continue
         new_text, found = _rewrite_links(doc, text, tokens, renames)
         updates.extend({"doc": doc, "line": line, "old": old, "new": new,
-                        "edit": owner[(target, old)]} for line, target, old, new in found)
+                        "edit": owner[(target, slug)]} for line, target, slug, old, new in found)
         if new_text != text:
             texts[doc] = new_text
     return updates

@@ -699,3 +699,53 @@ def test_main_edits_path(tmp_path: Path):
             {"u001-e01": "accept"})
     assert main([str(root), "--workdir", str(work), "--edits"]) == EXIT_OK
     assert read_json(work / "applied.json")["applied"] == ["u001-e01"]
+
+
+def test_heading_links_match_as_the_resolver_reads_them(tmp_path: Path):
+    readme = DOC.replace("(#setup)", "(#Setup)")
+    guide = ("# Guide\n\n"
+             "See [one](../README.md#Setup), [two](../README.md#user-content-setup)\n"
+             "and [three](../README.md#set%75p).\n")
+    root, work = _edit_repo(tmp_path, {"README.md": readme, "docs/guide.md": guide})
+    _inputs(work, [_agent_edit("u001-e01", readme, 5, new="## Installation")],
+            {"u001-e01": "accept"})
+    result = apply_edits(root, work)
+    assert result["applied"] == ["u001-e01"] and result["reverted"] == []
+    assert _doc(root).endswith("Back to [the setup](#installation).\n")
+    assert _doc(root, "docs/guide.md") == (
+        "# Guide\n\n"
+        "See [one](../README.md#installation), "
+        "[two](../README.md#user-content-installation)\n"
+        "and [three](../README.md#installation).\n")
+    assert result["link_updates"] == [
+        {"doc": "README.md", "line": 10, "old": "Setup", "new": "installation",
+         "edit": "u001-e01"},
+        {"doc": "docs/guide.md", "line": 3, "old": "Setup", "new": "installation",
+         "edit": "u001-e01"},
+        {"doc": "docs/guide.md", "line": 3, "old": "user-content-setup",
+         "new": "user-content-installation", "edit": "u001-e01"},
+        {"doc": "docs/guide.md", "line": 4, "old": "set%75p", "new": "installation",
+         "edit": "u001-e01"},
+    ]
+
+
+def test_crlf_inside_new_leaves_no_stray_carriage_return(tmp_path: Path):
+    text = DOC.replace("\n", "\r\n")
+    root, work = _edit_repo(tmp_path, {"README.md": text})
+    _inputs(work, [_agent_edit("u001-e01", text, 7, new="First step.\r\nSecond step.\r")],
+            {"u001-e01": "accept"})
+    assert apply_edits(root, work)["applied"] == ["u001-e01"]
+    out = (root / "README.md").read_bytes()
+    assert b"First step.\r\nSecond step.\r\nRemove this stale line.\r\n" in out
+    assert b"\r\r" not in out
+    assert out.count(b"\n") == out.count(b"\r\n")
+
+
+def test_removing_the_last_lines_keeps_missing_trailing_newline(tmp_path: Path):
+    text = DOC.rstrip("\n")
+    root, work = _edit_repo(tmp_path, {"README.md": text})
+    _inputs(work, [_agent_edit("u001-e01", text, 9, 10, new="", kind="remove")],
+            {"u001-e01": "accept"})
+    assert apply_edits(root, work)["applied"] == ["u001-e01"]
+    assert _doc(root) == text.split("\n\nBack to")[0]
+    assert _doc(root).endswith("Remove this stale line.")
