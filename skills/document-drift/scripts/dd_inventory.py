@@ -202,6 +202,16 @@ def _is_project_file(rel: str) -> bool:
     return any(fnmatchcase(name, glob) for glob in PROJECT_FILE_NAMES)
 
 
+def source_class(rel: str) -> str:
+    """The ``sources`` class (one of ``SOURCE_CLASSES``) the inventory gives the path ``rel``."""
+    return _source_class(rel)
+
+
+def is_project_file(rel: str) -> bool:
+    """Whether the inventory lists the path ``rel`` in ``project_files``."""
+    return _is_project_file(rel)
+
+
 def indexed_files(inventory: dict[str, Any]) -> list[str]:
     """The files the definition index and pattern scan read: source plus project files."""
     return sorted(set(inventory["sources"]["source"]) | set(inventory["project_files"]))

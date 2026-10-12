@@ -17,7 +17,8 @@
 - **Affected docs** (``affected``): per doc, ``anchor_reasons`` (an anchor whose change range
   overlaps a hunk of its file; a pure deletion touches its ``new_start``), ``missing`` (a
   reference that resolved against the definition index at the last-run commit and does not
-  now), ``doc_changed`` and ``sections`` (the doc's heading sections that a hunk of the doc
+  now, as ``{"ref", "line", "file", "start", "end", "reading"}`` of the definition it had
+  then), ``doc_changed`` and ``sections`` (the doc's heading sections that a hunk of the doc
   itself touches). The index at the last-run commit is the current index with the changed
   indexed files (deleted ones included) re-read at that commit.
 - **Review** (``review_ranges``): on a first run every in-scope doc whole; on a later run each
@@ -44,7 +45,7 @@ from dd_common import (
 from dd_config import load_config
 from dd_defindex import Definition, at_commit, by_norm
 from dd_history import Hunk, changed_files, diff_hunks, drift_base_commits, is_ancestor
-from dd_inventory import _is_project_file, _source_class, indexed_files
+from dd_inventory import indexed_files, is_project_file, source_class
 from dd_md_scan import scan
 
 _Range = tuple[int, int]
@@ -174,7 +175,8 @@ def affected(anchors: Iterable[Anchor], refs: Iterable[Reference],
     for old in then:
         if (old["doc"], old["line"], old["ref"]) in now:
             continue
-        gone = {"ref": old["ref"], "line": old["line"], "file": old["file"]}
+        gone = {"ref": old["ref"], "line": old["line"], "file": old["file"],
+                "start": old["start"], "end": old["end"], "reading": list(old["reading"])}
         missing = entry(old["doc"])["missing"]
         if gone not in missing:
             missing.append(gone)
@@ -184,7 +186,7 @@ def affected(anchors: Iterable[Anchor], refs: Iterable[Reference],
             entry(doc)["sections"] = sections
     for found in entries.values():
         found["anchor_reasons"].sort(key=lambda r: (r["line"], r["ref"], r["file"], r["hunk"]))
-        found["missing"].sort(key=lambda r: (r["line"], r["ref"], r["file"]))
+        found["missing"].sort(key=lambda r: (r["line"], r["ref"], r["file"], r["start"]))
     return {doc: entries[doc] for doc in sorted(entries)}
 
 
@@ -236,8 +238,8 @@ def _defs_then(root: Path, sha: str, changed: list[str], inventory: Mapping[str,
     tracked = set(inventory["files"])
     reread = [path for path in changed
               if path in indexed or (path not in tracked and path not in tests
-                                     and (_source_class(path) == "source"
-                                          or _is_project_file(path)))]
+                                     and (source_class(path) == "source"
+                                          or is_project_file(path)))]
     changed_set = set(changed)
     kept = [d for d in current if d["file"] not in changed_set]
     return by_norm([*kept, *at_commit(root, sha, reread)])

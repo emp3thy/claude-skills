@@ -9,7 +9,14 @@ import pytest
 from dd_common import MAX_DOC_BYTES, read_json
 from dd_config import DEFAULTS
 from dd_helpers import make_repo
-from dd_inventory import DEFAULT_NEVER_EDIT, indexed_files, main, run
+from dd_inventory import (
+    DEFAULT_NEVER_EDIT,
+    indexed_files,
+    is_project_file,
+    main,
+    run,
+    source_class,
+)
 
 
 def _repo(tmp_path: Path, files: dict[str, str]) -> Path:
@@ -452,3 +459,18 @@ def test_sql_file_is_source(tmp_path):
     inv = _inv(tmp_path, {"db/schema.sql": "CREATE TABLE t (id INTEGER);\n", "x.py": "x\n"})
     assert inv["sources"]["source"] == ["db/schema.sql", "x.py"]
     assert "db/schema.sql" in indexed_files(inv)
+
+
+def test_source_class_classifies_a_path_without_a_repository():
+    # a path that is not tracked (deleted since a last run) gets the class the inventory gives
+    assert [source_class(p) for p in ("svc/gone.py", "db/old.sql", "README.md", "app.yaml",
+                                      "tests/test_gone.py", "notes.txt")] == [
+        "source", "source", "doc", "config", "test", "other"]
+
+
+def test_is_project_file_matches_names_and_workflows():
+    assert is_project_file("pyproject.toml")
+    assert is_project_file("svc/Dockerfile.dev")
+    assert is_project_file(".github/workflows/ci.yml")
+    assert not is_project_file("svc/app.py")
+    assert not is_project_file("docs/pyproject.md")

@@ -263,9 +263,14 @@ def test_affected_by_reference_that_no_longer_resolves(tmp_path: Path) -> None:
     result = run(repo, work, {**DEFAULTS}, None, False)
     assert result["changed_files"] == ["svc/purge.py", "svc/store.py"]
     entry = result["affected"]["docs/store.md"]
+    # each carries the definition's range at the last-run commit, so units can be sized
+    save = _line_of(STORE, "def save_item")
+    save_end = _line_of(STORE, "return data")
     assert entry["missing"] == [
-        {"ref": "save_item", "line": 3, "file": "svc/store.py"},
-        {"ref": "purge_everything", "line": 5, "file": "svc/purge.py"},
+        {"ref": "save_item", "line": 3, "file": "svc/store.py", "start": save,
+         "end": save_end, "reading": [save, save_end]},
+        {"ref": "purge_everything", "line": 5, "file": "svc/purge.py", "start": 1, "end": 2,
+         "reading": [1, 2]},
     ]
     assert entry["anchor_reasons"] == []
     assert entry["doc_changed"] is False
