@@ -1,0 +1,14 @@
+{
+ "unit": "u001",
+ "claims_checked": 3,
+ "code_claims": {"README.md": 1, "docs/config.md": 1},
+ "unverified_blocks": [],
+ "edits": [
+  {"id": "u001-e01", "doc": "README.md", "start_line": 7, "end_line": 7,
+   "old": "Call `connect` to open the connection. It retries 5 times by default.",
+   "new": "Call `connect` to open the connection. It retries 3 times by default.",
+   "type": "correct", "claim": "connect retries 3 times by default, not 5",
+   "evidence": ["src/app.py:4"], "subject": "connect"}
+ ],
+ "questions": []
+}

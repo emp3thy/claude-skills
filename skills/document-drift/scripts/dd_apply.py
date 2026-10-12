@@ -1,47 +1,30 @@
-"""Apply provable hunks, re-check each one, revert any doubt -> applied.json.
+"""Apply the accepted agent edits with a re-scan, revert any doubt -> applied.json (spec 9.3).
 
-``applied.json`` is ``{"applied": [hunk ids], "reverted": [{"hunk", "reason"}], "docs":
-[edited doc paths]}``, all sorted. ``findings.json`` is rewritten in place: every finding of a
-reverted hunk (its ``finding_id`` and every ``also`` id) becomes ``human``/``recheck-failed``
-with ``recheck_reason`` set to the revert reason, and every ``human`` or ``summary-only`` finding
-whose line lies inside an applied ``delete`` hunk gets ``superseded_by: <hunk id>`` (ruling
-R43). Every other field and the top-level keys pass through unchanged. Line numbers are always
-those of the original, pre-apply doc.
+``apply_edits`` applies every ``edits.json`` edit whose status is ``kept`` and whose
+``verdicts.json`` verdict is ``accept``, plus every kept notice-loop edit (``source ==
+"notice"``, no verdict needed); a missing ``verdicts.json`` means no verdicts.
 
 Per doc (spec 7.3): the doc is read with ``newline=""`` and split on ``\\r\\n`` or ``\\n`` like
-the scanner; each line keeps its own ending, a new line takes the majority ending, and the
-trailing-newline state is kept. Hunks apply bottom-up by ``line_start``. A hunk whose ``before``
-lines differ from the current lines reverts (``before-mismatch``). After a hunk is applied the
-edited text is re-extracted in memory and every token resolved against HEAD (the tracked files
-of ``inventory.json``): the multiset of unresolved ``(kind, text)`` (a marker-ignored token
-never counts) must be a subset of the previous multiset minus the hunk's own findings (ruling
-R38: the ``also`` findings are its own too), and every replacement must itself resolve;
-otherwise the hunk is undone with ``recheck-still-unresolved`` (an own token still fires or a
-replacement does not resolve) or ``recheck-new-finding``. One hunk's failure reverts only that
-hunk. The doc is written once, atomically (``<doc>.dd-tmp`` then ``os.replace``), when at least
-one hunk stayed applied; a failed write reverts its hunks with ``write-failed``.
-
-Agent edits (spec 9.3, ``--edits``): ``apply_edits`` applies every ``edits.json`` edit whose
-status is ``kept`` and whose ``verdicts.json`` verdict is ``accept``, plus every kept notice-loop
-edit (``source == "notice"``, no verdict needed); a missing ``verdicts.json`` means no verdicts.
-It reuses ``_Text`` (endings, majority ending, trailing state), ``_Checker`` (re-extraction and
-HEAD resolution of a doc text, ``settled`` for docs already edited) and ``_write_atomic``
-unchanged; ``_apply_doc`` and its hunk verdicts are not used. Per doc, bottom-up by
-``(start_line, end_line)``: an edit applies when lines ``start_line..end_line`` (endings
-stripped, joined by ``\\n``) equal ``old``, else it reverts with ``old-mismatch``; ``new == ""``
-removes the lines, otherwise ``new.split("\\n")`` (each line's trailing ``\\r`` dropped)
-replaces them. After each edit the doc text is re-extracted and resolved: the multiset of
-unresolved ``(kind, text)`` for kinds ``path`` and ``anchor`` must be a subset of the multiset
-before the edit, otherwise the edit reverts with ``recheck-failed``. Both multisets are taken on
-the text with the heading-link rewrites known so far applied (the renames of earlier docs and of
-this doc's applied edits, including the edit under test), so a heading edit is not reverted for
-the links that ``update_heading_links`` rewrites in the same run. ``update_heading_links`` then
-rewrites the links to renamed headings in the in-memory texts (a link names a slug as the
-resolver reads it: percent-decoded, ``user-content-`` dropped, case-insensitive), and every
-changed doc is written once, atomically; a failed write reverts that doc's edits with
-``write-failed`` and drops its link updates. ``applied.json`` is ``{"applied": [ids],
-"reverted": [{"edit", "reason"}], "docs": [written docs], "link_updates": [{"doc", "line",
-"old", "new", "edit"}]}``, all sorted.
+the scanner (``_Text``); each line keeps its own ending, a new line takes the majority ending,
+and the trailing-newline state is kept. Edits apply bottom-up by ``(start_line, end_line)``: an
+edit applies when lines ``start_line..end_line`` (endings stripped, joined by ``\\n``) equal
+``old``, else it reverts with ``old-mismatch``; ``new == ""`` removes the lines, otherwise
+``new.split("\\n")`` (each line's trailing ``\\r`` dropped) replaces them. After each edit the
+doc text is re-extracted in memory and resolved against HEAD (the tracked files of
+``inventory.json``, ``_Checker``; a doc already edited in this run is read as edited): the
+multiset of unresolved ``(kind, text)`` for kinds ``path`` and ``anchor`` (a marker-ignored
+token never counts) must be a subset of the multiset before the edit, otherwise the edit
+reverts with ``recheck-failed``. Both multisets are taken on the text with the heading-link
+rewrites known so far applied (the renames of earlier docs and of this doc's applied edits,
+including the edit under test), so a heading edit is not reverted for the links that
+``update_heading_links`` rewrites in the same run. ``update_heading_links`` then rewrites the
+links to renamed headings in the in-memory texts (a link names a slug as the resolver reads
+it: percent-decoded, ``user-content-`` dropped, case-insensitive), and every changed doc is
+written once, atomically (``<doc>.dd-tmp`` then ``os.replace``); a failed write reverts that
+doc's edits with ``write-failed`` and drops its link updates. One edit's failure reverts only
+that edit. ``applied.json`` is ``{"applied": [ids], "reverted": [{"edit", "reason"}], "docs":
+[written docs], "link_updates": [{"doc", "line", "old", "new", "edit"}]}``, all sorted. Line
+numbers are always those of the original, pre-apply doc.
 """
 from __future__ import annotations
 
@@ -63,9 +46,6 @@ from dd_extract import extract_doc
 from dd_md_scan import scan
 from dd_resolve import _fragment, _match_slug, _plain, resolve_token, slugify_heading
 
-BEFORE_MISMATCH = "before-mismatch"
-NEW_FINDING = "recheck-new-finding"
-STILL_UNRESOLVED = "recheck-still-unresolved"
 WRITE_FAILED = "write-failed"
 OLD_MISMATCH = "old-mismatch"
 RECHECK_FAILED = "recheck-failed"
@@ -153,94 +133,6 @@ class _Checker:
                        if r is None and not t.get("ignored"))
 
 
-def _own(hunk: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> list[str]:
-    """Finding ids of a hunk: its ``finding_id`` and every ``also`` id (ruling R38)."""
-    ids = [hunk.get("finding_id"), *(a.get("finding_id") for a in hunk.get("also") or [])]
-    return [i for i in ids if isinstance(i, str) and i in by_id]
-
-
-def _own_keys(hunk: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> Counter[Key]:
-    keys: Counter[Key] = Counter()
-    keys[(hunk["token_kind"], hunk["token_text"])] += 1
-    for also in hunk.get("also") or []:
-        f = by_id.get(also.get("finding_id") or "")
-        kind = f["kind"] if f else hunk["token_kind"]
-        keys[(kind, also["token_text"])] += 1
-    return keys
-
-
-def _replacements(hunk: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> list[Key]:
-    """``(kind, new text)`` of every replacement the hunk writes."""
-    out: list[Key] = []
-    if hunk.get("verb") == "replace" and hunk.get("new_text"):
-        out.append((hunk["token_kind"], hunk["new_text"]))
-    for also in hunk.get("also") or []:
-        if also.get("verb") == "replace" and also.get("new_text"):
-            f = by_id.get(also.get("finding_id") or "")
-            out.append((f["kind"] if f else hunk["token_kind"], also["new_text"]))
-    return out
-
-
-def _names(token: dict[str, Any], key: Key) -> bool:
-    kind, new = key
-    text = str(token["text"])
-    return token["kind"] == kind and (text == new or kind == "tree" and text.endswith("/" + new))
-
-
-def _verdict(hunk: dict[str, Any], by_id: dict[str, dict[str, Any]], prev: Counter[Key],
-             tokens: list[tuple[dict[str, Any], str | None]]) -> str | None:
-    """None when the edited text passes the re-check, else the revert reason."""
-    own = _own_keys(hunk, by_id)
-    excess = _Checker.unresolved(tokens) - (prev - own)
-    if any(key in own for key in excess):
-        return STILL_UNRESOLVED
-    first = hunk["line_start"]
-    last = first + len(hunk["after"]) - 1
-    for key in _replacements(hunk, by_id):
-        mine = [r for t, r in tokens if first <= t["line"] <= last and _names(t, key)]
-        if not mine or any(r is None for r in mine):
-            return STILL_UNRESOLVED
-    return NEW_FINDING if excess else None
-
-
-def _apply_doc(root: Path, doc: str, hunks: list[dict[str, Any]], checker: _Checker,
-               by_id: dict[str, dict[str, Any]]) -> tuple[list[str], dict[str, str]]:
-    """Settle one doc's hunks; return (applied ids, {reverted id: reason})."""
-    reverted: dict[str, str] = {}
-    try:
-        with (root / doc).open(encoding="utf-8", newline="") as fh:
-            original = fh.read()
-    except (OSError, UnicodeDecodeError, ValueError):
-        return [], {h["id"]: BEFORE_MISMATCH for h in hunks}
-    cur = _Text(original)
-    prev = _Checker.unresolved(checker.tokens(doc, original))
-    applied: list[str] = []
-    for hunk in sorted(hunks, key=lambda h: (h["line_start"], h["line_end"]), reverse=True):
-        start, end = hunk["line_start"], hunk["line_end"]
-        if not 1 <= start <= end or cur.contents(start, end) != list(hunk["before"]):
-            reverted[hunk["id"]] = BEFORE_MISMATCH
-            continue
-        lines = cur.replaced(start, end, list(hunk["after"]))
-        text = _Text.join(lines)
-        tokens = checker.tokens(doc, text)
-        reason = _verdict(hunk, by_id, prev, tokens)
-        if reason is not None:
-            reverted[hunk["id"]] = reason
-            continue
-        cur.lines = lines
-        prev = _Checker.unresolved(tokens)
-        applied.append(hunk["id"])
-    if applied:
-        text = _Text.join(cur.lines)
-        try:
-            _write_atomic(root / doc, text)
-        except OSError:
-            reverted.update({hid: WRITE_FAILED for hid in applied})
-            return [], reverted
-        checker.settled[doc] = text
-    return applied, reverted
-
-
 def _write_atomic(path: Path, text: str) -> None:
     tmp = path.with_name(path.name + ".dd-tmp")
     try:
@@ -253,59 +145,6 @@ def _write_atomic(path: Path, text: str) -> None:
                 os.chmod(tmp, stat.S_IREAD | stat.S_IWRITE)  # copymode may have made it read-only
                 tmp.unlink()
         raise
-
-
-def _settle_findings(findings: list[dict[str, Any]], hunks: list[dict[str, Any]],
-                     applied: set[str], reverted: dict[str, str],
-                     by_id: dict[str, dict[str, Any]]) -> None:
-    for hunk in hunks:
-        reason = reverted.get(hunk["id"])
-        if reason is None:
-            continue
-        for fid in _own(hunk, by_id):
-            by_id[fid].update({"class": "human", "human_kind": "recheck-failed",
-                               "recheck_reason": reason})
-    deletes = [h for h in hunks if h["id"] in applied and h["verb"] == "delete"]
-    for f in findings:
-        f.pop("superseded_by", None)
-        if f.get("class") not in ("human", "summary-only"):
-            continue
-        for h in deletes:
-            if h["doc"] == f.get("doc") and h["line_start"] <= f.get("line", 0) <= h["line_end"]:
-                f["superseded_by"] = h["id"]
-                break
-
-
-def run(root: Path, workdir: Path) -> dict[str, Any]:
-    """Apply every provable hunk with its re-check; write ``applied.json``, update findings."""
-    for name in ("inventory.json", "findings.json", "hunks-provable.json"):
-        if not (workdir / name).is_file():
-            raise StepError(f"missing {workdir / name}; run the earlier steps first", EXIT_MISSING)
-    inventory = read_json(workdir / "inventory.json")
-    findings_doc = read_json(workdir / "findings.json")
-    hunks: list[dict[str, Any]] = read_json(workdir / "hunks-provable.json")["hunks"]
-    findings: list[dict[str, Any]] = findings_doc["findings"]
-    by_id = {f["id"]: f for f in findings if isinstance(f.get("id"), str)}
-    checker = _Checker(root, inventory.get("files", []), re.compile(inventory["never_edit_re"]))
-    applied: list[str] = []
-    reverted: dict[str, str] = {}
-    docs: list[str] = []
-    for doc in sorted({h["doc"] for h in hunks}):
-        done, undone = _apply_doc(root, doc, [h for h in hunks if h["doc"] == doc], checker,
-                                  by_id)
-        applied.extend(done)
-        reverted.update(undone)
-        if done:
-            docs.append(doc)
-    _settle_findings(findings, hunks, set(applied), reverted, by_id)
-    write_json(workdir / "findings.json", findings_doc)
-    result = {
-        "applied": sorted(applied),
-        "reverted": [{"hunk": hid, "reason": reverted[hid]} for hid in sorted(reverted)],
-        "docs": sorted(docs),
-    }
-    write_json(workdir / "applied.json", result)
-    return result
 
 
 # -- agent edits (spec 9.3) --------------------------------------------------------------------
@@ -565,17 +404,13 @@ def apply_edits(root: Path, workdir: Path) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Apply provable hunks with re-check.")
+    parser = argparse.ArgumentParser(
+        description="Apply the accepted edits of edits.json with the re-scan (spec 9.3).")
     parser.add_argument("repo", type=Path)
     parser.add_argument("--workdir", type=Path, required=True)
-    parser.add_argument("--edits", action="store_true",
-                        help="apply the agent edits of edits.json (spec 9.3)")
     args = parser.parse_args(argv)
     try:
-        if args.edits:
-            apply_edits(args.repo, args.workdir)
-        else:
-            run(args.repo, args.workdir)
+        apply_edits(args.repo, args.workdir)
     except StepError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return exc.code

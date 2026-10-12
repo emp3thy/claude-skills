@@ -1,24 +1,56 @@
+"""The staged driver (spec 2, 3) on a small repository with canned agent outputs.
+
+The canned outputs under ``tests/canned/small`` quote the fixture docs below line for line;
+change both together.
+"""
 from __future__ import annotations
 
 import hashlib
-import re
+import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
-import dd_fixes
-import dd_resolve
+import dd_units
 import pytest
 from dd_common import read_json
 from dd_helpers import make_repo
 from dd_run import main
+from dd_unverified import block_hash, render_notice
 
-BODY = "print('a long enough body for rename detection, {}')\n"
-README = "# Project\n\n- `src/old.py` the entry point\n- `src/util.py` helpers\n"
+DATE = "2026-01-02"
+BRANCH = f"docs/drift-{DATE}"
+CANNED = Path(__file__).resolve().parent / "canned" / "small"
+
+APP = '''import os
 
 
-def _c(day: str, subject: str, **kw: object) -> dict[str, object]:
-    return {"date": f"2026-01-{day}T00:00:00Z", "subject": subject, **kw}
+def connect(retries=3):
+    """Open the connection, retrying on failure."""
+    return retries
+
+
+def main():
+    host = os.environ.get("APP_HOST")
+    token = os.environ.get("APP_TOKEN")
+    return connect(), host, token
+'''
+README = """# Demo app
+
+A small demo service.
+
+## Usage
+
+Call `connect` to open the connection. It retries 5 times by default.
+"""
+CONFIG = """# Configuration
+
+## Environment
+
+The service reads `APP_HOST` for the server address.
+"""
+FILES = {"src/app.py": APP, "README.md": README, "docs/config.md": CONFIG}
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -27,264 +59,343 @@ def _git(repo: Path, *args: str) -> str:
     return out.stdout
 
 
-def _identity(repo: Path) -> Path:
-    _git(repo, "config", "user.name", "T")
-    _git(repo, "config", "user.email", "t@example.com")
-    _git(repo, "config", "commit.gpgsign", "false")
-    _git(repo, "config", "core.autocrlf", "false")
+def _repo(tmp_path: Path, files: dict[str, str] | None = None) -> Path:
+    repo = make_repo(tmp_path, [{"date": "2026-01-01T00:00:00Z", "subject": "init",
+                                 "files": FILES if files is None else files}])
+    for key, value in (("user.name", "T"), ("user.email", "t@example.com"),
+                       ("commit.gpgsign", "false"), ("core.autocrlf", "false")):
+        _git(repo, "config", key, value)
     return repo
 
 
-def _rename_repo(tmp_path: Path) -> Path:
-    return _identity(make_repo(tmp_path, [
-        _c("01", "one", files={
-            "README.md": README,
-            "src/old.py": BODY.format("old"),
-            "src/util.py": BODY.format("util"),
-        }),
-        _c("02", "rename", rename={"src/old.py": "src/new.py"}),
-    ]))
+def _run(repo: Path, stage: str, *extra: str) -> int:
+    return main([str(repo), "--stage", stage, "--date", DATE, *extra])
 
 
-def _run_id(head: str, scope: str, date: str) -> str:
-    return hashlib.sha256(f"{head}:{scope}:{date}".encode()).hexdigest()[:12]
+def _plan(repo: Path, name: str) -> list[dict[str, Any]]:
+    plan: list[dict[str, Any]] = read_json(repo / ".document-drift" / name)
+    return plan
 
 
-def _main(repo: Path, *extra: str) -> int:
-    return main([str(repo), "--date", "2026-01-02", *extra])
+def _answer(repo: Path, name: str, invalid: tuple[str, ...] = ()) -> None:
+    """Copy the canned output of every entry of plan ``name`` to its output path; the ids in
+    ``invalid`` get the canned invalid output instead."""
+    for entry in _plan(repo, name):
+        out = Path(entry["output"])
+        source = CANNED / ("invalid" if entry["id"] in invalid else out.parent.name) / out.name
+        shutil.copyfile(source, out)
 
 
-def test_run_end_to_end_small_repo(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    repo = _rename_repo(tmp_path)
+def _start_and_answer(repo: Path, *extra: str) -> None:
+    assert _run(repo, "start", *extra) == 0
+    _answer(repo, "plan-docs.json")
+
+
+def _through_verify(repo: Path, *extra: str) -> None:
+    _start_and_answer(repo, *extra)
+    assert _run(repo, "verify") == 0
+    _answer(repo, "plan-verify.json")
+
+
+def _last_line(capsys: pytest.CaptureFixture[str]) -> str:
+    return capsys.readouterr().out.strip().splitlines()[-1]
+
+
+def test_start_writes_plan_and_prompts(tmp_path: Path,
+                                       capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
     head = _git(repo, "rev-parse", "HEAD").strip()
-    assert _main(repo) == 0
+    assert _run(repo, "start") == 0
+    workdir = repo / ".document-drift"
+    plan = _plan(repo, "plan-docs.json")
     out = capsys.readouterr().out
+    assert out == f"plan-docs.json {(workdir / 'plan-docs.json').as_posix()} with 2 entries\n"
+    assert [(e["id"], e["role"]) for e in plan] == [("u001", "review"), ("g001", "gap")]
+    for entry in plan:
+        assert Path(entry["prompt"]).is_file()
+        assert not Path(entry["output"]).exists()
+    pre = read_json(workdir / "preflight.json")
+    digest = hashlib.sha256(f"{head}:first:{DATE}".encode()).hexdigest()[:4]
+    assert pre["run_id"] == f"{DATE}-{digest}"
+    assert (pre["scope"], pre["stage"], pre["date"], pre["branch"]) == (
+        "first", "start", DATE, BRANCH)
+    assert (pre["base"], pre["full"], pre["check"], pre["dirty"]) == (None, False, False, {})
+    for name in ("inventory.json", "tokens.json", "candidates.json", "defindex.json",
+                 "anchors.json", "changes.json", "units.json", "patterns.json", "gaps.json",
+                 "notices.json"):
+        assert (workdir / name).is_file(), name
+
+
+def test_start_clears_every_pinned_output(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
     workdir = repo / ".document-drift"
-    commits = read_json(workdir / "commits.json")
-    assert commits["branch"] == "docs/drift-2026-01-02"
-    assert len(commits["commits"]) == 1
-    assert _git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() == "docs/drift-2026-01-02"
-    assert _git(repo, "rev-parse", "HEAD~1").strip() == head
-    assert (repo / "README.md").read_text(encoding="utf-8") == README.replace("old.py", "new.py")
-    sha7 = _git(repo, "rev-parse", "main").strip()[:7]
-    body = _git(repo, "log", "-1", "--format=%B")
-    run_id = _run_id(head, "all", "2026-01-02")
-    assert body == (
-        "docs(drift): provable fixes\n\n"
-        f"Drift-Run: {run_id}\nDrift-Base: {head}\nDrift-Scope: all\n\n"
-        f"- README.md:3 replace `src/old.py` -> `src/new.py` (renamed in {sha7})\n\n"
-    )
-    assert _git(repo, "status", "--porcelain") == ""
-    summary = (workdir / "summary.md").read_text(encoding="utf-8")
-    assert out == summary
-    assert f"Run: {run_id}" in summary
-    assert "Branch: docs/drift-2026-01-02" in summary
-    assert commits["commits"][0] in summary
-    assert "applied 1" in summary
+    for stale in ("edits.json", "retry.json", "summary.md", "review/u009.json",
+                  "verdicts/v09.json", "prompts/verify-v09.md", "gaps/g009.json"):
+        (workdir / stale).parent.mkdir(parents=True, exist_ok=True)
+        (workdir / stale).write_text("stale", encoding="utf-8")
+    assert _run(repo, "start") == 0
+    for stale in ("edits.json", "retry.json", "summary.md", "review/u009.json",
+                  "verdicts/v09.json", "prompts/verify-v09.md", "gaps/g009.json"):
+        assert not (workdir / stale).exists(), stale
 
 
-def test_check_mode_exits_1_and_edits_nothing(tmp_path: Path,
-                                              capsys: pytest.CaptureFixture[str]) -> None:
-    repo = _rename_repo(tmp_path)
-    head = _git(repo, "rev-parse", "HEAD").strip()
-    assert _main(repo, "--check") == 1
-    workdir = repo / ".document-drift"
-    assert (repo / "README.md").read_text(encoding="utf-8") == README
-    assert _git(repo, "rev-parse", "HEAD").strip() == head
-    assert _git(repo, "branch", "--list").split() == ["*", "main"]
-    assert len(read_json(workdir / "hunks-provable.json")["hunks"]) == 1
-    assert not (workdir / "applied.json").exists()
-    assert not (workdir / "commits.json").exists()
-    summary = (workdir / "summary.md").read_text(encoding="utf-8")
-    assert "check mode: no edits made" in summary
-    assert "No branch created." in summary
-    assert capsys.readouterr().out == summary
+def test_verify_before_start_is_refused(tmp_path: Path,
+                                        capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    assert _run(repo, "verify") == 2
+    assert "run --stage start first" in capsys.readouterr().err
+    assert _run(repo, "finish") == 2
 
 
-def test_check_mode_exits_0_when_no_hunks(tmp_path: Path) -> None:
-    repo = _identity(make_repo(tmp_path, [_c("01", "one", files={
-        "README.md": "See `src/app.py`.\n", "src/app.py": "x = 1\n"})]))
-    assert _main(repo, "--check") == 0
+def test_finish_before_verify_is_refused(tmp_path: Path,
+                                         capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    _start_and_answer(repo)
+    assert _run(repo, "finish") == 2
+    assert "plan-verify.json" in capsys.readouterr().err
 
 
-def test_stale_outputs_are_removed_first(tmp_path: Path) -> None:
-    repo = _rename_repo(tmp_path)
-    workdir = tmp_path / "work"
-    workdir.mkdir()
-    for name in ("applied.json", "commits.json", "commit-msg.txt"):
-        (workdir / name).write_text("stale\n", encoding="utf-8")
-    assert _main(repo, "--check", "--workdir", str(workdir)) == 1
-    assert not (workdir / "applied.json").exists()
-    assert not (workdir / "commits.json").exists()
-    assert not (workdir / "commit-msg.txt").exists()
-
-
-def test_missing_output_exits_5(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-                                capsys: pytest.CaptureFixture[str]) -> None:
-    repo = _rename_repo(tmp_path)
-
-    def skip(root: Path, workdir: Path) -> dict[str, Any]:
-        return {}
-
-    monkeypatch.setattr(dd_fixes, "run", skip)
-    assert _main(repo) == 5
-    err = capsys.readouterr().err
-    assert "findings.json" in err
-    assert (repo / "README.md").read_text(encoding="utf-8") == README
-
-
-def test_crashed_step_exits_5_with_traceback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-                                             capsys: pytest.CaptureFixture[str]) -> None:
-    repo = _rename_repo(tmp_path)
-
-    def boom(root: Path, workdir: Path, history: object = None) -> dict[str, Any]:
-        raise ValueError("kaput")
-
-    monkeypatch.setattr(dd_resolve, "run", boom)
-    assert _main(repo) == 5
-    err = capsys.readouterr().err
-    assert "Traceback" in err and "ValueError: kaput" in err
-    assert "resolve" in err
-
-
-def test_refusal_exit_2_message(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    repo = _rename_repo(tmp_path)
-    (repo / "README.md").write_text("edited\n", encoding="utf-8")
-    assert _main(repo) == 2
-    err = capsys.readouterr().err
-    assert "working tree is not clean" in err
-    assert not (repo / ".document-drift" / "summary.md").exists()
-
-
-def test_branch_option_and_config_branch(tmp_path: Path) -> None:
-    repo = _identity(make_repo(tmp_path, [
-        _c("01", "one", files={
-            "README.md": README,
-            ".document-drift.yaml": "branch: fix/docs-{date}\nbogus: 1\n",
-            "src/old.py": BODY.format("old"),
-            "src/util.py": BODY.format("util"),
-        }),
-        _c("02", "rename", rename={"src/old.py": "src/new.py"}),
-    ]))
-    assert _main(repo) == 0
-    workdir = repo / ".document-drift"
-    assert read_json(workdir / "commits.json")["branch"] == "fix/docs-2026-01-02"
-    summary = (workdir / "summary.md").read_text(encoding="utf-8")
-    assert "unknown key 'bogus' ignored" in summary
-
-
-def test_base_scope_drops_unrelated_docs(tmp_path: Path) -> None:
-    repo = _identity(make_repo(tmp_path, [
-        _c("01", "one", files={
-            "README.md": README,
-            "docs/other.md": "# Other\n\n- `lib/gone.py` old\n- `lib/x.py` kept\n",
-            "docs/dir.md": "Code lives in `src/`.\n",
-            "src/old.py": BODY.format("old"),
-            "src/util.py": BODY.format("util"),
-            "lib/gone.py": BODY.format("gone"),
-            "lib/x.py": BODY.format("x"),
-        }),
-        _c("02", "delete gone", delete=["lib/gone.py"], tag="base"),
-        _c("03", "rename", rename={"src/old.py": "src/new.py"}),
-    ]))
-    head = _git(repo, "rev-parse", "HEAD").strip()
-    assert _main(repo, "--base", "base") == 0
-    workdir = repo / ".document-drift"
-    inventory = read_json(workdir / "inventory.json")
-    assert inventory["scope_dropped"] == ["docs/other.md"]
-    assert inventory["docs"] == ["README.md", "docs/dir.md"]
-    assert "docs/other.md" not in read_json(workdir / "tokens.json")["docs"]
-    cands = read_json(workdir / "candidates.json")["candidates"]
-    assert [c["doc"] for c in cands] == ["README.md"]
-    body = _git(repo, "log", "-1", "--format=%B")
-    assert "Drift-Scope: base:base\n" in body
-    assert f"Drift-Run: {_run_id(head, 'base:base', '2026-01-02')}\n" in body
-    assert "lib/gone.py" in (repo / "docs/other.md").read_text(encoding="utf-8")
-    summary = (workdir / "summary.md").read_text(encoding="utf-8")
-    assert "Scope: base:base" in summary
-    assert "docs/other.md" in summary
-
-
-def test_base_invalid_ref_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    repo = _rename_repo(tmp_path)
-    assert _main(repo, "--base", "no-such-ref") == 2
-    assert "no-such-ref" in capsys.readouterr().err
-    assert (repo / "README.md").read_text(encoding="utf-8") == README
-
-
-def test_second_run_on_drift_branch_makes_no_commit(tmp_path: Path,
-                                                    capsys: pytest.CaptureFixture[str]) -> None:
-    repo = _rename_repo(tmp_path)
-    assert _main(repo) == 0
-    first = _git(repo, "rev-parse", "HEAD").strip()
+@pytest.mark.parametrize("flag", [("--branch", "docs/other"), ("--check",), ("--full",),
+                                  ("--base", "HEAD"), ("--date", "2026-01-03")])
+def test_flag_mismatch_between_stages_is_refused(tmp_path: Path, flag: tuple[str, ...],
+                                                 capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    _start_and_answer(repo)
     capsys.readouterr()
-    assert _main(repo, "--branch", "docs/drift-again") == 0
+    assert main([str(repo), "--stage", "verify", *flag]) == 2
+    assert flag[0] in capsys.readouterr().err
+    assert not (repo / ".document-drift" / "edits.json").exists()
+    assert _run(repo, "verify", "--branch", BRANCH) == 0  # the recorded value is accepted
+
+
+def test_missing_agent_output_exits_3_and_writes_retry(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    _start_and_answer(repo)
     workdir = repo / ".document-drift"
-    assert read_json(workdir / "commits.json") == {"branch": None, "commits": []}
-    assert _git(repo, "rev-parse", "HEAD").strip() == first
-    assert "docs/drift-again" not in _git(repo, "branch", "--list")
+    (workdir / "review" / "u001.json").unlink()
+    capsys.readouterr()
+    assert _run(repo, "verify") == 3
+    retry = read_json(workdir / "retry.json")
+    assert [e["id"] for e in retry] == ["u001"]
+    assert retry == [e for e in _plan(repo, "plan-docs.json") if e["id"] == "u001"]
+    assert capsys.readouterr().out == (
+        f"retry.json {(workdir / 'retry.json').as_posix()} with 1 entries\n")
+    assert not (workdir / "edits.json").exists()
+    assert not (workdir / "plan-verify.json").exists()
+
+
+def test_invalid_agent_output_exits_3(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    assert _run(repo, "start") == 0
+    _answer(repo, "plan-docs.json", invalid=("u001",))
+    assert _run(repo, "verify") == 3
+    assert [e["id"] for e in read_json(repo / ".document-drift" / "retry.json")] == ["u001"]
+
+
+def test_retried_marks_unit_unchecked(tmp_path: Path,
+                                      capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    assert _run(repo, "start") == 0
+    _answer(repo, "plan-docs.json", invalid=("u001",))
+    assert _run(repo, "verify") == 3
+    capsys.readouterr()
+    assert _run(repo, "verify", "--retried") == 0
+    workdir = repo / ".document-drift"
+    edits = read_json(workdir / "edits.json")
+    assert edits["unchecked_units"] == ["u001"]
+    assert [e["id"] for e in edits["edits"]] == ["g001-e01"]
+    plan = _plan(repo, "plan-verify.json")
+    assert capsys.readouterr().out == (
+        f"plan-verify.json {(workdir / 'plan-verify.json').as_posix()} with {len(plan)} "
+        "entries\n")
+
+
+def test_finish_commits_two_commits_and_records_last_run(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    head = _git(repo, "rev-parse", "HEAD").strip()
+    _through_verify(repo)
+    capsys.readouterr()
+    assert _run(repo, "finish") == 0
     out = capsys.readouterr().out
-    assert "No branch created." in out
-    assert re.search(r"^Run: [0-9a-f]{12}$", out, re.M)
+    workdir = repo / ".document-drift"
+    assert out == (workdir / "summary.md").read_text(encoding="utf-8")
+    assert f"Branch: {BRANCH}" in out
+    commits = read_json(workdir / "commits.json")
+    assert commits["branch"] == BRANCH
+    assert [c["kind"] for c in commits["commits"]] == ["corrections", "additions"]
+    assert _git(repo, "symbolic-ref", "--short", "HEAD").strip() == BRANCH
+    assert _git(repo, "rev-parse", "main").strip() == head  # the original branch is untouched
+    docs = set(read_json(workdir / "inventory.json")["docs"])
+    for commit in commits["commits"]:
+        touched = _git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r",
+                       commit["sha"]).split()
+        assert touched and all(p.endswith(".md") and p in docs for p in touched)
+        message = _git(repo, "log", "-1", "--format=%B", commit["sha"])
+        assert f"Drift-Base: {head}" in message
+    assert "It retries 3 times by default." in (repo / "README.md").read_text(encoding="utf-8")
+    assert "APP_TOKEN" in (repo / "docs" / "config.md").read_text(encoding="utf-8")
+    pre = read_json(workdir / "preflight.json")
+    assert read_json(workdir / "last-run.json") == {
+        "head": head, "run_id": pre["run_id"], "date": DATE, "committed": True}
+    assert _git(repo, "status", "--porcelain") == ""
+    assert _run(repo, "finish") == 2  # a finished run is not finished twice
 
 
-TREE_DOC = "# Tree\n\n```\n.\n├── lib/\n│   └── x.py\n└── README.md\n```\n"
+def test_no_docs_stops_with_phase_b_message(tmp_path: Path,
+                                            capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path, {"src/app.py": APP})
+    assert _run(repo, "start") == 0
+    assert capsys.readouterr().out == (
+        "no markdown docs in scope; no-docs mode arrives in phase B\n")
+    workdir = repo / ".document-drift"
+    assert read_json(workdir / "plan-docs.json") == []
+    assert not (workdir / "tokens.json").exists()
+    assert _run(repo, "finish") == 0
+    assert "No branch created" in capsys.readouterr().out
+    assert not (workdir / "last-run.json").exists()
 
 
-def test_base_scope_counts_tree_tokens(tmp_path: Path) -> None:
-    # R66: a doc whose only reference to a changed path is a tree entry stays in scope
-    repo = _identity(make_repo(tmp_path, [
-        _c("01", "one", files={
-            "README.md": README,
-            "docs/tree.md": TREE_DOC,
-            "docs/other.md": "# Other\n\n- `other/y.py` y\n",
-            "src/old.py": BODY.format("old"),
-            "src/util.py": BODY.format("util"),
-            "lib/x.py": BODY.format("x"),
-            "other/y.py": BODY.format("y"),
-        }, tag="base"),
-        _c("02", "change", rename={"src/old.py": "src/new.py"},
-           files={"lib/x.py": BODY.format("x, changed")}),
-    ]))
-    assert _main(repo, "--base", "base") == 0
-    inventory = read_json(repo / ".document-drift" / "inventory.json")
-    assert inventory["docs"] == ["README.md", "docs/tree.md"]
-    assert inventory["scope_dropped"] == ["docs/other.md"]
+def test_check_mode_exits_1_without_changes_or_record(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    head = _git(repo, "rev-parse", "HEAD").strip()
+    (repo / "notes.txt").write_text("local work\n", encoding="utf-8")  # --check allows dirt
+    _through_verify(repo, "--check")
+    capsys.readouterr()
+    assert _run(repo, "finish") == 1
+    out = capsys.readouterr().out
+    assert "Planned edits:" in out and "Exit: 1 (accepted edits exist)" in out
+    workdir = repo / ".document-drift"
+    assert (repo / "README.md").read_text(encoding="utf-8") == README
+    assert (repo / "docs" / "config.md").read_text(encoding="utf-8") == CONFIG
+    assert _git(repo, "rev-parse", "HEAD").strip() == head
+    assert _git(repo, "branch", "--list", BRANCH) == ""
+    assert not (workdir / "last-run.json").exists()
+    assert not (workdir / "applied.json").exists()
+    assert not (workdir / "commits.json").exists()
 
 
-@pytest.mark.parametrize("where", ["_write_stdout", "write_json", "read_json"])
-def test_crash_outside_a_step_exits_5_with_traceback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
-    where: str,
-) -> None:
-    # R65, final review I3: the preflight.json rewrite, the stdout write and the final hunks
-    # read are outside every step; a crash there is exit 5, never exit 1
-    import dd_run
+def test_check_mode_exits_0_when_every_edit_is_rejected(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _start_and_answer(repo, "--check")
+    assert _run(repo, "verify") == 0
+    for entry in _plan(repo, "plan-verify.json"):
+        verdicts = read_json(CANNED / "verdicts" / Path(entry["output"]).name)
+        for verdict in verdicts["verdicts"]:
+            verdict["verdict"] = "reject"
+        Path(entry["output"]).write_text(json.dumps(verdicts), encoding="utf-8")
+    assert _run(repo, "finish") == 0
 
-    repo = _rename_repo(tmp_path)
 
-    def boom(*args: object, **kwargs: object) -> Any:
-        raise OSError("disk on fire")
-
-    monkeypatch.setattr(dd_run, where, boom)
-    assert _main(repo, "--check") == 5
+def test_finish_refuses_when_tree_changed_outside_workdir(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    _through_verify(repo)
+    (repo / "helper.py").write_text("print('agent helper')\n", encoding="utf-8")
+    (repo / "src" / "app.py").write_text(APP + "# touched\n", encoding="utf-8")
+    capsys.readouterr()
+    assert _run(repo, "finish") == 2
     err = capsys.readouterr().err
-    assert "Traceback" in err and "OSError: disk on fire" in err
-    assert "crashed outside a step" in err
+    assert "helper.py" in err and "src/app.py" in err
+    assert (repo / "README.md").read_text(encoding="utf-8") == README
+    assert _git(repo, "branch", "--list", BRANCH) == ""
 
 
-def test_unlink_failure_before_the_first_step_exits_5(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
-) -> None:
-    # R65: the R45 clean-up of stale outputs runs before any step
-    repo = _rename_repo(tmp_path)
-    real = Path.unlink
+def test_check_finish_refuses_a_dirty_file_that_changed_again(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    (repo / "notes.txt").write_text("local work\n", encoding="utf-8")
+    _through_verify(repo, "--check")
+    assert _run(repo, "finish") == 1  # unchanged dirt is fine; the finish leaves no state
+    (repo / "notes.txt").write_text("changed during the run\n", encoding="utf-8")
+    _through_verify(repo, "--check")
+    (repo / "notes.txt").write_text("changed again\n", encoding="utf-8")
+    assert _run(repo, "finish") == 2
 
-    def unlink(self: Path, missing_ok: bool = False) -> None:
-        if self.name == "summary.md":
-            raise PermissionError("locked")
-        real(self, missing_ok=missing_ok)
 
-    monkeypatch.setattr(Path, "unlink", unlink)
-    assert _main(repo, "--check") == 5
-    assert "PermissionError: locked" in capsys.readouterr().err
+def test_empty_plan_allows_finish_after_start(tmp_path: Path,
+                                              capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    head = _git(repo, "rev-parse", "HEAD").strip()
+    assert _run(repo, "start", "--base", "HEAD") == 0
+    workdir = repo / ".document-drift"
+    assert capsys.readouterr().out == (
+        f"plan-docs.json {(workdir / 'plan-docs.json').as_posix()} with 0 entries\n")
+    assert _plan(repo, "plan-docs.json") == []
+    assert _run(repo, "finish") == 0
+    assert "No branch created" in capsys.readouterr().out
+    assert _git(repo, "symbolic-ref", "--short", "HEAD").strip() == "main"
+    record = read_json(workdir / "last-run.json")
+    assert (record["head"], record["committed"]) == (head, False)
+
+
+def test_empty_plan_finish_still_applies_notice_edits(tmp_path: Path) -> None:
+    block = "The service is fast and reliable."
+    notice = render_notice(1, "2026-01-01-0000", block_hash(block))
+    repo = _repo(tmp_path, {**FILES, "README.md": f"{README}\n{notice}\n{block}\n"})
+    assert _run(repo, "start", "--base", "HEAD") == 0
+    assert _plan(repo, "plan-docs.json") == []
+    assert _run(repo, "finish") == 0
+    commits = read_json(repo / ".document-drift" / "commits.json")
+    assert [c["kind"] for c in commits["commits"]] == ["corrections"]
+    text = (repo / "README.md").read_text(encoding="utf-8")
+    assert "drift-unverified: 2nd notice" in text and block in text
+
+
+def test_second_run_is_later_run_from_drift_base(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    head = _git(repo, "rev-parse", "HEAD").strip()
+    _through_verify(repo)
+    assert _run(repo, "finish") == 0
+    drift_head = _git(repo, "rev-parse", "HEAD").strip()
+    (repo / ".document-drift" / "last-run.json").unlink()  # only the commit names the base
+    assert _run(repo, "start", "--branch", "docs/drift-second") == 0
+    workdir = repo / ".document-drift"
+    changes = read_json(workdir / "changes.json")
+    assert (changes["mode"], changes["last_run"], changes["last_run_source"]) == (
+        "later", head, "commit")
+    assert changes["changed_files"] == ["README.md", "docs/config.md"]
+    pre = read_json(workdir / "preflight.json")
+    assert (pre["head"], pre["scope"]) == (drift_head, f"since {head}")
+    digest = hashlib.sha256(f"{drift_head}:since {head}:{DATE}".encode()).hexdigest()[:4]
+    assert pre["run_id"] == f"{DATE}-{digest}"
+    plan = _plan(repo, "plan-docs.json")
+    assert [e["role"] for e in plan] == ["review"]  # the changed sections; no new names
+    assert "Since commit" in Path(plan[0]["prompt"]).read_text(encoding="utf-8")
+
+
+def test_crashed_step_exits_5(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                              capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+
+    def boom(*_args: object) -> None:
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(dd_units, "run", boom)
+    assert _run(repo, "start") == 5
+    err = capsys.readouterr().err
+    assert "step units crashed: RuntimeError: kaboom" in err
+    assert "Traceback" in err
+    assert _run(repo, "verify") == 2  # an unfinished start is not a start
+
+
+def test_step_without_its_output_exits_5(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                         capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    monkeypatch.setattr(dd_units, "run", lambda *_args: None)
+    assert _run(repo, "start") == 5
+    assert "step units did not write" in capsys.readouterr().err
+
+
+def test_preflight_refusal_exits_2(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    (repo / "README.md").write_text("dirty\n", encoding="utf-8")
+    assert _run(repo, "start") == 2
+    assert "not clean" in capsys.readouterr().err
+
+
+def test_unknown_base_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    assert _run(repo, "start", "--base", "no-such-ref") == 2
+    assert "--base" in capsys.readouterr().err

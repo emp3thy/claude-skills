@@ -6,10 +6,16 @@ path the run reads and writes is relative to the top level) and a repository wit
 (there is nothing to scan). Outside ``--check`` it also refuses a detached HEAD, an invalid branch
 name, a dirty tree, an existing branch and a missing author identity; ``--check`` creates no
 branch, so it runs from a detached HEAD too and ``branch_from`` is then null (ruling R56).
+
+``preflight.json`` also records the run's flags (``branch``, ``check``, ``base``, ``full``,
+``date``), which the later stages compare with their own, and ``dirty``: ``tree_state`` at
+preflight (empty outside ``--check``, where a dirty tree is refused), which ``finish`` compares
+with the tree as it is then.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 from pathlib import Path
 from typing import Any
@@ -41,6 +47,51 @@ def _exclude_workdir(root: Path, workdir: Path) -> None:
         handle.write(f"{prefix}{entry}\n")
 
 
+def _workdir_prefix(root: Path, workdir: Path) -> str | None:
+    """The workdir's repository-relative path plus ``/``, or None when it is outside."""
+    try:
+        rel = workdir.resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
+    return None if rel in ("", ".") else rel.rstrip("/") + "/"
+
+
+def _content(path: Path) -> str:
+    """sha256 of a working-tree file; ``absent`` when gone, ``dir`` for a directory."""
+    try:
+        if path.is_dir():
+            return "dir"
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return "absent"
+
+
+def tree_state(root: Path, workdir: Path) -> dict[str, str]:
+    """Every path ``git status`` reports outside the workdir (untracked files one by one),
+    mapped to ``"<status> <content hash>"``; empty for a clean tree. A failing ``git status``
+    is a refusal, since the tree cannot then be compared."""
+    out = run_git(root, ["-c", "core.quotePath=false", "status", "--porcelain", "-z",
+                         "--untracked-files=all"])
+    if out is None:
+        raise StepError("git status failed; the working tree cannot be checked", EXIT_REFUSED)
+    prefix = _workdir_prefix(root, workdir)
+    fields = out.split(chr(0))
+    state: dict[str, str] = {}
+    i = 0
+    while i < len(fields):
+        entry = fields[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        code, path = entry[:2], entry[3:]
+        if "R" in code or "C" in code:
+            i += 1  # a rename or copy names its source in the next field
+        if prefix is not None and (path + "/").startswith(prefix):
+            continue
+        state[path] = f"{code} {_content(root / path)}"
+    return state
+
+
 def _same_dir(a: Path, b: Path) -> bool:
     try:
         return a.resolve().samefile(b.resolve())
@@ -48,7 +99,8 @@ def _same_dir(a: Path, b: Path) -> bool:
         return False
 
 
-def run(root: Path, workdir: Path, branch: str, check: bool) -> dict[str, Any]:
+def run(root: Path, workdir: Path, branch: str, check: bool, *, base: str | None = None,
+        full: bool = False, date: str | None = None) -> dict[str, Any]:
     """Run the refusal checks; write and return ``preflight.json``."""
     inside = run_git(root, ["rev-parse", "--is-inside-work-tree"])
     if inside is None:
@@ -88,6 +140,11 @@ def run(root: Path, workdir: Path, branch: str, check: bool) -> dict[str, Any]:
         "branch_from": branch_from or None,
         "branch": branch,
         "git_version": version,
+        "check": check,
+        "base": base,
+        "full": full,
+        "date": date,
+        "dirty": tree_state(root, workdir) if check else {},
     }
     write_json(workdir / "preflight.json", result)
     return result

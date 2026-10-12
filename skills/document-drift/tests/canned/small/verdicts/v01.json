@@ -1,0 +1,7 @@
+{
+ "batch": "v01",
+ "verdicts": [
+  {"edit": "g001-e01", "verdict": "accept", "reason": "main reads APP_TOKEN at src/app.py:11"},
+  {"edit": "u001-e01", "verdict": "accept", "reason": "connect defaults retries to 3"}
+ ]
+}

@@ -1,0 +1,11 @@
+{
+ "doc": "g001",
+ "edits": [
+  {"id": "g001-e01", "doc": "docs/config.md", "start_line": 5, "end_line": 5,
+   "old": "The service reads `APP_HOST` for the server address.",
+   "new": "The service reads `APP_HOST` for the server address.\nIt reads `APP_TOKEN` for the access token.",
+   "type": "add", "claim": "APP_TOKEN holds the access token",
+   "evidence": ["src/app.py:11"], "subject": "APP_TOKEN"}
+ ],
+ "refusals": []
+}

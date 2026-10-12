@@ -1,67 +1,95 @@
-"""The chain: preflight, inventory, extract, resolve, fixes, apply, commit, summary.
+"""The staged driver (spec 2, 3): ``start``, ``verify`` and ``finish``.
 
-Usage: ``python scripts/dd_run.py <repo> [--base REF] [--branch NAME] [--workdir DIR]
-[--date YYYY-MM-DD] [--check]``.
+Usage: ``python scripts/dd_run.py <repo> --stage <start|verify|finish> [--retried]
+[--base REF] [--full] [--branch NAME] [--check] [--workdir DIR] [--date YYYY-MM-DD]``.
 
-The workdir defaults to ``<repo>/.document-drift`` and the date to today. The branch defaults
-to the config ``branch`` with ``{date}`` replaced by the date. The run id is the first 12 hex
-characters of ``sha256("<head>:<scope>:<date>")`` where scope is ``all`` or ``base:<ref>``.
-Before the first step every output file the run may produce is deleted from the workdir, so a
-stale file can neither satisfy a check nor be read again (ruling R45). After preflight the run
-fields (``run_id``, ``scope``, ``check``, ``date``, ``config_warnings``) are added to
-``preflight.json`` for the summary.
+The workdir defaults to ``<repo>/.document-drift`` and the date to today; the branch defaults
+to the config ``branch`` with ``{date}`` replaced by the date. ``start`` records ``base``,
+``full``, ``branch``, ``check`` and ``date`` in ``preflight.json`` (``dd_preflight``) and, once
+``dd_changes`` has decided the scope, ``run_id`` and ``scope``; the run id is ``<date>-`` plus
+the first 4 hex characters of ``sha256("<head>:<scope>:<date>")``. Each stage records its own
+name as ``stage`` when it completes. ``verify`` and ``finish`` take every flag they are not
+given from that record and refuse (exit 2) one that differs from it, or a stage run out of
+order: ``verify`` needs a completed ``start`` (or a ``verify``, which it repeats), ``finish``
+a completed ``verify``, or a ``start`` whose ``plan-docs.json`` is empty.
 
-``--base REF`` keeps a doc when it is itself in ``git diff --name-only --no-renames
-REF...HEAD`` or one of its ``path`` or ``tree`` tokens (ruling R66) resolves, at HEAD or at its
-snapshot (``resolved_then``), to a changed path or a directory holding one. ``--no-renames``
-lists both sides of a rename, so a doc naming the old path stays in scope. The filter runs after
-resolve: the other docs' tokens, markers, candidates and honoured entries are dropped and the
-docs are recorded in ``inventory.json`` as ``scope_dropped`` (sorted; empty without ``--base``).
+- ``start`` deletes every pinned output (files and the ``review/``, ``gaps/``, ``verdicts/``
+  and ``prompts/`` directories; ``last-run.json`` is kept), then runs preflight, inventory,
+  extract, resolve, defindex, anchors, changes, units, patterns, gaps, the notice decisions and
+  the dispatch plan, and prints ``plan-docs.json <path> with <n> entries``. With no in-scope
+  doc it stops after the inventory, writes an empty ``plan-docs.json`` and prints the phase B
+  message.
+- ``verify`` validates the review and gap outputs; without ``--retried`` a missing or invalid
+  output writes ``retry.json``, prints ``retry.json <path> with <n> entries`` and exits 3,
+  changing nothing else; with it those entries are unchecked. Then it adds the review agents'
+  ``unverified_blocks`` as notice nominations, runs the script checks (``edits.json``,
+  ``plan-verify.json``) and prints ``plan-verify.json <path> with <n> entries``.
+- ``finish`` validates the verifier outputs the same way, writes ``verdicts.json`` and refuses
+  (exit 2, naming them) when a file outside the workdir changed since preflight
+  (``dd_preflight.tree_state``). Under ``--check`` it writes the summary and exits 1 when an
+  edit would apply (kept and accepted, or a kept notice edit), else 0; nothing is applied,
+  committed or recorded. Otherwise it applies the edits (with the heading-link updates), makes
+  the commits, writes ``last-run.json`` (``head``, ``run_id``, ``date``, ``committed``) and the
+  summary, and exits 0. After a ``start`` with an empty plan it first runs the script checks,
+  so the notice edits ``start`` decided still apply; after a ``start`` that found no doc it
+  only writes the summary.
 
-``--check`` stops after fixes (no apply, no commit), writes the summary and exits 1 when
-``hunks-provable.json`` holds any hunk, else 0. Exit codes: a ``StepError`` exits with its own
-code and message; a step that does not write its output exits 5 naming the file; any other
-exception prints its traceback and exits 5 naming the step. Ruling R65: an exception anywhere
-else in the chain (clearing the old outputs, rewriting ``preflight.json`` or ``inventory.json``,
-writing to stdout, reading the final hunks) also prints its traceback and exits 5.
+Each stage prints one line, or for ``finish`` the summary. Exit codes: a ``StepError`` exits
+with its own code and message; a step that does not write its output exits 5 naming the file;
+any other exception in a step prints its traceback and exits 5 naming the step. Ruling R65: an
+exception anywhere else in a stage also prints its traceback and exits 5.
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
 import hashlib
+import shutil
 import sys
 import traceback
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import dd_anchors
 import dd_apply
+import dd_changes
+import dd_checks
 import dd_commit
+import dd_defindex
+import dd_dispatch
 import dd_extract
-import dd_fixes
+import dd_gaps
 import dd_inventory
+import dd_patterns
 import dd_preflight
 import dd_resolve
 import dd_summary
+import dd_units
+import dd_unverified
 from dd_common import (
     EXIT_FOUND,
     EXIT_MISSING,
     EXIT_OK,
     EXIT_REFUSED,
+    EXIT_RETRY,
     StepError,
     read_json,
-    run_git,
     write_json,
 )
 from dd_config import load_config
-from dd_history import History
-from dd_resolve import path_matches, tree_match
 
+STAGES = ("start", "verify", "finish")
+FLAGS = ("base", "full", "branch", "check", "date")
 OUTPUTS = (
-    "preflight.json", "inventory.json", "tokens.json", "candidates.json", "findings.json",
-    "hunks-provable.json", "applied.json", "commits.json", "summary.md", "commit-msg.txt",
+    "preflight.json", "inventory.json", "tokens.json", "candidates.json", "defindex.json",
+    "anchors.json", "changes.json", "units.json", "patterns.json", "gaps.json", "notices.json",
+    "plan-docs.json", "retry.json", "edits.json", "plan-verify.json", "verdicts.json",
+    "applied.json", "commits.json", "commit-msg-corrections.txt", "commit-msg-additions.txt",
+    "summary.md",
 )
+OUTPUT_DIRS = ("review", "gaps", "verdicts", "prompts")
+NO_DOCS = "no markdown docs in scope; no-docs mode arrives in phase B"
 
 
 def _date(value: str) -> str:
@@ -75,8 +103,8 @@ def _date(value: str) -> str:
 
 
 def run_id_for(head: str, scope: str, date: str) -> str:
-    """First 12 hex characters of ``sha256("<head>:<scope>:<date>")``."""
-    return hashlib.sha256(f"{head}:{scope}:{date}".encode()).hexdigest()[:12]
+    """``<date>-`` plus the first 4 hex characters of ``sha256("<head>:<scope>:<date>")``."""
+    return f"{date}-{hashlib.sha256(f'{head}:{scope}:{date}'.encode()).hexdigest()[:4]}"
 
 
 def _step(name: str, workdir: Path, outputs: tuple[str, ...], call: Callable[[], Any]) -> Any:
@@ -95,59 +123,6 @@ def _step(name: str, workdir: Path, outputs: tuple[str, ...], call: Callable[[],
     return result
 
 
-def changed_paths(root: Path, ref: str) -> set[str]:
-    """Paths changed in ``ref...HEAD``, both sides of a rename; an unknown ref is refused."""
-    verify = ["rev-parse", "--verify", "--quiet", "--end-of-options", f"{ref}^{{commit}}"]
-    if ref.startswith("-") or run_git(root, verify) is None:
-        raise StepError(f"--base {ref!r} is not a commit in this repository", EXIT_REFUSED)
-    out = run_git(root, ["-c", "core.quotePath=false", "diff", "--name-only", "--no-renames",
-                         f"{ref}...HEAD", "--"])
-    if out is None:
-        raise StepError(f"git diff {ref}...HEAD failed; check --base", EXIT_REFUSED)
-    return {line for line in out.splitlines() if line}
-
-
-def apply_base_scope(root: Path, workdir: Path, changed: set[str]) -> list[str]:
-    """Drop the docs out of ``--base`` scope from tokens, candidates and the inventory."""
-    inventory = read_json(workdir / "inventory.json")
-    tokens = read_json(workdir / "tokens.json")
-    cands = read_json(workdir / "candidates.json")
-    touched = set(changed)
-    for path in changed:
-        parts = path.split("/")
-        touched.update("/".join(parts[:n]) for n in range(1, len(parts)))
-    files, dirs = History(root).head_files()
-
-    def in_scope(doc: str) -> bool:
-        if doc in changed:
-            return True
-        for tok in tokens["docs"].get(doc, []):
-            if tok.get("kind") == "path":
-                found = path_matches(str(tok["text"]), doc, files, dirs)
-                if found is not None and any(p in touched for p in found[1]):
-                    return True
-            elif tok.get("kind") == "tree" and tree_match(tok, files, dirs) in touched:
-                return True  # ruling R66: tree entries name paths too
-        return any(c["doc"] == doc and c.get("kind") in ("path", "tree")
-                   and c.get("resolved_then") in touched for c in cands["candidates"])
-
-    dropped = sorted(doc for doc in inventory["docs"] if not in_scope(doc))
-    gone = set(dropped)
-    inventory["docs"] = [d for d in inventory["docs"] if d not in gone]
-    inventory["scope_dropped"] = dropped
-    tokens["docs"] = {d: t for d, t in tokens["docs"].items() if d not in gone}
-    tokens["markers"] = [m for m in tokens.get("markers", []) if m.get("doc") not in gone]
-    tokens["skipped"] = [s for s in tokens.get("skipped", []) if s.get("doc") not in gone]
-    cands["candidates"] = [c for c in cands["candidates"] if c["doc"] not in gone]
-    cands["honoured"] = [h for h in cands.get("honoured", []) if h.get("doc") not in gone]
-    cands["history_unavailable"] = any(c.get("history_unavailable")
-                                       for c in cands["candidates"])
-    write_json(workdir / "inventory.json", inventory)
-    write_json(workdir / "tokens.json", tokens)
-    write_json(workdir / "candidates.json", cands)
-    return dropped
-
-
 def _write_stdout(text: str) -> None:
     try:
         sys.stdout.write(text)
@@ -157,75 +132,241 @@ def _write_stdout(text: str) -> None:
     sys.stdout.flush()
 
 
-def chain(root: Path, workdir: Path, *, base: str | None, branch: str | None, date: str,
-          check: bool) -> int:
-    """Run every step in order; return the exit code. StepError propagates."""
+def _say_plan(workdir: Path, name: str, count: int) -> None:
+    _write_stdout(f"{name} {(workdir / name).absolute().as_posix()} with {count} entries\n")
+
+
+def _clear(workdir: Path) -> None:
+    """Delete every pinned output of an earlier run, so no stale file is read again."""
+    for name in OUTPUTS:
+        (workdir / name).unlink(missing_ok=True)
+    for name in OUTPUT_DIRS:
+        path = workdir / name
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
+
+
+def _record(workdir: Path, **fields: Any) -> dict[str, Any]:
+    """Add ``fields`` to ``preflight.json``; return the whole record."""
+    pre: dict[str, Any] = read_json(workdir / "preflight.json")
+    pre.update(fields)
+    write_json(workdir / "preflight.json", pre)
+    return pre
+
+
+def _no_docs(workdir: Path) -> bool:
+    return not read_json(workdir / "inventory.json")["docs"]
+
+
+def stage_start(root: Path, workdir: Path, *, base: str | None, full: bool,
+                branch: str | None, check: bool, date: str) -> int:
+    """Run the ``start`` steps; write ``plan-docs.json`` and print its line."""
+    _clear(workdir)
     config, warnings = load_config(root)
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
     branch_name = branch or str(config["branch"]).replace("{date}", date)
-    scope = "all" if base is None else f"base:{base}"
-    for name in OUTPUTS:
-        (workdir / name).unlink(missing_ok=True)
-
     pre = _step("preflight", workdir, ("preflight.json",),
-                lambda: dd_preflight.run(root, workdir, branch_name, check))
-    run_id = run_id_for(str(pre["head"]), scope, date)
-    pre_doc = read_json(workdir / "preflight.json")
-    pre_doc.update(run_id=run_id, scope=scope, check=check, date=date,
-                   config_warnings=list(warnings))
-    write_json(workdir / "preflight.json", pre_doc)
-    changed = changed_paths(root, base) if base is not None else None
-
+                lambda: dd_preflight.run(root, workdir, branch_name, check, base=base,
+                                         full=full, date=date))
+    head = str(pre["head"])
     _step("inventory", workdir, ("inventory.json",),
           lambda: dd_inventory.run(root, workdir, config))
+    if _no_docs(workdir):  # spec 4: no-docs mode is phase B
+        mode = _step("changes", workdir, (),
+                     lambda: dd_changes.last_run(root, workdir, base, full, head=head))
+        scope = str(mode["scope"])
+        write_json(workdir / "plan-docs.json", [])
+        _record(workdir, run_id=run_id_for(head, scope, date), scope=scope, stage="start")
+        _write_stdout(NO_DOCS + "\n")
+        return EXIT_OK
     _step("extract", workdir, ("tokens.json",), lambda: dd_extract.run(root, workdir))
     _step("resolve", workdir, ("candidates.json",), lambda: dd_resolve.run(root, workdir))
-    if changed is not None:
-        _step("scope", workdir, ("inventory.json",),
-              lambda: apply_base_scope(root, workdir, changed))
-    else:
-        inventory = read_json(workdir / "inventory.json")
-        inventory["scope_dropped"] = []
-        write_json(workdir / "inventory.json", inventory)
-    _step("fixes", workdir, ("findings.json", "hunks-provable.json"),
-          lambda: dd_fixes.run(root, workdir))
-    if not check:
-        _step("apply", workdir, ("applied.json",), lambda: dd_apply.run(root, workdir))
-        trailers = [str(t) for t in config.get("commit_trailers", [])]
-        _step("commit", workdir, ("commits.json",),
-              lambda: dd_commit.run_hunks(root, workdir, branch_name, run_id, scope, trailers))
-    text = _step("summary", workdir, ("summary.md",), lambda: dd_summary.run_phase1(workdir))
-    _write_stdout(str(text))
-    if check and read_json(workdir / "hunks-provable.json")["hunks"]:
-        return EXIT_FOUND
+    _step("defindex", workdir, ("defindex.json",), lambda: dd_defindex.run(root, workdir))
+    _step("anchors", workdir, ("anchors.json",), lambda: dd_anchors.run(root, workdir, config))
+    changes = _step("changes", workdir, ("changes.json",),
+                    lambda: dd_changes.run(root, workdir, config, base, full))
+    scope = str(changes["scope"])
+    run_id = run_id_for(head, scope, date)
+    _record(workdir, run_id=run_id, scope=scope)
+    _step("units", workdir, ("units.json",), lambda: dd_units.run(root, workdir, config))
+    _step("patterns", workdir, ("patterns.json",), lambda: dd_patterns.run(root, workdir))
+    _step("gaps", workdir, ("gaps.json",), lambda: dd_gaps.run(root, workdir, config))
+    _step("notices", workdir, ("notices.json",),
+          lambda: dd_unverified.run_start(root, workdir, run_id))
+    plan = _step("dispatch", workdir, ("plan-docs.json",),
+                 lambda: dd_dispatch.plan_docs(root, workdir, config))
+    _record(workdir, stage="start")
+    _say_plan(workdir, "plan-docs.json", len(plan))
+    return EXIT_OK
+
+
+def _resume(workdir: Path, given: dict[str, Any]) -> dict[str, Any]:
+    """``preflight.json`` of a started run whose recorded flags agree with ``given`` (a flag
+    that was not given is None and takes the recorded value)."""
+    path = workdir / "preflight.json"
+    if not path.is_file():
+        raise StepError(f"no run in {workdir}; run --stage start first", EXIT_REFUSED)
+    pre: dict[str, Any] = read_json(path)
+    for flag in FLAGS:
+        value = given.get(flag)
+        if value is not None and value != pre.get(flag):
+            raise StepError(
+                f"--{flag} {value!r} differs from {pre.get(flag)!r}, which start recorded; "
+                "give every stage the flags given to start", EXIT_REFUSED)
+    if pre.get("stage") == "finish":
+        raise StepError("this run is finished; run --stage start for a new one", EXIT_REFUSED)
+    if pre.get("stage") not in ("start", "verify"):
+        raise StepError("start did not complete; run --stage start first", EXIT_REFUSED)
+    return pre
+
+
+def _outputs_or_retry(workdir: Path, plan: list[dd_dispatch.PlanEntry],
+                      roles: tuple[str, ...], retried: bool) -> frozenset[str] | None:
+    """The ids of the ``roles`` entries whose output failed validation; None after writing
+    ``retry.json`` when any failed and this is not the ``--retried`` rerun."""
+    failed: list[dd_dispatch.PlanEntry] = []
+    for role in roles:
+        failed += dd_dispatch.check_outputs(workdir, plan, role)[1]
+    if failed and not retried:
+        dd_dispatch.write_retry(workdir, failed)
+        _say_plan(workdir, "retry.json", len(failed))
+        return None
+    return frozenset(e["id"] for e in failed)
+
+
+def stage_verify(root: Path, workdir: Path, *, retried: bool,
+                 given: dict[str, Any]) -> int:
+    """Validate the review and gap outputs, run the script checks, write ``plan-verify.json``."""
+    pre = _resume(workdir, given)
+    if not (workdir / "plan-docs.json").is_file():
+        raise StepError("plan-docs.json is missing; run --stage start first", EXIT_REFUSED)
+    if _no_docs(workdir):
+        raise StepError("start found no doc in scope; run --stage finish", EXIT_REFUSED)
+    config, _ = load_config(root)
+    plan: list[dd_dispatch.PlanEntry] = read_json(workdir / "plan-docs.json")
+    failed = _outputs_or_retry(workdir, plan, ("review", "gap"), retried)
+    if failed is None:
+        return EXIT_RETRY
+    nominations: list[dict[str, Any]] = []
+    for entry in plan:
+        if entry["role"] == "review" and entry["id"] not in failed:
+            nominations += read_json(Path(entry["output"]))["unverified_blocks"]
+    run_id = str(pre["run_id"])
+    _step("notices", workdir, ("notices.json",),
+          lambda: dd_unverified.run_verify(root, workdir, nominations, run_id))
+    _step("checks", workdir, ("edits.json", "plan-verify.json"),
+          lambda: dd_checks.run(root, workdir, config, failed))
+    _record(workdir, stage="verify")
+    _say_plan(workdir, "plan-verify.json", len(read_json(workdir / "plan-verify.json")))
+    return EXIT_OK
+
+
+def _tree_check(root: Path, workdir: Path, pre: dict[str, Any]) -> None:
+    """Refuse when a file outside the workdir changed since preflight."""
+    then: dict[str, str] = pre.get("dirty") or {}
+    now = dd_preflight.tree_state(root, workdir)
+    changed = sorted(p for p in {*then, *now} if then.get(p) != now.get(p))
+    if changed:
+        raise StepError("files outside the workdir changed during the run: "
+                        f"{', '.join(changed)}; nothing was applied", EXIT_REFUSED)
+
+
+def _would_apply(workdir: Path) -> bool:
+    """An edit that a run without ``--check`` would apply: kept and accepted, or a kept notice
+    edit (no verdict needed)."""
+    verdicts = read_json(workdir / "verdicts.json")["verdicts"]
+    accepted = {eid for eid, v in verdicts.items() if v.get("verdict") == "accept"}
+    return any(e.get("status") == "kept" and (e.get("source") == "notice" or e["id"] in accepted)
+               for e in read_json(workdir / "edits.json")["edits"])
+
+
+def _summary(root: Path, workdir: Path) -> str:
+    return str(_step("summary", workdir, ("summary.md",), lambda: dd_summary.run(workdir, root)))
+
+
+def stage_finish(root: Path, workdir: Path, *, retried: bool,
+                 given: dict[str, Any]) -> int:
+    """Collect the verdicts, check the tree, then apply, commit and record (or, under
+    ``--check``, only report); print the summary."""
+    pre = _resume(workdir, given)
+    empty_plan = ((workdir / "plan-docs.json").is_file()
+                  and read_json(workdir / "plan-docs.json") == [])
+    if pre["stage"] == "start" and not empty_plan:
+        raise StepError("verify has not run (plan-verify.json is missing); run --stage verify "
+                        "first", EXIT_REFUSED)
+    if pre["stage"] == "verify" and not (workdir / "plan-verify.json").is_file():
+        raise StepError("plan-verify.json is missing; run --stage verify first", EXIT_REFUSED)
+    if _no_docs(workdir):
+        text = _summary(root, workdir)
+        _record(workdir, stage="finish")
+        _write_stdout(text)
+        return EXIT_OK
+    config, _ = load_config(root)
+    if pre["stage"] == "start":  # nothing was dispatched: the notice edits still need checks
+        _step("checks", workdir, ("edits.json", "plan-verify.json"),
+              lambda: dd_checks.run(root, workdir, config))
+    plan: list[dd_dispatch.PlanEntry] = read_json(workdir / "plan-verify.json")
+    if _outputs_or_retry(workdir, plan, ("verify",), retried) is None:
+        return EXIT_RETRY
+    _step("verdicts", workdir, ("verdicts.json",),
+          lambda: dd_dispatch.collect_verdicts(workdir, plan))
+    _tree_check(root, workdir, pre)
+    if pre["check"]:
+        text = _summary(root, workdir)
+        _record(workdir, stage="finish")
+        _write_stdout(text)
+        return EXIT_FOUND if _would_apply(workdir) else EXIT_OK
+    _step("apply", workdir, ("applied.json",), lambda: dd_apply.apply_edits(root, workdir))
+    trailers = [str(t) for t in config.get("commit_trailers", [])]
+    head, run_id = str(pre["head"]), str(pre["run_id"])
+    commits = _step("commit", workdir, ("commits.json",),
+                    lambda: dd_commit.run(root, workdir, str(pre["branch"]), run_id, head,
+                                          str(pre["scope"]), trailers))
+    write_json(workdir / "last-run.json", {"head": head, "run_id": run_id, "date": pre["date"],
+                                           "committed": bool(commits["commits"])})
+    text = _summary(root, workdir)
+    _record(workdir, stage="finish")
+    _write_stdout(text)
     return EXIT_OK
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Find documentation drift and commit the provable fixes on a branch.")
+        description="Find documentation drift in stages; commit the accepted fixes on a branch.")
     parser.add_argument("repo", type=Path)
-    parser.add_argument("--base", help="only docs touched by REF...HEAD (by path or reference)")
+    parser.add_argument("--stage", required=True, choices=STAGES)
+    parser.add_argument("--retried", action="store_true",
+                        help="rerun of a stage that exited 3, after re-dispatching retry.json")
+    parser.add_argument("--base", help="compare against REF instead of the last drift run")
+    parser.add_argument("--full", action="store_true", default=None,
+                        help="a first run regardless of any previous run")
     parser.add_argument("--branch", help="branch to create (default: config branch)")
+    parser.add_argument("--check", action="store_true", default=None,
+                        help="verify only; exit 1 from finish when an accepted edit exists")
     parser.add_argument("--workdir", type=Path, help="default: <repo>/.document-drift")
     parser.add_argument("--date", type=_date, default=None, help="YYYY-MM-DD (default today)")
-    parser.add_argument("--check", action="store_true",
-                        help="report only; exit 1 when a provable edit exists")
     args = parser.parse_args(argv)
     root: Path = args.repo
     workdir: Path = args.workdir or root / ".document-drift"
-    date: str = args.date or dt.date.today().isoformat()
+    given = {flag: getattr(args, flag) for flag in FLAGS}
     try:
-        return chain(root, workdir, base=args.base, branch=args.branch, date=date,
-                     check=args.check)
+        if args.stage == "start":
+            return stage_start(root, workdir, base=args.base, full=bool(args.full),
+                               branch=args.branch, check=bool(args.check),
+                               date=args.date or dt.date.today().isoformat())
+        if args.stage == "verify":
+            return stage_verify(root, workdir, retried=args.retried, given=given)
+        return stage_finish(root, workdir, retried=args.retried, given=given)
     except StepError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return exc.code
     except Exception as exc:  # ruling R65: never exit 1 (reserved for --check) on a crash
         traceback.print_exc(file=sys.stderr)
-        print(f"error: the run crashed outside a step: {type(exc).__name__}: {exc}; "
-              "check git status and git branch", file=sys.stderr)
+        print(f"error: the {args.stage} stage crashed outside a step: "
+              f"{type(exc).__name__}: {exc}; check git status and git branch", file=sys.stderr)
         return EXIT_MISSING
 
 

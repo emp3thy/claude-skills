@@ -12,27 +12,35 @@ def test_load_config_missing_file_gives_defaults(tmp_path):
 
 def test_load_config_merges_values(tmp_path):
     (tmp_path / CONFIG_FILENAME).write_text(
-        "exclude: ['a/**']\nlead_cap: 5\nnever_edit_heading: '(?i)faq'\n", encoding="utf-8"
+        "exclude: ['a/**']\nunit_lines: 500\nnever_edit_heading: '(?i)faq'\n", encoding="utf-8"
     )
     cfg, warnings = load_config(tmp_path)
     assert cfg["exclude"] == ["a/**"]
-    assert cfg["lead_cap"] == 5
+    assert cfg["unit_lines"] == 500
     assert cfg["never_edit_heading"] == "(?i)faq"
-    assert cfg["recent_change_days"] == 14
+    assert cfg["max_delete_lines"] == 15
     assert warnings == []
 
 
 def test_load_config_unknown_key_warns(tmp_path):
-    (tmp_path / CONFIG_FILENAME).write_text("bogus: 1\nlead_cap: 3\n", encoding="utf-8")
+    (tmp_path / CONFIG_FILENAME).write_text("bogus: 1\nunit_lines: 300\n", encoding="utf-8")
     cfg, warnings = load_config(tmp_path)
-    assert cfg["lead_cap"] == 3
+    assert cfg["unit_lines"] == 300
     assert "bogus" not in cfg
     assert len(warnings) == 1 and "bogus" in warnings[0]
 
 
+def test_phase_1_keys_are_unknown(tmp_path):
+    (tmp_path / CONFIG_FILENAME).write_text("lead_cap: 5\nrecent_change_days: 14\n",
+                                            encoding="utf-8")
+    cfg, warnings = load_config(tmp_path)
+    assert "lead_cap" not in cfg and "recent_change_days" not in cfg
+    assert len(warnings) == 2 and all("unknown key" in w for w in warnings)
+
+
 def test_load_config_wrong_type_warns_and_defaults(tmp_path):
     (tmp_path / CONFIG_FILENAME).write_text(
-        "lead_cap: many\nexclude: nope\ncommit_trailers: [1]\nrecent_change_days: true\n",
+        "unit_lines: many\nexclude: nope\ncommit_trailers: [1]\nmax_delete_lines: true\n",
         encoding="utf-8",
     )
     cfg, warnings = load_config(tmp_path)

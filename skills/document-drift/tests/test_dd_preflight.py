@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from pathlib import Path
 
 import pytest
 from dd_common import EXIT_REFUSED, StepError, read_json
-from dd_preflight import run
+from dd_preflight import run, tree_state
 
 GIT = ["git", "-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
 
@@ -172,3 +173,33 @@ def test_accepts_the_top_level_through_another_spelling(tmp_path: Path) -> None:
     (root / "sub").mkdir()
     out = run(root / "." / "sub" / "..", workdir, "drift/x", True)
     assert out["head"] == _git(root, "rev-parse", "HEAD")
+
+
+def test_records_the_run_flags(tmp_path: Path) -> None:
+    root, workdir = _repo(tmp_path)
+    out = run(root, workdir, "drift/x", False, base="main", full=True, date="2026-01-02")
+    assert (out["check"], out["base"], out["full"], out["date"], out["dirty"]) == (
+        False, "main", True, "2026-01-02", {})
+    assert read_json(workdir / "preflight.json") == out
+
+
+def test_check_mode_records_the_dirty_files(tmp_path: Path) -> None:
+    root, workdir = _repo(tmp_path)
+    (root / "README.md").write_bytes(b"changed\n")
+    (root / "notes").mkdir()
+    (root / "notes" / "todo.txt").write_bytes(b"x\n")
+    (workdir / "scratch.json").write_bytes(b"{}\n")
+    out = run(root, workdir, "drift/x", True)
+    readme, todo = (hashlib.sha256(b).hexdigest() for b in (b"changed\n", b"x\n"))
+    assert out["dirty"] == {"README.md": f" M {readme}", "notes/todo.txt": f"?? {todo}"}
+    (root / "notes" / "todo.txt").unlink()
+    assert tree_state(root, workdir) == {"README.md": f" M {readme}"}
+
+
+def test_tree_state_skips_the_workdir_even_when_not_excluded(tmp_path: Path) -> None:
+    root, _ = _repo(tmp_path)
+    other = root / "work"
+    other.mkdir()
+    (other / "plan.json").write_bytes(b"[]\n")
+    assert tree_state(root, other) == {}
+    assert list(tree_state(root, root / ".document-drift")) == ["work/plan.json"]

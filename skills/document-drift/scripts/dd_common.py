@@ -10,6 +10,7 @@ from typing import Any
 EXIT_OK = 0
 EXIT_FOUND = 1
 EXIT_REFUSED = 2
+EXIT_RETRY = 3
 EXIT_MISSING = 5
 EXIT_COMMIT = 6
 
