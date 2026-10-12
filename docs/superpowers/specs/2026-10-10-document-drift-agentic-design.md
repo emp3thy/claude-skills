@@ -147,7 +147,7 @@ The session runs the stages in order, dispatches exactly the plan entries, and r
 
 A script builds an index from name to definitions. Each definition records its file, its line range, its kind and its owners (the names of the enclosing functions and classes, and the registered name of an enclosing registration such as `Tool(name="memory.retrieve", ...)`).
 
-- **Python** (standard library `ast`): every module (by dotted path and by last segment), function, method and class, with its exact `lineno` to `end_lineno`; every string literal that looks like a name (`^[A-Za-z_][\w.\-]{2,}$` or a `--flag`), with the range of the smallest enclosing node spanning at most 15 lines. A literal is a **registration** when it is the `name=` keyword of a call, or an argument of `add_argument`, `add_parser`, `get`, `getenv`, `route`, `get/post/put/patch/delete` (as decorators), `option`, `command`, or a function whose name starts with `_resolve`.
+- **Python** (standard library `ast`): every module (by dotted path and by last segment), function, method and class, with its exact `lineno` to `end_lineno`; every string literal that looks like a name (`^[A-Za-z_][\w.\-]{2,}$` or a `--flag`), with the range of the largest enclosing node spanning at most 15 lines (so a registration call's whole argument list is the range of each name in it). A literal is a **registration** when it is the `name=` keyword of a call, or an argument of `add_argument`, `add_parser`, `get`, `getenv`, `route`, `get/post/put/patch/delete` (as decorators), `option`, `command`, or a function whose name starts with `_resolve`.
 - **SQL** (`.sql` source files): `CREATE TABLE/VIEW/INDEX/TRIGGER` names, with the statement's range; column definitions and `ALTER TABLE ... ADD COLUMN` columns, each one line.
 - **JavaScript and TypeScript**: `function`, `class`, `export const/let`, and method definitions, with ranges found by brace matching; string literals as for Python, with a one-line range.
 - **Files**: every tracked non-test file by basename when the basename is unique in the repository.
@@ -421,7 +421,7 @@ Needs a human decision:
 - <doc>:<line> <kind>: <claim or item> (<evidence or reason>)
 ```
 
-The kinds are `guarantee-mismatch`, `unsure`, `unverified` (section 7.3, with the block's first line quoted), `large-deletion`, `large-section`, `protected`, `overlap`, `no-home`, `target-refused`, `verify-rejected` and `recheck-failed`. `<line>` is the line in the doc at the starting HEAD. Every repository-derived string is redacted and cut to one line of at most 160 characters. `commit_trailers` from config are appended after the `Drift-` lines. When no edit is applied, no branch is created and the list appears in the summary only. Human-decision items are not stored anywhere else: a later run raises one again only if its code changes again.
+The kinds are `guarantee-mismatch`, `unsure`, `unverified` (section 7.3, with the block's first line quoted), `large-deletion`, `large-section`, `protected`, `overlap`, `no-home`, `target-refused`, `verify-rejected` and `recheck-failed`. `<line>` is the line in the doc at the starting HEAD. Every repository-derived string is redacted and cut to one line of at most 160 characters. `commit_trailers` from config are appended at the end of the message, after the human-decision block. When no edit is applied, no branch is created and the list appears in the summary only. Human-decision items are not stored anywhere else: a later run raises one again only if its code changes again.
 
 ### 9.5 Summary
 
