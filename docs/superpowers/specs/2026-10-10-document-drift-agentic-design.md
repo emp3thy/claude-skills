@@ -57,6 +57,7 @@ Taken in the 2026-10-10 to 2026-10-12 brainstorm:
 | N13 | Scope of this spec | Phase A: normal runs, first and later, both directions. Phase B (no-docs mode) is built later |
 | N14 | Fact sheets | Dropped from normal runs; agents read the anchored code directly. Kept for phase B |
 | N15 | Unverifiable docs | A doc that describes the code but names nothing the skill can anchor is itself a finding, not a doc to skip: the summary reports every doc's checkability on every run, and the review agent adds the missing names (`anchor` edits, in the corrections commit) so later runs can check the doc |
+| N16 | Blocks that cannot be anchored | A block that describes the code but that no definition can be tied to gets a `drift-unverified` notice in the doc. Unchanged at the next run, the notice becomes a second notice saying it needs a human decision, and the block is listed in the commit's human-decision list. Unchanged at the run after that, the block is removed. Preamble, pitch, process and history are never noticed |
 
 Carried over from the 2026-10-09 brainstorm, still in force:
 
@@ -184,7 +185,7 @@ On `better-memory` at `9d5be26`, 1,497 of 2,925 references anchor (51%) and 87 a
 
 A doc the skill cannot tie to the code is the doc most likely to drift unnoticed, by the skill and by its readers. So the script measures, for every in-scope doc on every run, its **checkability**: references, anchored references, the anchoring rate, and the number of blocks (paragraphs, list items and table rows outside fences) that hold no reference at all. A doc is **unverifiable** when it has no anchor, and **weakly anchored** when its anchoring rate is under `min_anchor_ratio` (default 0.25) or it has fewer than 3 anchors. Both are listed by name in the summary (section 9.5), with the note that a later run cannot see code changes that affect them until they name code. On `better-memory`, 12 of 38 docs have no anchor and 502 of 977 blocks carry no reference (section 14.3).
 
-Checkability is reported, never enforced: an unverifiable doc is not a human-decision item, because nothing in it is known to be wrong. The fix is the `anchor` edit (section 7.1), which gives the doc the names it lacks. A doc that still has no anchor after a first run is one where the agent found nothing to name, which is usually a doc that is not about the code (a contributing guide, a landing page's prose); the first-run summary separates those by the agent's `code_claims` count.
+Checkability at the doc level is reported, never enforced: an unverifiable doc is not a human-decision item, because nothing in it is known to be wrong. The fixes work block by block: the `anchor` edit (section 7.1) gives a block the name it lacks, and the notice loop (section 7.3) asks the owner about the blocks nothing can be tied to, then removes the ones nobody answers for. A doc that still has no anchor after a first run is one where the agent found nothing to name, which is usually a doc that is not about the code (a contributing guide, a landing page's prose); the first-run summary separates those by the agent's `code_claims` count.
 
 ## 6. Run modes
 
@@ -233,7 +234,7 @@ After a successful `finish` (not under `--check`), the script writes `<workdir>/
 
 On a first run the agent checks every factual statement its docs make about this repository's code: names, paths, commands, flags, environment variables, config keys, defaults, counts and lists ("the six tools"), described behaviour, code examples (imports, call shapes, CLI invocations, field names in sample output) and directory trees. It starts from the anchors' reading ranges and opens whatever else it needs.
 
-It has a second job on a first run: where a true statement describes a definition without naming anything the index can resolve ("the bootstrap renders the newest memories", "three buckets, surfaced separately"), and one definition clearly is the thing described, it proposes an **`anchor` edit** that names it in an inline-code span, in the doc's own wording ("the bootstrap (`SessionBootstrapService.bootstrap`) renders the newest memories"). An anchor edit changes nothing else; a statement that is wrong gets a `correct` edit instead, and a statement with several plausible definitions, or none, gets no edit. The agent also reports `code_claims`, the number of statements about this repository's code it found in each doc, so the summary can tell a doc that is not about the code from one that is but names nothing.
+It has a second job on a first run: where a true statement describes a definition without naming anything the index can resolve ("the bootstrap renders the newest memories", "three buckets, surfaced separately"), and one definition clearly is the thing described, it proposes an **`anchor` edit** that names it in an inline-code span, in the doc's own wording ("the bootstrap (`SessionBootstrapService.bootstrap`) renders the newest memories"). An anchor edit changes nothing else; a statement that is wrong gets a `correct` edit instead, and a statement with several plausible definitions, or none, gets no edit. The agent also reports `code_claims`, the number of statements about this repository's code it found in each doc, so the summary can tell a doc that is not about the code from one that is but names nothing, and `unverified_blocks`: the blocks that describe this repository's code, hold no reference that anchors, and that it could not tie to one definition (so no `anchor` edit was possible). Preamble, a pitch for the project, process, plans, history and statements about other software are never unverified blocks: they are not claims about the code. The agent does not edit or move an existing `drift-unverified` notice.
 
 On a later run the agent checks only the statements about the affected anchors and missing names, including statements that describe the changed behaviour without naming it, and the changed sections. It works from the diff and opens the current source whenever the diff alone does not settle a statement. It ignores everything else in the doc, even if it might be wrong. Anchor edits are proposed only within the changed sections.
 
@@ -248,6 +249,7 @@ The agent writes `review/<unit>.json`:
   "unit": "u007",
   "claims_checked": 41,
   "code_claims": {"website/configuration.md": 38, "README.md": 60},
+  "unverified_blocks": [{"doc": "README.md", "start_line": 131, "end_line": 134, "why": "describes retrieval ordering; no function clearly owns it"}],
   "edits": [
     {"id": "u007-e01", "doc": "website/configuration.md", "start_line": 54, "end_line": 54,
      "old": "| `BETTER_MEMORY_TOP_N` | `3` | ... |", "new": "| `BETTER_MEMORY_TOP_N` | `5` | ... |",
@@ -269,6 +271,34 @@ The agent writes `review/<unit>.json`:
 
 - `type` is `correct` (change wrong text), `remove` (delete a statement about something the code no longer has) or `anchor` (name the definition a true statement describes). `subject` names the removed item for a `remove` edit when there is one, and the added name for an `anchor` edit; section 9.1 checks the former is absent from the source and the latter resolves to the evidence.
 - `code_claims` counts, per doc in the unit, the statements about this repository's code, including the ones that name nothing; 0 means the doc is not about the code.
+- `unverified_blocks` lists whole blocks (a paragraph, a list, a table, by line range) for the notice loop of section 7.3. A block that already carries a notice, or that overlaps an edit in the same output, is not listed.
+
+### 7.3 Blocks nothing can be tied to: the notice loop
+
+A block that describes the code but that neither the index nor the agent can tie to a definition is not left alone: the doc gets a notice, the way an encyclopedia marks a claim with no citation. The loop is driven by the script on every run, with no agent, from the notices already in the docs; the agent only nominates new blocks (`unverified_blocks`) on a first run or in a changed section.
+
+A notice is one HTML comment on its own line directly above the block, invisible in the rendered doc and plain in the PR diff:
+
+```
+<!-- drift-unverified: 1st notice, run 2026-10-12-a3f1, block 9c2e41d7. This describes the code but names nothing in it. Name what it describes, or add drift-ignore: <reason>. -->
+<!-- drift-unverified: 2nd notice, run 2026-10-19-b77c, block 9c2e41d7. NEEDS A HUMAN DECISION: name what this describes, add drift-ignore: <reason>, or rewrite it. The next drift run removes this block otherwise. -->
+```
+
+`block` is the first 8 hex digits of the SHA-256 of the block's text with runs of whitespace collapsed, so an edit to the block is detectable without storing anything outside the doc. A list or table is noticed as a whole, and only when no item or row anchors.
+
+On every run the script reads each notice and looks at its block:
+
+| Found | Action | Commit bullet |
+|---|---|---|
+| The block now has an anchor (an `anchor` edit was applied, or the owner named something) | the notice is removed | `clear unverified notice (now anchored)` |
+| The block's hash differs (the owner rewrote it) | the notice is removed; the block is reviewed afresh because its section changed, and may be nominated again, which starts a new 1st notice | `clear unverified notice (block changed)` |
+| The block carries a `drift-ignore` marker | the notice is removed; the marker is the owner's answer | `clear unverified notice (drift-ignore)` |
+| 1st notice, block unchanged and still unanchored | the notice becomes a 2nd notice, and the block is listed under "Needs a human decision" as `unverified` | `escalate unverified notice` |
+| 2nd notice, block unchanged and still unanchored | the block and its notice are removed as a `remove` edit of type `unverified` | `remove unverified block (3rd notice, unchanged since <run id>)` |
+
+A newly nominated block gets a 1st notice. Every notice edit goes into the corrections commit and through the script checks of section 9.1: a removal over `max_delete_lines` goes to a human as `large-deletion` instead, a block in a protected region as `protected`. Notice edits are script-generated statements of fact (unchanged, unanchored, counted), so they are not sent to a verifier. Under `--check`, they are listed and nothing is written. A notice whose run id is newer than the current run, or that is malformed, is listed in the summary as a stale marker and left alone.
+
+The loop runs on a doc even when nothing else affects it, so a doc that names no code is still visited by the script, if not by an agent, on every run. It is the only place the skill deletes text it does not know to be wrong; it does so after two PRs that carried the question, and the deletion is itself a bullet in a PR the owner opens.
 - `old` is the exact text of lines `start_line` to `end_line`, leading spaces included; `new` is their replacement (empty for a removal).
 - Edits are minimal: change the wrong part, keep the doc's wording, voice and format, and do not reflow paragraphs or make style edits.
 - A heading is edited only when the heading itself is wrong.
@@ -366,6 +396,10 @@ Drift-Unchecked: <n> doc units, <n> gap docs, <n> verify batches
 - <doc>:<line> correct <claim> (<path:line>[, <path:line>...])
 - <doc>:<line> remove <claim> (<subject> not in source)
 - <doc>:<line> anchor <subject> (<path:line>)
+- <doc>:<line> notice unverified block (1st notice)
+- <doc>:<line> escalate unverified notice (2nd notice)
+- <doc>:<line> clear unverified notice (now anchored | block changed | drift-ignore)
+- <doc>:<line> remove unverified block (3rd notice, unchanged since <run id>)
 ```
 
 ```
@@ -379,7 +413,7 @@ Drift-Unchecked: ...
 - <doc>:<line> add <kind> <name> (<path:line>)
 ```
 
-The first commit holds the applied review edits (`correct`, `remove` and `anchor`) and their heading link updates; the second holds the applied gap edits. When one of them has no edits it is not made. The last commit made ends with:
+The first commit holds the applied review edits (`correct`, `remove` and `anchor`), the notice-loop edits of section 7.3 and their heading link updates; the second holds the applied gap edits. When one of them has no edits it is not made. The last commit made ends with:
 
 ```
 
@@ -387,11 +421,11 @@ Needs a human decision:
 - <doc>:<line> <kind>: <claim or item> (<evidence or reason>)
 ```
 
-The kinds are `guarantee-mismatch`, `unsure`, `large-deletion`, `large-section`, `protected`, `overlap`, `no-home`, `target-refused`, `verify-rejected` and `recheck-failed`. `<line>` is the line in the doc at the starting HEAD. Every repository-derived string is redacted and cut to one line of at most 160 characters. `commit_trailers` from config are appended after the `Drift-` lines. When no edit is applied, no branch is created and the list appears in the summary only. Human-decision items are not stored anywhere else: a later run raises one again only if its code changes again.
+The kinds are `guarantee-mismatch`, `unsure`, `unverified` (section 7.3, with the block's first line quoted), `large-deletion`, `large-section`, `protected`, `overlap`, `no-home`, `target-refused`, `verify-rejected` and `recheck-failed`. `<line>` is the line in the doc at the starting HEAD. Every repository-derived string is redacted and cut to one line of at most 160 characters. `commit_trailers` from config are appended after the `Drift-` lines. When no edit is applied, no branch is created and the list appears in the summary only. Human-decision items are not stored anywhere else: a later run raises one again only if its code changes again.
 
 ### 9.5 Summary
 
-`summary.md`, also printed by `finish`: run id; mode (first, since a sha, base, full) and the last-run commit; base; docs scanned and excluded by reason; references, anchors and unanchored references by reason; checkability (section 5.5): every doc's references, anchors and rate, then the unverifiable and weakly anchored docs by name, split on a first run into docs with no code claims and docs with code claims that name nothing, with the number of anchor edits applied to each; on a later run, changed files and hunks, and affected docs with the anchors that affected them; review units (checked, unchecked by the cap, unchecked after retry); claims checked; edits proposed by review and by gap agents; script check results by check; verdicts by kind; edits applied and reverted; gaps by kind and by target, and gap refusals by kind; the human-decision list; markers without reasons and stale markers; the branch and commit hashes, or "No branch created". Under `--check`, every accepted edit is listed in the commit-bullet grammar.
+`summary.md`, also printed by `finish`: run id; mode (first, since a sha, base, full) and the last-run commit; base; docs scanned and excluded by reason; references, anchors and unanchored references by reason; checkability (section 5.5): every doc's references, anchors and rate, then the unverifiable and weakly anchored docs by name, split on a first run into docs with no code claims and docs with code claims that name nothing, with the number of anchor edits applied to each; the notice loop: notices placed, escalated, cleared by reason, and blocks removed; on a later run, changed files and hunks, and affected docs with the anchors that affected them; review units (checked, unchecked by the cap, unchecked after retry); claims checked; edits proposed by review and by gap agents; script check results by check; verdicts by kind; edits applied and reverted; gaps by kind and by target, and gap refusals by kind; the human-decision list; markers without reasons and stale markers; the branch and commit hashes, or "No branch created". Under `--check`, every accepted edit is listed in the commit-bullet grammar.
 
 ## 10. Configuration and limits
 
@@ -447,6 +481,7 @@ New:
 - `dd_patterns`: the pattern scan (section 8.1).
 - `dd_gaps`: detection and targets (sections 8.2, 8.3).
 - `dd_checks`: the script checks (section 9.1), including `anchor-adds-name`.
+- `dd_unverified`: the notice loop of section 7.3: notice grammar, block hashing, the per-notice decision and the edits it emits.
 - `dd_dispatch`: plan files, prompt rendering, output validation and `retry.json` (section 3.2).
 - `prompts/review-first.md`, `prompts/review-later.md`, `prompts/gap.md`, `prompts/verify.md`.
 
@@ -456,7 +491,8 @@ New:
 - The three fixture repositories (`py-service`, `ts-web`, `go-cli`) are rebuilt for this design, each with a history of at least two states: the state of a first run, and later commits that change code the docs point at. Each gains planted drift in both directions:
   - **docs to code:** a wrong default, a wrong flag name, a wrong count, a removed tool still documented, a guarantee the code does not keep; and, in the later commits, a changed default and a renamed function the docs name;
   - **code to docs:** an environment variable missing from an env var table, an undocumented command, an undocumented MCP tool or route, and, in the later commits, a new flag;
-  - **checkability:** a doc that describes a function without naming it (expected: listed as unverifiable, and the canned review output's `anchor` edit is applied, after which it anchors), a doc about the project's process with no code claims (listed as not about the code, no edit), and an HTML landing page whose references are in `<code>` tags (they anchor).
+  - **checkability:** a doc that describes a function without naming it (expected: listed as unverifiable, and the canned review output's `anchor` edit is applied, after which it anchors), a doc about the project's process with no code claims (listed as not about the code, no edit), and an HTML landing page whose references are in `<code>` tags (they anchor);
+  - **notice loop:** a fixture with three states and canned nominations: a block nominated on the first run (expected: 1st notice), unchanged on the second (2nd notice and an `unverified` human-decision entry), unchanged on the third (removed, with its notice); a block the owner rewrote between runs (notice cleared, block changed); a block that gained a name (notice cleared, now anchored); a block given `drift-ignore` (notice cleared); a nominated block over `max_delete_lines` at its third sighting (`large-deletion`, not removed); and a malformed notice (listed as stale, untouched).
 - Decoys that must produce no edit and no human entry: a canned `anchor` edit whose name resolves elsewhere than its evidence (dropped by `anchor-adds-name`), a historical sentence, a statement about other software, a hidden flag, an internal helper, an `undocumented_ok` item, a selective list (under half of its kind), a doc that names only code the later commits do not touch (it must not be reviewed on the later run), and a change inside a large class body that a doc mentions only by the class name.
 - Tests for the last-run search: a drift commit, a squash-merged drift commit, a local record newer than the last drift commit, a record that is not an ancestor of HEAD (ignored), `--base`, `--full`.
 - Canned outputs for every agent role per fixture, including one invalid output to exercise exit 3 and `--retried`.
@@ -503,6 +539,7 @@ Phase B gets its own plan and PR after phase A's first live runs.
 | A8 | Read-only agents write only their output file | Validated only with an explicit prompt sentence (section 3.2); the `finish` tree check catches a stray write | A stray file in the repository; `finish` refuses the run |
 | A9 | Verifiers with a fresh context and the source catch most wrong edits | Partly validated: of 20 edits, the verifiers rejected 2, both rightly; none of the 18 accepted edits I checked was wrong | Wrong edits reach the PR, where the owner rejects them |
 | A10 | Gap agents write additions that are correct and match the doc's style | Validated on two gaps | Additions the owner has to rewrite |
+| A13 | The agent separates blocks that describe the code from preamble, pitch, process and history well enough that the notice loop does not delete legitimate prose | Not validated; two PR reviews stand between a nomination and a deletion, and the deletion is a reviewable bullet | A paragraph that was true but vague is deleted in a PR the owner merged without reading; one revert restores it |
 | A11 | A `Drift-Base` line survives the owner's merge process | Holds for merge commits and GitHub's default squash message; a squash message edited by hand loses it, and the local record covers that machine only | A later run falls back to a first run, costly but correct |
 | A12 | Given a true statement that names nothing, an agent can tell when one definition clearly is the thing described, and its `anchor` edit names the right one | Not validated; the check and the verifier are the net. The first live run counts anchor edits proposed, accepted and judged right | Wrong anchors send later runs to the wrong code for that statement, and a doc gains checkability it does not have |
 
@@ -555,4 +592,4 @@ Every drift item that week caused in the two compared docs was found; the drift 
 
 **Cost.** A first run on `better-memory`: about 15 to 20 review units of 6,000 lines at about 110,000 tokens, about 10 gap agents at about 55,000, and about 14 verifier batches at about 90,000, so about 3 to 4 million tokens and 10 to 15 minutes with each wave in parallel. A later run after a busy week: about 14 affected docs packed into about 5 units at about 70,000 tokens, plus a few verifier batches, so under 1 million tokens. A week with no change to anchored code: no agents.
 
-**Still unvalidated.** Anchor edits (A12), the precision of the guarantee proxy (A3), JavaScript and TypeScript definition ranges, the flag-parent search through `ast` assignments, review units of several docs in one agent, and every script stage end to end. The plan's first tasks should make the live harness cheap to run early.
+**Still unvalidated.** Anchor edits (A12), block classification for the notice loop (A13), the precision of the guarantee proxy (A3), JavaScript and TypeScript definition ranges, the flag-parent search through `ast` assignments, review units of several docs in one agent, and every script stage end to end. The plan's first tasks should make the live harness cheap to run early.
