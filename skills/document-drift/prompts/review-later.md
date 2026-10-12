@@ -10,7 +10,7 @@ These are the parts of the docs to check (line numbers are 1-based, counted in e
 
 {{docs}}
 
-Since the docs were last checked (commit {{last_run}}), the code below changed. The docs refer to these names, whose definitions the changes touched (each line gives the reference, where the doc names it, and the code range to read):
+Since commit {{last_run}}, the code below changed. The docs refer to these names, whose definitions the changes touched (each line gives the reference, where the doc names it, and the code range to read):
 
 {{anchors}}
 

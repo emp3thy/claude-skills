@@ -18,9 +18,9 @@ Verdict `accept` only when all five hold. `reject` when any fails, with the reas
 
 An `anchor` edit adds the name of a definition to a true statement and changes nothing else: accept it only when the statement is true and the named definition is the thing it describes, not merely a related one (conditions 3 to 5 still apply; condition 1 does not).
 
-An `add` edit inserts new lines after its old line, which stays as it is: accept it only when what it adds is user-facing, absent from the docs, right and supported by the code, and placed and formatted like its neighbours (condition 1 does not apply).
+An `add` edit inserts new lines after its old line, which stays as it is: accept it only when what it adds is user-facing, absent from the docs, right and supported by the code, and placed and formatted like its neighbours (condition 1 does not apply; conditions 2 to 5 still apply).
 
-A `remove` edit deletes its lines: accept it only when the thing they describe is gone from the code.
+A `remove` edit deletes its lines: accept it only when the thing they describe is gone from the code (conditions 2 to 5 still apply).
 
 ## The edits
 

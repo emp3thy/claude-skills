@@ -203,10 +203,13 @@ def _require(workdir: Path, name: str, step: str) -> Any:
 
 
 def plan_docs(root: Path, workdir: Path, config: Mapping[str, Any]) -> list[PlanEntry]:
-    """Write the review and gap prompts and ``plan-docs.json``; create the output dirs."""
+    """Write the review and gap prompts and ``plan-docs.json``; create the output dirs. The gap
+    prompts list ``inventory.json``'s docs as the only docs that count as documentation."""
     units = _require(workdir, "units.json", "dd_units")
     gaps = _require(workdir, "gaps.json", "dd_gaps")
     changes = _require(workdir, "changes.json", "dd_changes")
+    inventory = _require(workdir, "inventory.json", "dd_inventory")
+    in_scope = "\n".join(f"- {d}" for d in sorted(inventory.get("docs", []))) or "(none)"
     for name in ROLE_DIRS.values():
         (workdir / name).mkdir(parents=True, exist_ok=True)
     models = config["models"]
@@ -228,7 +231,8 @@ def plan_docs(root: Path, workdir: Path, config: Mapping[str, Any]) -> list[Plan
         entry = _entry(workdir, f"g{number:03d}", "gap", str(models["gap"]))
         entry["doc"] = doc
         _write_prompt(entry, render("gap", {
-            "repo": repo, "doc": doc, "gaps": _gaps_value(gaps["targets"][doc]),
+            "repo": repo, "doc": doc, "docs_in_scope": in_scope,
+            "gaps": _gaps_value(gaps["targets"][doc]),
             "output": entry["output"], "id": entry["id"]}))
         plan.append(entry)
     write_json(workdir / "plan-docs.json", plan)
@@ -366,6 +370,10 @@ def validate_gap(obj: Any) -> list[str]:
     problems = _fields(obj, "output", {"doc": "str", "edits": "list", "refusals": "list"})
     if isinstance(obj.get("edits"), list):
         problems += _edits(obj["edits"], obj.get("doc"), EDIT_TYPES["gap"])
+        for n, edit in enumerate(obj["edits"]):
+            path = edit.get("doc") if isinstance(edit, dict) else None
+            if isinstance(path, str) and (not path.strip() or path == obj.get("doc")):
+                problems.append(f"edits[{n}]: doc {path!r} is not the target doc's path")
     for n, refusal in enumerate(obj.get("refusals") or []):
         where = f"refusals[{n}]"
         problems += _fields(refusal, where, {"name": "str", "kind": "str", "reason": "str"})

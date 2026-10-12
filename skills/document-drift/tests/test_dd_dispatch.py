@@ -78,6 +78,9 @@ def _tree(tmp_path: Path, mode: str = "first") -> tuple[Path, Path]:
     write_json(workdir / "units.json", units)
     write_json(workdir / "gaps.json", gaps)
     write_json(workdir / "changes.json", changes)
+    # a changelog exists but is out of scope, so it is not in the inventory's docs
+    (root / "CHANGELOG.md").write_text("- Added `APP_PORT`.\n", encoding="utf-8")
+    write_json(workdir / "inventory.json", {"docs": ["docs/guide.md", "README.md"]})
     return root, workdir
 
 
@@ -120,6 +123,7 @@ def test_render_replaces_and_rejects_unknown(tmp_path: Path) -> None:
         dd_dispatch.render("t", {"one": "1", "two": "2", "three": "3"}, directory=tmp_path)
     # the shipped templates sit next to the scripts directory
     text = dd_dispatch.render("gap", {"repo": "/r", "doc": "d.md", "gaps": "- g",
+                                      "docs_in_scope": "- d.md",
                                       "output": "/w/gaps/g001.json", "id": "g001"})
     assert "/w/gaps/g001.json" in text and "{{" not in text
 
@@ -145,6 +149,11 @@ def test_plan_docs_one_entry_per_unit_and_gap_doc_within_caps(tmp_path: Path) ->
     gap_prompt = Path(by_id["g001"]["prompt"]).read_text(encoding="utf-8")
     assert "APP_PORT" in gap_prompt and "APP_HOST" in gap_prompt and "APP_MODE" not in gap_prompt
     assert "src/app.py:7" in gap_prompt and '"doc": "g001"' in gap_prompt
+    # the edit example names the target doc; only the in-scope docs count as documentation
+    assert '"id": "g001-e01", "doc": "README.md"' in gap_prompt
+    assert "each edit's `doc` is `README.md`" in gap_prompt
+    assert "\n- README.md\n- docs/guide.md\n" in gap_prompt and "CHANGELOG.md" not in gap_prompt
+    assert "Changelogs, release notes, history, licences, specs and plans" in gap_prompt
     review = Path(by_id["u002"]["prompt"]).read_text(encoding="utf-8")
     assert "docs/guide.md (30 lines): lines 1-10, 20-30" in review
     assert "u003" not in review
@@ -160,6 +169,9 @@ def test_review_prompt_contains_anchors_and_diff_on_later_run(tmp_path: Path) ->
     assert "--- src/app.py" in text
     assert "@@ -2,1 +2,1 @@\n-    return 0\n+    return 1" in text
     assert "Your scope" in text
+    # true of a --base run as well as of a run since the last check
+    assert f"Since commit {SHA[:9]}, the code below changed." in text
+    assert "last checked" not in text
     assert "- README.md (3 lines): lines 1-3; changed sections: 1-3" in text
     assert ("`stop` (README.md line 2) -> no longer defined; was src/app.py:4-5 at commit "
             f"{SHA[:9]}") in text
@@ -207,6 +219,8 @@ def test_prompts_carry_mandatory_sentences(tmp_path: Path) -> None:
     for needed in ("1. ", "5. ", "other software", "minimal", "guarantee", "`anchor` edit",
                    "not merely a related one"):
         assert needed in verify_text
+    # the add and remove rules narrow the five conditions, they do not replace them
+    assert verify_text.count("conditions 2 to 5 still apply") == 2
 
 
 def test_plan_verify_caps_batches_and_shows_doc_context(tmp_path: Path) -> None:
@@ -266,6 +280,9 @@ def test_validate_gap_requires_add_edits_and_known_refusal_kinds() -> None:
     assert dd_dispatch.validate_gap({**good, "refusals": [{"name": "X", "kind": "nope",
                                                            "reason": "r"}]})
     assert dd_dispatch.validate_gap({"doc": "g001", "edits": []})
+    for wrong in ("g001", " "):
+        edit = _edit("g001-e01", type="add", doc=wrong)
+        assert any("target doc" in p for p in dd_dispatch.validate_gap({**good, "edits": [edit]}))
 
 
 def test_validate_verdicts_requires_every_id_once() -> None:
@@ -330,9 +347,10 @@ def test_collect_verdicts_marks_unchecked_batches_unverified(tmp_path: Path) -> 
     assert read_json(workdir / "verdicts.json") == result
 
 
-def test_plan_docs_requires_inputs(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ["units.json", "gaps.json", "changes.json", "inventory.json"])
+def test_plan_docs_requires_inputs(tmp_path: Path, name: str) -> None:
     root, workdir = _tree(tmp_path)
-    (workdir / "gaps.json").unlink()
+    (workdir / name).unlink()
     with pytest.raises(dd_dispatch.StepError) as caught:
         dd_dispatch.plan_docs(root, workdir, _config())
     assert caught.value.code == dd_dispatch.EXIT_MISSING
