@@ -246,6 +246,7 @@ def _wd(tmp_path: Path, *, check: bool = False, mode: str = "first",
                          "last_run_source": None if mode == "first" else "commit",
                          "scope": "first" if mode == "first" else f"since {HEAD}",
                          "changed_files": ["a.py", "b.py"], "hunks": [{}, {}, {}],
+                         "review": {"docs/a.md": [[1, 9]]},
                          "affected": {"docs/a.md": {"anchor_reasons": [1, 2], "missing": [1],
                                                     "doc_changed": True}}},
         "units.json": {"units": [{"id": "u001"}, {"id": "u002"}, {"id": "u003"}],
@@ -450,6 +451,31 @@ def test_early_stop_says_not_run(tmp_path: Path) -> None:
     assert "not run" in _section(text, "Edits proposed")[0]
     assert "no review output" in "\n".join(_section(text, "Claims checked"))
     assert "not reviewed" in "\n".join(_section(text, "Checkability"))
+
+
+def test_stale_markers_not_run_without_anchors(tmp_path: Path) -> None:
+    wd = _wd(tmp_path)
+    (wd / "anchors.json").unlink()
+    markers = _section(render(wd), "Markers")
+    assert "stale markers: not run" in markers
+    assert "- README.md:9" not in markers
+
+
+def test_nothing_to_review_is_stated(tmp_path: Path) -> None:
+    empty = {"mode": "later", "last_run": HEAD, "last_run_source": "commit",
+             "scope": f"since {HEAD}", "changed_files": [], "hunks": [], "affected": {},
+             "review": {}}
+    wd = _wd(tmp_path, **{"changes.json": empty})
+    gaps = {"candidates": [], "lists": [], "gaps": [], "targets": [], "no_home": [],
+            "unchecked": []}
+    write_json(wd / "gaps.json", gaps)
+    both = "No doc was affected and no gap candidate exists; no agent was dispatched."
+    assert both in _section(render(wd), "Review units")
+    write_json(wd / "gaps.json", {**gaps, "targets": ["docs/a.md"]})
+    only = "No doc was affected; no review agent was dispatched."
+    assert only in _section(render(wd), "Review units")
+    assert both not in render(wd)
+    assert only not in render(_wd(tmp_path / "f"))
 
 
 def test_phase_a_redacts_repository_strings(tmp_path: Path) -> None:

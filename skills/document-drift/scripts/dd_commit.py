@@ -275,7 +275,8 @@ def render_bullet(edit: dict[str, Any], line: int | None = None) -> str:
     return _line(f"- {where} {text}")
 
 
-def _human_line(entry: dict[str, Any]) -> str:
+def human_line(entry: dict[str, Any]) -> str:
+    """One redacted `- doc:line kind: text (evidence)` line of a Human-decision entry."""
     evidence = ", ".join(str(e) for e in entry.get("evidence") or [])
     tail = f" ({evidence})" if evidence else ""
     return _line(f"- {entry['doc']}:{entry['line']} {entry['kind']}: {entry['text']}{tail}")
@@ -293,7 +294,7 @@ def render_message(kind: str, bullets: list[str], *, run_id: str, base: str, sco
              f"Drift-Unchecked: {units} doc units, {gap_docs} gap docs, {batches} verify batches",
              "", *bullets]
     if human:
-        lines += ["", "Needs a human decision:", *(_human_line(h) for h in human)]
+        lines += ["", "Needs a human decision:", *(human_line(h) for h in human)]
     if trailers:
         lines += ["", *trailers]
     return "\n".join(_line(x) if x else x for x in lines) + "\n"
@@ -373,7 +374,7 @@ def _count(value: Any) -> int:
     return len(value) if isinstance(value, list) else int(value or 0)
 
 
-def _gap_kind(edit: dict[str, Any], gaps: list[dict[str, Any]]) -> str:
+def gap_kind(edit: dict[str, Any], gaps: list[dict[str, Any]]) -> str:
     """Kind of the gap an ``add`` edit documents: the ``gaps.json`` gap whose name equals the
     edit's ``subject`` (backticks and spaces stripped, both sides ``dd_defindex.norm``ed),
     preferring the one targeting the edit's doc. No match raises ``StepError``."""
@@ -384,6 +385,10 @@ def _gap_kind(edit: dict[str, Any], gaps: list[dict[str, Any]]) -> str:
         raise StepError(f"add edit {edit['id']} names {edit.get('subject')!r}, which matches no "
                         "gap in gaps.json", EXIT_MISSING)
     return str(same[0]["kind"])
+
+
+_human_line = human_line
+_gap_kind = gap_kind
 
 
 def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: str,
@@ -434,7 +439,7 @@ def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: s
         docs: set[str] = set()
         for edit in group:
             if edit["type"] == "add":
-                edit = {**edit, "gap_kind": _gap_kind(edit, gaps)}
+                edit = {**edit, "gap_kind": gap_kind(edit, gaps)}
             bullets.append(render_bullet(edit))
             docs.add(edit["doc"])
             for link in sorted((u for u in links if u["edit"] == edit["id"]),

@@ -30,9 +30,9 @@ from pathlib import Path
 from typing import Any
 
 from dd_commit import (
-    _gap_kind,
-    _human_line,
     collect_human,
+    gap_kind,
+    human_line,
     render_bullet,
     render_bullets,
     render_human,
@@ -329,7 +329,15 @@ def _change_set(changes: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _units_section(units: dict[str, Any] | None, edits: dict[str, Any] | None) -> list[str]:
+def _units_section(units: dict[str, Any] | None, edits: dict[str, Any] | None,
+                   changes: dict[str, Any] | None, gaps: dict[str, Any] | None,
+                   first: bool) -> list[str]:
+    if changes is not None and not first and not changes.get("review"):
+        none = "No doc was affected"
+        if gaps is not None and not gaps.get("targets"):
+            return ["Review units", f"{none} and no gap candidate exists; "
+                    "no agent was dispatched."]
+        return ["Review units", f"{none}; no review agent was dispatched."]
     if units is None:
         return ["Review units", NOT_RUN]
     by_cap = {str(u) for u in units.get("unchecked", [])}
@@ -409,7 +417,7 @@ def _human_section(workdir: Path, root: Path | None, edits: dict[str, Any] | Non
     found = collect_human(workdir, root)
     lines = ["Needs a human decision", f"entries: {len(found)}"]
     for entry in found:
-        text = _human_line(entry)
+        text = human_line(entry)
         lines.append(text if entry["doc"] else text.replace("- :0 ", "- ", 1))
     return lines
 
@@ -431,8 +439,11 @@ def _markers_section(tokens: dict[str, Any] | None, anchors: dict[str, Any] | No
 
     lines = ["Markers", f"markers without reasons: {len(bare)}"]
     lines += [f"- {_r(d)}:{n}" for d, n in sorted(where(m) for m in bare)]
-    lines.append(f"stale markers: {len(stale)}")
-    lines += [f"- {_r(d)}:{n}" for d, n in sorted(where(m) for m in stale)]
+    if anchors is None:
+        lines.append(f"stale markers: {NOT_RUN}")
+    else:
+        lines.append(f"stale markers: {len(stale)}")
+        lines += [f"- {_r(d)}:{n}" for d, n in sorted(where(m) for m in stale)]
     notes = sorted((str(s["doc"]), int(s["line"]), str(s.get("reason")))
                     for s in (notices or {}).get("stale", []))
     lines.append(f"stale notices: {len(notes)}")
@@ -455,7 +466,7 @@ def _result_section(workdir: Path, check: bool, edits: dict[str, Any] | None,
         lines.append("Planned edits:")
         for edit in planned:
             if edit["type"] == "add":
-                edit = {**edit, "gap_kind": _gap_kind(edit, (gaps or {}).get("gaps", []))}
+                edit = {**edit, "gap_kind": gap_kind(edit, (gaps or {}).get("gaps", []))}
             lines.append(render_bullet(edit))
         lines.append("Exit: 1 (accepted edits exist)" if planned else "Exit: 0")
     return lines
@@ -500,7 +511,8 @@ def render(workdir: Path, root: Path | None = None) -> str:
                 _notice_loop(notices, notice_effect)]
     if changes and not first:
         sections.append(_change_set(changes))
-    sections += [_units_section(_opt(workdir, "units.json"), edits), _claims_section(workdir),
+    units = _opt(workdir, "units.json")
+    sections += [_units_section(units, edits, changes, gaps, first), _claims_section(workdir),
                  _edits_section(edits), _checks_section(edits), _verdicts_section(verdicts),
                  _applied_section(applied_doc, check), _gaps_section(gaps, edits),
                  _human_section(workdir, root, edits),
