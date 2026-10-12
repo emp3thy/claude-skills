@@ -1,6 +1,6 @@
 {
  "unit": "u001",
- "claims_checked": 24,
+ "claims_checked": 27,
  "code_claims": {"README.md": 5, "docs/cli.md": 10, "docs/configuration.md": 4,
                  "docs/design.md": 3, "docs/operations.md": 1, "docs/tools.md": 4},
  "unverified_blocks": [],

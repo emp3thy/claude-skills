@@ -67,10 +67,10 @@
    "expect": ["anchors"]},
   {"id": "p11", "state": 2, "doc": "README.md", "line": 9, "kind": "default-value",
    "what": "--port's default becomes 9090; the README line the state-1 run fixed to 8080 is affected through its --port anchor",
-   "expect": ["affected", "edit:correct"]},
+   "expect": ["affected:anchor", "edit:correct"]},
   {"id": "p12", "state": 2, "doc": "docs/design.md", "line": 5, "kind": "rename",
    "what": "storage.connect is renamed open_store; design.md names `storage.connect`, which no longer resolves",
-   "expect": ["affected", "edit:correct"]},
+   "expect": ["affected:missing", "edit:correct"]},
   {"id": "p13", "state": 2, "doc": "src/svc/cli.py", "line": 19, "name": "--timeout",
    "kind": "new-flag",
    "what": "serve gains --timeout, which docs/operations.md mentions; the serve flag table in docs/cli.md lists 3 of 4 flags",
@@ -78,8 +78,17 @@
   {"id": "d8", "state": 2, "doc": "docs/storage.md", "line": 3, "kind": "decoy",
    "what": "a line changes inside Store.get's body (Store spans over 60 lines); storage.md names only `Store`",
    "expect": ["not-affected"]},
+  {"id": "d8b", "state": 2, "doc": "docs/storage.md", "line": 3, "kind": "decoy",
+   "what": "storage.md's `Store` still anchors at state 2, so d8 is not-affected by its change ranges, not for want of an anchor",
+   "expect": ["anchors"]},
   {"id": "d9", "state": 2, "doc": "docs/untouched.md", "line": 1, "kind": "decoy",
    "what": "names only routes.py functions and routes, none of which change",
-   "expect": ["not-reviewed"]}
+   "expect": ["not-reviewed"]},
+  {"id": "d9b", "state": 2, "doc": "docs/untouched.md", "line": 6, "kind": "decoy",
+   "what": "untouched.md's `get_item` anchors at state 2, so d9 is not reviewed although it names code",
+   "expect": ["anchors"]},
+  {"id": "p10b", "state": 2, "doc": "docs/design.md", "line": 14, "kind": "unverified-block",
+   "what": "the p10 block, unchanged and unanswered since its 1st notice, escalates to a 2nd notice",
+   "expect": ["notice:2nd"]}
  ]
 }

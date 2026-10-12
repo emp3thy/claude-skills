@@ -13,9 +13,11 @@ run of ``table_row``/``table_delim`` blocks):
 - ``escalate``: a 1st notice becomes a 2nd notice for the current run;
 - ``remove``: a 2nd notice and its block are removed (an edit of type ``unverified``).
 
-A notice whose run id sorts after the current run id, a line starting with
-``<!-- drift-unverified:`` that does not match the grammar, a notice with no block below it,
-and all but the lowest of several notices over one block are ``stale``: listed, left alone.
+A notice whose run id is dated after the current run id (only the ``YYYY-MM-DD`` date prefix
+is compared: two runs of one day differ only by a hash suffix, which orders nothing), a line
+starting with ``<!-- drift-unverified:`` that does not match the grammar, a notice with no
+block below it, and all but the lowest of several notices over one block are ``stale``:
+listed, left alone.
 Notices inside code blocks are examples and are not read.
 
 ``run_verify`` turns the review agents' nominations into 1st notices. A nominated range is
@@ -69,6 +71,11 @@ class Notice(TypedDict):
     stage: int
     run: str
     hash: str
+
+
+def _run_date(run_id: str) -> str:
+    """The ``YYYY-MM-DD`` date a run id starts with (the whole id when it is shorter)."""
+    return run_id[:10]
 
 
 def parse_notice(line: str) -> Notice | None:
@@ -176,7 +183,7 @@ def decide(doc: str, text: str, anchors_for_doc: Sequence[Mapping[str, Any]],
         notice = parse_notice(sc.lines[line - 1])
         block = block_below(sc, line)
         reason = (STALE_MALFORMED if notice is None
-                  else STALE_FUTURE if notice["run"] > run_id
+                  else STALE_FUTURE if _run_date(notice["run"]) > _run_date(run_id)
                   else STALE_NO_BLOCK if block is None else None)
         if reason is not None or notice is None or block is None:
             stale.append({"doc": doc, "line": line, "reason": reason})

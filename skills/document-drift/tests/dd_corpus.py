@@ -29,7 +29,10 @@ expectations, all judged by ``evaluate`` on the run of the item's state:
 - ``none``: no applied edit covering the doc line, no human entry on it or naming the item's
   ``name``, no gap for the ``name`` or aimed at the doc line;
 - ``excluded``: the doc is in ``inventory.json`` ``excluded``;
-- ``affected`` / ``not-affected``: the doc is / is not in ``changes.json`` ``affected``;
+- ``affected`` / ``not-affected``: the doc is / is not in ``changes.json`` ``affected`` (for
+  any reason, its own change included); ``affected:anchor`` / ``affected:missing``: the doc's
+  ``affected`` entry has an ``anchor_reasons`` / ``missing`` entry on the doc line, so the code
+  change itself reached the line;
 - ``not-reviewed``: no unit of ``units.json`` holds the doc;
 - ``anchors``: ``anchors.json`` has an anchor on the doc line;
 - ``not-about-code``: the doc's ``code_claims`` in ``edits.json`` is 0;
@@ -56,7 +59,7 @@ from dd_make_history import CORPUS_ROOT, continue_fixture, replay_fixture
 
 FIXTURES: tuple[str, ...] = ("py-service",)  # the phase A fixtures; ts-web and go-cli follow
 CANNED_ROOT = Path(__file__).resolve().parent / "canned"
-DATES = {1: "2026-01-02", 2: "2026-01-09"}  # state 2's run id must sort after state 1's
+DATES = {1: "2026-01-02", 2: "2026-01-09"}  # each state's run date (--date)
 ROLE_DIRS = {"review": "review", "gap": "gaps", "verify": "verdicts"}
 STATES = (1, 2)
 
@@ -286,11 +289,29 @@ def _expect_excluded(item: dict[str, Any], workdir: Path, _arg: str) -> str | No
     return None if item.get("doc") in excluded else f"{item.get('doc')} is not excluded"
 
 
-def _expect_affected(item: dict[str, Any], workdir: Path, want: bool) -> str | None:
+AFFECTED_REASONS = {"anchor": "anchor_reasons", "missing": "missing"}
+
+
+def _expect_affected(item: dict[str, Any], workdir: Path, arg: str) -> str | None:
     affected = _json(workdir, "changes.json").get("affected", {})
-    if (item.get("doc") in affected) is want:
+    entry = affected.get(item.get("doc"))
+    if entry is None:
+        return f"{item.get('doc')} is not affected"
+    if not arg:
         return None
-    return f"{item.get('doc')} is {'not ' if want else ''}affected"
+    key = AFFECTED_REASONS.get(arg)
+    if key is None:
+        return f"unknown affected reason {arg!r}"
+    if any(r["line"] == item.get("line") for r in entry[key]):
+        return None
+    return (f"{item.get('doc')} is affected, but no {key} entry is on line {item.get('line')}; "
+            f"found {[(r['line'], r['ref']) for r in entry[key]]}")
+
+
+def _expect_not_affected(item: dict[str, Any], workdir: Path, _arg: str) -> str | None:
+    if item.get("doc") in _json(workdir, "changes.json").get("affected", {}):
+        return f"{item.get('doc')} is affected"
+    return None
 
 
 def _expect_not_reviewed(item: dict[str, Any], workdir: Path, _arg: str) -> str | None:
@@ -349,8 +370,8 @@ JUDGES: dict[str, Judge] = {
     "dropped": _expect_dropped,
     "none": _expect_none,
     "excluded": _expect_excluded,
-    "affected": lambda item, workdir, _arg: _expect_affected(item, workdir, True),
-    "not-affected": lambda item, workdir, _arg: _expect_affected(item, workdir, False),
+    "affected": _expect_affected,
+    "not-affected": _expect_not_affected,
     "not-reviewed": _expect_not_reviewed,
     "anchors": _expect_anchors,
     "not-about-code": _expect_not_about_code,

@@ -209,6 +209,16 @@ def test_future_notice_is_stale() -> None:
     assert stale == [] and [d["action"] for d in decisions] == ["escalate"]
 
 
+def test_same_date_notice_is_not_stale_whatever_its_suffix() -> None:
+    # run ids are dated; only the date orders them, so an earlier run of the same day whose
+    # hash suffix sorts after the current one's is not a future run
+    later_suffix = render_notice(1, "2026-10-19-ffff", _h(PROSE))
+    assert RUN < "2026-10-19-ffff"
+    decisions, edits, stale = decide("a.md", _doc(later_suffix, PROSE), [], [], RUN)
+    assert stale == [] and [d["action"] for d in decisions] == ["escalate"]
+    assert [e["type"] for e in edits] == ["escalate"]
+
+
 def test_malformed_notice_is_stale() -> None:
     good = render_notice(1, PREV, _h(PROSE))
     text = _doc("<!-- drift-unverified: 1st notice, run x, block zz. hand made -->", "Para one.",

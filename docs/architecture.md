@@ -871,8 +871,8 @@ where the hash is the first 8 hex digits of the SHA-256 of the block's whitespac
 text. On every run the script reads each notice: an anchored block, a changed hash or a
 `drift-ignore` marker clears it; an unchanged 1st notice becomes a 2nd notice and an
 `unverified` human-decision entry; an unchanged 2nd notice removes the block and its notice. A
-malformed notice, or one whose run id is newer than the current run, is listed as stale and
-left alone. Notice edits go through the script checks but not to a verifier.
+malformed notice, or one whose run id is dated after the current run's date, is listed as stale
+and left alone. Notice edits go through the script checks but not to a verifier.
 
 ### Code to docs
 

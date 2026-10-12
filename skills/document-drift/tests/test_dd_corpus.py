@@ -70,6 +70,16 @@ def test_every_item_has_an_expectation() -> None:
 
 
 @pytest.mark.parametrize("name", FIXTURES, ids=[_id(n) for n in FIXTURES])
+def test_state2_run_starts_from_the_merged_drift_base(
+        name: str, runs: Callable[[str, int], Workdir]) -> None:
+    # the state-1 run's Drift-Base trailer is found through the --no-ff merge, not the record
+    changes = read_json(runs(name, 2).path / "changes.json")
+    state1 = git(runs(name, 2).repo, "rev-parse", "state1").strip()
+    assert (changes["mode"], changes["last_run_source"], changes["last_run"]) == (
+        "later", "commit", state1)
+
+
+@pytest.mark.parametrize("name", FIXTURES, ids=[_id(n) for n in FIXTURES])
 def test_invalid_output_exits_3_then_retried_marks_unchecked(name: str,
                                                              tmp_path: Path) -> None:
     invalid = sorted(p.stem for p in (CANNED_ROOT / name / "state1-invalid").glob("*.json"))
