@@ -35,6 +35,7 @@ class Unit(TypedDict):
     anchors: list[Anchor]
     hunks: list[Hunk]
     size: int
+    affected_anchors: int
 
 
 def _lines(ranges: Iterable[Sequence[int]]) -> int:
@@ -76,6 +77,16 @@ def _size(docs: Sequence[UnitDoc], anchors: Sequence[Anchor], hunks: Mapping[str
             for miss in affected.get(d["doc"], {}).get("missing", []):
                 reading[(miss["file"], miss["start"])] = miss["reading"]
     return total + sum(_lines([r]) for r in reading.values())
+
+
+def _affected_count(anchors: Sequence[Anchor], mode: str, affected: Mapping[str, Any]) -> int:
+    """Anchors in the unit; on a later run only those named in ``anchor_reasons`` or
+    ``missing`` of their doc's affected entry."""
+    if mode == "first":
+        return len(anchors)
+    named = {(doc, r["line"], r["ref"]) for doc, entry in affected.items()
+             for r in [*entry.get("anchor_reasons", []), *entry.get("missing", [])]}
+    return sum(1 for a in anchors if (a["doc"], a["line"], a["ref"]) in named)
 
 
 def _groups(docs: Sequence[str], anchors: Sequence[Anchor]) -> list[list[str]]:
@@ -141,7 +152,7 @@ def build(review: Mapping[str, Sequence[Sequence[int]]], anchors: Iterable[Ancho
         doc_anchors = by_doc.get(doc, [])
         if piece is not None:
             ranges = _clip(ranges, piece)
-            doc_anchors = [a for a in doc_anchors if _in_ranges(a["line"], ranges)]
+            doc_anchors = [a for a in doc_anchors if piece[0] <= a["line"] <= piece[1]]
         return {"doc": doc, "ranges": ranges}, doc_anchors
 
     def unit_of(parts: Sequence[_Part]) -> Unit:
@@ -149,7 +160,8 @@ def build(review: Mapping[str, Sequence[Sequence[int]]], anchors: Iterable[Ancho
         unit_anchors = [a for p in parts for a in p[1]]
         return {"id": "", "docs": docs, "anchors": unit_anchors,
                 "hunks": _hunks_for(unit_anchors, hunks) if mode != "first" else [],
-                "size": _size(docs, unit_anchors, hunks, mode, found)}
+                "size": _size(docs, unit_anchors, hunks, mode, found),
+                "affected_anchors": _affected_count(unit_anchors, mode, found)}
 
     units: list[Unit] = []
     current: list[_Part] = []
@@ -185,11 +197,11 @@ def build(review: Mapping[str, Sequence[Sequence[int]]], anchors: Iterable[Ancho
 
 
 def order_for_cap(units: Sequence[Unit]) -> list[Unit]:
-    """README/CLAUDE/AGENTS units first, then more anchors first, then by id."""
+    """README/CLAUDE/AGENTS units first, then more affected anchors first, then by id."""
     def root_doc(unit: Unit) -> bool:
         return any(d["doc"].rsplit("/", 1)[-1].lower() in ROOT_DOCS for d in unit["docs"])
 
-    return sorted(units, key=lambda u: (not root_doc(u), -len(u["anchors"]), u["id"]))
+    return sorted(units, key=lambda u: (not root_doc(u), -u["affected_anchors"], u["id"]))
 
 
 def run(root: Path, workdir: Path, config: Mapping[str, Any]) -> dict[str, Any]:

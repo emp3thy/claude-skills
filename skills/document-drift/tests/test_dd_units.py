@@ -77,7 +77,8 @@ def test_later_run_size_counts_hunks() -> None:
 
 def make_unit(uid: str, doc: str, anchors: int) -> dd_units.Unit:
     return {"id": uid, "docs": [{"doc": doc, "ranges": [[1, 1]]}],
-            "anchors": [anchor(doc, i) for i in range(anchors)], "hunks": [], "size": 1}
+            "anchors": [anchor(doc, i) for i in range(anchors)], "hunks": [], "size": 1,
+            "affected_anchors": anchors}
 
 
 def test_cap_order_puts_readme_first() -> None:
@@ -108,3 +109,31 @@ def test_run_writes_units_with_cap(tmp_path: Path) -> None:
     assert [u["id"] for u in result["units"]] == ["u001", "u003"]
     assert result["unchecked"] == ["u002"]
     assert read_json(work / "units.json") == result
+
+
+def test_cap_order_counts_affected_anchors_on_later_run() -> None:
+    anchors = [anchor("a.md", i, start=i) for i in range(1, 6)]
+    anchors += [anchor("b.md", i, file="src/b.py", start=i) for i in range(1, 3)]
+    affected = {
+        "a.md": {"anchor_reasons": [{"ref": "x", "line": 1, "file": "src/a.py", "hunk": 0}],
+                 "missing": []},
+        "b.md": {"anchor_reasons": [{"ref": "x", "line": 1, "file": "src/b.py", "hunk": 0}],
+                 "missing": [{"ref": "x", "line": 2, "file": "src/b.py", "start": 2,
+                              "end": 3, "reading": [2, 3]}]}}
+    units = dd_units.build(whole("a.md", "b.md"), anchors, {}, "later", {}, 10, affected)
+    assert [(u["id"], len(u["anchors"]), u["affected_anchors"]) for u in units] == [
+        ("u001", 5, 1), ("u002", 2, 2)]
+    assert [u["id"] for u in dd_units.order_for_cap(units)] == ["u002", "u001"]
+    first = dd_units.build(whole("a.md", "b.md"), anchors, {}, "first", {}, 10)
+    assert [u["affected_anchors"] for u in first] == [5, 2]
+
+
+def test_split_piece_anchors_follow_the_piece_not_the_ranges() -> None:
+    text = "# T\n## A\na1\na2\n## B\nb1\nb2\n"
+    anchors = [anchor("d.md", 3), anchor("d.md", 4, file="src/b.py"),
+               anchor("d.md", 7, file="src/c.py")]
+    # reviewed range covers only line 3 of piece A (lines 1-4) and line 7 of piece B (5-7)
+    review = {"d.md": [[3, 3], [7, 7]]}
+    units = dd_units.build(review, anchors, {}, "first", {"d.md": text}, 1)
+    assert [u["docs"][0]["ranges"] for u in units] == [[[3, 3]], [[7, 7]]]
+    assert [[a["line"] for a in u["anchors"]] for u in units] == [[3, 4], [7]]
