@@ -12,9 +12,12 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import dd_commit
+import dd_run
+import dd_summary
 import dd_units
 import pytest
-from dd_common import read_json
+from dd_common import EXIT_MISSING, StepError, read_json
 from dd_helpers import make_repo
 from dd_run import main
 from dd_unverified import block_hash, render_notice
@@ -377,6 +380,7 @@ def test_crashed_step_exits_5(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     err = capsys.readouterr().err
     assert "step units crashed: RuntimeError: kaboom" in err
     assert "Traceback" in err
+    assert "git status" not in err  # nothing was edited at start
     assert _run(repo, "verify") == 2  # an unfinished start is not a start
 
 
@@ -399,3 +403,91 @@ def test_unknown_base_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[s
     repo = _repo(tmp_path)
     assert _run(repo, "start", "--base", "no-such-ref") == 2
     assert "--base" in capsys.readouterr().err
+
+
+HINT = "docs may already be edited and the branch may exist: check git status and git branch"
+
+
+def test_commit_step_exit_5_names_the_step_and_points_to_git(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    _through_verify(repo)
+
+    def refuse(*_args: object) -> None:
+        raise StepError("add edit g001-e01 names 'X', which matches no gap", EXIT_MISSING)
+
+    monkeypatch.setattr(dd_commit, "run", refuse)
+    capsys.readouterr()
+    assert _run(repo, "finish") == 5
+    err = capsys.readouterr().err
+    assert "error: step commit: add edit g001-e01" in err and HINT in err
+    assert "It retries 3 times" in (repo / "README.md").read_text(encoding="utf-8")
+    assert not (repo / ".document-drift" / "last-run.json").exists()
+
+
+def test_summary_crash_after_the_commits_still_finishes_the_run(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    _through_verify(repo)
+
+    def boom(*_args: object) -> None:
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(dd_summary, "run", boom)
+    capsys.readouterr()
+    assert _run(repo, "finish") == 5
+    err = capsys.readouterr().err
+    assert "step summary crashed: RuntimeError: kaboom" in err and HINT in err
+    workdir = repo / ".document-drift"
+    assert read_json(workdir / "preflight.json")["stage"] == "finish"
+    assert read_json(workdir / "last-run.json")["committed"] is True
+    assert _run(repo, "finish") == 2
+
+
+@pytest.mark.parametrize("stage", ["start", "finish"])
+def test_crash_outside_a_step_points_to_git_only_at_finish(
+        tmp_path: Path, stage: str, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    if stage == "finish":
+        _through_verify(repo)
+
+    def broken(_text: str) -> None:
+        raise OSError("stdout closed")
+
+    monkeypatch.setattr(dd_run, "_write_stdout", broken)
+    capsys.readouterr()
+    assert _run(repo, stage) == 5
+    err = capsys.readouterr().err
+    assert f"the {stage} stage crashed outside a step: OSError: stdout closed" in err
+    assert (HINT in err) is (stage == "finish")
+
+
+def test_refused_start_keeps_the_previous_run(tmp_path: Path,
+                                              capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    _through_verify(repo)
+    assert _run(repo, "finish") == 0
+    _git(repo, "switch", "-q", "main")
+    capsys.readouterr()
+    assert _run(repo, "start") == 2  # the drift branch of this date exists
+    assert "already exists" in capsys.readouterr().err
+    workdir = repo / ".document-drift"
+    for name in ("applied.json", "commits.json", "edits.json", "summary.md", "last-run.json"):
+        assert (workdir / name).is_file(), name
+    assert not (workdir / "preflight.json").exists()
+    assert _run(repo, "verify") == 2
+
+
+def test_untracked_files_hidden_by_status_config_are_compared_too(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _git(repo, "config", "status.showUntrackedFiles", "no")
+    (repo / "notes.txt").write_text("before the run\n", encoding="utf-8")
+    _through_verify(repo)  # preflight's clean check does not see notes.txt
+    assert "notes.txt" in read_json(repo / ".document-drift" / "preflight.json")["dirty"]
+    (repo / "helper.py").write_text("print('agent helper')\n", encoding="utf-8")
+    assert _run(repo, "finish") == 2
+    (repo / "helper.py").unlink()
+    assert _run(repo, "finish") == 0

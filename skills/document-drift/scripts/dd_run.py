@@ -13,10 +13,12 @@ given from that record and refuse (exit 2) one that differs from it, or a stage 
 order: ``verify`` needs a completed ``start`` (or a ``verify``, which it repeats), ``finish``
 a completed ``verify``, or a ``start`` whose ``plan-docs.json`` is empty.
 
-- ``start`` deletes every pinned output (files and the ``review/``, ``gaps/``, ``verdicts/``
-  and ``prompts/`` directories; ``last-run.json`` is kept), then runs preflight, inventory,
-  extract, resolve, defindex, anchors, changes, units, patterns, gaps, the notice decisions and
-  the dispatch plan, and prints ``plan-docs.json <path> with <n> entries``. With no in-scope
+- ``start`` deletes ``preflight.json`` (a refused start leaves no started run), runs preflight
+  and, once it passes, deletes every other pinned output (files and the ``review/``,
+  ``gaps/``, ``verdicts/`` and ``prompts/`` directories; ``last-run.json`` is kept), so a
+  refused start keeps the previous run's files. Then it runs inventory, extract, resolve,
+  defindex, anchors, changes, units, patterns, gaps, the notice decisions and the dispatch
+  plan, and prints ``plan-docs.json <path> with <n> entries``. With no in-scope
   doc it stops after the inventory, writes an empty ``plan-docs.json`` and prints the phase B
   message.
 - ``verify`` validates the review and gap outputs; without ``--retried`` a missing or invalid
@@ -29,15 +31,18 @@ a completed ``verify``, or a ``start`` whose ``plan-docs.json`` is empty.
   (``dd_preflight.tree_state``). Under ``--check`` it writes the summary and exits 1 when an
   edit would apply (kept and accepted, or a kept notice edit), else 0; nothing is applied,
   committed or recorded. Otherwise it applies the edits (with the heading-link updates), makes
-  the commits, writes ``last-run.json`` (``head``, ``run_id``, ``date``, ``committed``) and the
-  summary, and exits 0. After a ``start`` with an empty plan it first runs the script checks,
-  so the notice edits ``start`` decided still apply; after a ``start`` that found no doc it
-  only writes the summary.
+  the commits, writes ``last-run.json`` (``head``, ``run_id``, ``date``, ``committed``),
+  records the stage as finished and writes the summary, and exits 0. After a ``start`` with an
+  empty plan it first runs the script checks, so the notice edits ``start`` decided still
+  apply; after a ``start`` that found no doc it only writes the summary.
 
 Each stage prints one line, or for ``finish`` the summary. Exit codes: a ``StepError`` exits
-with its own code and message; a step that does not write its output exits 5 naming the file;
-any other exception in a step prints its traceback and exits 5 naming the step. Ruling R65: an
-exception anywhere else in a stage also prints its traceback and exits 5.
+with its own code and message, except that a step's own exit 5 is reworded to name the step; a
+step that does not write its output exits 5 naming the step and the file; any other exception
+in a step prints its traceback and exits 5 naming the step. In apply, commit and the summary
+after them every exit-5 message adds that docs may already be edited and the branch may exist,
+and points to ``git status`` and ``git branch`` (spec 3.3). Ruling R65: an exception anywhere
+else in a stage also prints its traceback and exits 5 (with the same pointer at ``finish``).
 """
 from __future__ import annotations
 
@@ -90,6 +95,7 @@ OUTPUTS = (
 )
 OUTPUT_DIRS = ("review", "gaps", "verdicts", "prompts")
 NO_DOCS = "no markdown docs in scope; no-docs mode arrives in phase B"
+HINT = "; docs may already be edited and the branch may exist: check git status and git branch"
 
 
 def _date(value: str) -> str:
@@ -107,19 +113,26 @@ def run_id_for(head: str, scope: str, date: str) -> str:
     return f"{date}-{hashlib.sha256(f'{head}:{scope}:{date}'.encode()).hexdigest()[:4]}"
 
 
-def _step(name: str, workdir: Path, outputs: tuple[str, ...], call: Callable[[], Any]) -> Any:
-    """Run one step; StepError passes through, a crash or a missing output becomes exit 5."""
+def _step(name: str, workdir: Path, outputs: tuple[str, ...], call: Callable[[], Any], *,
+          edits_at_risk: bool = False) -> Any:
+    """Run one step. A crash, a missing output or the step's own exit-5 StepError becomes an
+    exit 5 naming the step (spec 3.3); ``edits_at_risk`` (apply, commit and the summary after
+    them) adds where to look, since docs may already be edited. Any other StepError passes
+    through with its own code."""
+    hint = HINT if edits_at_risk else ""
     try:
         result = call()
-    except StepError:
-        raise
+    except StepError as exc:
+        if exc.code != EXIT_MISSING:
+            raise
+        raise StepError(f"step {name}: {exc}{hint}", EXIT_MISSING) from exc
     except Exception as exc:
         traceback.print_exc(file=sys.stderr)
-        raise StepError(f"step {name} crashed: {type(exc).__name__}: {exc}",
+        raise StepError(f"step {name} crashed: {type(exc).__name__}: {exc}{hint}",
                         EXIT_MISSING) from exc
     for out in outputs:
         if not (workdir / out).is_file():
-            raise StepError(f"step {name} did not write {workdir / out}", EXIT_MISSING)
+            raise StepError(f"step {name} did not write {workdir / out}{hint}", EXIT_MISSING)
     return result
 
 
@@ -136,10 +149,12 @@ def _say_plan(workdir: Path, name: str, count: int) -> None:
     _write_stdout(f"{name} {(workdir / name).absolute().as_posix()} with {count} entries\n")
 
 
-def _clear(workdir: Path) -> None:
-    """Delete every pinned output of an earlier run, so no stale file is read again."""
+def _clear(workdir: Path, keep: tuple[str, ...] = ()) -> None:
+    """Delete every pinned output of an earlier run but ``keep``, so no stale file is read
+    again."""
     for name in OUTPUTS:
-        (workdir / name).unlink(missing_ok=True)
+        if name not in keep:
+            (workdir / name).unlink(missing_ok=True)
     for name in OUTPUT_DIRS:
         path = workdir / name
         if path.is_dir():
@@ -163,7 +178,7 @@ def _no_docs(workdir: Path) -> bool:
 def stage_start(root: Path, workdir: Path, *, base: str | None, full: bool,
                 branch: str | None, check: bool, date: str) -> int:
     """Run the ``start`` steps; write ``plan-docs.json`` and print its line."""
-    _clear(workdir)
+    (workdir / "preflight.json").unlink(missing_ok=True)  # a refused start is no started run
     config, warnings = load_config(root)
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
@@ -171,6 +186,7 @@ def stage_start(root: Path, workdir: Path, *, base: str | None, full: bool,
     pre = _step("preflight", workdir, ("preflight.json",),
                 lambda: dd_preflight.run(root, workdir, branch_name, check, base=base,
                                          full=full, date=date))
+    _clear(workdir, keep=("preflight.json",))  # only now: a refused start keeps the last run
     head = str(pre["head"])
     _step("inventory", workdir, ("inventory.json",),
           lambda: dd_inventory.run(root, workdir, config))
@@ -277,14 +293,13 @@ def _tree_check(root: Path, workdir: Path, pre: dict[str, Any]) -> None:
 def _would_apply(workdir: Path) -> bool:
     """An edit that a run without ``--check`` would apply: kept and accepted, or a kept notice
     edit (no verdict needed)."""
-    verdicts = read_json(workdir / "verdicts.json")["verdicts"]
-    accepted = {eid for eid, v in verdicts.items() if v.get("verdict") == "accept"}
-    return any(e.get("status") == "kept" and (e.get("source") == "notice" or e["id"] in accepted)
-               for e in read_json(workdir / "edits.json")["edits"])
+    return bool(dd_apply.selected_edits(read_json(workdir / "edits.json")["edits"],
+                                        read_json(workdir / "verdicts.json")["verdicts"]))
 
 
-def _summary(root: Path, workdir: Path) -> str:
-    return str(_step("summary", workdir, ("summary.md",), lambda: dd_summary.run(workdir, root)))
+def _summary(root: Path, workdir: Path, edits_at_risk: bool = False) -> str:
+    return str(_step("summary", workdir, ("summary.md",), lambda: dd_summary.run(workdir, root),
+                     edits_at_risk=edits_at_risk))
 
 
 def stage_finish(root: Path, workdir: Path, *, retried: bool,
@@ -319,16 +334,18 @@ def stage_finish(root: Path, workdir: Path, *, retried: bool,
         _record(workdir, stage="finish")
         _write_stdout(text)
         return EXIT_FOUND if _would_apply(workdir) else EXIT_OK
-    _step("apply", workdir, ("applied.json",), lambda: dd_apply.apply_edits(root, workdir))
+    _step("apply", workdir, ("applied.json",), lambda: dd_apply.apply_edits(root, workdir),
+          edits_at_risk=True)
     trailers = [str(t) for t in config.get("commit_trailers", [])]
     head, run_id = str(pre["head"]), str(pre["run_id"])
     commits = _step("commit", workdir, ("commits.json",),
                     lambda: dd_commit.run(root, workdir, str(pre["branch"]), run_id, head,
-                                          str(pre["scope"]), trailers))
+                                          str(pre["scope"]), trailers),
+                    edits_at_risk=True)
     write_json(workdir / "last-run.json", {"head": head, "run_id": run_id, "date": pre["date"],
                                            "committed": bool(commits["commits"])})
-    text = _summary(root, workdir)
-    _record(workdir, stage="finish")
+    _record(workdir, stage="finish")  # the run is done; a failing summary does not undo that
+    text = _summary(root, workdir, edits_at_risk=True)
     _write_stdout(text)
     return EXIT_OK
 
@@ -365,8 +382,9 @@ def main(argv: list[str] | None = None) -> int:
         return exc.code
     except Exception as exc:  # ruling R65: never exit 1 (reserved for --check) on a crash
         traceback.print_exc(file=sys.stderr)
+        hint = HINT if args.stage == "finish" else ""
         print(f"error: the {args.stage} stage crashed outside a step: "
-              f"{type(exc).__name__}: {exc}; check git status and git branch", file=sys.stderr)
+              f"{type(exc).__name__}: {exc}{hint}", file=sys.stderr)
         return EXIT_MISSING
 
 

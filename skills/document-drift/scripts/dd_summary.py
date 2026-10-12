@@ -18,6 +18,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from dd_apply import selected_edits
 from dd_commit import collect_human, gap_kind, human_line, render_bullet
 from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json
 from dd_redaction import redact
@@ -40,16 +41,6 @@ def _r(value: Any) -> str:
 
 def _counted(counter: Counter[str]) -> list[str]:
     return [f"- {_r(k)}: {counter[k]}" for k in sorted(counter)]
-
-
-def _in_effect(edit: dict[str, Any], check: bool, applied: set[str],
-               accepted: set[str]) -> bool:
-    """An edit that was applied, or under ``--check`` would be: kept and accepted, or a kept
-    notice-loop edit (no verdict needed)."""
-    if not check:
-        return str(edit["id"]) in applied
-    return edit.get("status") == "kept" and (edit.get("source") == "notice"
-                                             or str(edit["id"]) in accepted)
 
 
 def _plural(n: int, noun: str) -> str:
@@ -335,11 +326,13 @@ def render(workdir: Path, root: Path | None = None) -> str:
     verdicts, gaps = _opt(workdir, "verdicts.json"), _opt(workdir, "gaps.json")
     applied_doc = _opt(workdir, "applied.json")
     applied = {str(x) for x in (applied_doc or {}).get("applied", [])}
-    accepted = {eid for eid, v in (verdicts or {}).get("verdicts", {}).items()
-                if v.get("verdict") == "accept"}
     all_edits: list[dict[str, Any]] = (edits or {}).get("edits") or (notices or {}).get(
         "edits", [])
-    effect = {str(e["id"]) for e in all_edits if _in_effect(e, check, applied, accepted)}
+    if check:  # what a run without --check would apply
+        effect = {str(e["id"])
+                  for e in selected_edits(all_edits, (verdicts or {}).get("verdicts", {}))}
+    else:
+        effect = {str(e["id"]) for e in all_edits if str(e["id"]) in applied}
     notice_ids = {str(e["id"]) for e in (notices or {}).get("edits", [])}
     notice_effect = effect & notice_ids
     anchor_edits = Counter(str(e["doc"]) for e in all_edits

@@ -36,7 +36,7 @@ import shutil
 import stat
 import sys
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -353,6 +353,15 @@ def update_heading_links(root: Path, workdir: Path, applied_edits: Iterable[str]
     return updates
 
 
+def selected_edits(edits: Iterable[Mapping[str, Any]],
+                   verdicts: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """The edits a run applies: kept and accepted by their verdict, or kept notice-loop edits
+    (no verdict needed). ``verdicts`` is ``verdicts.json``'s ``verdicts`` mapping."""
+    accepted = {eid for eid, v in verdicts.items() if v.get("verdict") == "accept"}
+    return [dict(e) for e in edits
+            if e.get("status") == "kept" and (e.get("source") == "notice" or e["id"] in accepted)]
+
+
 def apply_edits(root: Path, workdir: Path) -> dict[str, Any]:
     """Apply the accepted agent edits and the kept notice edits; write ``applied.json``."""
     for name in ("inventory.json", "tokens.json", "edits.json"):
@@ -361,9 +370,7 @@ def apply_edits(root: Path, workdir: Path) -> dict[str, Any]:
     inventory = read_json(workdir / "inventory.json")
     verdicts_path = workdir / "verdicts.json"
     verdicts = read_json(verdicts_path)["verdicts"] if verdicts_path.is_file() else {}
-    accepted = {eid for eid, v in verdicts.items() if v.get("verdict") == "accept"}
-    edits = [e for e in read_json(workdir / "edits.json")["edits"]
-             if e.get("status") == "kept" and (e.get("source") == "notice" or e["id"] in accepted)]
+    edits = selected_edits(read_json(workdir / "edits.json")["edits"], verdicts)
     checker = _Checker(root, inventory.get("files", []), re.compile(inventory["never_edit_re"]))
     renames: Renames = {}
     texts: dict[str, str] = {}

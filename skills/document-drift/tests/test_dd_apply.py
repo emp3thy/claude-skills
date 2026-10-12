@@ -9,7 +9,7 @@ from typing import Any
 
 import dd_apply
 import pytest
-from dd_apply import apply_edits, main
+from dd_apply import apply_edits, main, selected_edits
 from dd_common import EXIT_MISSING, EXIT_OK, read_json, write_json
 from dd_config import DEFAULTS
 from dd_extract import run as extract_run
@@ -407,3 +407,14 @@ def test_missing_doc_reverts_its_edits_and_writes_nothing(tmp_path: Path):
         "applied": [], "reverted": [{"edit": "u001-e01", "reason": "old-mismatch"}],
         "docs": [], "link_updates": []}
     assert not (root / "README.md").exists()
+
+
+def test_selected_edits_are_kept_and_accepted_or_kept_notices():
+    edits = [_agent_edit("u001-e01", DOC, 3), _agent_edit("u001-e02", DOC, 5),
+             _agent_edit("u001-e03", DOC, 7, status="dropped"),
+             _agent_edit("n001", DOC, 8, source="notice", kind="notice"),
+             _agent_edit("n002", DOC, 9, source="notice", kind="clear", status="human"),
+             _agent_edit("u001-e04", DOC, 10)]
+    verdicts = {"u001-e01": {"verdict": "accept"}, "u001-e02": {"verdict": "reject"},
+                "u001-e03": {"verdict": "accept"}, "u001-e04": {"verdict": "unsure"}}
+    assert [e["id"] for e in selected_edits(edits, verdicts)] == ["u001-e01", "n001"]

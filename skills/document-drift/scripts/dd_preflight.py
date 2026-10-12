@@ -9,8 +9,9 @@ branch, so it runs from a detached HEAD too and ``branch_from`` is then null (ru
 
 ``preflight.json`` also records the run's flags (``branch``, ``check``, ``base``, ``full``,
 ``date``), which the later stages compare with their own, and ``dirty``: ``tree_state`` at
-preflight (empty outside ``--check``, where a dirty tree is refused), which ``finish`` compares
-with the tree as it is then.
+preflight, which ``finish`` compares with the tree as it is then. It is recorded on every run,
+so the two agree even where ``git status`` hides untracked files
+(``status.showUntrackedFiles=no``).
 """
 from __future__ import annotations
 
@@ -144,7 +145,7 @@ def run(root: Path, workdir: Path, branch: str, check: bool, *, base: str | None
         "base": base,
         "full": full,
         "date": date,
-        "dirty": tree_state(root, workdir) if check else {},
+        "dirty": tree_state(root, workdir),
     }
     write_json(workdir / "preflight.json", result)
     return result
