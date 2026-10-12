@@ -2,4 +2,7 @@
 name = "svc"
 version = "1.4.0"
 requires-python = ">=3.11"
-dependencies = ["flask>=3.0"]
+dependencies = ["flask>=3.0", "mcp>=1.0"]
+
+[project.scripts]
+svc = "svc.cli:main"

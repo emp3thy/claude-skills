@@ -11,3 +11,4 @@ skills/tech-debt-scan/tests/fixtures/corpus/** text eol=lf
 # goldens) and its goldens are byte-compared; pin both to LF regardless of core.autocrlf.
 skills/document-drift/tests/fixtures/corpus/** text eol=lf
 skills/document-drift/tests/golden/** text eol=lf
+skills/document-drift/tests/canned/** text eol=lf

@@ -5,7 +5,10 @@ Fixtures under ``tests/fixtures/corpus/<name>/`` keep their final tree in
 author, date, subject, the files touched with their content at that point,
 optional ``branch``, ``delete``, ``rename`` and ``tag``). Replaying at test time gives
 churn, coupling, blame age, authorship, branches and tags without committing
-a ``.git`` directory.
+a ``.git`` directory. A fixture with two states tags the last commit of each
+(``state1``, ``state2``): ``replay_fixture(..., until_tag="state1")`` builds the
+first, and ``continue_fixture(..., after_tag="state1")`` later adds the rest onto
+the repository a drift run has worked on.
 
 Every git call is a list argv with fixed identity and safety options
 (``user.name``, ``user.email``, ``commit.gpgsign=false``,
@@ -110,16 +113,35 @@ def _date_string(value: Any) -> str:
     return str(value)
 
 
-def replay_history(history_yaml: Path, files_root: Path, dest: Path) -> Path:
-    """Create a git repository at ``dest`` by replaying ``history_yaml``.
+def _load_commits(history_yaml: Path) -> list[dict[str, Any]]:
+    raw = yaml.safe_load(history_yaml.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or not isinstance(raw.get("commits"), list):
+        raise HistoryError(f"{history_yaml}: expected a mapping with a 'commits' list")
+    commits: list[dict[str, Any]] = raw["commits"]
+    return commits
+
+
+def _split_at_tag(commits: list[dict[str, Any]], tag: str,
+                  where: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The commits up to and including the one carrying ``tag``, and the rest."""
+    for index, commit in enumerate(commits):
+        if isinstance(commit, dict) and commit.get("tag") == tag:
+            return commits[: index + 1], commits[index + 1 :]
+    raise HistoryError(f"{where}: no commit carries tag {tag!r}")
+
+
+def replay_history(history_yaml: Path, files_root: Path, dest: Path,
+                   until_tag: str | None = None) -> Path:
+    """Create a git repository at ``dest`` by replaying ``history_yaml``; with ``until_tag``,
+    only the commits up to and including the one carrying that tag.
 
     Returns ``dest``. HEAD ends on whichever branch the last commit named
     (``main`` when none did).
     """
-    raw = yaml.safe_load(history_yaml.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict) or not isinstance(raw.get("commits"), list):
-        raise HistoryError(f"{history_yaml}: expected a mapping with a 'commits' list")
-    return replay_commits(raw["commits"], files_root, dest)
+    commits = _load_commits(history_yaml)
+    if until_tag is not None:
+        commits = _split_at_tag(commits, until_tag, history_yaml)[0]
+    return replay_commits(commits, files_root, dest)
 
 
 def replay_commits(
@@ -129,10 +151,17 @@ def replay_commits(
 
     A commit may carry ``rename: {old: new}``, applied with ``git mv`` before ``files``.
     """
-    root = files_root if files_root is not None else dest / ".no-final-files"
     dest.mkdir(parents=True, exist_ok=True)
     _git(dest, "init", "-q")
     _git(dest, "symbolic-ref", "HEAD", "refs/heads/main")
+    return _commit_all(commits, files_root, dest)
+
+
+def _commit_all(
+    commits: list[dict[str, Any]], files_root: Path | None, dest: Path
+) -> Path:
+    """Make ``commits`` in the existing repository ``dest``, from its current branch on."""
+    root = files_root if files_root is not None else dest / ".no-final-files"
     for index, commit in enumerate(commits, start=1):
         if not isinstance(commit, dict):
             raise HistoryError(f"commit {index}: not a mapping")
@@ -169,10 +198,22 @@ def replay_commits(
     return dest
 
 
-def replay_fixture(name: str, dest: Path) -> Path:
-    """Replay ``tests/fixtures/corpus/<name>`` into ``dest`` and return ``dest``."""
+def replay_fixture(name: str, dest: Path, until_tag: str | None = None) -> Path:
+    """Replay ``tests/fixtures/corpus/<name>`` into ``dest`` and return ``dest``; with
+    ``until_tag``, only up to and including the commit carrying that tag."""
     base = CORPUS_ROOT / name
-    return replay_history(base / "history.yaml", base / "files", dest)
+    return replay_history(base / "history.yaml", base / "files", dest, until_tag)
+
+
+def continue_fixture(name: str, repo: Path, after_tag: str) -> Path:
+    """Replay the commits of ``tests/fixtures/corpus/<name>`` after the one carrying
+    ``after_tag`` onto ``repo``'s current branch (a commit naming a ``branch`` still switches
+    to it); return ``repo``. A ``files:`` path that a run between the two states edited is
+    overwritten with the fixture's content."""
+    base = CORPUS_ROOT / name
+    history = base / "history.yaml"
+    rest = _split_at_tag(_load_commits(history), after_tag, history)[1]
+    return _commit_all(rest, base / "files", repo)
 
 
 if __name__ == "__main__":  # pragma: no cover - a subprocess entry point for live_run.py

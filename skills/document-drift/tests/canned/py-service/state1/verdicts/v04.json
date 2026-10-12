@@ -1,0 +1,6 @@
+{
+ "batch": "v04",
+ "verdicts": [
+  {"edit": "u001-e06", "verdict": "accept", "reason": "Store.purge deletes the expired rows at src/svc/storage.py:72"}
+ ]
+}

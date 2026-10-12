@@ -1,1 +1,1 @@
-"""The svc package: an HTTP service with background tasks."""
+"""A small key-value service with an HTTP API and MCP tools."""

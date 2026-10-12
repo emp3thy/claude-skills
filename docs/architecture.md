@@ -992,7 +992,13 @@ agent outputs are canned JSON files. `test_dd_run.py` drives the three stages on
 canned outputs under `skills/document-drift/tests/canned/`, including an invalid output that
 exercises exit 3 and `--retried`. The fixture corpus under
 `skills/document-drift/tests/fixtures/corpus/` (`py-service`, `ts-web`, `go-cli`) replays a
-git history per fixture (`dd_make_history.py`). `md_scan` spans are compared with
+git history per fixture (`dd_make_history.py`) in two states, tagged `state1` and `state2`.
+`test_dd_corpus.py` runs the pipeline on state 1 with the canned outputs under
+`tests/canned/<fixture>/state1/`, merges the drift branch, replays the state-2 commits and
+runs again with `state2/` (`dd_corpus.run_fixture`); each item of the fixture's
+`planted.json` is one test case, judged by `dd_corpus.evaluate` from the run's workdir files
+(an applied edit of a type, a human entry, a gap, a dropped edit, an affected or unreviewed
+doc, an anchor, a notice, or nothing at all for a decoy). `md_scan` spans are compared with
 `markdown-it-py` (a dev-only dependency) on real documents. CI runs `dd_check_skill.py` over
 `skills/document-drift/SKILL.md`, so every `python scripts/<name>.py` command there uses only
 flags the script accepts. CI cannot run agents, so the phase 1 self-scan step is gone; the

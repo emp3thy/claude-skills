@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ import dd_summary
 import dd_units
 import pytest
 from dd_common import EXIT_MISSING, StepError, read_json
+from dd_corpus import answer
 from dd_helpers import make_repo
 from dd_run import main
 from dd_unverified import block_hash, render_notice
@@ -80,13 +80,10 @@ def _plan(repo: Path, name: str) -> list[dict[str, Any]]:
     return plan
 
 
-def _answer(repo: Path, name: str, invalid: tuple[str, ...] = ()) -> None:
-    """Copy the canned output of every entry of plan ``name`` to its output path; the ids in
-    ``invalid`` get the canned invalid output instead."""
-    for entry in _plan(repo, name):
-        out = Path(entry["output"])
-        source = CANNED / ("invalid" if entry["id"] in invalid else out.parent.name) / out.name
-        shutil.copyfile(source, out)
+def _answer(repo: Path, name: str, invalid: bool = False) -> None:
+    """Write the canned output of every entry of plan ``name`` to its output path; with
+    ``invalid``, the entries with a canned invalid output get that instead."""
+    answer(repo / ".document-drift", name, CANNED, CANNED / "invalid" if invalid else None)
 
 
 def _start_and_answer(repo: Path, *extra: str) -> None:
@@ -191,7 +188,7 @@ def test_missing_agent_output_exits_3_and_writes_retry(
 def test_invalid_agent_output_exits_3(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     assert _run(repo, "start") == 0
-    _answer(repo, "plan-docs.json", invalid=("u001",))
+    _answer(repo, "plan-docs.json", invalid=True)
     assert _run(repo, "verify") == 3
     assert [e["id"] for e in read_json(repo / ".document-drift" / "retry.json")] == ["u001"]
 
@@ -200,7 +197,7 @@ def test_retried_marks_unit_unchecked(tmp_path: Path,
                                       capsys: pytest.CaptureFixture[str]) -> None:
     repo = _repo(tmp_path)
     assert _run(repo, "start") == 0
-    _answer(repo, "plan-docs.json", invalid=("u001",))
+    _answer(repo, "plan-docs.json", invalid=True)
     assert _run(repo, "verify") == 3
     capsys.readouterr()
     assert _run(repo, "verify", "--retried") == 0

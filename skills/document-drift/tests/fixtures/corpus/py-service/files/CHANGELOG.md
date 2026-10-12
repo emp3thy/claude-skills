@@ -1,6 +1,6 @@
-# Releases
+# Changelog
 
-## 1.3.0
+## 1.4.0
 
-- `src/svc/legacy_cache.py` caches responses in memory
-- `src/svc/storage.py` persists records in SQLite
+- `--port` now defaults to 8000.
+- Added the `store.list` maintenance tool.

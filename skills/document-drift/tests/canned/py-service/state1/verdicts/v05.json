@@ -1,0 +1,6 @@
+{
+ "batch": "v05",
+ "verdicts": [
+  {"edit": "u001-e07", "verdict": "accept", "reason": "tools.py registers no store.delete tool"}
+ ]
+}

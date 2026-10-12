@@ -1,0 +1,11 @@
+{
+ "doc": "g001",
+ "edits": [
+  {"id": "g001-e01", "doc": "docs/cli.md", "start_line": 9, "end_line": 9,
+   "old": "| `export` | Write every item as JSON lines. |",
+   "new": "| `export` | Write every item as JSON lines. |\n| `init` | Create an empty database file; `--force` replaces an existing one. |",
+   "type": "add", "claim": "svc init creates an empty database file",
+   "evidence": ["src/svc/cli.py:28-30"], "subject": "init"}
+ ],
+ "refusals": []
+}

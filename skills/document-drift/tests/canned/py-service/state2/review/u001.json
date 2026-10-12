@@ -1,0 +1,20 @@
+{
+ "unit": "u001",
+ "claims_checked": 24,
+ "code_claims": {"README.md": 5, "docs/cli.md": 10, "docs/configuration.md": 4,
+                 "docs/design.md": 3, "docs/operations.md": 1, "docs/tools.md": 4},
+ "unverified_blocks": [],
+ "edits": [
+  {"id": "u001-e01", "doc": "README.md", "start_line": 9, "end_line": 9,
+   "old": "The service listens on port 8080 by default; pass `--port` to change it.",
+   "new": "The service listens on port 9090 by default; pass `--port` to change it.",
+   "type": "correct", "claim": "the default port is 8080",
+   "evidence": ["src/svc/cli.py:17"], "subject": null},
+  {"id": "u001-e02", "doc": "docs/design.md", "start_line": 5, "end_line": 5,
+   "old": "Every command opens the database through `storage.connect`, which creates the file on first use.",
+   "new": "Every command opens the database through `storage.open_store`, which creates the file on first use.",
+   "type": "correct", "claim": "commands open the database through storage.connect",
+   "evidence": ["src/svc/storage.py:12"], "subject": null}
+ ],
+ "questions": []
+}
