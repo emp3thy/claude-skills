@@ -1,0 +1,27 @@
+{
+ "decisions": [],
+ "edits": [
+  {
+   "claim": "1st notice",
+   "doc": "docs/design.md",
+   "end_line": 13,
+   "evidence": [],
+   "id": "n001",
+   "new": "<!-- drift-unverified: 1st notice, run 2026-01-02-3f03, block 368ee08c. This describes the code but names nothing in it. Name what it describes, or add drift-ignore: <reason>. -->\nWrites go to disk before the reply returns, so a crash loses no acknowledged write.",
+   "old": "Writes go to disk before the reply returns, so a crash loses no acknowledged write.",
+   "start_line": 13,
+   "subject": "368ee08c",
+   "type": "notice"
+  }
+ ],
+ "nominations": [
+  {
+   "doc": "docs/design.md",
+   "end_line": 13,
+   "skipped": null,
+   "start_line": 13,
+   "why": "describes when writes reach the disk; no single function clearly owns it"
+  }
+ ],
+ "stale": []
+}

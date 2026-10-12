@@ -1,0 +1,9 @@
+docs(drift): document missing surface
+
+Drift-Run: 2026-01-02-07bb
+Drift-Base: a55160398a51008f74c4352a0346fffca3d895a8
+Drift-Scope: first
+Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
+
+- docs/cli.md:16 add flag --minify (src/cli.ts:12)
+- docs/configuration.md:9 add env FEATURE_FLAGS (src/config.ts:5)

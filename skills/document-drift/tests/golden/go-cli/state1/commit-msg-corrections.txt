@@ -1,0 +1,9 @@
+docs(drift): correct stale docs
+
+Drift-Run: 2026-01-02-4e1d
+Drift-Base: 57b0052223bf824f7bfd7e2d821e73823831d75a
+Drift-Scope: first
+Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
+
+- README.md:7 correct the flag that writes the report to a file is --out (internal/cli/options.go:20)
+- docs/legacy.md:3 notice unverified block (1st notice)

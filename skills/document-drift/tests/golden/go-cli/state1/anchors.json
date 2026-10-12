@@ -1,0 +1,131 @@
+{
+ "anchors": [
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "doc": "docs/usage.md",
+   "end": 1,
+   "file": "internal/cli/options.go",
+   "kind": "file",
+   "line": 5,
+   "reading": [
+    1,
+    1
+   ],
+   "ref": "options.go",
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "doc": "docs/usage.md",
+   "end": 1,
+   "file": "internal/cli/env.go",
+   "kind": "file",
+   "line": 7,
+   "reading": [
+    1,
+    1
+   ],
+   "ref": "env.go",
+   "start": 1
+  }
+ ],
+ "checkability": {
+  "README.md": {
+   "anchored": 0,
+   "blocks": 3,
+   "blocks_noref": 2,
+   "rate": 0.0,
+   "references": 1,
+   "status": "unverifiable"
+  },
+  "docs/legacy.md": {
+   "anchored": 0,
+   "blocks": 4,
+   "blocks_noref": 4,
+   "rate": 0.0,
+   "references": 0,
+   "status": "unverifiable"
+  },
+  "docs/usage.md": {
+   "anchored": 2,
+   "blocks": 22,
+   "blocks_noref": 20,
+   "rate": 1.0,
+   "references": 2,
+   "status": "weak"
+  }
+ },
+ "counts": {
+  "ambiguous": 0,
+  "anchored": 2,
+  "paths": 0,
+  "references": 3,
+  "unknown": 1
+ },
+ "references": [
+  {
+   "block": [
+    7,
+    7
+   ],
+   "context": [
+    "Usage"
+   ],
+   "doc": "README.md",
+   "heading": "Usage",
+   "line": 7,
+   "norm": "--out",
+   "specific": true,
+   "text": "--out"
+  },
+  {
+   "block": [
+    5,
+    5
+   ],
+   "context": [
+    "Options"
+   ],
+   "doc": "docs/usage.md",
+   "heading": "Options",
+   "line": 5,
+   "norm": "options_go",
+   "specific": true,
+   "text": "options.go"
+  },
+  {
+   "block": [
+    7,
+    7
+   ],
+   "context": [
+    "Options"
+   ],
+   "doc": "docs/usage.md",
+   "heading": "Options",
+   "line": 7,
+   "norm": "env_go",
+   "specific": true,
+   "text": "env.go"
+  }
+ ],
+ "skipped": [],
+ "unanchored": [
+  {
+   "doc": "README.md",
+   "line": 7,
+   "reason": "unknown",
+   "ref": "--out"
+  }
+ ]
+}

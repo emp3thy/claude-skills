@@ -1,0 +1,128 @@
+{
+ "affected": {
+  "README.md": {
+   "anchor_reasons": [],
+   "doc_changed": true,
+   "missing": [],
+   "sections": [
+    [
+     11,
+     14
+    ]
+   ]
+  },
+  "docs/api.md": {
+   "anchor_reasons": [],
+   "doc_changed": true,
+   "missing": [
+    {
+     "end": 15,
+     "file": "src/api/client.ts",
+     "line": 14,
+     "reading": [
+      11,
+      15
+     ],
+     "ref": "fetchItems",
+     "start": 11
+    }
+   ],
+   "sections": [
+    [
+     10,
+     14
+    ]
+   ]
+  },
+  "docs/cli.md": {
+   "anchor_reasons": [],
+   "doc_changed": true,
+   "missing": [],
+   "sections": [
+    [
+     10,
+     17
+    ]
+   ]
+  },
+  "docs/configuration.md": {
+   "anchor_reasons": [],
+   "doc_changed": true,
+   "missing": [],
+   "sections": [
+    [
+     1,
+     10
+    ]
+   ]
+  }
+ },
+ "changed_files": [
+  "README.md",
+  "docs/api.md",
+  "docs/cli.md",
+  "docs/configuration.md",
+  "src/api/client.ts",
+  "src/pages/ItemsPage.tsx"
+ ],
+ "hunks": {
+  "src/api/client.ts": [
+   {
+    "file": "src/api/client.ts",
+    "new_end": 11,
+    "new_start": 11,
+    "old_end": 11,
+    "old_start": 11,
+    "text": "-export async function fetchItems(page = 1): Promise<Item[]> {\n+export async function listItems(page = 1): Promise<Item[]> {\n"
+   }
+  ],
+  "src/pages/ItemsPage.tsx": [
+   {
+    "file": "src/pages/ItemsPage.tsx",
+    "new_end": 2,
+    "new_start": 2,
+    "old_end": 2,
+    "old_start": 2,
+    "text": "-import { fetchItems, type Item } from \"../api/client\";\n+import { listItems, type Item } from \"../api/client\";\n"
+   },
+   {
+    "file": "src/pages/ItemsPage.tsx",
+    "new_end": 8,
+    "new_start": 8,
+    "old_end": 8,
+    "old_start": 8,
+    "text": "-    fetchItems().then(setItems);\n+    listItems().then(setItems);\n"
+   }
+  ]
+ },
+ "last_run": "a55160398a51008f74c4352a0346fffca3d895a8",
+ "last_run_source": "commit",
+ "mode": "later",
+ "review": {
+  "README.md": [
+   [
+    11,
+    14
+   ]
+  ],
+  "docs/api.md": [
+   [
+    10,
+    14
+   ]
+  ],
+  "docs/cli.md": [
+   [
+    10,
+    17
+   ]
+  ],
+  "docs/configuration.md": [
+   [
+    1,
+    10
+   ]
+  ]
+ },
+ "scope": "since a55160398a51008f74c4352a0346fffca3d895a8"
+}

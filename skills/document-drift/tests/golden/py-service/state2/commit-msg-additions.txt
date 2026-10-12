@@ -1,0 +1,11 @@
+docs(drift): document missing surface
+
+Drift-Run: 2026-01-09-a50b
+Drift-Base: 1574ffc47ab914ac4787dcf2a66b7e5f47d327dc
+Drift-Scope: since 09c42c0bfe44a30d3c7b1210884f9f201c751baa
+Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
+
+- docs/cli.md:18 add flag --timeout (src/svc/cli.py:19)
+
+Needs a human decision:
+- docs/design.md:13 unverified: Writes go to disk before the reply returns, so a crash loses no acknowledged write.

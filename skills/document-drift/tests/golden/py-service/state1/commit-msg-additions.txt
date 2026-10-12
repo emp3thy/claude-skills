@@ -1,0 +1,13 @@
+docs(drift): document missing surface
+
+Drift-Run: 2026-01-02-3f03
+Drift-Base: 09c42c0bfe44a30d3c7b1210884f9f201c751baa
+Drift-Scope: first
+Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
+
+- docs/cli.md:9 add command init (src/svc/cli.py:28-30)
+- docs/configuration.md:9 add env SVC_LOG_LEVEL (src/svc/config.py:29)
+
+Needs a human decision:
+- README.md:23 guarantee-mismatch: the store never blocks (src/svc/storage.py:33, src/svc/storage.py:74)
+- docs/cli.md:17 verify-rejected: --workers defaults to 2: --workers defaults to 2 at src/svc/cli.py:18; the doc was right (src/svc/cli.py:18)

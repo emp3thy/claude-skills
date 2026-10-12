@@ -1,0 +1,100 @@
+{
+ "candidates": [
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 19,
+   "name": "--timeout",
+   "parent": "serve"
+  }
+ ],
+ "gaps": [
+  {
+   "file": "src/svc/cli.py",
+   "gap_kind": "missing-from-list",
+   "kind": "flag",
+   "line": 19,
+   "name": "--timeout",
+   "parent": "serve",
+   "reason": "missing-from-list",
+   "target_doc": "docs/cli.md",
+   "target_line": 18
+  }
+ ],
+ "lists": [
+  {
+   "complete": true,
+   "doc": "docs/cli.md",
+   "kind": "command",
+   "line_end": 10,
+   "line_start": 5,
+   "scope": null,
+   "subjects": [
+    "serve",
+    "check",
+    "export",
+    "init"
+   ]
+  },
+  {
+   "complete": true,
+   "doc": "docs/cli.md",
+   "kind": "flag",
+   "line_end": 18,
+   "line_start": 14,
+   "scope": [
+    "serve"
+   ],
+   "subjects": [
+    "--host",
+    "--port",
+    "--workers"
+   ]
+  },
+  {
+   "complete": true,
+   "doc": "docs/configuration.md",
+   "kind": "env",
+   "line_end": 10,
+   "line_start": 5,
+   "scope": null,
+   "subjects": [
+    "SVC_HOME",
+    "SVC_PORT",
+    "SVC_WORKERS",
+    "SVC_LOG_LEVEL"
+   ]
+  },
+  {
+   "complete": true,
+   "doc": "docs/untouched.md",
+   "kind": "route",
+   "line_end": 7,
+   "line_start": 3,
+   "scope": null,
+   "subjects": [
+    "/health",
+    "/items/<key>",
+    "/stats"
+   ]
+  }
+ ],
+ "no_home": [],
+ "targets": {
+  "docs/cli.md": [
+   {
+    "file": "src/svc/cli.py",
+    "gap_kind": "missing-from-list",
+    "kind": "flag",
+    "line": 19,
+    "name": "--timeout",
+    "parent": "serve",
+    "reason": "missing-from-list",
+    "target_doc": "docs/cli.md",
+    "target_line": 18
+   }
+  ]
+ },
+ "unchecked": []
+}

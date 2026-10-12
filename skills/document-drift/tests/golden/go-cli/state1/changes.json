@@ -1,0 +1,29 @@
+{
+ "affected": {},
+ "changed_files": [],
+ "hunks": {},
+ "last_run": null,
+ "last_run_source": null,
+ "mode": "first",
+ "review": {
+  "README.md": [
+   [
+    1,
+    16
+   ]
+  ],
+  "docs/legacy.md": [
+   [
+    1,
+    9
+   ]
+  ],
+  "docs/usage.md": [
+   [
+    1,
+    30
+   ]
+  ]
+ },
+ "scope": "first"
+}

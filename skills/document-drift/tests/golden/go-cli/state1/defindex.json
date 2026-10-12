@@ -1,0 +1,195 @@
+{
+ "definitions": [
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "Makefile",
+   "kind": "file",
+   "name": "Makefile",
+   "norm": "Makefile",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "README.md",
+   "kind": "file",
+   "name": "README.md",
+   "norm": "README_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "cmd/drift/main.go",
+   "kind": "file",
+   "name": "main.go",
+   "norm": "main_go",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/legacy.md",
+   "kind": "file",
+   "name": "legacy.md",
+   "norm": "legacy_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/usage.md",
+   "kind": "file",
+   "name": "usage.md",
+   "norm": "usage_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "go.mod",
+   "kind": "file",
+   "name": "go.mod",
+   "norm": "go_mod",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "internal/cli/env.go",
+   "kind": "file",
+   "name": "env.go",
+   "norm": "env_go",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "internal/cli/options.go",
+   "kind": "file",
+   "name": "options.go",
+   "norm": "options_go",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "internal/report/json.go",
+   "kind": "file",
+   "name": "json.go",
+   "norm": "json_go",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "internal/report/table.go",
+   "kind": "file",
+   "name": "table.go",
+   "norm": "table_go",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  }
+ ],
+ "skipped": []
+}

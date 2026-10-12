@@ -1,0 +1,55 @@
+[
+ {
+  "edits": [
+   "g001-e01",
+   "u001-e01",
+   "u001-e02",
+   "u001-e05"
+  ],
+  "id": "v01",
+  "model": "opus",
+  "output": "<workdir>/verdicts/v01.json",
+  "prompt": "<workdir>/prompts/verify-v01.md",
+  "role": "verify"
+ },
+ {
+  "edits": [
+   "g002-e01"
+  ],
+  "id": "v02",
+  "model": "opus",
+  "output": "<workdir>/verdicts/v02.json",
+  "prompt": "<workdir>/prompts/verify-v02.md",
+  "role": "verify"
+ },
+ {
+  "edits": [
+   "u001-e04"
+  ],
+  "id": "v03",
+  "model": "opus",
+  "output": "<workdir>/verdicts/v03.json",
+  "prompt": "<workdir>/prompts/verify-v03.md",
+  "role": "verify"
+ },
+ {
+  "edits": [
+   "u001-e06"
+  ],
+  "id": "v04",
+  "model": "opus",
+  "output": "<workdir>/verdicts/v04.json",
+  "prompt": "<workdir>/prompts/verify-v04.md",
+  "role": "verify"
+ },
+ {
+  "edits": [
+   "u001-e07"
+  ],
+  "id": "v05",
+  "model": "opus",
+  "output": "<workdir>/verdicts/v05.json",
+  "prompt": "<workdir>/prompts/verify-v05.md",
+  "role": "verify"
+ }
+]

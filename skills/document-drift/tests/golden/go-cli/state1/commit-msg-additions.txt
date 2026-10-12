@@ -1,0 +1,8 @@
+docs(drift): document missing surface
+
+Drift-Run: 2026-01-02-4e1d
+Drift-Base: 57b0052223bf824f7bfd7e2d821e73823831d75a
+Drift-Scope: first
+Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
+
+- README.md:15 add target release (Makefile:9-10)

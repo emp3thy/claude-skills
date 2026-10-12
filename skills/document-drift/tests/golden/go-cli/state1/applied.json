@@ -1,0 +1,13 @@
+{
+ "applied": [
+  "g001-e01",
+  "n001",
+  "u001-e01"
+ ],
+ "docs": [
+  "README.md",
+  "docs/legacy.md"
+ ],
+ "link_updates": [],
+ "reverted": []
+}

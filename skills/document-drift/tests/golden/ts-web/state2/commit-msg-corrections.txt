@@ -1,0 +1,8 @@
+docs(drift): correct stale docs
+
+Drift-Run: 2026-01-09-2804
+Drift-Base: 0cba8b28af6260a06aaa39612b0359e2bad44001
+Drift-Scope: since a55160398a51008f74c4352a0346fffca3d895a8
+Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
+
+- docs/api.md:14 correct fetchItems loads one page of items (src/api/client.ts:11)

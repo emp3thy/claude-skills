@@ -1,0 +1,12 @@
+[
+ {
+  "edits": [
+   "u001-e01"
+  ],
+  "id": "v01",
+  "model": "opus",
+  "output": "<workdir>/verdicts/v01.json",
+  "prompt": "<workdir>/prompts/verify-v01.md",
+  "role": "verify"
+ }
+]

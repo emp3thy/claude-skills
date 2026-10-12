@@ -1,0 +1,9 @@
+[
+ {
+  "id": "u001",
+  "model": "sonnet",
+  "output": "<workdir>/review/u001.json",
+  "prompt": "<workdir>/prompts/review-u001.md",
+  "role": "review"
+ }
+]

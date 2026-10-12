@@ -1,0 +1,1306 @@
+{
+ "anchors": [
+  {
+   "change_ranges": [
+    [
+     17,
+     17
+    ]
+   ],
+   "doc": "README.md",
+   "end": 17,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "line": 9,
+   "reading": [
+    17,
+    17
+   ],
+   "ref": "--port",
+   "start": 17
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     30
+    ]
+   ],
+   "doc": "README.md",
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "literal",
+   "line": 13,
+   "reading": [
+    23,
+    30
+   ],
+   "ref": "SVC_LOG_LEVEL",
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     16,
+     16
+    ]
+   ],
+   "doc": "docs/cli.md",
+   "end": 16,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "line": 15,
+   "reading": [
+    16,
+    16
+   ],
+   "ref": "--host",
+   "start": 16
+  },
+  {
+   "change_ranges": [
+    [
+     17,
+     17
+    ]
+   ],
+   "doc": "docs/cli.md",
+   "end": 17,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "line": 16,
+   "reading": [
+    17,
+    17
+   ],
+   "ref": "--port",
+   "start": 17
+  },
+  {
+   "change_ranges": [
+    [
+     18,
+     18
+    ]
+   ],
+   "doc": "docs/cli.md",
+   "end": 18,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "line": 17,
+   "reading": [
+    18,
+    18
+   ],
+   "ref": "--workers",
+   "start": 18
+  },
+  {
+   "change_ranges": [
+    [
+     22,
+     22
+    ]
+   ],
+   "doc": "docs/cli.md",
+   "end": 22,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "line": 21,
+   "reading": [
+    22,
+    22
+   ],
+   "ref": "--db",
+   "start": 22
+  },
+  {
+   "change_ranges": [
+    [
+     29,
+     29
+    ]
+   ],
+   "doc": "docs/cli.md",
+   "end": 29,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "line": 21,
+   "reading": [
+    29,
+    29
+   ],
+   "ref": "--db",
+   "start": 29
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     23
+    ]
+   ],
+   "doc": "docs/cli.md",
+   "end": 23,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "line": 21,
+   "reading": [
+    23,
+    23
+   ],
+   "ref": "--repair",
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     26,
+     26
+    ]
+   ],
+   "doc": "docs/cli.md",
+   "end": 26,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "line": 25,
+   "reading": [
+    26,
+    26
+   ],
+   "ref": "--output",
+   "start": 26
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     30
+    ]
+   ],
+   "doc": "docs/configuration.md",
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "reg",
+   "line": 7,
+   "reading": [
+    23,
+    30
+   ],
+   "ref": "SVC_HOME",
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     30
+    ]
+   ],
+   "doc": "docs/configuration.md",
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "reg",
+   "line": 8,
+   "reading": [
+    23,
+    30
+   ],
+   "ref": "SVC_PORT",
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     30
+    ]
+   ],
+   "doc": "docs/configuration.md",
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "reg",
+   "line": 9,
+   "reading": [
+    23,
+    30
+   ],
+   "ref": "SVC_WORKERS",
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     12,
+     20
+    ]
+   ],
+   "doc": "docs/design.md",
+   "end": 20,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "line": 5,
+   "reading": [
+    12,
+    20
+   ],
+   "ref": "storage.connect",
+   "start": 12
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     24
+    ],
+    [
+     26,
+     26
+    ],
+    [
+     30,
+     30
+    ],
+    [
+     40,
+     40
+    ],
+    [
+     52,
+     52
+    ],
+    [
+     57,
+     57
+    ],
+    [
+     62,
+     62
+    ],
+    [
+     69,
+     69
+    ],
+    [
+     72,
+     72
+    ],
+    [
+     82,
+     82
+    ]
+   ],
+   "doc": "docs/storage.md",
+   "end": 84,
+   "file": "src/svc/storage.py",
+   "kind": "class",
+   "line": 3,
+   "reading": [
+    23,
+    24
+   ],
+   "ref": "Store",
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     7,
+     12
+    ]
+   ],
+   "doc": "docs/tools.md",
+   "end": 12,
+   "file": "src/svc/tools.py",
+   "kind": "reg",
+   "line": 5,
+   "reading": [
+    7,
+    12
+   ],
+   "ref": "store.put",
+   "start": 7
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     17
+    ]
+   ],
+   "doc": "docs/tools.md",
+   "end": 17,
+   "file": "src/svc/tools.py",
+   "kind": "reg",
+   "line": 6,
+   "reading": [
+    13,
+    17
+   ],
+   "ref": "store.get",
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     7,
+     12
+    ]
+   ],
+   "doc": "docs/tools.md",
+   "end": 12,
+   "file": "src/svc/tools.py",
+   "kind": "reg",
+   "line": 9,
+   "reading": [
+    7,
+    12
+   ],
+   "ref": "store.put",
+   "start": 7
+  },
+  {
+   "change_ranges": [
+    [
+     7,
+     12
+    ]
+   ],
+   "doc": "docs/tools.md",
+   "end": 12,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "line": 11,
+   "reading": [
+    7,
+    12
+   ],
+   "ref": "key",
+   "start": 7
+  },
+  {
+   "change_ranges": [
+    [
+     7,
+     12
+    ]
+   ],
+   "doc": "docs/tools.md",
+   "end": 12,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "line": 11,
+   "reading": [
+    7,
+    12
+   ],
+   "ref": "value",
+   "start": 7
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     17
+    ]
+   ],
+   "doc": "docs/tools.md",
+   "end": 17,
+   "file": "src/svc/tools.py",
+   "kind": "reg",
+   "line": 13,
+   "reading": [
+    13,
+    17
+   ],
+   "ref": "store.get",
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     17
+    ]
+   ],
+   "doc": "docs/tools.md",
+   "end": 17,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "line": 15,
+   "reading": [
+    13,
+    17
+   ],
+   "ref": "key",
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     17
+    ]
+   ],
+   "doc": "docs/tools.md",
+   "end": 17,
+   "file": "src/svc/tools.py",
+   "kind": "reg",
+   "line": 19,
+   "reading": [
+    13,
+    17
+   ],
+   "ref": "store.get",
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     19,
+     24
+    ]
+   ],
+   "doc": "docs/untouched.md",
+   "end": 24,
+   "file": "src/svc/routes.py",
+   "kind": "function",
+   "line": 6,
+   "reading": [
+    19,
+    24
+   ],
+   "ref": "get_item",
+   "start": 19
+  }
+ ],
+ "checkability": {
+  "README.md": {
+   "anchored": 2,
+   "blocks": 10,
+   "blocks_noref": 3,
+   "rate": 0.25,
+   "references": 8,
+   "status": "weak"
+  },
+  "docs/cli.md": {
+   "anchored": 6,
+   "blocks": 11,
+   "blocks_noref": 2,
+   "rate": 0.4615,
+   "references": 13,
+   "status": "ok"
+  },
+  "docs/configuration.md": {
+   "anchored": 3,
+   "blocks": 5,
+   "blocks_noref": 2,
+   "rate": 1.0,
+   "references": 3,
+   "status": "ok"
+  },
+  "docs/design.md": {
+   "anchored": 1,
+   "blocks": 4,
+   "blocks_noref": 2,
+   "rate": 0.5,
+   "references": 2,
+   "status": "weak"
+  },
+  "docs/process.md": {
+   "anchored": 0,
+   "blocks": 3,
+   "blocks_noref": 3,
+   "rate": 0.0,
+   "references": 0,
+   "status": "unverifiable"
+  },
+  "docs/storage.md": {
+   "anchored": 1,
+   "blocks": 1,
+   "blocks_noref": 0,
+   "rate": 1.0,
+   "references": 1,
+   "status": "weak"
+  },
+  "docs/tools.md": {
+   "anchored": 8,
+   "blocks": 7,
+   "blocks_noref": 1,
+   "rate": 0.8,
+   "references": 10,
+   "status": "ok"
+  },
+  "docs/untouched.md": {
+   "anchored": 1,
+   "blocks": 4,
+   "blocks_noref": 1,
+   "rate": 0.1667,
+   "references": 6,
+   "status": "weak"
+  }
+ },
+ "counts": {
+  "ambiguous": 11,
+  "anchored": 22,
+  "paths": 1,
+  "references": 43,
+  "unknown": 9
+ },
+ "references": [
+  {
+   "block": [
+    7,
+    7
+   ],
+   "context": [
+    "Usage"
+   ],
+   "doc": "README.md",
+   "heading": "Usage",
+   "line": 7,
+   "norm": "svc",
+   "specific": false,
+   "text": "svc"
+  },
+  {
+   "block": [
+    9,
+    9
+   ],
+   "context": [
+    "Usage"
+   ],
+   "doc": "README.md",
+   "heading": "Usage",
+   "line": 9,
+   "norm": "--port",
+   "specific": true,
+   "text": "--port"
+  },
+  {
+   "block": [
+    11,
+    11
+   ],
+   "context": [
+    "Usage"
+   ],
+   "doc": "README.md",
+   "heading": "Usage",
+   "line": 11,
+   "norm": "--worker",
+   "specific": true,
+   "text": "--worker"
+  },
+  {
+   "block": [
+    13,
+    13
+   ],
+   "context": [
+    "Usage"
+   ],
+   "doc": "README.md",
+   "heading": "Usage",
+   "line": 13,
+   "norm": "SVC_LOG_LEVEL",
+   "specific": true,
+   "text": "SVC_LOG_LEVEL"
+  },
+  {
+   "block": [
+    13,
+    13
+   ],
+   "context": [
+    "SVC_LOG_LEVEL",
+    "Usage"
+   ],
+   "doc": "README.md",
+   "heading": "Usage",
+   "line": 13,
+   "norm": "debug",
+   "specific": false,
+   "text": "debug"
+  },
+  {
+   "block": [
+    19,
+    19
+   ],
+   "context": [
+    "HTTP"
+   ],
+   "doc": "README.md",
+   "heading": "HTTP API",
+   "line": 19,
+   "norm": "src/svc/routes_py",
+   "specific": true,
+   "text": "src/svc/routes.py"
+  },
+  {
+   "block": [
+    25,
+    25
+   ],
+   "context": [
+    "Storage"
+   ],
+   "doc": "README.md",
+   "heading": "Storage",
+   "line": 25,
+   "norm": "store_sync",
+   "specific": true,
+   "text": "store.sync"
+  },
+  {
+   "block": [
+    27,
+    27
+   ],
+   "context": [
+    "Storage"
+   ],
+   "doc": "README.md",
+   "heading": "Storage",
+   "line": 27,
+   "norm": "VACUUM",
+   "specific": true,
+   "text": "VACUUM"
+  },
+  {
+   "block": [
+    3,
+    3
+   ],
+   "context": [
+    "Command"
+   ],
+   "doc": "docs/cli.md",
+   "heading": "Command line",
+   "line": 3,
+   "norm": "svc",
+   "specific": false,
+   "text": "svc"
+  },
+  {
+   "block": [
+    7,
+    7
+   ],
+   "context": [
+    "Command"
+   ],
+   "doc": "docs/cli.md",
+   "heading": "Command line",
+   "line": 7,
+   "norm": "serve",
+   "specific": false,
+   "text": "serve"
+  },
+  {
+   "block": [
+    8,
+    8
+   ],
+   "context": [
+    "Command"
+   ],
+   "doc": "docs/cli.md",
+   "heading": "Command line",
+   "line": 8,
+   "norm": "check",
+   "specific": false,
+   "text": "check"
+  },
+  {
+   "block": [
+    9,
+    9
+   ],
+   "context": [
+    "Command"
+   ],
+   "doc": "docs/cli.md",
+   "heading": "Command line",
+   "line": 9,
+   "norm": "export",
+   "specific": false,
+   "text": "export"
+  },
+  {
+   "block": [
+    11,
+    11
+   ],
+   "context": [
+    "Command"
+   ],
+   "doc": "docs/cli.md",
+   "heading": "Command line",
+   "line": 11,
+   "norm": "svc",
+   "specific": false,
+   "text": "svc"
+  },
+  {
+   "block": [
+    15,
+    15
+   ],
+   "context": [],
+   "doc": "docs/cli.md",
+   "heading": "`svc serve`",
+   "line": 15,
+   "norm": "--host",
+   "specific": true,
+   "text": "--host"
+  },
+  {
+   "block": [
+    16,
+    16
+   ],
+   "context": [],
+   "doc": "docs/cli.md",
+   "heading": "`svc serve`",
+   "line": 16,
+   "norm": "--port",
+   "specific": true,
+   "text": "--port"
+  },
+  {
+   "block": [
+    17,
+    17
+   ],
+   "context": [],
+   "doc": "docs/cli.md",
+   "heading": "`svc serve`",
+   "line": 17,
+   "norm": "--workers",
+   "specific": true,
+   "text": "--workers"
+  },
+  {
+   "block": [
+    19,
+    19
+   ],
+   "context": [],
+   "doc": "docs/cli.md",
+   "heading": "`svc serve`",
+   "line": 19,
+   "norm": "svc",
+   "specific": false,
+   "text": "svc"
+  },
+  {
+   "block": [
+    21,
+    21
+   ],
+   "context": [
+    "--repair"
+   ],
+   "doc": "docs/cli.md",
+   "heading": "`svc check`",
+   "line": 21,
+   "norm": "--db",
+   "specific": true,
+   "text": "--db"
+  },
+  {
+   "block": [
+    21,
+    21
+   ],
+   "context": [
+    "--db"
+   ],
+   "doc": "docs/cli.md",
+   "heading": "`svc check`",
+   "line": 21,
+   "norm": "--repair",
+   "specific": true,
+   "text": "--repair"
+  },
+  {
+   "block": [
+    23,
+    23
+   ],
+   "context": [],
+   "doc": "docs/cli.md",
+   "heading": "`svc check`",
+   "line": 23,
+   "norm": "svc",
+   "specific": false,
+   "text": "svc"
+  },
+  {
+   "block": [
+    25,
+    25
+   ],
+   "context": [],
+   "doc": "docs/cli.md",
+   "heading": "`svc export`",
+   "line": 25,
+   "norm": "--output",
+   "specific": true,
+   "text": "--output"
+  },
+  {
+   "block": [
+    7,
+    7
+   ],
+   "context": [
+    "Configuration"
+   ],
+   "doc": "docs/configuration.md",
+   "heading": "Configuration",
+   "line": 7,
+   "norm": "SVC_HOME",
+   "specific": true,
+   "text": "SVC_HOME"
+  },
+  {
+   "block": [
+    8,
+    8
+   ],
+   "context": [
+    "Configuration"
+   ],
+   "doc": "docs/configuration.md",
+   "heading": "Configuration",
+   "line": 8,
+   "norm": "SVC_PORT",
+   "specific": true,
+   "text": "SVC_PORT"
+  },
+  {
+   "block": [
+    9,
+    9
+   ],
+   "context": [
+    "Configuration"
+   ],
+   "doc": "docs/configuration.md",
+   "heading": "Configuration",
+   "line": 9,
+   "norm": "SVC_WORKERS",
+   "specific": true,
+   "text": "SVC_WORKERS"
+  },
+  {
+   "block": [
+    5,
+    5
+   ],
+   "context": [
+    "Storage"
+   ],
+   "doc": "docs/design.md",
+   "heading": "Storage",
+   "line": 5,
+   "norm": "storage_connect",
+   "specific": true,
+   "text": "storage.connect"
+  },
+  {
+   "block": [
+    7,
+    7
+   ],
+   "context": [
+    "Storage"
+   ],
+   "doc": "docs/design.md",
+   "heading": "Storage",
+   "line": 7,
+   "norm": "items",
+   "specific": false,
+   "text": "items"
+  },
+  {
+   "block": [
+    3,
+    3
+   ],
+   "context": [
+    "Storage"
+   ],
+   "doc": "docs/storage.md",
+   "heading": "Storage",
+   "line": 3,
+   "norm": "Store",
+   "specific": true,
+   "text": "Store"
+  },
+  {
+   "block": [
+    5,
+    5
+   ],
+   "context": [],
+   "doc": "docs/tools.md",
+   "heading": "MCP tools",
+   "line": 5,
+   "norm": "store_put",
+   "specific": true,
+   "text": "store.put"
+  },
+  {
+   "block": [
+    6,
+    6
+   ],
+   "context": [],
+   "doc": "docs/tools.md",
+   "heading": "MCP tools",
+   "line": 6,
+   "norm": "store_get",
+   "specific": true,
+   "text": "store.get"
+  },
+  {
+   "block": [
+    7,
+    7
+   ],
+   "context": [],
+   "doc": "docs/tools.md",
+   "heading": "MCP tools",
+   "line": 7,
+   "norm": "store_delete",
+   "specific": true,
+   "text": "store.delete"
+  },
+  {
+   "block": [
+    9,
+    9
+   ],
+   "context": [],
+   "doc": "docs/tools.md",
+   "heading": "MCP tools",
+   "line": 9,
+   "norm": "store_put",
+   "specific": true,
+   "text": "store.put"
+  },
+  {
+   "block": [
+    11,
+    11
+   ],
+   "context": [
+    "store_put"
+   ],
+   "doc": "docs/tools.md",
+   "heading": "`store.put`",
+   "line": 11,
+   "norm": "key",
+   "specific": false,
+   "text": "key"
+  },
+  {
+   "block": [
+    11,
+    11
+   ],
+   "context": [
+    "store_put"
+   ],
+   "doc": "docs/tools.md",
+   "heading": "`store.put`",
+   "line": 11,
+   "norm": "value",
+   "specific": false,
+   "text": "value"
+  },
+  {
+   "block": [
+    13,
+    13
+   ],
+   "context": [
+    "store_put"
+   ],
+   "doc": "docs/tools.md",
+   "heading": "`store.put`",
+   "line": 13,
+   "norm": "store_get",
+   "specific": true,
+   "text": "store.get"
+  },
+  {
+   "block": [
+    15,
+    15
+   ],
+   "context": [
+    "store_get"
+   ],
+   "doc": "docs/tools.md",
+   "heading": "`store.get`",
+   "line": 15,
+   "norm": "key",
+   "specific": false,
+   "text": "key"
+  },
+  {
+   "block": [
+    19,
+    19
+   ],
+   "context": [
+    "Examples"
+   ],
+   "doc": "docs/tools.md",
+   "heading": "Examples",
+   "line": 19,
+   "norm": "store_get",
+   "specific": true,
+   "text": "store.get"
+  },
+  {
+   "block": [
+    19,
+    19
+   ],
+   "context": [
+    "store_get",
+    "Examples"
+   ],
+   "doc": "docs/tools.md",
+   "heading": "Examples",
+   "line": 19,
+   "norm": "greeting",
+   "specific": false,
+   "text": "greeting"
+  },
+  {
+   "block": [
+    5,
+    5
+   ],
+   "context": [
+    "HTTP"
+   ],
+   "doc": "docs/untouched.md",
+   "heading": "HTTP routes",
+   "line": 5,
+   "norm": "/health",
+   "specific": true,
+   "text": "/health"
+  },
+  {
+   "block": [
+    5,
+    5
+   ],
+   "context": [
+    "/health",
+    "HTTP"
+   ],
+   "doc": "docs/untouched.md",
+   "heading": "HTTP routes",
+   "line": 5,
+   "norm": "health",
+   "specific": false,
+   "text": "health"
+  },
+  {
+   "block": [
+    6,
+    6
+   ],
+   "context": [
+    "get_item",
+    "HTTP"
+   ],
+   "doc": "docs/untouched.md",
+   "heading": "HTTP routes",
+   "line": 6,
+   "norm": "/items/<key>",
+   "specific": true,
+   "text": "/items/<key>"
+  },
+  {
+   "block": [
+    6,
+    6
+   ],
+   "context": [
+    "/items/<key>",
+    "HTTP"
+   ],
+   "doc": "docs/untouched.md",
+   "heading": "HTTP routes",
+   "line": 6,
+   "norm": "get_item",
+   "specific": true,
+   "text": "get_item"
+  },
+  {
+   "block": [
+    7,
+    7
+   ],
+   "context": [
+    "HTTP"
+   ],
+   "doc": "docs/untouched.md",
+   "heading": "HTTP routes",
+   "line": 7,
+   "norm": "/stats",
+   "specific": true,
+   "text": "/stats"
+  },
+  {
+   "block": [
+    7,
+    7
+   ],
+   "context": [
+    "/stats",
+    "HTTP"
+   ],
+   "doc": "docs/untouched.md",
+   "heading": "HTTP routes",
+   "line": 7,
+   "norm": "stats",
+   "specific": false,
+   "text": "stats"
+  }
+ ],
+ "skipped": [],
+ "unanchored": [
+  {
+   "doc": "README.md",
+   "line": 7,
+   "reason": "ambiguous",
+   "ref": "svc"
+  },
+  {
+   "doc": "README.md",
+   "line": 11,
+   "reason": "unknown",
+   "ref": "--worker"
+  },
+  {
+   "doc": "README.md",
+   "line": 13,
+   "reason": "unknown",
+   "ref": "debug"
+  },
+  {
+   "doc": "README.md",
+   "line": 25,
+   "reason": "unknown",
+   "ref": "store.sync"
+  },
+  {
+   "doc": "README.md",
+   "line": 27,
+   "reason": "unknown",
+   "ref": "VACUUM"
+  },
+  {
+   "doc": "docs/cli.md",
+   "line": 3,
+   "reason": "ambiguous",
+   "ref": "svc"
+  },
+  {
+   "doc": "docs/cli.md",
+   "line": 7,
+   "reason": "ambiguous",
+   "ref": "serve"
+  },
+  {
+   "doc": "docs/cli.md",
+   "line": 8,
+   "reason": "ambiguous",
+   "ref": "check"
+  },
+  {
+   "doc": "docs/cli.md",
+   "line": 9,
+   "reason": "ambiguous",
+   "ref": "export"
+  },
+  {
+   "doc": "docs/cli.md",
+   "line": 11,
+   "reason": "ambiguous",
+   "ref": "svc"
+  },
+  {
+   "doc": "docs/cli.md",
+   "line": 19,
+   "reason": "ambiguous",
+   "ref": "svc"
+  },
+  {
+   "doc": "docs/cli.md",
+   "line": 23,
+   "reason": "ambiguous",
+   "ref": "svc"
+  },
+  {
+   "doc": "docs/design.md",
+   "line": 7,
+   "reason": "ambiguous",
+   "ref": "items"
+  },
+  {
+   "doc": "docs/tools.md",
+   "line": 7,
+   "reason": "unknown",
+   "ref": "store.delete"
+  },
+  {
+   "doc": "docs/tools.md",
+   "line": 19,
+   "reason": "unknown",
+   "ref": "greeting"
+  },
+  {
+   "doc": "docs/untouched.md",
+   "line": 5,
+   "reason": "unknown",
+   "ref": "/health"
+  },
+  {
+   "doc": "docs/untouched.md",
+   "line": 5,
+   "reason": "ambiguous",
+   "ref": "health"
+  },
+  {
+   "doc": "docs/untouched.md",
+   "line": 6,
+   "reason": "unknown",
+   "ref": "/items/<key>"
+  },
+  {
+   "doc": "docs/untouched.md",
+   "line": 7,
+   "reason": "unknown",
+   "ref": "/stats"
+  },
+  {
+   "doc": "docs/untouched.md",
+   "line": 7,
+   "reason": "ambiguous",
+   "ref": "stats"
+  }
+ ]
+}

@@ -1,0 +1,27 @@
+{
+ "decisions": [],
+ "edits": [
+  {
+   "claim": "1st notice",
+   "doc": "docs/legacy.md",
+   "end_line": 3,
+   "evidence": [],
+   "id": "n001",
+   "new": "<!-- drift-unverified: 1st notice, run 2026-01-02-4e1d, block 20d485bd. This describes the code but names nothing in it. Name what it describes, or add drift-ignore: <reason>. -->\nOld reports listed findings in the order the files were read, so two runs over one tree could disagree.",
+   "old": "Old reports listed findings in the order the files were read, so two runs over one tree could disagree.",
+   "start_line": 3,
+   "subject": "20d485bd",
+   "type": "notice"
+  }
+ ],
+ "nominations": [
+  {
+   "doc": "docs/legacy.md",
+   "end_line": 3,
+   "skipped": null,
+   "start_line": 3,
+   "why": "describes how old reports ordered findings; nothing in the code names that order"
+  }
+ ],
+ "stale": []
+}

@@ -1,0 +1,36 @@
+{
+ "code_claims": {
+  "README.md": 1,
+  "docs/api.md": 3,
+  "docs/cli.md": 4,
+  "docs/configuration.md": 4
+ },
+ "edits": [
+  {
+   "check": null,
+   "claim": "fetchItems loads one page of items",
+   "doc": "docs/api.md",
+   "end_line": 14,
+   "evidence": [
+    "src/api/client.ts:11"
+   ],
+   "human_kind": null,
+   "id": "u001-e01",
+   "new": "`listItems` loads one page of items, and `fetchItem` loads one item by its id.",
+   "old": "`fetchItems` loads one page of items, and `fetchItem` loads one item by its id.",
+   "reason": null,
+   "source": "review",
+   "start_line": 14,
+   "status": "kept",
+   "subject": null,
+   "type": "correct"
+  }
+ ],
+ "human": [],
+ "questions": [],
+ "refusals": [],
+ "unchecked_gap_docs": [],
+ "unchecked_units": [],
+ "unverified_batches": [],
+ "unverified_blocks": []
+}

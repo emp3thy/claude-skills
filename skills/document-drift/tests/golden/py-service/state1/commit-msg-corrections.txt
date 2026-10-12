@@ -1,0 +1,13 @@
+docs(drift): correct stale docs
+
+Drift-Run: 2026-01-02-3f03
+Drift-Base: 09c42c0bfe44a30d3c7b1210884f9f201c751baa
+Drift-Scope: first
+Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
+
+- README.md:9 correct the default port is 8000 (src/svc/cli.py:17)
+- README.md:11 correct the flag is --worker (src/svc/cli.py:18)
+- README.md:19 correct routes.py registers two HTTP routes (src/svc/routes.py:12, src/svc/routes.py:18, src/svc/routes.py:27)
+- docs/design.md:9 anchor Store.purge (src/svc/storage.py:72)
+- docs/design.md:13 notice unverified block (1st notice)
+- docs/tools.md:7 remove a store.delete tool removes a value (store.delete not in source)

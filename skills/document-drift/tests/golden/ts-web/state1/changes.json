@@ -1,0 +1,47 @@
+{
+ "affected": {},
+ "changed_files": [],
+ "hunks": {},
+ "last_run": null,
+ "last_run_source": null,
+ "mode": "first",
+ "review": {
+  "README.md": [
+   [
+    1,
+    17
+   ]
+  ],
+  "docs/api.md": [
+   [
+    1,
+    14
+   ]
+  ],
+  "docs/cli.md": [
+   [
+    1,
+    16
+   ]
+  ],
+  "docs/configuration.md": [
+   [
+    1,
+    9
+   ]
+  ],
+  "docs/frontend.md": [
+   [
+    1,
+    5
+   ]
+  ],
+  "index.md": [
+   [
+    1,
+    5
+   ]
+  ]
+ },
+ "scope": "first"
+}

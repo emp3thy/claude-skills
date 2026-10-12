@@ -1,0 +1,10 @@
+docs(drift): correct stale docs
+
+Drift-Run: 2026-01-09-a50b
+Drift-Base: 1574ffc47ab914ac4787dcf2a66b7e5f47d327dc
+Drift-Scope: since 09c42c0bfe44a30d3c7b1210884f9f201c751baa
+Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
+
+- README.md:9 correct the default port is 8080 (src/svc/cli.py:17)
+- docs/design.md:5 correct commands open the database through storage.connect (src/svc/storage.py:12)
+- docs/design.md:13 escalate unverified notice (2nd notice)

@@ -1,0 +1,59 @@
+{
+ "candidates": [
+  {
+   "file": "Makefile",
+   "hidden": false,
+   "kind": "target",
+   "line": 3,
+   "name": "build",
+   "parent": null
+  },
+  {
+   "file": "Makefile",
+   "hidden": false,
+   "kind": "target",
+   "line": 6,
+   "name": "lint",
+   "parent": null
+  },
+  {
+   "file": "Makefile",
+   "hidden": false,
+   "kind": "target",
+   "line": 9,
+   "name": "release",
+   "parent": null
+  }
+ ],
+ "gaps": [
+  {
+   "file": "Makefile",
+   "gap_kind": "undocumented",
+   "kind": "target",
+   "line": 9,
+   "name": "release",
+   "parent": null,
+   "reason": "most-names",
+   "target_doc": "README.md",
+   "target_line": 11
+  }
+ ],
+ "lists": [],
+ "no_home": [],
+ "targets": {
+  "README.md": [
+   {
+    "file": "Makefile",
+    "gap_kind": "undocumented",
+    "kind": "target",
+    "line": 9,
+    "name": "release",
+    "parent": null,
+    "reason": "most-names",
+    "target_doc": "README.md",
+    "target_line": 11
+   }
+  ]
+ },
+ "unchecked": []
+}

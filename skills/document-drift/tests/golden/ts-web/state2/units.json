@@ -1,0 +1,146 @@
+{
+ "unchecked": [],
+ "units": [
+  {
+   "affected_anchors": 0,
+   "anchors": [
+    {
+     "change_ranges": [
+      [
+       3,
+       3
+      ]
+     ],
+     "doc": "docs/api.md",
+     "end": 3,
+     "file": "src/api/client.ts",
+     "kind": "function",
+     "line": 12,
+     "reading": [
+      3,
+      3
+     ],
+     "ref": "PAGE_SIZE",
+     "start": 3
+    },
+    {
+     "change_ranges": [
+      [
+       17,
+       20
+      ]
+     ],
+     "doc": "docs/api.md",
+     "end": 20,
+     "file": "src/api/client.ts",
+     "kind": "function",
+     "line": 14,
+     "reading": [
+      17,
+      20
+     ],
+     "ref": "fetchItem",
+     "start": 17
+    },
+    {
+     "change_ranges": [
+      [
+       10,
+       10
+      ]
+     ],
+     "doc": "docs/cli.md",
+     "end": 10,
+     "file": "src/cli.ts",
+     "kind": "reg",
+     "line": 15,
+     "reading": [
+      10,
+      10
+     ],
+     "ref": "--watch",
+     "start": 10
+    },
+    {
+     "change_ranges": [
+      [
+       11,
+       11
+      ]
+     ],
+     "doc": "docs/cli.md",
+     "end": 11,
+     "file": "src/cli.ts",
+     "kind": "reg",
+     "line": 16,
+     "reading": [
+      11,
+      11
+     ],
+     "ref": "--sourcemap",
+     "start": 11
+    },
+    {
+     "change_ranges": [
+      [
+       12,
+       12
+      ]
+     ],
+     "doc": "docs/cli.md",
+     "end": 12,
+     "file": "src/cli.ts",
+     "kind": "reg",
+     "line": 17,
+     "reading": [
+      12,
+      12
+     ],
+     "ref": "--minify",
+     "start": 12
+    }
+   ],
+   "docs": [
+    {
+     "doc": "README.md",
+     "ranges": [
+      [
+       11,
+       14
+      ]
+     ]
+    },
+    {
+     "doc": "docs/api.md",
+     "ranges": [
+      [
+       10,
+       14
+      ]
+     ]
+    },
+    {
+     "doc": "docs/cli.md",
+     "ranges": [
+      [
+       10,
+       17
+      ]
+     ]
+    },
+    {
+     "doc": "docs/configuration.md",
+     "ranges": [
+      [
+       1,
+       10
+      ]
+     ]
+    }
+   ],
+   "hunks": [],
+   "id": "u001",
+   "size": 32
+  }
+ ]
+}
