@@ -27,17 +27,20 @@ rerun with ``--retried``. ``--from <sha>`` is ``--base <sha>`` plus a note in th
 replay of history from a commit is not built).
 
 On a fixture every ``planted.json`` item of the state is judged with ``dd_corpus.evaluate``:
-an item is caught when every expectation holds; a decoy (id starting ``d`` or ``x``) is touched
-when one does not. One row is appended to the ``## document-drift`` table of
-``docs/evaluation-log.md`` (``render_row``); the section and its header must already be there,
-and the harness never edits them. ``live-run.json`` in the workdir records every call (role,
-id, model, seconds, tokens, cost, status, the agent's reply); ``--keep`` then copies the
+an item is caught when every expectation holds; a decoy (``kind`` ``decoy`` or ``excluded``) is
+touched when one does not; a ``canned_only`` item (one that encodes a canned agent's deliberate
+mistake) is skipped and named in the notes. One row is appended to the table that ``HEADER``
+starts in the ``## document-drift`` section of ``docs/evaluation-log.md`` (``render_row``,
+``append_row``); the section and its header must already be there, and the harness never edits
+them. The ``judged acceptable`` cell is rendered ``-``: the owner fills it in after judging the
+run's edits. ``live-run.json`` in the workdir records every call (role, id, model, seconds,
+tokens, cost, status, the agent's reply), whatever way the run ends; ``--keep`` then copies the
 workdir to a directory.
 
 Exit codes: 0 the run finished and the row was logged; 2 refused before any agent call (no
 ``claude`` launcher, an unknown target, a log without the section); 4 a stage exited
-unexpectedly (the row is still logged, with the stage in its notes). The harness refuses to
-dispatch an agent under pytest.
+unexpectedly or the run crashed (the row is still logged, with the stage or the exception in
+its notes). The harness refuses to dispatch an agent under pytest.
 """
 from __future__ import annotations
 
@@ -53,9 +56,10 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 from collections import Counter
 from collections.abc import Iterator, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from datetime import date as Date
 from pathlib import Path
@@ -84,7 +88,8 @@ from dd_make_history import continue_fixture  # noqa: E402
 LOG_PATH = SKILL_DIR.parents[1] / "docs" / "evaluation-log.md"
 SECTION = "## document-drift"
 COLUMNS = ("date", "repository", "head", "mode", "docs", "affected", "units", "edits proposed",
-           "kept", "verdicts", "applied", "human", "notices placed", "gaps", "planted caught",
+           "kept", "verdicts", "applied", "judged acceptable", "human", "notices placed", "gaps",
+           "planted caught",
            "decoys touched", "agents", "wall time", "tokens", "cost usd", "notes")
 HEADER = "| " + " | ".join(COLUMNS) + " |\n"
 ISOLATION = ("--setting-sources", "project", "--strict-mcp-config", "--disable-slash-commands")
@@ -196,21 +201,28 @@ def dispatch_entry(entry: dict[str, Any], *, claude: str, budget: float, cwd: Pa
     return call
 
 
-def dispatch_wave(entries: Sequence[dict[str, Any]], *, parallel: int, retry: bool,
-                  **kwargs: Any) -> list[Call]:
-    """Every entry of a plan in parallel (at most ``parallel`` at a time), in plan order."""
-    if not entries:
-        return []
+def dispatch_wave(entries: Sequence[dict[str, Any]], *, sink: list[Call], parallel: int,
+                  retry: bool, **kwargs: Any) -> None:
+    """Every entry of a plan in parallel (at most ``parallel`` at a time). Each call is added
+    to ``sink`` as it completes, so a paid call is recorded even when another one raises; the
+    first exception is re-raised once the wave is over."""
+    failure: BaseException | None = None
     with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
         futures = [pool.submit(dispatch_entry, dict(e), retry=retry, **kwargs) for e in entries]
-        calls = [f.result() for f in futures]
-    for call in calls:
-        mark = " (retry)" if call.retry else ""
-        tokens = "-" if call.tokens is None else str(call.tokens)
-        print(f"  {call.role} {call.id}{mark}: {call.model}, {call.seconds:.0f}s, "
-              f"{tokens} tokens, ${call.cost:.2f}, {call.status}"
-              + (f" ({call.error})" if call.error else ""), flush=True)
-    return calls
+        for future in as_completed(futures):
+            try:
+                call = future.result()
+            except Exception as exc:
+                failure = failure or exc
+                continue
+            sink.append(call)
+            mark = " (retry)" if call.retry else ""
+            tokens = "-" if call.tokens is None else str(call.tokens)
+            print(f"  {call.role} {call.id}{mark}: {call.model}, {call.seconds:.0f}s, "
+                  f"{tokens} tokens, ${call.cost:.2f}, {call.status}"
+                  + (f" ({call.error})" if call.error else ""), flush=True)
+    if failure is not None:
+        raise failure
 
 
 # ---------------------------------------------------------------- stages
@@ -258,7 +270,7 @@ def _plan(out: str, workdir: Path, name: str) -> list[dict[str, Any]]:
 
 
 def _wave(run: Run, plan: list[dict[str, Any]], retry: bool = False) -> None:
-    run.calls += dispatch_wave(plan, parallel=run.parallel, retry=retry, **run.dispatch)
+    dispatch_wave(plan, sink=run.calls, parallel=run.parallel, retry=retry, **run.dispatch)
 
 
 def _stage_with_retry(run: Run, stage: str, ok: tuple[int, ...]) -> tuple[int, str]:
@@ -360,7 +372,8 @@ def render_row(workdir: Path, *, date: str, repository: str, calls: Sequence[Cal
         date, repository, head, mode,
         str(len(inventory.get("docs", []))) if inventory is not None else "-",
         affected, str(len(units.get("units", []))) if units is not None else "-",
-        proposed, kept, verdicts, applied, human, notices, gaps, _ratio(planted),
+        proposed, kept, verdicts, applied, "-",  # judged acceptable: the owner fills it in
+        human, notices, gaps, _ratio(planted),
         _ratio(decoys), f"{roles['review']}/{roles['gap']}/{roles['verify']}",
         _wall(wall_seconds), str(sum(tokens)) if tokens else "-",
         f"{sum(c.cost for c in calls):.2f}", notes,
@@ -369,22 +382,22 @@ def render_row(workdir: Path, *, date: str, repository: str, calls: Sequence[Cal
 
 
 def _section_end(text: str) -> int:
-    """The offset just after the last table row of the ``## document-drift`` section; raises
-    ValueError when the section or its header is missing."""
+    """The offset just after the table that ``HEADER`` starts in the ``## document-drift``
+    section: past the header line and every ``|`` line directly after it. Raises ValueError
+    when the section or the header is missing."""
     start = text.find(f"\n{SECTION}\n")
     if start < 0:
         raise ValueError(f"no '{SECTION}' section")
     nxt = text.find("\n## ", start + 1)
     end = len(text) if nxt < 0 else nxt + 1
-    body = text[start:end]
-    if f"\n{HEADER}" not in body:
+    at = text.find(f"\n{HEADER}", start, end)
+    if at < 0:
         raise ValueError(f"the '{SECTION}' section has no header row {HEADER.strip()!r}")
-    offset, last = start, -1
-    for line in body.splitlines(keepends=True):
-        if line.startswith("|"):
-            last = offset + len(line)
-        offset += len(line)
-    return last
+    offset = at + 1 + len(HEADER)
+    while offset < end and text.startswith("|", offset):
+        line_end = text.find("\n", offset)
+        offset = len(text) if line_end < 0 else line_end + 1
+    return offset
 
 
 def _read_log(log: Path) -> tuple[str, str]:
@@ -410,27 +423,57 @@ def append_row(log: Path, row: str) -> None:
 
 # ---------------------------------------------------------------- scoring
 
-def score(name: str, state: int, workdir: Path) -> tuple[tuple[int, int], tuple[int, int],
-                                                          list[str]]:
-    """(caught, planted), (touched, decoys) and one line per miss or touch."""
-    items = load_planted(name).get(f"state{state}", [])
-    caught = touched = planted = decoys = 0
-    lines: list[str] = []
-    for item in items:
+DECOY_KINDS = ("decoy", "excluded")
+
+
+@dataclass
+class Score:
+    """A fixture run judged against the state's ``planted.json`` items."""
+    caught: int = 0
+    planted: int = 0
+    touched: int = 0
+    decoys: int = 0
+    missed_ids: list[str] = field(default_factory=list)
+    touched_ids: list[str] = field(default_factory=list)
+    canned_ids: list[str] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)
+
+    def notes(self) -> list[str]:
+        out = []
+        if self.missed_ids:
+            out.append("missed " + ", ".join(self.missed_ids))
+        if self.touched_ids:
+            out.append("touched " + ", ".join(self.touched_ids))
+        if self.canned_ids:
+            out.append("canned-only: " + ", ".join(self.canned_ids))
+        return out
+
+
+def score(name: str, state: int, workdir: Path) -> Score:
+    """Judge every item of the state: a planted item is caught when every expectation holds, a
+    decoy (``kind`` in ``DECOY_KINDS``) touched when one does not; a ``canned_only`` item is
+    skipped and named."""
+    result = Score()
+    for item in load_planted(name).get(f"state{state}", []):
+        iid = str(item["id"])
+        if item.get("canned_only"):
+            result.canned_ids.append(iid)
+            continue
         problems = evaluate(item, workdir, state)
-        decoy = str(item["id"]).startswith(("d", "x"))
-        if decoy:
-            decoys += 1
+        if item.get("kind") in DECOY_KINDS:
+            result.decoys += 1
             if problems:
-                touched += 1
-                lines.append(f"touched {item['id']}: {'; '.join(problems)}")
+                result.touched += 1
+                result.touched_ids.append(iid)
+                result.lines.append(f"touched {iid}: {'; '.join(problems)}")
         else:
-            planted += 1
+            result.planted += 1
             if problems:
-                lines.append(f"missed {item['id']}: {'; '.join(problems)}")
+                result.missed_ids.append(iid)
+                result.lines.append(f"missed {iid}: {'; '.join(problems)}")
             else:
-                caught += 1
-    return (caught, planted), (touched, decoys), lines
+                result.caught += 1
+    return result
 
 
 # ---------------------------------------------------------------- main
@@ -490,6 +533,15 @@ def _prepare(name: str, state: int) -> Path:
     return repo
 
 
+def _write_record(workdir: Path, repo: Path, calls: Sequence[Call], row: str = "") -> None:
+    """``live-run.json``: every call made so far (and the row, once rendered)."""
+    if not workdir.is_dir():
+        return  # start never ran far enough to dispatch anything
+    record = {"repo": str(repo), "calls": [asdict(c) for c in calls], "row": row}
+    (workdir / "live-run.json").write_bytes(
+        (json.dumps(record, indent=1) + "\n").encode("utf-8"))
+
+
 def live_run(args: argparse.Namespace, claude: str, fixture: str | None,
              path: Path | None, log: Path) -> int:
     """Prepare the repository, drive the stages, score, log the row, keep the workdir."""
@@ -526,6 +578,12 @@ def live_run(args: argparse.Namespace, claude: str, fixture: str | None,
         print(f"error: {exc}", file=sys.stderr)
         notes.append(f"stopped: {exc}")
         code = EXIT_STAGE
+    except Exception as exc:  # the paid calls so far are still recorded and logged
+        traceback.print_exc(file=sys.stderr)
+        notes.append(f"crashed: {type(exc).__name__}: {exc}")
+        code = EXIT_STAGE
+    finally:  # also on KeyboardInterrupt: never lose the record of a paid call
+        _write_record(workdir, repo, run.calls)
     wall = time.monotonic() - began
     failed = Counter((c.id, c.status) for c in run.calls if c.status != "ok")
     if failed:
@@ -537,23 +595,21 @@ def live_run(args: argparse.Namespace, claude: str, fixture: str | None,
         notes.append(f"{retries} retried")
     planted = decoys = None
     if fixture is not None and workdir.is_dir():
-        planted, decoys, lines = score(fixture, args.state, workdir)
-        for line in lines:
-            print(line)
-        missed = [ln.split(":")[0].split()[1] for ln in lines if ln.startswith("missed")]
-        hit = [ln.split(":")[0].split()[1] for ln in lines if ln.startswith("touched")]
-        if missed:
-            notes.append("missed " + ", ".join(missed))
-        if hit:
-            notes.append("touched " + ", ".join(hit))
+        try:
+            result = score(fixture, args.state, workdir)
+        except Exception as exc:  # a crashed run can leave files evaluate cannot read
+            notes.append(f"not scored: {type(exc).__name__}: {exc}")
+        else:
+            planted = (result.caught, result.planted)
+            decoys = (result.touched, result.decoys)
+            for line in result.lines:
+                print(line)
+            notes += result.notes()
     repository = (f"{fixture} (state {args.state})" if fixture is not None else repo.name)
     row = render_row(workdir, date=Date.today().isoformat(), repository=repository,
                      calls=run.calls, wall_seconds=wall, planted=planted, decoys=decoys,
                      notes="; ".join(notes))
-    if workdir.is_dir():
-        record = {"repo": str(repo), "calls": [asdict(c) for c in run.calls], "row": row}
-        (workdir / "live-run.json").write_bytes(
-            (json.dumps(record, indent=1) + "\n").encode("utf-8"))
+    _write_record(workdir, repo, run.calls, row)
     append_row(log, row)
     print(row, end="")
     if args.keep and workdir.is_dir():

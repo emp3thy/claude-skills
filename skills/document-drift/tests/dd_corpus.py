@@ -18,8 +18,13 @@ is an ancestor of HEAD. Git author and committer dates are pinned for the whole 
 drift commits, and with them every later sha and run id, are the same on every machine.
 
 ``planted.json`` is ``{"state1": [item...], "state2": [item...]}``; an item is ``{"id",
-"state", "doc" and/or "name", "line", "kind", "what", "expect"}`` with ``expect`` a list of
-expectations, all judged by ``evaluate`` on the run of the item's state:
+"state", "doc" and/or "name", "line", "kind", "what", "expect"}`` and an optional
+``"canned_only": true``, with ``expect`` a list of expectations, all judged by ``evaluate`` on
+the run of the item's state. ``kind`` ``decoy`` or ``excluded`` marks a decoy. ``canned_only``
+marks an item whose expectation encodes a deliberate mistake of the canned agents (a wrong
+correction the canned verifier rejects, a bad anchor the checks drop), which a correct live
+agent can never meet: the corpus tests here ignore the flag and judge the item like any other;
+the live harness (``dd_live_run``) skips it and names it in its row's notes. The expectations:
 
 - ``edit:<type>``: an applied edit of that type whose ``doc`` and ``start_line`` are the item's;
 - ``human:<kind>``: a human-decision entry of that kind on the doc line (for ``no-home``, one

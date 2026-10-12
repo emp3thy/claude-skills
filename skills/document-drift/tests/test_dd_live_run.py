@@ -11,14 +11,17 @@ from typing import Any
 import dd_live_run
 import pytest
 from dd_live_run import (
+    COLUMNS,
     HEADER,
     Call,
     append_row,
     check_log,
+    live_run,
     main,
     parse_args,
     render_row,
     resolve_target,
+    score,
 )
 
 
@@ -65,9 +68,11 @@ def workdir(tmp_path: Path) -> Path:
     return wd
 
 
-def _cells(row: str) -> list[str]:
+def _cells(row: str) -> dict[str, str]:
+    """The row's cells by column name."""
     assert row.startswith("| ") and row.endswith(" |\n")
-    return [c.strip() for c in row[2:-3].split(" | ")]
+    cells = [c.strip() for c in row[2:-3].split(" | ")]
+    return dict(zip(COLUMNS, cells, strict=True))
 
 
 def test_row_format(workdir: Path) -> None:
@@ -78,17 +83,15 @@ def test_row_format(workdir: Path) -> None:
     row = render_row(workdir, date="2026-10-13", repository="py-service", calls=calls,
                      wall_seconds=754.2, planted=(9, 11), decoys=(1, 8),
                      notes="missed p3 | p14")
-    cells = _cells(row)
-    header = [c.strip() for c in HEADER.strip()[2:-2].split(" | ")]
-    assert len(cells) == len(header)
-    got = dict(zip(header, cells, strict=True))
-    assert got == {
+    assert HEADER.startswith("| date |") and " | applied | judged acceptable | " in HEADER
+    assert _cells(row) == {
         "date": "2026-10-13", "repository": "py-service", "head": "0123456",
         "mode": "first", "docs": "3", "affected": "3", "units": "2",
         "edits proposed": "5 (3/1/1)", "kept": "4", "verdicts": "2/1/0/1", "applied": "3",
-        "human": "2", "notices placed": "1", "gaps": "2/1", "planted caught": "9/11",
-        "decoys touched": "1/8", "agents": "2/1/1", "wall time": "12m34s",
-        "tokens": "3500", "cost usd": "1.85", "notes": "missed p3 \\| p14",
+        "judged acceptable": "-", "human": "2", "notices placed": "1", "gaps": "2/1",
+        "planted caught": "9/11", "decoys touched": "1/8", "agents": "2/1/1",
+        "wall time": "12m34s", "tokens": "3500", "cost usd": "1.85",
+        "notes": "missed p3 \\| p14",
     }
 
 
@@ -98,23 +101,27 @@ def test_row_format_without_scoring_or_tokens(workdir: Path) -> None:
     calls = [Call("review", "u001", "sonnet", 5.0, None, 0.0, "ok")]
     cells = _cells(render_row(workdir, date="2026-10-13", repository="repo", calls=calls,
                               wall_seconds=5, planted=None, decoys=None, notes=""))
-    assert cells[3:6] == ["later", "3", "1"]
-    assert cells[14:16] == ["-", "-"]
-    assert cells[18] == "-" and cells[20] == "-"
+    assert (cells["mode"], cells["docs"], cells["affected"]) == ("later", "3", "1")
+    assert cells["planted caught"] == cells["decoys touched"] == "-"
+    assert cells["tokens"] == cells["notes"] == cells["judged acceptable"] == "-"
 
 
 def test_row_format_missing_files(tmp_path: Path) -> None:
     cells = _cells(render_row(tmp_path, date="2026-10-13", repository="repo", calls=[],
                               wall_seconds=0, planted=None, decoys=None, notes="stopped"))
-    assert cells[2] == "-" and cells[7] == "-" and cells[-1] == "stopped"
+    assert cells["head"] == cells["edits proposed"] == "-" and cells["notes"] == "stopped"
+
+
+def _log_text(after_header: str) -> str:
+    sep = "|" + "---|" * len(COLUMNS) + "\n"
+    return ("# log\n\n| x |\n|---|\n\n## document-drift\n\nText.\n\n" + HEADER + sep
+            + after_header + "\n## later\n\n| y |\n")
 
 
 def test_append_row_into_the_section(tmp_path: Path) -> None:
     log = tmp_path / "log.md"
-    sep = "|" + "---|" * (HEADER.count(" | ") + 1) + "\n"
     old = "| 2026-10-01 | a |\n"
-    log.write_bytes(("# log\n\n| x |\n|---|\n\n## document-drift\n\nText.\n\n"
-                     + HEADER + sep + old + "\n## later\n\n| y |\n").encode())
+    log.write_bytes(_log_text(old).encode())
     append_row(log, "| new |\n")
     text = log.read_text(encoding="utf-8")
     assert old + "| new |\n\n## later" in text
@@ -127,6 +134,57 @@ def test_append_row_into_the_section(tmp_path: Path) -> None:
     log.write_bytes(b"# log\n\n## document-drift\n\nno table\n")
     with pytest.raises(ValueError):
         check_log(log)
+
+
+def test_append_row_anchors_on_the_header(tmp_path: Path) -> None:
+    # another table later in the section must not receive the row
+    log = tmp_path / "log.md"
+    old = "| 2026-10-01 | a |\n"
+    log.write_bytes(_log_text(old + "\nA note with its own table:\n\n| k | v |\n|---|---|\n")
+                    .encode())
+    append_row(log, "| new |\n")
+    text = log.read_text(encoding="utf-8")
+    assert old + "| new |\n\nA note" in text
+    assert "|---|---|\n\n## later" in text
+
+
+def test_score_skips_canned_only_and_finds_decoys_by_kind(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    items = [{"id": "p1", "kind": "flag-name"}, {"id": "p2", "kind": "count"},
+             {"id": "dx", "kind": "count"},  # a d-prefixed id that is not a decoy
+             {"id": "q1", "kind": "decoy"}, {"id": "q2", "kind": "excluded"},
+             {"id": "p14", "kind": "wrong-correction", "canned_only": True},
+             {"id": "d7", "kind": "decoy", "canned_only": True}]
+    unmet = {"p2", "q2", "p14", "d7"}
+    monkeypatch.setattr(dd_live_run, "load_planted", lambda name: {"state1": items})
+    monkeypatch.setattr(dd_live_run, "evaluate",
+                        lambda item, wd, state: ["unmet"] if item["id"] in unmet else [])
+    result = score("any", 1, tmp_path)
+    assert (result.caught, result.planted, result.touched, result.decoys) == (2, 3, 1, 2)
+    assert result.notes() == ["missed p2", "touched q2", "canned-only: p14, d7"]
+
+
+def test_crash_still_records_calls_and_logs_a_row(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    log = tmp_path / "log.md"
+    log.write_bytes(_log_text("").encode())
+
+    def crash(run: Any, check: bool) -> None:
+        run.workdir.mkdir(parents=True)
+        run.calls.append(Call("review", "u001", "sonnet", 3.0, 10, 0.25, "ok"))
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(dd_live_run, "drive", crash)
+    args = parse_args([str(repo)])
+    assert live_run(args, "claude", None, repo, log) == 4
+    record = json.loads((repo / ".document-drift" / "live-run.json").read_text("utf-8"))
+    assert [c["id"] for c in record["calls"]] == ["u001"]
+    rows = [ln for ln in log.read_text("utf-8").splitlines() if ln.startswith("| 20")]
+    assert len(rows) == 1
+    cells = _cells(rows[0] + "\n")
+    assert cells["cost usd"] == "0.25" and "crashed: RuntimeError: boom" in cells["notes"]
 
 
 def test_fixture_name_or_path(tmp_path: Path) -> None:

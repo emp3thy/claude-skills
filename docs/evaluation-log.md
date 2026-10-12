@@ -209,7 +209,8 @@ tier-A bar (provisional at 0.80 since phase 5b) is still waiting on.
 One row per live run of `skills/document-drift/tests/dd_live_run.py` (spec 11.3), which runs the
 skill's three stages with real `claude -p` agents on a corpus fixture (replayed into a temporary
 directory) or on a repository (a throwaway clone: a run without `--check` commits there). The
-harness appends the row; it never edits this text or the header, and rows are never edited.
+harness appends the row below the header's table; it never edits this text or the header. A
+row is never edited, with one exception: the owner fills in its `judged acceptable` cell.
 
 - `mode`: `first`, `later` (since the last drift run), `base` (`--base`, or `--from`, which is
   passed as `--base`) or `full`, from `changes.json` `scope`. `docs` counts the docs in scope;
@@ -217,12 +218,17 @@ harness appends the row; it never edits this text or the header, and rows are ne
   one); `units` the review units.
 - `edits proposed` is the total, then review / gap / notice; `kept` the edits that passed the
   script checks; `verdicts` accept / reject / unsure / unverified; `applied` the edits applied
-  (`0` under `--check`); `human` the "Needs a human decision" entries; `notices placed` the
+  (`0` under `--check`); `judged acceptable` the applied edits the repository's owner judged
+  acceptable after reading the drift commits, as `n/m` of `applied` (spec 11.3): the harness
+  writes `-`, and the owner replaces it after judging, the one permitted edit to a row;
+  `human` the "Needs a human decision" entries; `notices placed` the
   applied 1st and 2nd notices; `gaps` undocumented / missing-from-list.
 - `planted caught` and `decoys touched` (fixtures only): an item of the state's `planted.json`
-  is caught when every expectation holds (`dd_corpus.evaluate`); a decoy (id `d...` or `x...`)
-  is touched when one does not. `notes` names each miss and touch; the run's task report
-  explains them from the agents' outputs.
+  is caught when every expectation holds (`dd_corpus.evaluate`); a decoy (`kind` `decoy` or
+  `excluded`) is touched when one does not. An item marked `canned_only` (it encodes a
+  deliberate mistake of the canned agents, which a correct live agent never makes) is not
+  scored and is named in `notes` as `canned-only: ...`. `notes` names each miss and touch; the
+  run's task report explains them from the agents' outputs.
 - `agents` counts the plan entries dispatched per role, review / gap / verify (a `retry.json`
   re-dispatch is in `notes`, not counted twice); `tokens` sums every call's input (cache reads
   and writes included) and output tokens as the reply envelope reports them; `cost usd` sums
@@ -234,12 +240,12 @@ The phase 1 rows (`2026-10-09`, ralph and better-memory, from phase 1's determin
 measured. They are in git history.
 
 **The `2026-10-13` `py-service (state 1)` row is the first live run** (sonnet review and gap
-agents, opus verifiers, $0.71). Of its five misses and one decoy touch, `p14` and `d7` are
-scenario items that encode the canned agents' deliberate mistakes and cannot be met by an
-agent that does not make them: `p14` expects the verifier to reject the canned review's
-wrong `--workers` default correction, and
-decoy `d7` expects the check to drop the canned review's bad `connect` anchor; the live review
-made neither edit. The other four misses are agent judgement: `p2`, the right `--worker` to
+agents, opus verifiers, $0.71). It was first logged as `6/11` and `1/8`, then re-scored from
+the run's kept workdir (same files, no new agent call) once `canned_only` was added:
+`p14` expects the verifier to reject the canned review's wrong `--workers` default
+correction, and decoy `d7` expects the check to drop the canned review's bad `connect`
+anchor; the live review made neither edit, so neither can be met by a correct agent. The
+four misses are agent judgement: `p2`, the right `--worker` to
 `--workers` fix, was proposed and the verifier answered `unsure` because `serve` never reads
 `args.workers`; `p4`, the stale `store.delete` item, was rewritten to `store.list` (a
 `correct`, not a `remove`) and the verifier rejected it because `store.list` is in
@@ -247,6 +253,6 @@ made neither edit. The other four misses are agent judgement: `p2`, the right `-
 as an `unsure` question (nothing schedules `Store.purge`) and as no nomination at all. Both
 rejected edits reached the human-decision list, so neither doc line was changed wrongly.
 
-| date | repository | head | mode | docs | affected | units | edits proposed | kept | verdicts | applied | human | notices placed | gaps | planted caught | decoys touched | agents | wall time | tokens | cost usd | notes |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-10-13 | py-service (state 1) | 09c42c0 | first | 8 | 8 | 1 | 7 (4/3/0) | 7 | 5/1/1/0 | 5 | 9 | 0 | 2/1 | 6/11 | 1/8 | 1/2/4 | 1m08s | 422201 | 0.71 | missed p2, p4, p8a, p10, p14; touched d7 |
+| date | repository | head | mode | docs | affected | units | edits proposed | kept | verdicts | applied | judged acceptable | human | notices placed | gaps | planted caught | decoys touched | agents | wall time | tokens | cost usd | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-10-13 | py-service (state 1) | 09c42c0 | first | 8 | 8 | 1 | 7 (4/3/0) | 7 | 5/1/1/0 | 5 | - | 9 | 0 | 2/1 | 6/10 | 0/7 | 1/2/4 | 1m08s | 422201 | 0.71 | missed p2, p4, p8a, p10; canned-only: p14, d7 |
