@@ -162,8 +162,9 @@ writes `plan-docs.json`: one review agent per unit and one gap agent per target 
 validates their output files, runs the script checks on every proposed edit and writes
 `plan-verify.json`: one verifier agent per batch of up to ten edits. `finish` collects the
 verdicts, applies the accepted edits, re-scans the edited docs and reverts any edit that breaks
-a path or anchor reference, commits and prints the summary. Every agent is read-only and writes
-one output file; a missing or invalid output is re-dispatched once (exit 3, `--retried`), then
+a path or anchor reference, commits and prints the summary. Every agent is a general-purpose
+agent with Read, Grep, Glob and Write, read-only toward the repository, and writes only its one
+output file; a missing or invalid output is re-dispatched once (exit 3, `--retried`), then
 counted as unchecked.
 
 The output contract is a branch (default name `docs/drift-<YYYY-MM-DD>`) created from the
@@ -173,7 +174,7 @@ starting HEAD with at most two commits, `docs(drift): correct stale docs` and
 and the last commit ends with a `Needs a human decision:` list when there is one. Pushing the
 branch and opening the pull request are your own process. When no edit is applied, no branch is
 created and the summary is the whole output. `--check` runs through verification with no doc
-edit, no branch and no commit, and exits 1 when an accepted edit exists.
+edit, no branch and no commit, and exits 1 when an edit would apply.
 
 A block that describes the code but names nothing the skill can tie to a definition gets a
 `drift-unverified` notice, an HTML comment on the line above it. Name what it describes, add a

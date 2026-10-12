@@ -821,7 +821,8 @@ decided still apply.
 
 **Dispatch protocol.** A plan entry is `{id, role, prompt, output, model}` with absolute paths
 inside the workdir; `role` is `review`, `gap` or `verify` and `model` comes from config. The
-session dispatches one read-only Agent per entry, all entries of a plan in one message, with
+session dispatches one general-purpose Agent per entry (it needs Read, Grep, Glob and Write;
+it is read-only toward the repository), all entries of a plan in one message, with
 the prompt `Read the file <prompt> in full and follow it. Write only <output>.`; it never
 pastes a prompt and never writes an output file. The agent writes exactly `output` and replies
 with a receipt. The next stage validates every output of the wave against its schema; a
@@ -917,7 +918,11 @@ Drift-Unchecked: <n> doc units, <n> gap docs, <n> verify batches
 - <doc>:<line> escalate unverified notice (2nd notice)
 - <doc>:<line> clear unverified notice (now anchored | block changed | drift-ignore)
 - <doc>:<line> remove unverified block (3rd notice, unchanged since <run id>)
+  - <doc>:<line> link #<old> -> #<new>
 ```
+
+The indented `link` sub-bullet follows an edit whose heading change rewrote links to the old
+heading slug, one per rewritten link.
 
 The second commit, `docs(drift): document missing surface`, has the same `Drift-` lines and
 `- <doc>:<line> add <kind> <name> (<path:line>)` bullets. A commit with no edits is not made.
@@ -933,7 +938,8 @@ and stages each doc by explicit path. After a successful `finish` outside `--che
 `last-run.json` records the starting HEAD, run id and date, so a run with nothing to fix still
 moves the anchor on this machine; the `Drift-Base` line carries it to other machines.
 
-Exit codes (spec 2): 0 stage succeeded; 1 `finish` under `--check` found accepted edits; 2
+Exit codes (spec 2): 0 stage succeeded; 1 `finish` under `--check` found an edit that would
+apply (an accepted edit or a kept notice edit); 2
 refused before any change; 3 an agent wave left missing or invalid outputs (`retry.json`); 5 a
 script step crashed or its expected output is missing (the message names the step, and after
 apply, commit or summary points to `git status` and `git branch`); 6 the commit failed after
@@ -979,8 +985,10 @@ protected too. A marker with no colon or an empty reason is reported and suppres
 
 ### Tests
 
-Every module has its own `test_dd_<module>.py`; no test calls a model, and agent outputs are
-canned JSON files. `test_dd_run.py` drives the three stages on a small repository with the
+Every module has its own `test_dd_<module>.py` except `dd_manifests` (exercised through the
+resolve and pattern tests), `dd_redaction` (`test_dd_copies.py` checks it is byte-identical to
+tech-debt-scan's `redaction.py`) and `dd_check_skill` (run in CI); no test calls a model, and
+agent outputs are canned JSON files. `test_dd_run.py` drives the three stages on a small repository with the
 canned outputs under `skills/document-drift/tests/canned/`, including an invalid output that
 exercises exit 3 and `--retried`. The fixture corpus under
 `skills/document-drift/tests/fixtures/corpus/` (`py-service`, `ts-web`, `go-cli`) replays a
