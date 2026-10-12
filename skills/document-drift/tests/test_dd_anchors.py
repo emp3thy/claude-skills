@@ -41,10 +41,10 @@ def test_references_from_code_spans_and_html_code_tags() -> None:
     save, load, limit, flag = refs
     assert save == {"doc": "docs/guide.md", "line": 5, "text": "svc.store.save",
                     "norm": "svc_store_save", "specific": True, "block": [5, 5],
-                    "heading": "Storage", "context": ["load_all"]}
-    assert load["context"] == ["svc_store_save"]
+                    "heading": "Storage", "context": ["load_all", "Storage"]}
+    assert load["context"] == ["svc_store_save", "Storage"]
     assert limit["specific"] is False and limit["block"] == [7, 7]
-    assert limit["context"] == ["--max-items"]
+    assert limit["context"] == ["--max-items", "Storage"]
     assert flag["specific"] is True and flag["norm"] == "--max-items"
 
 
@@ -75,10 +75,25 @@ def test_specific_resolves_to_best_rank() -> None:
 
 
 def test_dotted_name_falls_back_to_last_segment() -> None:
-    defs = [_def("save_all", "svc/store.py", 3, 9, "function")]
-    anchors, unanchored = _resolve("README.md", "Call `store.save_all`.\n", defs)
-    assert [(a["ref"], a["file"]) for a in anchors] == [("store.save_all", "svc/store.py")]
+    defs = [_def("Store", "svc/store.py", 1, 20, "class"),
+            _def("purge", "svc/store.py", 3, 9, "function", ("Store",))]
+    anchors, unanchored = _resolve("README.md", "Call `Store.purge`.\n", defs)
+    assert [(a["ref"], a["file"], a["start"]) for a in anchors] == [
+        ("Store.purge", "svc/store.py", 3)]
     assert unanchored == []
+
+
+def test_dotted_fallback_needs_a_defined_first_segment() -> None:
+    defs = [_def("purge", "svc/store.py", 3, 9, "function"),
+            _def("yaml", "svc/yaml.py", 1, 40, "module")]
+    text = "Call `Nope.purge`, edit `config.yaml` or `conf/app.yaml`.\n"
+    anchors, unanchored = _resolve("README.md", text, defs)
+    assert anchors == []
+    assert [(u["ref"], u["reason"]) for u in unanchored] == [
+        ("Nope.purge", "unknown"), ("config.yaml", "unknown"), ("conf/app.yaml", "unknown")]
+    with_conf = [*defs, _def("conf", "svc/conf.py", 1, 5, "module")]
+    anchors, _ = _resolve("README.md", "See `conf/app.yaml`.\n", with_conf)
+    assert anchors == []
 
 
 def test_specific_over_ten_definitions_is_ambiguous() -> None:
@@ -105,6 +120,25 @@ def test_bare_resolves_through_block_context() -> None:
     anchors, unanchored = resolve(refs, by_norm(defs), NO_FILES, NO_FILES)
     assert [(a["ref"], a["start"], a["end"]) for a in anchors] == [("query", 10, 20)]
     assert unanchored == []
+
+
+def test_specific_words_in_plain_heading_text_are_context() -> None:
+    table = "\n\n| Parameter | Meaning |\n|---|---|\n| `query` | what to look for |\n"
+    defs = [_def("query", "svc/server.py", 10, 20, "literal", ("memory_retrieve",)),
+            _def("query", "svc/store.py", 30, 40, "literal", ("MemoryStore",)),
+            _def("query", "svc/other.py", 50, 60, "literal", ("memory_observe",))]
+    cases = [("## memory_retrieve", "memory_retrieve", "svc/server.py"),
+             ("## the MemoryStore class", "MemoryStore", "svc/store.py"),
+             ("## mcp__mem__memory_retrieve (tool)", "memory_retrieve", "svc/server.py")]
+    for heading, name, file in cases:
+        refs = references("docs/tools.md", heading + table)
+        assert refs[0]["context"] == [name], heading
+        anchors, unanchored = resolve(refs, by_norm(defs), NO_FILES, NO_FILES)
+        assert [a["file"] for a in anchors] == [file], heading
+        assert unanchored == [], heading
+    refs = references("docs/tools.md", "## Calling `memory.observe` via store_x." + table)
+    assert refs[-1]["text"] == "query"
+    assert refs[-1]["context"] == ["memory_observe", "Calling", "store_x"]
 
 
 def test_bare_without_context_is_unanchored() -> None:
@@ -137,9 +171,7 @@ def test_existing_path_is_not_an_anchor() -> None:
     dirs = frozenset({"src", "docs"})
     text = "Edit `src/app.py` or `../src/helpers.py`; `helpers.py` is a file name.\n"
     anchors, unanchored = _resolve("docs/guide.md", text, defs, files, dirs)
-    assert unanchored == [
-        {"doc": "docs/guide.md", "line": 1, "ref": "src/app.py", "reason": "path"},
-        {"doc": "docs/guide.md", "line": 1, "ref": "../src/helpers.py", "reason": "path"}]
+    assert unanchored == []
     assert [(a["ref"], a["file"]) for a in anchors] == [("helpers.py", "src/helpers.py")]
 
 
@@ -199,9 +231,12 @@ def test_run_writes_counts_by_reason(tmp_path: Path) -> None:
     assert read_json(work / "anchors.json") == result
     assert result["counts"] == {"references": 5, "paths": 1, "anchored": 2, "ambiguous": 1,
                                 "unknown": 1}
+    counts = result["counts"]
+    assert counts["references"] == (counts["paths"] + counts["anchored"]
+                                    + counts["ambiguous"] + counts["unknown"])
     assert [(u["ref"], u["reason"]) for u in result["unanchored"]] == [
-        ("svc/server.py", "path"), ("query", "ambiguous"),
-        ("NOT_DEFINED_ANYWHERE", "unknown")]
+        ("query", "ambiguous"), ("NOT_DEFINED_ANYWHERE", "unknown")]
+    assert "svc/server.py" in [r["text"] for r in result["references"]]
     assert {(a["ref"], a["kind"]) for a in result["anchors"]} == {
         ("handle_retrieve", "function"), ("mcp__mem__memory.retrieve", "reg")}
     assert result["checkability"]["docs/tools.md"]["status"] == "weak"

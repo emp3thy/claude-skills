@@ -11,14 +11,17 @@ the plan.
   (``first_token``). Its ``block`` is the scanner block holding it (an HTML span takes the
   smallest block holding its line), its ``heading`` the nearest heading above that block, and
   its ``context`` the normalised specific references of its block plus the specific names of
-  that heading (its code spans, else the dotted names in its text), less its own name.
+  that heading (its code spans and each whitespace-separated word of its text that passes
+  ``first_token`` and ``is_specific``), less its own name.
 - **Resolution** (``resolve``): a reference that is an existing path needs no anchor and is
-  listed with reason ``path``; a specific one takes its definitions of the best rank present
-  (a dotted name with none falls back to its last segment), ambiguous over
-  ``SPECIFIC_LIMIT``; a bare one takes the definitions whose owners meet its context, ambiguous
-  with none or over ``BARE_LIMIT``; a name with no definition at all is ``unknown``. Every
-  reference without an anchor is in ``unanchored`` with its reason, so ``counts`` add up:
-  ``references = paths + anchored + ambiguous + unknown``. Each chosen definition is an anchor.
+  neither anchored nor unanchored (only counted, as ``paths``); a specific one takes its
+  definitions of the best rank present, ambiguous over ``SPECIFIC_LIMIT``. A dotted name with
+  no definition falls back to its last segment only when its first segment is itself defined
+  and it holds no ``/`` (``Store.purge`` to ``purge`` when ``Store`` is defined; never
+  ``config.yaml`` to ``yaml``). A bare one takes the definitions whose owners meet its context,
+  ambiguous with none or over ``BARE_LIMIT``; a name with no definition at all is ``unknown``.
+  ``counts`` add up: ``references = paths + anchored + ambiguous + unknown``. Each chosen
+  definition is an anchor.
 - **Checkability** (``checkability``): per doc, the references, the anchored references, their
   rate, and the paragraphs, list items and table rows (``blocks``) with the ones holding no
   reference (``blocks_noref``). ``unverifiable`` with no anchored reference, ``weak`` under
@@ -74,7 +77,6 @@ CODE_BLOCKS: frozenset[str] = frozenset({"fence", "indented_code"})
 _NAME = re.compile(r"^[A-Za-z_][\w.\-]{2,}$")
 _FLAG = re.compile(r"^--[\w-]+$")
 _HTML_CODE = re.compile(r"<code(?:\s[^>]*)?>(.*?)</code\s*>", re.IGNORECASE)
-_DOTTED = re.compile(r"(?<![\w.])[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)+")
 _SURROUNDING = "()[]{},:;"
 
 _Range = tuple[int, int]
@@ -164,10 +166,12 @@ def references(doc: str, text: str) -> list[Reference]:
         return above[-1] if above else None
 
     def heading_names(h: Block) -> list[str]:
-        named = by_block.get((h.line_start, h.line_end))
-        if named:
-            return named
-        return [norm(name) for name in _DOTTED.findall(h.text or "")]
+        named = list(by_block.get((h.line_start, h.line_end), []))
+        for piece in (h.text or "").split():
+            token = first_token(piece.strip("`").rstrip("."))
+            if token is not None and is_specific(token):
+                named.append(norm(token))
+        return named
 
     refs: list[Reference] = []
     for line, _, token, block in spans:
@@ -187,8 +191,10 @@ def _choose(ref: Reference, defs: Mapping[str, list[Definition]]) -> tuple[
     """The definitions a reference anchors to, or ``([], reason)``."""
     candidates = defs.get(ref["norm"], [])
     if ref["specific"]:
-        if not candidates and "." in ref["text"]:
-            candidates = defs.get(norm(ref["text"].rsplit(".", 1)[1]), [])
+        text = ref["text"]
+        if (not candidates and "." in text and "/" not in text
+                and norm(text.split(".", 1)[0]) in defs):
+            candidates = defs.get(norm(text.rsplit(".", 1)[1]), [])
         if not candidates:
             return [], "unknown"
         best = min(RANK[d["kind"]] for d in candidates)
@@ -206,15 +212,15 @@ def resolve(refs: Iterable[Reference], defs: Mapping[str, list[Definition]],
             ) -> tuple[list[Anchor], list[dict[str, Any]]]:
     """``(anchors, unanchored)`` for ``refs`` against ``defs`` (``by_norm`` groups) and the
     tracked ``files`` and ``dirs`` (spec 5.3). A token holding ``/`` is matched as a path
-    loosely (by suffix and basename too), any other only relative to the doc or the root."""
+    loosely (by suffix and basename too), any other only relative to the doc or the root; an
+    existing path is in neither list."""
     anchors: list[Anchor] = []
     unanchored: list[dict[str, Any]] = []
     for ref in refs:
         text = ref["text"]
-        chosen: list[Definition] = []
-        reason: str | None = "path"
-        if not path_matches(text, ref["doc"], files, dirs, loose="/" in text):
-            chosen, reason = _choose(ref, defs)
+        if path_matches(text, ref["doc"], files, dirs, loose="/" in text):
+            continue
+        chosen, reason = _choose(ref, defs)
         if reason is not None:
             unanchored.append({"doc": ref["doc"], "line": ref["line"], "ref": text,
                                "reason": reason})
@@ -289,13 +295,16 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any]) -> dict[str, Any]:
     files, dirs = History(root).head_files()
     anchors, unanchored = resolve(refs, by_norm(defindex["definitions"]), files, dirs)
     reasons = [u["reason"] for u in unanchored]
+    anchored_keys = {(a["doc"], a["line"], a["ref"]) for a in anchors}
+    anchored = sum((r["doc"], r["line"], r["text"]) in anchored_keys for r in refs)
     result: dict[str, Any] = {
         "references": refs,
         "anchors": anchors,
         "unanchored": unanchored,
         "checkability": checkability(docs, texts, refs, anchors, config),
-        "counts": {"references": len(refs), "paths": reasons.count("path"),
-                   "anchored": len(refs) - len(unanchored),
+        "counts": {"references": len(refs),
+                   "paths": len(refs) - anchored - len(unanchored),
+                   "anchored": anchored,
                    "ambiguous": reasons.count("ambiguous"),
                    "unknown": reasons.count("unknown")},
         "skipped": skipped,
