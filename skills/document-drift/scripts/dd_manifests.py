@@ -161,6 +161,60 @@ def script_source(doc: str, tool: str, name: str, files: Paths, read: Reader,
     return None
 
 
+def _tool_of(path: str) -> str | None:
+    """The script tool whose manifest ``path``'s basename is, or None."""
+    name = posixpath.basename(path)
+    return next((tool for tool, names in SCRIPT_MANIFESTS.items() if name in names), None)
+
+
+def targets(path: str, text: str) -> list[str]:
+    """The Makefile targets, justfile recipes and aliases or Taskfile tasks and aliases that
+    ``text`` defines, sorted; empty for any other file. Includes are not followed."""
+    tool = _tool_of(path)
+    if tool not in ("make", "just", "task"):
+        return []
+    names, _ = _script_names(tool, path, text, frozenset(), lambda _path: None)
+    return sorted(names)
+
+
+def entry_points(path: str, text: str) -> list[str]:
+    """The command names a project file installs or runs, sorted: ``pyproject.toml``
+    ``[project.scripts]`` and every ``[project.entry-points.<group>]`` name, or
+    ``package.json`` ``scripts`` keys and ``bin`` names (a string ``bin`` installs the
+    package's ``name``). Empty for any other file or when the file does not parse."""
+    name = posixpath.basename(path)
+    found: set[str] = set()
+    if name == "pyproject.toml":
+        try:
+            project = tomllib.loads(text).get("project")
+        except tomllib.TOMLDecodeError:
+            return []
+        if not isinstance(project, dict):
+            return []
+        tables = [project.get("scripts")]
+        groups = project.get("entry-points")
+        if isinstance(groups, dict):
+            tables.extend(groups.values())
+        for table in tables:
+            if isinstance(table, dict):
+                found.update(str(k) for k in table)
+    elif name == "package.json":
+        try:
+            data: Any = json.loads(text)
+        except ValueError:
+            return []
+        if not isinstance(data, dict):
+            return []
+        scripts, binaries = data.get("scripts"), data.get("bin")
+        if isinstance(scripts, dict):
+            found.update(str(k) for k in scripts)
+        if isinstance(binaries, dict):
+            found.update(str(k) for k in binaries)
+        elif isinstance(binaries, str) and isinstance(data.get("name"), str):
+            found.add(data["name"].rsplit("/", 1)[-1])
+    return sorted(found)
+
+
 # -- versions --------------------------------------------------------------------------------
 
 
