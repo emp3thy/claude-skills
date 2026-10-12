@@ -9,9 +9,11 @@ Each name is a ``Name`` record ``{"name", "kind", "file", "line", "parent", "hid
   whose parent is the command whose ``add_parser`` made the receiver, followed through
   assignments, argument groups and call chains; a receiver that is a function parameter has
   no parent. ``@<x>.command`` / ``@<x>.group`` functions are commands (a ``name`` given to
-  the decorator wins), and the ``-``-led strings of ``@<x>.option`` / ``@<x>.argument`` on
-  them are flags with that command as parent. ``os.environ["X"]``, ``os.environ.get("X")``,
-  ``os.getenv("X")`` are env names. ``@<x>.(get|post|put|patch|delete|route)("/x")`` are
+  the decorator wins; else the function name with ``_`` as ``-``, as click and typer do),
+  and the ``-``-led strings of ``@<x>.option`` / ``@<x>.argument`` on them are flags with
+  that command as parent. ``os.environ["X"]``, ``os.environ.get("X")``, ``os.getenv("X")``
+  are env names (a store or ``del`` on ``os.environ`` is no read).
+  ``@<x>.(get|post|put|patch|delete|route)("/x")`` are
   routes. MCP tools: ``Tool(..., name="x", ...)`` and ``@<x>.tool`` functions (their
   ``name`` or the function's); each tool's ``inputSchema`` / ``input_schema`` ``properties``
   keys (a dict literal or a module-level name bound to one) and a decorated tool's own
@@ -310,7 +312,9 @@ def _decorated(fn: ast.FunctionDef | ast.AsyncFunctionDef, out: _File,
         hides = call is not None and _call_hides(call)
         named = _named(call)
         if method in COMMAND_DECORATORS and command is None:
-            command = named.value if named else fn.name
+            # click (7.0+) and typer expose a function-named command with dashes
+            command = named.value if named else fn.name.replace("_", "-")
+            hides = hides or (named is None and _underscored(fn.name))
             out.add(command, "command", named.lineno if named else fn.lineno, hidden=hides)
         elif method in FLAG_DECORATORS and call is not None:
             flags.extend((c, hides) for c in map(_str, call.args)
@@ -377,7 +381,8 @@ def _scan_python(text: str, out: _File) -> bool:
             _decorated(node, out, dicts)
         elif isinstance(node, ast.Call):
             _python_call(node, out, dicts)
-        elif isinstance(node, ast.Subscript) and _is_environ(node.value):
+        elif (isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load)
+              and _is_environ(node.value)):
             key = _str(node.slice)
             if key:
                 out.env(key.value, key.lineno)

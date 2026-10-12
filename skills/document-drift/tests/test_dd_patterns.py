@@ -41,7 +41,7 @@ def build():
         "--port", type=int)
     init = parsers.add_parser(
         "init", aliases=["setup"])
-    init.add_argument("--force")
+    init.add_argument("-f", "--force")
     group = init.add_mutually_exclusive_group()
     group.add_argument("--quiet")
     _add_init_flags(init)
@@ -55,7 +55,7 @@ def test_argparse_commands_flags_and_parents() -> None:
                                      ("setup", None, False)}
     assert _of(names, "flag") == {
         ("-v", None, False), ("--verbose", None, False), ("--port", "serve", False),
-        ("--force", "init", False), ("--quiet", "init", False),
+        ("-f", "init", False), ("--force", "init", False), ("--quiet", "init", False),
         # a parser passed into a helper: the receiver is a parameter, so no parent
         ("--template", None, False),
     }
@@ -123,13 +123,28 @@ def doctor(
     fix: bool = typer.Option(False, "--fix"),
 ):
     pass
+
+
+@cli.command()
+@click.option("--force")
+def sync_all_files(force):
+    pass
+
+
+@cli.command()
+def _rebuild_cache():
+    pass
 """
     names = _scan({"cmds.py": src})
     assert _of(names, "command") == {("cli", None, False), ("sync-all", None, False),
-                                     ("export", None, False), ("doctor", None, False)}
+                                     ("export", None, False), ("doctor", None, False),
+                                     # click and typer expose a function name with dashes
+                                     ("sync-all-files", None, False),
+                                     ("-rebuild-cache", None, True)}
     assert _of(names, "flag") == {("--dry-run", "sync-all", False),
                                   ("-n", "sync-all", False),
-                                  ("--secret", "sync-all", True)}
+                                  ("--secret", "sync-all", True),
+                                  ("--force", "sync-all-files", False)}
     assert _line(names, "command", "sync-all") == 12
     assert _line(names, "command", "doctor") == 26
 
@@ -143,6 +158,8 @@ TOKEN = os.environ["API_TOKEN"]
 LEVEL = os.environ.get(
     "SVC_LOG_LEVEL", "info")
 PATH = os.getenv("PATH")
+os.environ["NO_PROXY"] = ""
+del os.environ["TMP_FLAG"]
 """
     helpers = """\
 from .settings import setting
@@ -150,6 +167,7 @@ from .settings import setting
 cache = setting("SVC_CACHE_DIR")
 label = "SVC_lowercase_is_not_a_name"
 other = "OTHER_CACHE_DIR"
+mode = "NO_MATCH"
 """
     names = _scan({"svc/config.py": config, "svc/helpers.py": helpers})
     env = {(n["name"], n["file"], n["line"]) for n in names if n["kind"] == "env"}
@@ -157,7 +175,7 @@ other = "OTHER_CACHE_DIR"
         ("SVC_HOME", "svc/config.py", 3), ("API_TOKEN", "svc/config.py", 4),
         ("SVC_LOG_LEVEL", "svc/config.py", 6), ("PATH", "svc/config.py", 7),
         ("SVC_CACHE_DIR", "svc/helpers.py", 3),
-    }
+    }  # a store or delete on os.environ is no read and starts no prefix family
 
 
 def test_routes_decorators() -> None:
