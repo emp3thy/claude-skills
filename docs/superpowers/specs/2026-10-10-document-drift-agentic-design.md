@@ -56,6 +56,7 @@ Taken in the 2026-10-10 to 2026-10-12 brainstorm:
 | N12 | Repeat gaps | Later runs propose only user-facing names added since the last run |
 | N13 | Scope of this spec | Phase A: normal runs, first and later, both directions. Phase B (no-docs mode) is built later |
 | N14 | Fact sheets | Dropped from normal runs; agents read the anchored code directly. Kept for phase B |
+| N15 | Unverifiable docs | A doc that describes the code but names nothing the skill can anchor is itself a finding, not a doc to skip: the summary reports every doc's checkability on every run, and the review agent adds the missing names (`anchor` edits, in the corrections commit) so later runs can check the doc |
 
 Carried over from the 2026-10-09 brainstorm, still in force:
 
@@ -155,7 +156,7 @@ Definition kinds have a rank: definitions (module, function, class, SQL object, 
 
 ### 5.2 References
 
-The phase 1 extractor lists each in-scope doc's references: paths in links and code spans, and every inline-code span outside fenced blocks whose first token looks like a name or a path. Each reference records its doc line and its **block**: the paragraph, list, table or heading it sits in, plus the nearest heading above it.
+The phase 1 extractor lists each in-scope doc's references: paths in links and code spans, and every inline-code span outside fenced blocks whose first token looks like a name or a path. An HTML `<code>...</code>` span counts as an inline-code span (`website/index.md` in `better-memory` is a 209-line landing page written in HTML whose only references are in `<code>` tags). Each reference records its doc line and its **block**: the paragraph, list, table or heading it sits in, plus the nearest heading above it.
 
 A reference is **specific** when it contains `.`, `/` or `_`, starts with `--`, mixes case (`camelCase`), or is upper case with underscores (`BETTER_MEMORY_HOME`). Otherwise it is **bare** (`query`, `limit`, `scope`).
 
@@ -178,6 +179,12 @@ An **anchor** is a resolved reference with its definition's file and range. Two 
 - the **reading range**, given to a review agent: the definition's full range, capped at the signature range for definitions over 60 lines. The agent may open more.
 
 On `better-memory` at `9d5be26`, 1,497 of 2,925 references anchor (51%) and 87 are existing paths; the anchors cover 10,251 of 21,402 source lines (section 14.3).
+
+### 5.5 Checkability
+
+A doc the skill cannot tie to the code is the doc most likely to drift unnoticed, by the skill and by its readers. So the script measures, for every in-scope doc on every run, its **checkability**: references, anchored references, the anchoring rate, and the number of blocks (paragraphs, list items and table rows outside fences) that hold no reference at all. A doc is **unverifiable** when it has no anchor, and **weakly anchored** when its anchoring rate is under `min_anchor_ratio` (default 0.25) or it has fewer than 3 anchors. Both are listed by name in the summary (section 9.5), with the note that a later run cannot see code changes that affect them until they name code. On `better-memory`, 12 of 38 docs have no anchor and 502 of 977 blocks carry no reference (section 14.3).
+
+Checkability is reported, never enforced: an unverifiable doc is not a human-decision item, because nothing in it is known to be wrong. The fix is the `anchor` edit (section 7.1), which gives the doc the names it lacks. A doc that still has no anchor after a first run is one where the agent found nothing to name, which is usually a doc that is not about the code (a contributing guide, a landing page's prose); the first-run summary separates those by the agent's `code_claims` count.
 
 ## 6. Run modes
 
@@ -226,7 +233,9 @@ After a successful `finish` (not under `--check`), the script writes `<workdir>/
 
 On a first run the agent checks every factual statement its docs make about this repository's code: names, paths, commands, flags, environment variables, config keys, defaults, counts and lists ("the six tools"), described behaviour, code examples (imports, call shapes, CLI invocations, field names in sample output) and directory trees. It starts from the anchors' reading ranges and opens whatever else it needs.
 
-On a later run the agent checks only the statements about the affected anchors and missing names, including statements that describe the changed behaviour without naming it, and the changed sections. It works from the diff and opens the current source whenever the diff alone does not settle a statement. It ignores everything else in the doc, even if it might be wrong.
+It has a second job on a first run: where a true statement describes a definition without naming anything the index can resolve ("the bootstrap renders the newest memories", "three buckets, surfaced separately"), and one definition clearly is the thing described, it proposes an **`anchor` edit** that names it in an inline-code span, in the doc's own wording ("the bootstrap (`SessionBootstrapService.bootstrap`) renders the newest memories"). An anchor edit changes nothing else; a statement that is wrong gets a `correct` edit instead, and a statement with several plausible definitions, or none, gets no edit. The agent also reports `code_claims`, the number of statements about this repository's code it found in each doc, so the summary can tell a doc that is not about the code from one that is but names nothing.
+
+On a later run the agent checks only the statements about the affected anchors and missing names, including statements that describe the changed behaviour without naming it, and the changed sections. It works from the diff and opens the current source whenever the diff alone does not settle a statement. It ignores everything else in the doc, even if it might be wrong. Anchor edits are proposed only within the changed sections.
 
 In both modes it does not check statements about other software, plans, intent or opinion, or historical sentences ("X was removed in 2.0"), which are true as history.
 
@@ -238,11 +247,16 @@ The agent writes `review/<unit>.json`:
 {
   "unit": "u007",
   "claims_checked": 41,
+  "code_claims": {"website/configuration.md": 38, "README.md": 60},
   "edits": [
     {"id": "u007-e01", "doc": "website/configuration.md", "start_line": 54, "end_line": 54,
      "old": "| `BETTER_MEMORY_TOP_N` | `3` | ... |", "new": "| `BETTER_MEMORY_TOP_N` | `5` | ... |",
      "type": "correct", "claim": "default of BETTER_MEMORY_TOP_N is 3",
-     "evidence": ["better_memory/config.py:57"], "subject": null}
+     "evidence": ["better_memory/config.py:57"], "subject": null},
+    {"id": "u007-e02", "doc": "README.md", "start_line": 120, "end_line": 120,
+     "old": "The bootstrap renders the newest memories first.", "new": "The bootstrap (`SessionBootstrapService.bootstrap`) renders the newest memories first.",
+     "type": "anchor", "claim": "the bootstrap renders newest first",
+     "evidence": ["better_memory/services/bootstrap.py:41"], "subject": "SessionBootstrapService.bootstrap"}
   ],
   "questions": [
     {"doc": "README.md", "line": 88, "kind": "guarantee-mismatch",
@@ -253,7 +267,8 @@ The agent writes `review/<unit>.json`:
 }
 ```
 
-- `type` is `correct` (change wrong text) or `remove` (delete a statement about something the code no longer has). `subject` names the removed item for a `remove` edit when there is one; section 9.1 checks it is absent from the source.
+- `type` is `correct` (change wrong text), `remove` (delete a statement about something the code no longer has) or `anchor` (name the definition a true statement describes). `subject` names the removed item for a `remove` edit when there is one, and the added name for an `anchor` edit; section 9.1 checks the former is absent from the source and the latter resolves to the evidence.
+- `code_claims` counts, per doc in the unit, the statements about this repository's code, including the ones that name nothing; 0 means the doc is not about the code.
 - `old` is the exact text of lines `start_line` to `end_line`, leading spaces included; `new` is their replacement (empty for a removal).
 - Edits are minimal: change the wrong part, keep the doc's wording, voice and format, and do not reflow paragraphs or make style edits.
 - A heading is edited only when the heading itself is wrong.
@@ -321,6 +336,7 @@ Run at the start of `verify` on every edit from review and gap agents, in this o
 | `protected` | the lines touch a `drift-ignore` region, a generated region or a never-edit section | human (`protected`) |
 | `evidence` | an `evidence` entry names a missing file or a line outside it, or a `correct` or `add` edit has no evidence | dropped |
 | `still-in-source` | a `remove` edit's `subject`, normalised as in section 5.2, still appears as a whole word in a tracked source file | dropped |
+| `anchor-adds-name` | an `anchor` edit's `new` is not `old` with one inline-code span inserted (plus at most 3 other words, such as brackets or "the"), or the span's name does not resolve (section 5.3) to a definition in the evidence file, or `old` contains a guarantee word (an anchor edit never rewrites a guarantee) | dropped |
 | `guarantee` | `old` contains a guarantee word that `new` does not | human (`guarantee-mismatch`) |
 | `large-deletion` | a `remove` edit deletes more than `max_delete_lines` (default 15) lines, or deletes a heading line | human (`large-deletion`) |
 | `large-section` | an `add` edit adds more than `max_section_lines` (default 40) lines | human (`large-section`) |
@@ -329,7 +345,7 @@ Run at the start of `verify` on every edit from review and gap agents, in this o
 
 ### 9.2 Verification
 
-Edits that pass the checks are grouped by the file of their first evidence path (edits with no evidence, which are removals only, are grouped by doc) into batches of at most 10. One verifier agent per batch receives, for each edit, the claim, the evidence, the old and new text and 10 lines of the doc on either side, and read access to the source. It does not see the proposing agent's reasoning. It accepts an edit only when the old text is wrong about this repository's code, the new text is right and supported by the code, the edit is minimal, the old text is not about other software, intent or history, and it is not a contradicted guarantee. It writes `verdicts/<batch>.json`: one entry per edit, `{"edit": id, "verdict": "accept" | "reject" | "unsure", "reason": "..."}`. Only accepted edits are applied. A rejected or unsure edit goes to "Needs a human decision" as `verify-rejected` with the verifier's reason. An edit with no verdict, because its batch was unchecked or its entry is missing, is listed in the summary as unverified and is not applied.
+Edits that pass the checks are grouped by the file of their first evidence path (edits with no evidence, which are removals only, are grouped by doc) into batches of at most 10. One verifier agent per batch receives, for each edit, the claim, the evidence, the old and new text and 10 lines of the doc on either side, and read access to the source. It does not see the proposing agent's reasoning. It accepts an edit only when the old text is wrong about this repository's code, the new text is right and supported by the code, the edit is minimal, the old text is not about other software, intent or history, and it is not a contradicted guarantee. It accepts an `anchor` edit only when the statement is true and the named definition is the thing it describes, not merely a related one. It writes `verdicts/<batch>.json`: one entry per edit, `{"edit": id, "verdict": "accept" | "reject" | "unsure", "reason": "..."}`. Only accepted edits are applied. A rejected or unsure edit goes to "Needs a human decision" as `verify-rejected` with the verifier's reason. An edit with no verdict, because its batch was unchecked or its entry is missing, is listed in the summary as unverified and is not applied.
 
 ### 9.3 Apply and re-scan
 
@@ -349,6 +365,7 @@ Drift-Unchecked: <n> doc units, <n> gap docs, <n> verify batches
 
 - <doc>:<line> correct <claim> (<path:line>[, <path:line>...])
 - <doc>:<line> remove <claim> (<subject> not in source)
+- <doc>:<line> anchor <subject> (<path:line>)
 ```
 
 ```
@@ -362,7 +379,7 @@ Drift-Unchecked: ...
 - <doc>:<line> add <kind> <name> (<path:line>)
 ```
 
-The first commit holds the applied review edits and their heading link updates; the second holds the applied gap edits. When one of them has no edits it is not made. The last commit made ends with:
+The first commit holds the applied review edits (`correct`, `remove` and `anchor`) and their heading link updates; the second holds the applied gap edits. When one of them has no edits it is not made. The last commit made ends with:
 
 ```
 
@@ -374,7 +391,7 @@ The kinds are `guarantee-mismatch`, `unsure`, `large-deletion`, `large-section`,
 
 ### 9.5 Summary
 
-`summary.md`, also printed by `finish`: run id; mode (first, since a sha, base, full) and the last-run commit; base; docs scanned and excluded by reason; references, anchors and unanchored references by reason; on a later run, changed files and hunks, and affected docs with the anchors that affected them; review units (checked, unchecked by the cap, unchecked after retry); claims checked; edits proposed by review and by gap agents; script check results by check; verdicts by kind; edits applied and reverted; gaps by kind and by target, and gap refusals by kind; the human-decision list; markers without reasons and stale markers; the branch and commit hashes, or "No branch created". Under `--check`, every accepted edit is listed in the commit-bullet grammar.
+`summary.md`, also printed by `finish`: run id; mode (first, since a sha, base, full) and the last-run commit; base; docs scanned and excluded by reason; references, anchors and unanchored references by reason; checkability (section 5.5): every doc's references, anchors and rate, then the unverifiable and weakly anchored docs by name, split on a first run into docs with no code claims and docs with code claims that name nothing, with the number of anchor edits applied to each; on a later run, changed files and hunks, and affected docs with the anchors that affected them; review units (checked, unchecked by the cap, unchecked after retry); claims checked; edits proposed by review and by gap agents; script check results by check; verdicts by kind; edits applied and reverted; gaps by kind and by target, and gap refusals by kind; the human-decision list; markers without reasons and stale markers; the branch and commit hashes, or "No branch created". Under `--check`, every accepted edit is listed in the commit-bullet grammar.
 
 ## 10. Configuration and limits
 
@@ -384,6 +401,7 @@ The kinds are `guarantee-mismatch`, `unsure`, `large-deletion`, `large-section`,
 unit_lines: 6000          # line budget per review unit
 max_delete_lines: 15      # larger removals go to a human
 max_section_lines: 40     # larger additions go to a human
+min_anchor_ratio: 0.25    # docs anchoring below this are listed as weakly anchored
 undocumented_ok: []       # globs of names that are never gaps
 caps:
   review: 40              # review agents per run
@@ -423,12 +441,12 @@ Removed: `dd_fixes` (the provable fix classes). The heading-link update it held 
 New:
 
 - `dd_defindex`: the definition index (section 5.1), buildable at HEAD or, for given files, at another commit.
-- `dd_anchors`: references, resolution, anchors and their ranges (sections 5.2 to 5.4).
+- `dd_anchors`: references (including HTML code spans), resolution, anchors, their ranges and per-doc checkability (sections 5.2 to 5.5).
 - `dd_changes`: run mode, affected docs and review scope (sections 6.1 to 6.3).
 - `dd_units`: review units (section 6.4).
 - `dd_patterns`: the pattern scan (section 8.1).
 - `dd_gaps`: detection and targets (sections 8.2, 8.3).
-- `dd_checks`: the script checks (section 9.1).
+- `dd_checks`: the script checks (section 9.1), including `anchor-adds-name`.
 - `dd_dispatch`: plan files, prompt rendering, output validation and `retry.json` (section 3.2).
 - `prompts/review-first.md`, `prompts/review-later.md`, `prompts/gap.md`, `prompts/verify.md`.
 
@@ -437,8 +455,9 @@ New:
 - Unit tests for every script, in the existing style. No test calls a model; agent outputs are canned JSON files.
 - The three fixture repositories (`py-service`, `ts-web`, `go-cli`) are rebuilt for this design, each with a history of at least two states: the state of a first run, and later commits that change code the docs point at. Each gains planted drift in both directions:
   - **docs to code:** a wrong default, a wrong flag name, a wrong count, a removed tool still documented, a guarantee the code does not keep; and, in the later commits, a changed default and a renamed function the docs name;
-  - **code to docs:** an environment variable missing from an env var table, an undocumented command, an undocumented MCP tool or route, and, in the later commits, a new flag.
-- Decoys that must produce no edit and no human entry: a historical sentence, a statement about other software, a hidden flag, an internal helper, an `undocumented_ok` item, a selective list (under half of its kind), a doc that names only code the later commits do not touch (it must not be reviewed on the later run), and a change inside a large class body that a doc mentions only by the class name.
+  - **code to docs:** an environment variable missing from an env var table, an undocumented command, an undocumented MCP tool or route, and, in the later commits, a new flag;
+  - **checkability:** a doc that describes a function without naming it (expected: listed as unverifiable, and the canned review output's `anchor` edit is applied, after which it anchors), a doc about the project's process with no code claims (listed as not about the code, no edit), and an HTML landing page whose references are in `<code>` tags (they anchor).
+- Decoys that must produce no edit and no human entry: a canned `anchor` edit whose name resolves elsewhere than its evidence (dropped by `anchor-adds-name`), a historical sentence, a statement about other software, a hidden flag, an internal helper, an `undocumented_ok` item, a selective list (under half of its kind), a doc that names only code the later commits do not touch (it must not be reviewed on the later run), and a change inside a large class body that a doc mentions only by the class name.
 - Tests for the last-run search: a drift commit, a squash-merged drift commit, a local record newer than the last drift commit, a record that is not an ancestor of HEAD (ignored), `--base`, `--full`.
 - Canned outputs for every agent role per fixture, including one invalid output to exercise exit 3 and `--retried`.
 - Golden files for every script stage's outputs and the commit messages, byte-compared and regenerated only under `UPDATE_GOLDENS=1`.
@@ -485,6 +504,7 @@ Phase B gets its own plan and PR after phase A's first live runs.
 | A9 | Verifiers with a fresh context and the source catch most wrong edits | Partly validated: of 20 edits, the verifiers rejected 2, both rightly; none of the 18 accepted edits I checked was wrong | Wrong edits reach the PR, where the owner rejects them |
 | A10 | Gap agents write additions that are correct and match the doc's style | Validated on two gaps | Additions the owner has to rewrite |
 | A11 | A `Drift-Base` line survives the owner's merge process | Holds for merge commits and GitHub's default squash message; a squash message edited by hand loses it, and the local record covers that machine only | A later run falls back to a first run, costly but correct |
+| A12 | Given a true statement that names nothing, an agent can tell when one definition clearly is the thing described, and its `anchor` edit names the right one | Not validated; the check and the verifier are the net. The first live run counts anchor edits proposed, accepted and judged right | Wrong anchors send later runs to the wrong code for that statement, and a doc gains checkability it does not have |
 
 ### 14.2 Validation pass 1 (2026-10-10): the full-audit design
 
@@ -518,6 +538,8 @@ One of the 21 review edits failed `old-mismatch` because the agent dropped the l
 
 **Anchor resolution** (throwaway `ast` index and the section 5.3 rule) on `better-memory` at `9d5be26`: 2,925 references in 38 docs; 87 existing paths; 1,497 anchored (51%); 680 unanchored as ambiguous; 661 unanchored as unknown, mostly SQL keywords, AWS API names and Claude Code's own files. The first version of the rule, without SQL objects, unique file basenames and definition ranks, and with a no-context fallback for bare words, anchored 40% and anchored `Bash` in a hooks doc to an unrelated trigger parser; the rule in section 5.3 is the corrected one. Of 25 sampled anchors, 19 were right, 5 plausible, none wrong. The anchors cover 10,251 of 21,402 source lines, so a first run's reading ranges are about half the code.
 
+**Checkability** (same index): 12 of the 38 docs have no anchor: the 10-line `CLAUDE.md` (its four references are a tool outside the repository), ten tech-debt PBI and plan files, and `website/index.md`, 209 lines with no markdown reference because it is HTML and names `memory.observe()` in `<code>` tags (section 5.2 now reads those). Of 977 blocks, 502 hold no reference; in the best-anchored docs a third to a half of blocks still name nothing (`website/mcp-tools.md` 28 of 94, `README.md` 51 of 93), so the anchor edits of section 7.1 have room to work on every doc. Which of those blocks make code claims is the agent's call, measured on the first live run.
+
 **Replay of one week of history.** From `ad1615d` (the commit before a 17-commit feature week) to `9d5be26`: 111 hunks in 18 indexed files.
 
 - With full definition ranges, 14 of 26 docs with anchors were affected, several only because they name a large class (`StorageBackend`, 475 lines) or `create_app` (772 lines). With signature ranges for definitions over 60 lines (section 5.4) the count stayed at 14, the remaining large-class matches being real changes to those classes' members.
@@ -533,4 +555,4 @@ Every drift item that week caused in the two compared docs was found; the drift 
 
 **Cost.** A first run on `better-memory`: about 15 to 20 review units of 6,000 lines at about 110,000 tokens, about 10 gap agents at about 55,000, and about 14 verifier batches at about 90,000, so about 3 to 4 million tokens and 10 to 15 minutes with each wave in parallel. A later run after a busy week: about 14 affected docs packed into about 5 units at about 70,000 tokens, plus a few verifier batches, so under 1 million tokens. A week with no change to anchored code: no agents.
 
-**Still unvalidated.** The precision of the guarantee proxy (A3), JavaScript and TypeScript definition ranges, the flag-parent search through `ast` assignments, review units of several docs in one agent, and every script stage end to end. The plan's first tasks should make the live harness cheap to run early.
+**Still unvalidated.** Anchor edits (A12), the precision of the guarantee proxy (A3), JavaScript and TypeScript definition ranges, the flag-parent search through `ast` assignments, review units of several docs in one agent, and every script stage end to end. The plan's first tasks should make the live harness cheap to run early.
