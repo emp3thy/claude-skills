@@ -32,6 +32,7 @@ from dd_common import (
     run_git,
     write_json,
 )
+from dd_defindex import norm
 from dd_redaction import redact
 
 SUBJECT = "docs(drift): provable fixes"
@@ -267,7 +268,7 @@ def render_bullet(edit: dict[str, Any], line: int | None = None) -> str:
         since = found.group(1) if found else claim
         text = f"remove unverified block (3rd notice, unchanged since {since})"
     elif kind == "add":
-        text = (f"add {edit.get('gap_kind') or 'name'} {subject} "
+        text = (f"add {edit.get('gap_kind') or 'name'} {subject.strip().strip('`').strip()} "
                 f"({evidence[0] if evidence else ''})")
     else:
         raise StepError(f"edit {edit.get('id')} has the unknown type {kind!r}", EXIT_COMMIT)
@@ -295,8 +296,7 @@ def render_message(kind: str, bullets: list[str], *, run_id: str, base: str, sco
         lines += ["", "Needs a human decision:", *(_human_line(h) for h in human)]
     if trailers:
         lines += ["", *trailers]
-    return "\n".join(x[:LINE_MAX] if x.startswith("  ") else _line(x) if x else x
-                     for x in lines) + "\n"
+    return "\n".join(_line(x) if x else x for x in lines) + "\n"
 
 
 def _optional(workdir: Path, name: str) -> Any:
@@ -373,12 +373,17 @@ def _count(value: Any) -> int:
     return len(value) if isinstance(value, list) else int(value or 0)
 
 
-def _gap_kind(edit: dict[str, Any], gaps: list[dict[str, Any]]) -> str | None:
-    """Kind of the gap an ``add`` edit documents: the ``gaps.json`` gap whose name is the
-    edit's ``subject``, preferring the one targeting the edit's doc."""
-    same = [g for g in gaps if g.get("name") == edit.get("subject")]
+def _gap_kind(edit: dict[str, Any], gaps: list[dict[str, Any]]) -> str:
+    """Kind of the gap an ``add`` edit documents: the ``gaps.json`` gap whose name equals the
+    edit's ``subject`` (backticks and spaces stripped, both sides ``dd_defindex.norm``ed),
+    preferring the one targeting the edit's doc. No match raises ``StepError``."""
+    want = norm(str(edit.get("subject") or "").strip().strip("`").strip())
+    same = [g for g in gaps if norm(str(g.get("name") or "")) == want]
     same.sort(key=lambda g: g.get("target_doc") != edit["doc"])
-    return str(same[0]["kind"]) if same else None
+    if not same:
+        raise StepError(f"add edit {edit['id']} names {edit.get('subject')!r}, which matches no "
+                        "gap in gaps.json", EXIT_MISSING)
+    return str(same[0]["kind"])
 
 
 def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: str,
@@ -389,8 +394,10 @@ def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: s
     Corrections hold the applied review and notice edits and their link updates, additions the
     applied gap edits. The edits are already in the working tree, so a doc cannot be split: it
     is staged in the first commit that touches it, and a doc with both kinds of edits lands in
-    the corrections commit (the additions commit is then made with ``--allow-empty`` if nothing
-    else is left to stage, to keep its bullets). Bullets are ordered by ``(doc, start_line,
+    the corrections commit, so a doc carrying both kinds has its additions in the corrections
+    commit (the additions commit is then made with ``--allow-empty`` when no doc is left to
+    stage, to keep its bullets). If the second commit fails, ``commits.json`` already lists the
+    first. Bullets are ordered by ``(doc, start_line,
     id)`` with a link update as an indented sub-bullet under its edit. With no applied edit
     there is no branch. The human list goes on the last commit made."""
     edits_doc = _need(workdir, "edits.json")
@@ -443,15 +450,18 @@ def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: s
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(message.encode("utf-8"))
         todo = sorted(docs - staged)
+        empty = ["--allow-empty"] if kind == "additions" and not todo else []
+        failure = ""
         if todo and run_git(root, ["--literal-pathspecs", "add", "--", *todo]) is None:
-            raise StepError(f"git add failed; {here} with the edits unstaged", EXIT_COMMIT)
-        staged |= docs
-        if run_git(root, ["commit", "--allow-empty", "--cleanup=verbatim", "-F",
-                          str(path)]) is None:
-            raise StepError(f"git commit failed; {here} with the edits staged", EXIT_COMMIT)
-        sha = run_git(root, ["rev-parse", "HEAD"])
+            failure = f"git add failed; {here} with the edits unstaged"
+        elif run_git(root, ["commit", *empty, "--cleanup=verbatim", "-F", str(path)]) is None:
+            failure = f"git commit failed; {here} with the edits staged"
+        sha = None if failure else run_git(root, ["rev-parse", "HEAD"])
         if sha is None:
-            raise StepError(f"git rev-parse failed after the commit; {here}", EXIT_COMMIT)
+            write_json(workdir / "commits.json", {"branch": branch, "commits": commits})
+            raise StepError(failure or f"git rev-parse failed after the commit; {here}",
+                            EXIT_COMMIT)
+        staged |= docs
         commits.append({"sha": sha.strip(), "kind": kind})
     result = {"branch": branch, "commits": commits}
     write_json(workdir / "commits.json", result)

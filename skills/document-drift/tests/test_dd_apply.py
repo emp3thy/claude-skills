@@ -630,7 +630,8 @@ def test_heading_link_lines_follow_the_edited_doc(tmp_path: Path):
     _inputs(work, edits, {"u001-e01": "accept", "u001-e02": "accept"})
     result = apply_edits(root, work)
     assert result["applied"] == ["u001-e01", "u001-e02"]
-    assert result["link_updates"] == [{"doc": "README.md", "line": 11, "old": "setup",
+    # the link is on line 11 of the edited doc and on line 10 at the starting HEAD
+    assert result["link_updates"] == [{"doc": "README.md", "line": 10, "old": "setup",
                                        "new": "installation", "edit": "u001-e01"}]
     assert _doc(root).endswith("Back to [the setup](#installation).\n")
 

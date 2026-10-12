@@ -434,6 +434,21 @@ def _settle_doc(doc: str, original: str, edits: list[dict[str, Any]], checker: _
     return text, applied, reverted
 
 
+def _head_line(line: int, spans: list[tuple[int, int, int]]) -> int:
+    """The line at the starting HEAD of ``line`` in the edited text; ``spans`` are the applied
+    edits' ``(start_line, end_line, new line count)``, ascending. A line inside an edit's new
+    lines maps to that edit's ``start_line``."""
+    offset = 0
+    for start, end, count in spans:
+        first = start + offset
+        if line < first:
+            break
+        if line < first + count:
+            return start
+        offset += count - (end - start + 1)
+    return line - offset
+
+
 def update_heading_links(root: Path, workdir: Path, applied_edits: Iterable[str],
                          texts: dict[str, str]) -> list[dict[str, Any]]:
     """Rewrite, in ``texts``, the links to headings that the applied edits renamed (spec 9.3).
@@ -446,7 +461,8 @@ def update_heading_links(root: Path, workdir: Path, applied_edits: Iterable[str]
     (``inventory.json``'s docs) that targets the edited doc with the old slug as its text is
     rewritten to the new slug. An edited doc's tokens are re-extracted from its text; any other
     doc's come from ``tokens.json``. A doc changed only for links is added to ``texts``.
-    Returns ``{"doc", "line", "old", "new", "edit"}`` per such token, sorted by doc and line;
+    Returns ``{"doc", "line", "old", "new", "edit"}`` per such token, sorted by doc and line
+    (``line`` is the line at the starting HEAD, mapped back through the applied edits);
     ``new`` is None, and the link left as it is, for a repeated heading (``-N`` suffixes are
     left to the owner) or a token that cannot be rewritten in place.
     """
@@ -454,6 +470,7 @@ def update_heading_links(root: Path, workdir: Path, applied_edits: Iterable[str]
     edits = [e for e in read_json(workdir / "edits.json")["edits"] if e["id"] in ids]
     renames: Renames = {}
     owner: dict[tuple[str, str], str] = {}
+    spans: dict[str, list[tuple[int, int, int]]] = {}
     for doc in sorted({e["doc"] for e in edits}):
         original, final = _read_doc(root, doc), texts.get(doc)
         if original is None or final is None:
@@ -468,6 +485,7 @@ def update_heading_links(root: Path, workdir: Path, applied_edits: Iterable[str]
                 renames.setdefault(doc, {})[old] = new
                 owner[(doc, old)] = edit["id"]
             offset += count - (end - start + 1)
+            spans.setdefault(doc, []).append((start, end, count))
     if not renames:
         return []
     inventory = read_json(workdir / "inventory.json")
@@ -488,8 +506,9 @@ def update_heading_links(root: Path, workdir: Path, applied_edits: Iterable[str]
             if text is None:
                 continue
         new_text, found = _rewrite_links(doc, text, tokens, renames)
-        updates.extend({"doc": doc, "line": line, "old": old, "new": new,
-                        "edit": owner[(target, slug)]} for line, target, slug, old, new in found)
+        updates.extend({"doc": doc, "line": _head_line(line, spans.get(doc, [])), "old": old,
+                        "new": new, "edit": owner[(target, slug)]}
+                       for line, target, slug, old, new in found)
         if new_text != text:
             texts[doc] = new_text
     return updates

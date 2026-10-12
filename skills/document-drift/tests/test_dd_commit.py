@@ -409,12 +409,14 @@ def test_lines_cut_to_160_and_redacted() -> None:
     human = [{"doc": "d.md", "line": 1, "kind": "unsure", "text": long_claim + "\nsecond",
               "evidence": ["a.py:1"]}]
     bullet = render_bullet(_e("a", "d.md", 1, "correct", long_claim, ["a.py:1"]), 1)
-    msg = render_message("corrections", [bullet], run_id="r", base=BASE, scope="full",
+    sub = f"  - d.md:1 link #{secret} -> #{'y' * 300}"
+    msg = render_message("corrections", [bullet, sub], run_id="r", base=BASE, scope="full",
                          unchecked=(0, 0, 0), human=human, trailers=[])
     assert secret not in msg
     assert "ghp_***" in msg
     assert all(len(line) <= 160 for line in msg.split("\n"))
     assert "second" not in msg
+    assert "\n  - d.md:1 link #ghp_***" in msg
     assert msg.count("\n- d.md:1 ") == 2
     assert "\nNeeds a human decision:\n- d.md:1 unsure: ghp_***" in msg
 
@@ -544,6 +546,9 @@ def test_doc_with_both_kinds_lands_in_corrections_commit(tmp_path: Path) -> None
     add = _e("g001-e02", "a.md", 1, "add", "adds", ["src/x.py:2"], "APP_Y", "gap")
     edits = read_json(work / "edits.json")
     write_json(work / "edits.json", {**edits, "edits": [*edits["edits"], add]})
+    gaps = read_json(work / "gaps.json")
+    write_json(work / "gaps.json", {**gaps, "gaps": [*gaps["gaps"], {
+        "name": "APP_Y", "kind": "flag", "target_doc": "a.md"}]})
     link = {"doc": "a.md", "line": 1, "old": "x", "new": "y", "edit": "u001-e01"}
     write_json(work / "applied.json", {"applied": ["g001-e02", "u001-e01"], "reverted": [],
                                        "docs": ["a.md"], "link_updates": [link]})
@@ -552,7 +557,7 @@ def test_doc_with_both_kinds_lands_in_corrections_commit(tmp_path: Path) -> None
     msg1 = _show(root, out["commits"][0]["sha"], "%B")
     assert "- a.md:1 correct a is new (src/x.py:1)\n  - a.md:1 link #x -> #y\n" in msg1
     assert _files(root, out["commits"][0]["sha"]) == ["a.md"]
-    assert "- a.md:1 add name APP_Y (src/x.py:2)" in _show(root, out["commits"][1]["sha"], "%B")
+    assert "- a.md:1 add flag APP_Y (src/x.py:2)" in _show(root, out["commits"][1]["sha"], "%B")
 
 
 def test_no_commit_without_edits_and_no_branch(tmp_path: Path) -> None:
@@ -572,3 +577,39 @@ def test_phase_a_head_moved_creates_no_branch(tmp_path: Path) -> None:
     with pytest.raises(StepError) as exc:
         run(root, work, "drift/r", "r", "b" * 40, "first", [])
     assert exc.value.code == EXIT_COMMIT
+
+
+def test_add_edit_matching_no_gap_is_an_error(tmp_path: Path) -> None:
+    root, work, head = _phase_a(tmp_path)
+    gaps = read_json(work / "gaps.json")
+    write_json(work / "gaps.json", {**gaps, "gaps": []})
+    with pytest.raises(StepError) as exc:
+        run(root, work, "drift/r", "r", head, "first", [])
+    assert "g001-e01" in str(exc.value)
+
+
+def test_add_subject_in_backticks_matches_the_normalised_gap_name(tmp_path: Path) -> None:
+    root, work, head = _phase_a(tmp_path)
+    edits = read_json(work / "edits.json")
+    edits["edits"][1]["subject"] = " `app-x` "
+    write_json(work / "edits.json", edits)
+    write_json(work / "gaps.json", {"no_home": [], "gaps": [
+        {"name": "app.x", "kind": "env", "target_doc": "b.md"}]})
+    out = run(root, work, "drift/r", "r", head, "first", [])
+    assert "- b.md:1 add env `app-x`" not in _show(root, out["commits"][1]["sha"], "%B")
+    assert "- b.md:1 add env app-x (src/x.py:2)" in _show(root, out["commits"][1]["sha"], "%B")
+
+
+def test_failed_second_commit_keeps_the_first_in_commits_json(tmp_path: Path) -> None:
+    root, work, head = _phase_a(tmp_path)
+    hook = root / ".git" / "hooks" / "commit-msg"
+    hook.parent.mkdir(exist_ok=True)
+    hook.write_text('#!/bin/sh\ngrep -q "missing surface" "$1" && exit 1\nexit 0\n',
+                    encoding="utf-8", newline="\n")
+    hook.chmod(0o755)
+    with pytest.raises(StepError) as exc:
+        run(root, work, "drift/r", "r", head, "first", [])
+    assert exc.value.code == EXIT_COMMIT
+    saved = read_json(work / "commits.json")
+    assert saved["branch"] == "drift/r"
+    assert [c["kind"] for c in saved["commits"]] == ["corrections"]
