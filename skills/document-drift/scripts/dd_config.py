@@ -17,6 +17,13 @@ DEFAULTS: dict[str, Any] = {
     "commit_trailers": [],
     "lead_cap": 25,
     "recent_change_days": 14,
+    "unit_lines": 6000,
+    "max_delete_lines": 15,
+    "max_section_lines": 40,
+    "min_anchor_ratio": 0.25,
+    "undocumented_ok": [],
+    "caps": {"review": 40, "gaps": 15, "verify": 25},
+    "models": {"review": "sonnet", "gap": "sonnet", "verify": "opus"},
 }
 
 
@@ -42,6 +49,29 @@ def _is_optional_regex(value: Any) -> bool:
     return value is None or _is_regex(value)
 
 
+def _is_non_negative_int(value: Any) -> bool:
+    return _is_int(value) and value >= 0
+
+
+def _is_ratio(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 1
+
+
+def _is_non_empty_str(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)
+
+
+# Nested mappings: per sub-key (validator, expectation); unknown sub-keys are ignored.
+_NESTED_VALIDATORS: dict[str, dict[str, tuple[Any, str]]] = {
+    "caps": {
+        name: (_is_non_negative_int, "a non-negative integer")
+        for name in ("review", "gaps", "verify")
+    },
+    "models": {
+        name: (_is_non_empty_str, "a non-empty string") for name in ("review", "gap", "verify")
+    },
+}
+
 _VALIDATORS: dict[str, tuple[Any, str]] = {
     "exclude": (_is_str_list, "a list of strings"),
     "never_edit_heading": (_is_optional_regex, "a valid regular expression string"),
@@ -49,7 +79,32 @@ _VALIDATORS: dict[str, tuple[Any, str]] = {
     "commit_trailers": (_is_str_list, "a list of strings"),
     "lead_cap": (lambda v: _is_int(v) and v >= 0, "a non-negative integer"),
     "recent_change_days": (lambda v: _is_int(v) and v >= 0, "a non-negative integer"),
+    "unit_lines": (lambda v: _is_int(v) and v > 0, "a positive integer"),
+    "max_delete_lines": (_is_non_negative_int, "a non-negative integer"),
+    "max_section_lines": (_is_non_negative_int, "a non-negative integer"),
+    "min_anchor_ratio": (_is_ratio, "a number between 0 and 1"),
+    "undocumented_ok": (_is_str_list, "a list of strings"),
 }
+
+
+def _merge_nested(
+    key: str, value: Any, config: dict[str, Any], warnings: list[str]
+) -> None:
+    """Validate a nested mapping per sub-key; bad sub-keys warn and keep their default."""
+    if not isinstance(value, dict):
+        warnings.append(f"{CONFIG_FILENAME}: {key} must be a mapping; using the default")
+        return
+    for sub, sub_value in value.items():
+        if sub not in _NESTED_VALIDATORS[key]:
+            warnings.append(f"{CONFIG_FILENAME}: unknown key '{key}.{sub}' ignored")
+            continue
+        check, expected = _NESTED_VALIDATORS[key][sub]
+        if check(sub_value):
+            config[key][sub] = sub_value
+        else:
+            warnings.append(
+                f"{CONFIG_FILENAME}: {key}.{sub} must be {expected}; using the default"
+            )
 
 
 def load_config(root: Path) -> tuple[dict[str, Any], list[str]]:
@@ -72,6 +127,9 @@ def load_config(root: Path) -> tuple[dict[str, Any], list[str]]:
     for key, value in raw.items():
         if key not in DEFAULTS:
             warnings.append(f"{CONFIG_FILENAME}: unknown key {key!r} ignored")
+            continue
+        if key in _NESTED_VALIDATORS:
+            _merge_nested(key, value, config, warnings)
             continue
         check, expected = _VALIDATORS[key]
         if check(value):

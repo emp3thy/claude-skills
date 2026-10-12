@@ -53,3 +53,58 @@ def test_load_config_non_mapping_warns(tmp_path):
     (tmp_path / CONFIG_FILENAME).write_text("- a\n- b\n", encoding="utf-8")
     cfg, warnings = load_config(tmp_path)
     assert cfg == DEFAULTS and len(warnings) == 1
+
+
+def test_defaults_include_agentic_keys(tmp_path):
+    cfg, warnings = load_config(tmp_path)
+    assert warnings == []
+    assert cfg["unit_lines"] == 6000
+    assert cfg["max_delete_lines"] == 15
+    assert cfg["max_section_lines"] == 40
+    assert cfg["min_anchor_ratio"] == 0.25
+    assert cfg["undocumented_ok"] == []
+    assert cfg["caps"] == {"review": 40, "gaps": 15, "verify": 25}
+    assert cfg["models"] == {"review": "sonnet", "gap": "sonnet", "verify": "opus"}
+    assert cfg["caps"] is not DEFAULTS["caps"] and cfg["models"] is not DEFAULTS["models"]
+
+
+def test_caps_and_models_are_validated_per_subkey(tmp_path):
+    (tmp_path / CONFIG_FILENAME).write_text(
+        "caps: {review: x, gaps: 3, bogus: 1}\nmodels: {verify: 3, gap: haiku}\n",
+        encoding="utf-8",
+    )
+    cfg, warnings = load_config(tmp_path)
+    assert cfg["caps"] == {"review": 40, "gaps": 3, "verify": 25}
+    assert cfg["models"] == {"review": "sonnet", "gap": "haiku", "verify": "opus"}
+    assert len(warnings) == 3
+    assert any("caps.review" in w for w in warnings)
+    assert any("caps.bogus" in w for w in warnings)
+    assert any("models.verify" in w for w in warnings)
+    (tmp_path / CONFIG_FILENAME).write_text("caps: nope\n", encoding="utf-8")
+    cfg, warnings = load_config(tmp_path)
+    assert cfg["caps"] == DEFAULTS["caps"] and len(warnings) == 1
+
+
+def test_min_anchor_ratio_must_be_between_0_and_1(tmp_path):
+    for text, expected, count in [
+        ("min_anchor_ratio: 0\n", 0, 0),
+        ("min_anchor_ratio: 1\n", 1, 0),
+        ("min_anchor_ratio: 0.5\n", 0.5, 0),
+        ("min_anchor_ratio: 1.5\n", 0.25, 1),
+        ("min_anchor_ratio: -0.1\n", 0.25, 1),
+        ("min_anchor_ratio: high\n", 0.25, 1),
+        ("min_anchor_ratio: true\n", 0.25, 1),
+    ]:
+        (tmp_path / CONFIG_FILENAME).write_text(text, encoding="utf-8")
+        cfg, warnings = load_config(tmp_path)
+        assert cfg["min_anchor_ratio"] == expected, text
+        assert len(warnings) == count, text
+
+
+def test_undocumented_ok_must_be_string_list(tmp_path):
+    (tmp_path / CONFIG_FILENAME).write_text("undocumented_ok: ['a.py', 'b/']\n", encoding="utf-8")
+    cfg, warnings = load_config(tmp_path)
+    assert cfg["undocumented_ok"] == ["a.py", "b/"] and warnings == []
+    (tmp_path / CONFIG_FILENAME).write_text("undocumented_ok: [1]\n", encoding="utf-8")
+    cfg, warnings = load_config(tmp_path)
+    assert cfg["undocumented_ok"] == [] and len(warnings) == 1
