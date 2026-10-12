@@ -1,20 +1,42 @@
 {
-  "planted": [
-    {"id": "p1", "doc": "README.md", "line": 10, "kind": "path", "text": "src/api/client.ts", "what": "list-item subject src/api/client.ts renamed to src/api/httpClient.ts", "expect": "replace:src/api/httpClient.ts"},
-    {"id": "p2", "doc": "README.md", "line": 13, "kind": "path", "text": "src/utils/", "what": "directory src/utils/ renamed to src/helpers/", "expect": "replace:src/helpers/"},
-    {"id": "p3", "doc": "docs/frontend.md", "line": 16, "kind": "path", "text": "../src/legacy/polyfills.ts", "what": "doc-relative prose link to the deleted ../src/legacy/polyfills.ts", "expect": "unlink"},
-    {"id": "p4", "doc": "README.md", "line": 17, "kind": "path", "text": "src/workers/sync_worker.ts", "what": "the only item of its list names the deleted src/workers/sync_worker.ts", "expect": "human:large-deletion"},
-    {"id": "p5", "doc": "README.md", "line": 24, "kind": "script", "text": "storybook", "what": "npm run storybook in a bash fence after the script was removed", "expect": "delete"},
-    {"id": "p6", "doc": "README.md", "line": 5, "kind": "version", "text": "16", "what": "Node >= 16, written when engines.node said >=16, behind its later >=18 (R59)", "expect": "replace:18"},
-    {"id": "p7", "doc": "docs/frontend.md", "line": 11, "kind": "tree", "text": "src/components/Sidebar.tsx", "what": "tree entry components/Sidebar.tsx renamed to components/NavRail.tsx", "expect": "replace:NavRail.tsx"},
-    {"id": "p8", "doc": "docs/frontend.md", "line": 10, "kind": "tree", "text": "src/components/OldModal.tsx", "what": "tree leaf components/OldModal.tsx deleted", "expect": "delete"}
-  ],
-  "decoys": [
-    {"id": "d1", "doc": "docs/frontend.md", "line": 22, "why": "the deliberate removal sentence, committed in the deleting commit (its snapshot never had the file)", "expect": "none"},
-    {"id": "d2", "doc": "docs/frontend.md", "line": 18, "why": "an illustrative directory that never existed", "expect": "none"},
-    {"id": "d3", "doc": "third_party/lib/README.md", "line": 6, "why": "a vendored README list subject naming third_party/lib/legacy.js, written while it existed and deleted later (a provable delete if scanned); third_party/ is never scanned", "expect": "excluded"},
-    {"id": "d4", "doc": "templates/README.md", "line": 4, "why": "a templates/ README list subject naming templates/legacy_page.tsx.tmpl, written while it existed and deleted later (a provable delete if scanned); templates/ is never scanned", "expect": "excluded"},
-    {"id": "d5", "doc": "docs/api.md", "line": 3, "why": "a heading naming src/api/session.ts, renamed later; docs/auth.md links to the heading's slug, so rewriting it would break the link (R62)", "expect": "human:heading-reference"},
-    {"id": "d6", "doc": "docs/auth.md", "line": 3, "why": "the link to that heading's slug still resolves, because the heading is left alone", "expect": "none"}
-  ]
+ "state1": [
+  {"id": "t1", "state": 1, "doc": "docs/configuration.md", "line": 9, "name": "FEATURE_FLAGS",
+   "kind": "missing-env",
+   "what": "config.ts reads process.env.API_URL, PORT, LOG_LEVEL and FEATURE_FLAGS; the env table lists the first three, and the README mentions FEATURE_FLAGS",
+   "expect": ["gap:missing-from-list:docs/configuration.md"]},
+  {"id": "t2", "state": 1, "doc": "src/cli.ts", "line": 12, "name": "--minify",
+   "kind": "undocumented-flag",
+   "what": "commander's build command has .option(\"--minify\"); the flag table in docs/cli.md lists the other three flags and no doc mentions --minify",
+   "expect": ["gap:undocumented:docs/cli.md"]},
+  {"id": "t3", "state": 1, "doc": "README.md", "line": 13, "kind": "count",
+   "what": "the README says the server registers three routes; server.ts registers /api/items and /api/items/:id",
+   "expect": ["edit:correct"]},
+  {"id": "t4", "state": 1, "doc": "docs/api.md", "line": 12, "kind": "default-value",
+   "what": "api.md says the client asks for 20 items per page by default; PAGE_SIZE is 50",
+   "expect": ["edit:correct"]},
+  {"id": "t5", "state": 1, "doc": "index.md", "line": 4, "kind": "html-reference",
+   "what": "an HTML landing page whose <code>renderApp()</code> span anchors to the function in src/App.tsx",
+   "expect": ["anchors"]},
+  {"id": "d1", "state": 1, "doc": "docs/api.md", "line": 8, "name": "/api/items/:id",
+   "kind": "decoy",
+   "what": "app.get(\"/api/items/:id\") is documented as /api/items/{id}; the placeholders unify, so no gap",
+   "expect": ["none"]},
+  {"id": "d2", "state": 1, "doc": "docs/frontend.md", "line": 3, "kind": "decoy",
+   "what": "frontend.md is right about formatPrice; the first run reviews it and changes nothing",
+   "expect": ["none"]}
+ ],
+ "state2": [
+  {"id": "t6", "state": 2, "doc": "docs/api.md", "line": 14, "kind": "rename",
+   "what": "fetchItems is renamed listItems; api.md names `fetchItems`, which no longer resolves",
+   "expect": ["affected:missing", "edit:correct"]},
+  {"id": "t4b", "state": 2, "doc": "docs/api.md", "line": 12, "kind": "default-value",
+   "what": "the state-1 fix to 50 still anchors to PAGE_SIZE, which the rename does not touch",
+   "expect": ["anchors"]},
+  {"id": "d3", "state": 2, "doc": "docs/frontend.md", "line": 1, "kind": "decoy",
+   "what": "names only format.ts functions, which state 2 does not change",
+   "expect": ["not-reviewed"]},
+  {"id": "d3b", "state": 2, "doc": "docs/frontend.md", "line": 3, "kind": "decoy",
+   "what": "frontend.md's `formatPrice` anchors at state 2, so d3 is not reviewed although it names code",
+   "expect": ["anchors"]}
+ ]
 }

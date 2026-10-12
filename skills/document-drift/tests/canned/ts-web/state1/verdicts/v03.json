@@ -1,0 +1,6 @@
+{
+ "batch": "v03",
+ "verdicts": [
+  {"edit": "g002-e01", "verdict": "accept", "reason": "config reads process.env.FEATURE_FLAGS and splits it on commas at src/config.ts:5"}
+ ]
+}

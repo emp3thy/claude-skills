@@ -1,0 +1,6 @@
+{
+ "batch": "v04",
+ "verdicts": [
+  {"edit": "u001-e01", "verdict": "accept", "reason": "server.ts registers /api/items and /api/items/:id"}
+ ]
+}

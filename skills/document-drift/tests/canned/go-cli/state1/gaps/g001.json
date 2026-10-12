@@ -1,0 +1,11 @@
+{
+ "doc": "g001",
+ "edits": [
+  {"id": "g001-e01", "doc": "README.md", "start_line": 15, "end_line": 15,
+   "old": "make lint",
+   "new": "make lint\nmake release",
+   "type": "add", "claim": "the Makefile has a release target that packs the binary",
+   "evidence": ["Makefile:9-10"], "subject": "release"}
+ ],
+ "refusals": []
+}

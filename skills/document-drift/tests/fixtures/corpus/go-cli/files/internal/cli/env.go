@@ -1,6 +1,11 @@
 package cli
 
-// ParseEnv reads the version 1 settings from the environment.
-func ParseEnv() map[string]string {
-	return map[string]string{}
+import "os"
+
+// Home is the directory drift keeps its state in.
+func Home() string {
+	if dir := os.Getenv("DRIFT_HOME"); dir != "" {
+		return dir
+	}
+	return ".drift"
 }

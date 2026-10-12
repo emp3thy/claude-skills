@@ -1,28 +1,17 @@
 # web
 
-The browser front end for the service.
+The browser front end and build tool for the item service; the landing page is [index.md](index.md).
 
-Requires Node >= 16.
+## Configuration
 
-## Source map
+The environment variables are listed in [docs/configuration.md](docs/configuration.md).
 
-- `src/main.tsx` mounts the app
-- `src/api/client.ts` wraps fetch with retries
-- `src/App.tsx` lays out the page
+Set `FEATURE_FLAGS` to a comma-separated list to turn on experimental features.
 
-Shared helpers live in `src/utils/`.
+## API
 
-## Background jobs
+The server registers three routes in `src/server.ts`; [docs/api.md](docs/api.md) lists them.
 
-- `src/workers/sync_worker.ts` syncs drafts while offline
+## Command line
 
-## Scripts
-
-```bash
-npm install
-npm run dev
-npm run storybook
-npm run build
-```
-
-The front-end guide is in [docs/frontend.md](docs/frontend.md).
+Run `web build` to bundle the app; [docs/cli.md](docs/cli.md) lists its flags.

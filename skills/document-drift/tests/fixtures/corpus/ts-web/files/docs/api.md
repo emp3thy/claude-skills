@@ -1,5 +1,14 @@
 # API
 
-## `src/api/session.ts`
+## Routes
 
-Keeps the signed-in user's token and refreshes it before it expires.
+| Route | Returns |
+|---|---|
+| `GET /api/items` | One page of items. |
+| `GET /api/items/{id}` | One item. |
+
+## Client
+
+The client asks for 20 items per page by default (`PAGE_SIZE`).
+
+`fetchItems` loads one page of items, and `fetchItem` loads one item by its id.

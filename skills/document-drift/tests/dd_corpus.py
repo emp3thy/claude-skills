@@ -1,11 +1,12 @@
 """The corpus harness (spec 0d): run the staged pipeline on a replayed fixture with canned agent
 outputs, and judge each planted item of the fixture against the run's workdir files.
 
-A fixture under ``tests/fixtures/corpus/<name>/`` has two states: its history's commits up to
-the one tagged ``state1``, and the rest up to ``state2``. Its canned agent outputs live under
-``tests/canned/<name>/``: ``state1/`` and ``state2/`` hold ``review/uNNN.json``,
-``gaps/gNNN.json`` and ``verdicts/vNN.json`` named after the plan entries they answer, and
-``state1-invalid/`` holds review outputs that fail validation (the retry test). Verdicts are
+A fixture under ``tests/fixtures/corpus/<name>/`` has one or two states: its history's commits
+up to the one tagged ``state1``, and the rest up to ``state2`` (``fixture_states``). Its canned
+agent outputs live under ``tests/canned/<name>/``: ``state1/`` and ``state2/`` hold
+``review/uNNN.json``, ``gaps/gNNN.json`` and ``verdicts/vNN.json`` named after the plan entries
+they answer, and ``state1-invalid/`` (in one fixture) holds review outputs that fail validation
+(the retry test); other directories serve tests that drive their own runs. Verdicts are
 matched to a verify entry by edit id, so a batch that loses edits (an unchecked unit) still
 gets the verdicts of the edits it holds.
 
@@ -35,6 +36,8 @@ expectations, all judged by ``evaluate`` on the run of the item's state:
   change itself reached the line;
 - ``not-reviewed``: no unit of ``units.json`` holds the doc;
 - ``anchors``: ``anchors.json`` has an anchor on the doc line;
+- ``unverifiable``: the doc's checkability status in ``anchors.json`` is ``unverifiable`` (no
+  reference of it anchors);
 - ``not-about-code``: the doc's ``code_claims`` in ``edits.json`` is 0;
 - ``notice:1st``: an applied 1st-notice edit over the block starting on the doc line;
   ``notice:2nd`` / ``notice:removed`` / ``notice:cleared:<anchored|changed|ignore>``: a
@@ -53,11 +56,12 @@ from pathlib import Path
 from typing import Any
 
 import dd_run
+import yaml
 from dd_commit import collect_human
 from dd_common import read_json
 from dd_make_history import CORPUS_ROOT, continue_fixture, replay_fixture
 
-FIXTURES: tuple[str, ...] = ("py-service",)  # the phase A fixtures; ts-web and go-cli follow
+FIXTURES: tuple[str, ...] = ("py-service", "ts-web", "go-cli")  # the phase A fixtures
 CANNED_ROOT = Path(__file__).resolve().parent / "canned"
 DATES = {1: "2026-01-02", 2: "2026-01-09"}  # each state's run date (--date)
 ROLE_DIRS = {"review": "review", "gap": "gaps", "verify": "verdicts"}
@@ -83,6 +87,14 @@ def prepare_fixture(name: str, dest: Path, until_tag: str | None = "state1") -> 
                        ("user.email", "fixture@example.com"), ("commit.gpgsign", "false")):
         git(repo, "config", key, value)
     return repo
+
+
+def fixture_states(name: str) -> tuple[int, ...]:
+    """The states of fixture ``name``: each ``N`` of ``STATES`` whose ``stateN`` tag its
+    history carries."""
+    commits = yaml.safe_load((CORPUS_ROOT / name / "history.yaml").read_text(encoding="utf-8"))
+    tags = {c.get("tag") for c in commits["commits"] if isinstance(c, dict)}
+    return tuple(state for state in STATES if f"state{state}" in tags)
 
 
 def load_planted(name: str) -> dict[str, list[dict[str, Any]]]:
@@ -327,6 +339,13 @@ def _expect_anchors(item: dict[str, Any], workdir: Path, _arg: str) -> str | Non
     return f"no anchor at {item.get('doc')}:{item.get('line')}"
 
 
+def _expect_unverifiable(item: dict[str, Any], workdir: Path, _arg: str) -> str | None:
+    checkability = _json(workdir, "anchors.json").get("checkability", {})
+    status = checkability.get(item.get("doc"), {}).get("status")
+    return None if status == "unverifiable" else (
+        f"checkability of {item.get('doc')} is {status!r}, not 'unverifiable'")
+
+
 def _expect_not_about_code(item: dict[str, Any], workdir: Path, _arg: str) -> str | None:
     claims = _json(workdir, "edits.json").get("code_claims", {})
     if claims.get(item.get("doc")) == 0:
@@ -374,6 +393,7 @@ JUDGES: dict[str, Judge] = {
     "not-affected": _expect_not_affected,
     "not-reviewed": _expect_not_reviewed,
     "anchors": _expect_anchors,
+    "unverifiable": _expect_unverifiable,
     "not-about-code": _expect_not_about_code,
     "notice": _expect_notice,
 }

@@ -18,6 +18,7 @@ from dd_corpus import (
     FIXTURES,
     Workdir,
     evaluate,
+    fixture_states,
     git,
     planted_items,
     run_fixture,
@@ -29,6 +30,10 @@ from dd_run import main
 XFAIL: dict[tuple[str, str], str] = {}
 
 CASES = [(name, item) for name in FIXTURES for item in planted_items(name)]
+# the later-run tests need a second state; the retry test needs an invalid canned output, which
+# one fixture carries (the retry path does not depend on the fixture)
+TWO_STATES = tuple(name for name in FIXTURES if 2 in fixture_states(name))
+WITH_INVALID = tuple(name for name in FIXTURES if (CANNED_ROOT / name / "state1-invalid").is_dir())
 
 
 def _id(name: str) -> str:
@@ -67,9 +72,14 @@ def test_every_item_has_an_expectation() -> None:
         for item in items:
             assert item["expect"], f"{name} {item['id']} expects nothing"
             assert item.get("doc") or item.get("name"), f"{name} {item['id']} has no place"
+            assert int(item["state"]) in fixture_states(name), f"{name} {item['id']}: no state"
 
 
-@pytest.mark.parametrize("name", FIXTURES, ids=[_id(n) for n in FIXTURES])
+def test_the_retry_path_is_exercised() -> None:
+    assert WITH_INVALID, "no fixture carries an invalid canned output"
+
+
+@pytest.mark.parametrize("name", TWO_STATES, ids=[_id(n) for n in TWO_STATES])
 def test_state2_run_starts_from_the_merged_drift_base(
         name: str, runs: Callable[[str, int], Workdir]) -> None:
     # the state-1 run's Drift-Base trailer is found through the --no-ff merge, not the record
@@ -79,7 +89,7 @@ def test_state2_run_starts_from_the_merged_drift_base(
         "later", "commit", state1)
 
 
-@pytest.mark.parametrize("name", FIXTURES, ids=[_id(n) for n in FIXTURES])
+@pytest.mark.parametrize("name", WITH_INVALID, ids=[_id(n) for n in WITH_INVALID])
 def test_invalid_output_exits_3_then_retried_marks_unchecked(name: str,
                                                              tmp_path: Path) -> None:
     invalid = sorted(p.stem for p in (CANNED_ROOT / name / "state1-invalid").glob("*.json"))
@@ -92,7 +102,7 @@ def test_invalid_output_exits_3_then_retried_marks_unchecked(name: str,
     assert not [e for e in edits["edits"] if e["id"].split("-")[0] in invalid]
 
 
-@pytest.mark.parametrize("name", FIXTURES, ids=[_id(n) for n in FIXTURES])
+@pytest.mark.parametrize("name", TWO_STATES, ids=[_id(n) for n in TWO_STATES])
 def test_no_agent_dispatched_when_nothing_changed(name: str, tmp_path: Path) -> None:
     run = run_fixture(name, 2, tmp_path)
     # the state-2 run started from main's HEAD; back on main nothing changed since then

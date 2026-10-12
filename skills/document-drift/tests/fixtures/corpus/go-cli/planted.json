@@ -1,18 +1,23 @@
 {
-  "planted": [
-    {"id": "p1", "doc": "CLAUDE.md", "line": 5, "kind": "path", "text": "internal/cli/flags.go", "what": "CLAUDE.md names internal/cli/flags.go, renamed to internal/cli/options.go", "expect": "replace:internal/cli/options.go"},
-    {"id": "p2", "doc": "README.md", "line": 15, "kind": "path", "text": "internal/store/", "what": "directory internal/store/ renamed to internal/storage/", "expect": "replace:internal/storage/"},
-    {"id": "p3", "doc": "README.md", "line": 9, "kind": "path", "text": "internal/report/csv.go", "what": "list-item subject internal/report/csv.go deleted; the list keeps two siblings", "expect": "delete"},
-    {"id": "p4", "doc": "README.md", "line": 13, "kind": "path", "text": "internal/compat/v1shim.go", "what": "inline prose mention of the deleted internal/compat/v1shim.go", "expect": "human:prose-mention"},
-    {"id": "p5", "doc": "docs/usage.md", "line": 3, "kind": "anchor", "text": "building", "what": "same-doc #building after '## Building' became '## Building from Source' in one commit", "expect": "replace:building-from-source"},
-    {"id": "p6", "doc": "README.md", "line": 21, "kind": "script", "text": "vet", "what": "make vet in a sh fence after the vet target was removed", "expect": "delete"},
-    {"id": "p7", "doc": "README.md", "line": 5, "kind": "version", "text": "1.20", "what": "Go 1.20 or later, written when go.mod said go 1.20, behind its later go 1.22 directive (R59)", "expect": "replace:1.22"}
-  ],
-  "decoys": [
-    {"id": "d1", "doc": "README.md", "line": 33, "why": "the deliberate removal sentence, committed in the deleting commit (its snapshot never had the file)", "expect": "none"},
-    {"id": "d2", "doc": "README.md", "line": 27, "why": "a runtime artefact state.json", "expect": "none"},
-    {"id": "d3", "doc": "README.md", "line": 29, "why": "an illustrative path that never existed", "expect": "none"},
-    {"id": "d4", "doc": "README.md", "line": 31, "why": "a ratio 4/5: the ratio guard gives no token", "expect": "no-token"},
-    {"id": "d5", "doc": "docs/legacy.md", "line": 3, "why": "directory internal/legacy/ partly salvaged: one file moved to internal/cli/, two deleted, so no single new name (R60)", "expect": "human:ambiguous-rename"}
-  ]
+ "state1": [
+  {"id": "g1", "state": 1, "doc": "docs/usage.md", "line": 5, "kind": "file-reference",
+   "what": "`options.go` has no definition (Go is not parsed) but is a unique basename, so it anchors to internal/cli/options.go",
+   "expect": ["anchors"]},
+  {"id": "g2", "state": 1, "doc": "docs/usage.md", "line": 7, "kind": "file-reference",
+   "what": "`env.go` anchors to internal/cli/env.go by its unique basename",
+   "expect": ["anchors"]},
+  {"id": "g3", "state": 1, "doc": "Makefile", "line": 9, "name": "release",
+   "kind": "undocumented-target",
+   "what": "the Makefile has build, lint and release targets; the README's make fence shows build and lint only",
+   "expect": ["gap:undocumented:README.md"]},
+  {"id": "g4", "state": 1, "doc": "README.md", "line": 7, "kind": "flag-name",
+   "what": "the README writes the flag --out; options.go registers output (its usage string says --output)",
+   "expect": ["edit:correct"]},
+  {"id": "g5", "state": 1, "doc": "docs/legacy.md", "line": 3, "kind": "unverified-block",
+   "what": "legacy.md describes behaviour and names nothing; the canned review nominates its first paragraph",
+   "expect": ["unverifiable", "notice:1st"]},
+  {"id": "d1", "state": 1, "doc": "Makefile", "line": 3, "name": "build", "kind": "decoy",
+   "what": "the build target is documented only inside the README's sh fence, which counts",
+   "expect": ["none"]}
+ ]
 }

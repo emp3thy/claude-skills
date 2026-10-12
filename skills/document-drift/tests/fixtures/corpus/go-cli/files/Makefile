@@ -1,7 +1,10 @@
-.PHONY: build test
+.PHONY: build lint release
 
 build:
 	go build -o bin/drift ./cmd/drift
 
-test:
-	go test ./...
+lint:
+	go vet ./...
+
+release: build
+	tar -czf drift.tar.gz -C bin drift

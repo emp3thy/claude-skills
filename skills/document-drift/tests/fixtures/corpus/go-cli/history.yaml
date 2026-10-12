@@ -1,125 +1,26 @@
-# go-cli: a Go command line tool whose docs (README, usage guide, CLAUDE.md) were written in
-# March 2024 and whose code moved on later (a renamed file, a renamed package directory, a
-# renamed heading, deleted files and a dropped Make target). Every doc line is blamed to a
-# commit where its target existed; every rename or deletion comes later.
-# Editing an earlier commit re-hashes every later one and moves the goldens: add new history
-# as trailing commits and regenerate the goldens deliberately (UPDATE_GOLDENS=1).
+# go-cli: a Go command line tool built with make. Go has no definition parser, so its docs
+# anchor to source files by unique basename (options.go, env.go). One state (tag state1): the
+# first drift run's repository; tests/test_dd_notice_loop.py drives later runs on it with the
+# owner's own commits in between. files/ is the final tree.
+# planted.json lists what the state-1 run must find; the canned agent outputs under
+# tests/canned/go-cli/ quote these docs line for line, so change them together.
 commits:
   - author: "Ken Thompson <ken@example.com>"
-    date: "2024-03-04T09:00:00+00:00"
-    subject: "feat: cli skeleton"
-    files:
-      go.mod: "module github.com/acme/drift-cli\n\ngo 1.20\n"
-      Makefile: ".PHONY: build vet test\n\nbuild:\n\tgo build -o bin/drift ./cmd/drift\n\nvet:\n\tgo vet ./...\n\ntest:\n\tgo test ./...\n"
-      cmd/drift/main.go: "@final"
-      internal/cli/flags.go: "package cli\n\nimport \"flag\"\n\n// Run parses the command line options and returns an exit code.\nfunc Run(args []string) int {\n\tfs := flag.NewFlagSet(\"drift\", flag.ContinueOnError)\n\tif err := fs.Parse(args); err != nil {\n\t\treturn 2\n\t}\n\treturn 0\n}\n"
-      internal/store/store.go: "package store\n\n// Store keeps the cursor of the last run.\ntype Store struct {\n\tPath string\n}\n"
-      internal/store/bolt.go: "package store\n\n// OpenBolt opens the bbolt database that backs a Store.\nfunc OpenBolt(path string) (*Store, error) {\n\treturn &Store{Path: path}, nil\n}\n"
-      internal/report/csv.go: "package report\n\nimport \"encoding/csv\"\n\n// CSV is the first reporter; it writes one row per finding.\nvar CSV = csv.NewWriter\n"
-      internal/report/json.go: "@final"
-      internal/report/table.go: "@final"
-      internal/compat/v1shim.go: "package compat\n\n// Translate rewrites version 1 flags into their current spelling.\nfunc Translate(args []string) []string {\n\treturn args\n}\n"
-  - author: "Ken Thompson <ken@example.com>"
-    date: "2024-03-18T10:00:00+00:00"
-    subject: "docs: readme, usage guide and claude notes"
-    files:
-      README.md: |
-        # drift-cli
-
-        A command line tool that reports documentation drift.
-
-        Requires Go 1.20 or later.
-
-        ## Reporters
-
-        - `internal/report/csv.go` writes CSV
-        - `internal/report/json.go` writes JSON
-        - `internal/report/table.go` prints a table
-
-        Version 1 flags are translated by `internal/compat/v1shim.go` before parsing.
-
-        Persistence code lives in `internal/store/`.
-
-        ## Make targets
-
-        ```sh
-        make build
-        make vet
-        make test
-        ```
-
-        ## Notes
-
-        Each run records its cursor in `state.json`.
-
-        A future reporter would go in `internal/report/xml.go`.
-
-        Roughly `4/5` runs finish in under a second.
-      docs/usage.md: |
-        # Usage
-
-        - [Building](#building)
-        - [Running](#running)
-
-        ## Building
-
-        Compile the binary with the Go toolchain and copy it onto your PATH.
-        The build embeds the version string from the latest tag.
-
-        ## Running
-
-        Pass a repository path and the command prints a drift report.
-      CLAUDE.md: "@final"
-  - author: "Barbara Liskov <barbara@example.com>"
-    date: "2024-09-02T12:00:00+00:00"
-    subject: "refactor: flags.go becomes options.go"
-    rename:
-      internal/cli/flags.go: internal/cli/options.go
-  - author: "Barbara Liskov <barbara@example.com>"
-    date: "2025-01-20T09:30:00+00:00"
-    subject: "refactor: the store package directory is now storage"
-    rename:
-      internal/store/store.go: internal/storage/store.go
-      internal/store/bolt.go: internal/storage/bolt.go
-  - author: "Ken Thompson <ken@example.com>"
-    date: "2025-02-25T14:10:00+00:00"
-    subject: "docs: the building section covers building from source"
-    files:
-      docs/usage.md: "@final"
-  - author: "Ken Thompson <ken@example.com>"
-    date: "2025-03-30T16:00:00+00:00"
-    subject: "chore: drop the CSV reporter and the version 1 shim"
-    delete:
-      - internal/report/csv.go
-      - internal/compat/v1shim.go
-    files:
-      README.md: "@final"
-  - author: "Barbara Liskov <barbara@example.com>"
-    date: "2025-06-01T08:00:00+00:00"
-    subject: "build: drop the vet target"
-    files:
-      Makefile: "@final"
-  # Final-review additions (R59, R60, R68): the go directive the README states was the
-  # manifest's when it was written (commit 1 says go 1.20) and is raised here; then a directory
-  # of version 1 parsers of which one file is kept (moved) and the rest deleted.
-  - author: "Barbara Liskov <barbara@example.com>"
-    date: "2025-06-15T08:00:00+00:00"
-    subject: "build: require Go 1.22"
+    date: "2025-05-05T09:00:00+00:00"
+    subject: "feat: cli skeleton, options and reporters"
     files:
       go.mod: "@final"
-  - author: "Ken Thompson <ken@example.com>"
-    date: "2025-07-01T09:00:00+00:00"
-    subject: "feat: version 1 parsers and their notes"
-    files:
-      internal/legacy/flags.go: "package legacy\n\n// ParseFlags translates version 1 flags.\nfunc ParseFlags(args []string) []string {\n\treturn args\n}\n"
-      internal/legacy/config.go: "package legacy\n\n// ParseConfig reads a version 1 config file.\nfunc ParseConfig(path string) error {\n\treturn nil\n}\n"
-      internal/legacy/env.go: "package cli\n\n// ParseEnv reads the version 1 settings from the environment.\nfunc ParseEnv() map[string]string {\n\treturn map[string]string{}\n}\n"
-      docs/legacy.md: "@final"
+      Makefile: "@final"
+      cmd/drift/main.go: "@final"
+      internal/cli/options.go: "@final"
+      internal/cli/env.go: "@final"
+      internal/report/json.go: "@final"
+      internal/report/table.go: "@final"
   - author: "Barbara Liskov <barbara@example.com>"
-    date: "2025-08-01T08:00:00+00:00"
-    subject: "refactor: keep only the environment parser"
-    rename:
-      internal/legacy/env.go: internal/cli/env.go
-    delete:
-      - internal/legacy/flags.go
-      - internal/legacy/config.go
+    date: "2025-05-19T09:00:00+00:00"
+    subject: "docs: readme, usage guide and legacy notes"
+    tag: state1
+    files:
+      README.md: "@final"
+      docs/usage.md: "@final"
+      docs/legacy.md: "@final"

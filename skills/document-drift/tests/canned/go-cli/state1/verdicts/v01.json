@@ -1,0 +1,6 @@
+{
+ "batch": "v01",
+ "verdicts": [
+  {"edit": "g001-e01", "verdict": "accept", "reason": "the release target builds and packs bin/drift at Makefile:9-10"}
+ ]
+}

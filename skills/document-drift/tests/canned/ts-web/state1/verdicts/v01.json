@@ -1,0 +1,6 @@
+{
+ "batch": "v01",
+ "verdicts": [
+  {"edit": "u001-e02", "verdict": "accept", "reason": "PAGE_SIZE is 50 at src/api/client.ts:3"}
+ ]
+}

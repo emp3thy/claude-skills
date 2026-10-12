@@ -1,11 +1,6 @@
-import { Header } from "./components/Header";
-import { Footer } from "./components/Footer";
+import { createRoot } from "react-dom/client";
+import { ItemsPage } from "./pages/ItemsPage";
 
-export function App() {
-  return (
-    <>
-      <Header />
-      <Footer />
-    </>
-  );
+export function renderApp(container: HTMLElement): void {
+  createRoot(container).render(<ItemsPage />);
 }

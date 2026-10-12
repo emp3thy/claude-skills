@@ -1,146 +1,83 @@
-# ts-web: a Vite/React front end whose docs were written in early 2024 and whose code moved on
-# in 2025 (a renamed module, a renamed directory, a renamed component, deletions and a removed
-# npm script). Every doc line is blamed to a commit where its target existed; every rename or
-# deletion comes later.
-# Editing an earlier commit re-hashes every later one and moves the goldens: add new history
-# as trailing commits and regenerate the goldens deliberately (UPDATE_GOLDENS=1).
+# ts-web: a TypeScript front end with a commander build tool and an express API server.
+# State 1 (tag state1) is the first drift run's repository; state 2 (tag state2) renames the
+# client's fetchItems to listItems, which docs/api.md names. files/ is the final tree: a path
+# written literally below is a state-1 version that the state-2 commit replaces with "@final".
+# The state-1 run is dated 2026-01-02 and the state-2 run 2026-01-09 (dd_corpus.DATES).
+# planted.json lists what each state's run must find; the canned agent outputs under
+# tests/canned/ts-web/ quote these docs line for line, so change them together.
 commits:
   - author: "Linus Pauling <linus@example.com>"
-    date: "2024-02-01T09:00:00+00:00"
-    subject: "feat: vite app skeleton"
-    files:
-      package.json: |
-        {
-          "name": "web",
-          "version": "2.0.0",
-          "private": true,
-          "engines": {
-            "node": ">=16"
-          },
-          "scripts": {
-            "dev": "vite",
-            "build": "vite build",
-            "storybook": "storybook dev -p 6006",
-            "test": "vitest run"
-          }
-        }
-      src/main.tsx: "@final"
-      src/App.tsx: "@final"
-      src/api/client.ts: |
-        export async function getJson<T>(url: string, tries = 3): Promise<T> {
-          const response = await fetch(url);
-          if (!response.ok && tries > 1) return getJson<T>(url, tries - 1);
-          return (await response.json()) as T;
-        }
-      src/utils/format.ts: |
-        export function formatPrice(cents: number): string {
-          return `$${(cents / 100).toFixed(2)}`;
-        }
-      src/utils/dates.ts: |
-        export function isoDay(date: Date): string {
-          return date.toISOString().slice(0, 10);
-        }
-      src/components/Header.tsx: "@final"
-      src/components/Footer.tsx: "@final"
-      src/components/Sidebar.tsx: |
-        export function NavRail({ items }: { items: string[] }) {
-          return <nav>{items.map((item) => <a key={item}>{item}</a>)}</nav>;
-        }
-      src/components/OldModal.tsx: |
-        export function OldModal({ open }: { open: boolean }) {
-          return open ? <dialog open>legacy modal</dialog> : null;
-        }
-      src/legacy/polyfills.ts: |
-        import "core-js/stable";
-        import "whatwg-fetch";
-      src/workers/sync_worker.ts: |
-        self.addEventListener("message", (event) => {
-          postMessage({ synced: event.data.length });
-        });
-  - author: "Linus Pauling <linus@example.com>"
-    date: "2024-02-20T10:30:00+00:00"
-    subject: "docs: readme and front-end guide"
-    files:
-      README.md: "@final"
-      docs/frontend.md: |
-        # Front end
-
-        ## Components
-
-        ```
-        src/
-        ├── App.tsx
-        ├── main.tsx
-        └── components/
-            ├── OldModal.tsx
-            ├── Sidebar.tsx
-            ├── Header.tsx
-            └── Footer.tsx
-        ```
-
-        Older browsers load [the legacy polyfills](../src/legacy/polyfills.ts) before the app boots.
-
-        Pages could later move into `src/pages/` once routing grows.
-  - author: "Rosalind Franklin <rosalind@example.com>"
-    date: "2024-04-11T13:00:00+00:00"
-    subject: "chore: vendor tinylib and add page templates"
-    files:
-      third_party/lib/README.md: "@final"
-      third_party/lib/index.js: "@final"
-      third_party/lib/legacy.js: |
-        module.exports = function tinylibLegacy() { return 41; };
-      templates/README.md: "@final"
-      templates/page.tsx.tmpl: "@final"
-      templates/legacy_page.tsx.tmpl: |
-        export default function LegacyPage() {
-          return <main className="ie11">{{body}}</main>;
-        }
-  - author: "Rosalind Franklin <rosalind@example.com>"
-    date: "2025-01-08T09:00:00+00:00"
-    subject: "refactor: client.ts becomes httpClient.ts"
-    rename:
-      src/api/client.ts: src/api/httpClient.ts
-  - author: "Rosalind Franklin <rosalind@example.com>"
-    date: "2025-01-22T15:20:00+00:00"
-    subject: "refactor: utils are now helpers"
-    rename:
-      src/utils/format.ts: src/helpers/format.ts
-      src/utils/dates.ts: src/helpers/dates.ts
-  - author: "Linus Pauling <linus@example.com>"
-    date: "2025-02-14T11:00:00+00:00"
-    subject: "refactor: the sidebar is now the nav rail"
-    rename:
-      src/components/Sidebar.tsx: src/components/NavRail.tsx
-  - author: "Linus Pauling <linus@example.com>"
-    date: "2025-03-03T17:45:00+00:00"
-    subject: "chore: drop IE11 polyfills, the old modal, the sync worker and the 1.x entry points"
-    delete:
-      - src/legacy/polyfills.ts
-      - src/components/OldModal.tsx
-      - src/workers/sync_worker.ts
-      - third_party/lib/legacy.js
-      - templates/legacy_page.tsx.tmpl
-    files:
-      docs/frontend.md: "@final"
-  - author: "Rosalind Franklin <rosalind@example.com>"
-    date: "2025-04-22T08:00:00+00:00"
-    subject: "build: remove storybook and require Node 18"
+    date: "2025-04-01T09:00:00+00:00"
+    subject: "feat: config, item client, helpers and the app shell"
     files:
       package.json: "@final"
-  # Final-review additions (R62, R68): a heading that names a file, linked from another doc by
-  # its slug; the file is renamed later, and rewriting the heading would break the link.
-  - author: "Linus Pauling <linus@example.com>"
-    date: "2025-05-05T10:00:00+00:00"
-    subject: "feat: session store and its api notes"
-    files:
-      src/api/session.ts: |
-        export function readToken(): string | null {
-          return sessionStorage.getItem("token");
+      src/config.ts: "@final"
+      src/helpers/format.ts: "@final"
+      src/App.tsx: "@final"
+      src/main.tsx: "@final"
+      src/api/client.ts: |
+        import { config } from "../config";
+
+        export const PAGE_SIZE = 50;
+
+        export interface Item {
+          id: string;
+          name: string;
+          priceCents: number;
         }
-      docs/api.md: "@final"
-      docs/auth.md: "@final"
+
+        export async function fetchItems(page = 1): Promise<Item[]> {
+          const url = `${config.apiUrl}/api/items?page=${page}&size=${PAGE_SIZE}`;
+          const response = await fetch(url);
+          return (await response.json()) as Item[];
+        }
+
+        export async function fetchItem(id: string): Promise<Item> {
+          const response = await fetch(`${config.apiUrl}/api/items/${id}`);
+          return (await response.json()) as Item;
+        }
+      src/pages/ItemsPage.tsx: |
+        import { useEffect, useState } from "react";
+        import { fetchItems, type Item } from "../api/client";
+        import { formatPrice } from "../helpers/format";
+
+        export function ItemsPage() {
+          const [items, setItems] = useState<Item[]>([]);
+          useEffect(() => {
+            fetchItems().then(setItems);
+          }, []);
+          return (
+            <ul>
+              {items.map((item) => (
+                <li key={item.id}>
+                  {item.name}: {formatPrice(item.priceCents)}
+                </li>
+              ))}
+            </ul>
+          );
+        }
   - author: "Rosalind Franklin <rosalind@example.com>"
-    date: "2025-06-01T09:00:00+00:00"
-    subject: "refactor: session.ts becomes authSession.ts"
-    rename:
-      src/api/session.ts: src/api/authSession.ts
+    date: "2025-04-08T09:00:00+00:00"
+    subject: "feat: build command and item routes"
+    files:
+      src/build.ts: "@final"
+      src/cli.ts: "@final"
+      src/server.ts: "@final"
+  - author: "Linus Pauling <linus@example.com>"
+    date: "2025-04-15T09:00:00+00:00"
+    subject: "docs: landing page, readme and guides"
+    tag: state1
+    files:
+      index.md: "@final"
+      README.md: "@final"
+      docs/api.md: "@final"
+      docs/cli.md: "@final"
+      docs/configuration.md: "@final"
+      docs/frontend.md: "@final"
+  - author: "Rosalind Franklin <rosalind@example.com>"
+    date: "2026-01-05T09:00:00+00:00"
+    subject: "refactor: fetchItems becomes listItems"
+    tag: state2
+    files:
+      src/api/client.ts: "@final"
+      src/pages/ItemsPage.tsx: "@final"
