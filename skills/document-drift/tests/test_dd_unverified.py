@@ -258,6 +258,29 @@ def test_nomination_skips_noticed_and_ignored_blocks() -> None:
     assert edits[0]["end_line"] == 9
 
 
+def test_nomination_on_a_comment_line_resolves_to_the_block_below() -> None:
+    later = "2026-10-26-0001"
+    # (a) a plain comment line: the notice goes above the prose, hashed as decide hashes it
+    text = _doc("Intro.", "", "<!-- see below -->", "Some prose.")
+    [edit] = nominate([{"doc": "a.md", "start_line": 3, "end_line": 4, "why": "w"}],
+                      {"a.md": text}, [], RUN)
+    assert (edit["start_line"], edit["old"], edit["subject"]) == (4, "Some prose.",
+                                                                  _h("Some prose."))
+    decisions, _, _ = decide("a.md", _apply(text, edit), [], [], later)
+    assert [(d["hash"], d["action"]) for d in decisions] == [(_h("Some prose."), "escalate")]
+    # (b) the line of a notice being cleared as changed: the new notice does not overlap it
+    text = _doc("Intro.", "", render_notice(1, PREV, "00000000"), "Some prose.")
+    decisions, clears, _ = decide("a.md", text, [], [], RUN)
+    assert [(e["start_line"], e["type"]) for e in clears] == [(3, "clear")]
+    [edit] = nominate([{"doc": "a.md", "start_line": 3, "end_line": 4, "why": "w"}],
+                      {"a.md": text}, decisions, RUN)
+    assert (edit["start_line"], edit["end_line"], edit["old"]) == (4, 4, "Some prose.")
+    applied = _apply(_apply(text, edit), clears[0])
+    assert applied == _doc("Intro.", "", render_notice(1, RUN, _h("Some prose.")), "Some prose.")
+    decisions, _, _ = decide("a.md", applied, [], [], later)
+    assert [d["action"] for d in decisions] == ["escalate"]
+
+
 def test_edit_ids_in_doc_then_line_order(tmp_path: Path) -> None:
     root, work = tmp_path / "repo", tmp_path / "work"
     a1, a2, b1 = "First block.", "Third block.", "Only block."

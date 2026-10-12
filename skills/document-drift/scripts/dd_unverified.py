@@ -138,9 +138,13 @@ def block_below(sc: Scan, line: int) -> Range | None:
 
 
 def block_at(sc: Scan, line: int) -> Range | None:
-    """The outermost non-blank block holding ``line``, widened to its list or table."""
+    """The outermost non-blank block holding ``line``, widened to its list or table. A line
+    in comment-only HTML (a notice or marker) resolves as a notice there would: to the block
+    below it."""
     idx = _outermost(sc, [i for i, b in enumerate(sc.blocks)
                           if b.line_start <= line <= b.line_end and b.kind != "blank"])
+    if idx is not None and _comment_only(sc, sc.blocks[idx]):
+        return block_below(sc, sc.blocks[idx].line_end)
     return None if idx is None else _widen(sc, idx)
 
 
