@@ -206,28 +206,47 @@ tier-A bar (provisional at 0.80 since phase 5b) is still waiting on.
 
 ## document-drift
 
-One row per live check of `skills/document-drift/scripts/dd_run.py` on an owner repository,
-run against a throwaway local clone (never the owner's checkout, never pushed) with `--date`
-fixed and the workdir outside the clone. Every edit in the drift commit and every human finding
-is read by hand and judged; a wrong provable edit is a defect, not a rate (spec 1.4 criterion
-3). `candidates` lists the classes in the order provable-replace / provable-delete / human /
-summary-only. `tokens` lists path / anchor / script / version / tree.
+One row per live run of `skills/document-drift/tests/dd_live_run.py` (spec 11.3), which runs the
+skill's three stages with real `claude -p` agents on a corpus fixture (replayed into a temporary
+directory) or on a repository (a throwaway clone: a run without `--check` commits there). The
+harness appends the row; it never edits this text or the header, and rows are never edited.
 
-**The two `2026-10-09` rows are the phase 1 live check.** Neither repository produced a
-candidate other than `summary-only`, so no branch was created and there was nothing to judge:
-zero edits, zero human findings. To check that this was not a missed-drift artefact, every
-`summary-only` reference was looked up in each clone's full history (`git log --all`): of 253
-(166 in ralph, all paths; 87 in better-memory, 74 paths and 13 tree entries), exactly two had
-ever existed, `PROMPT.md` in ralph's `prompt/README.md` and
-`better_memory/hooks/_claude_md_sentinel.py` in better-memory's `website/architecture.md`.
-Both are the deliberate "no longer exists" sentences of the spec's validation pass (11.2 S3),
-written in the commit that deleted the file, and both were correctly classed `summary-only` by
-the per-line snapshot. The 13 better-memory tree entries are the runtime `.better-memory/`
-directory layout in `website/configuration.md`, never tracked. The clones needed a local
-`user.name` and `user.email` (the owner's identity is set per repository, not globally) for
-the non-`--check` run to pass preflight.
+- `mode`: `first`, `later` (since the last drift run), `base` (`--base`, or `--from`, which is
+  passed as `--base`) or `full`, from `changes.json` `scope`. `docs` counts the docs in scope;
+  `affected` the docs reviewed (every doc on a first or full run, the affected docs on a later
+  one); `units` the review units.
+- `edits proposed` is the total, then review / gap / notice; `kept` the edits that passed the
+  script checks; `verdicts` accept / reject / unsure / unverified; `applied` the edits applied
+  (`0` under `--check`); `human` the "Needs a human decision" entries; `notices placed` the
+  applied 1st and 2nd notices; `gaps` undocumented / missing-from-list.
+- `planted caught` and `decoys touched` (fixtures only): an item of the state's `planted.json`
+  is caught when every expectation holds (`dd_corpus.evaluate`); a decoy (id `d...` or `x...`)
+  is touched when one does not. `notes` names each miss and touch; the run's task report
+  explains them from the agents' outputs.
+- `agents` counts the plan entries dispatched per role, review / gap / verify (a `retry.json`
+  re-dispatch is in `notes`, not counted twice); `tokens` sums every call's input (cache reads
+  and writes included) and output tokens as the reply envelope reports them; `cost usd` sums
+  the envelopes' `total_cost_usd`. `wall time` covers the stages and agent waves, not the
+  fixture replay.
 
-| date | repo | head | docs_scanned | docs_excluded | tokens | candidates | edits | edits_correct | human |
-|---|---|---|---|---|---|---|---|---|---|
-| 2026-10-09 | ralph | 6a94669 | 37 | 74 | 449 (422/7/0/3/17) | 0/0/0/166 | 0 | 0/0 | 0 |
-| 2026-10-09 | better-memory | 9d5be26 | 38 | 97 | 377 (327/35/0/1/14) | 0/0/0/87 | 0 | 0/0 | 0 |
+The phase 1 rows (`2026-10-09`, ralph and better-memory, from phase 1's deterministic
+`dd_run.py`) were removed with that section's columns: phase A replaced the pipeline they
+measured. They are in git history.
+
+**The `2026-10-13` `py-service (state 1)` row is the first live run** (sonnet review and gap
+agents, opus verifiers, $0.71). Of its five misses and one decoy touch, `p14` and `d7` are
+scenario items that encode the canned agents' deliberate mistakes and cannot be met by an
+agent that does not make them: `p14` expects the verifier to reject the canned review's
+wrong `--workers` default correction, and
+decoy `d7` expects the check to drop the canned review's bad `connect` anchor; the live review
+made neither edit. The other four misses are agent judgement: `p2`, the right `--worker` to
+`--workers` fix, was proposed and the verifier answered `unsure` because `serve` never reads
+`args.workers`; `p4`, the stale `store.delete` item, was rewritten to `store.list` (a
+`correct`, not a `remove`) and the verifier rejected it because `store.list` is in
+`undocumented_ok`; `p8a` and `p10`, the two `docs/design.md` lines that name nothing, came back
+as an `unsure` question (nothing schedules `Store.purge`) and as no nomination at all. Both
+rejected edits reached the human-decision list, so neither doc line was changed wrongly.
+
+| date | repository | head | mode | docs | affected | units | edits proposed | kept | verdicts | applied | human | notices placed | gaps | planted caught | decoys touched | agents | wall time | tokens | cost usd | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-10-13 | py-service (state 1) | 09c42c0 | first | 8 | 8 | 1 | 7 (4/3/0) | 7 | 5/1/1/0 | 5 | 9 | 0 | 2/1 | 6/11 | 1/8 | 1/2/4 | 1m08s | 422201 | 0.71 | missed p2, p4, p8a, p10, p14; touched d7 |
