@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 from dd_common import read_json, write_json
 from dd_gaps import candidates, documented, gaps, lists, run, split_by_cap
 
@@ -40,6 +41,7 @@ def test_mcp_spellings_match() -> None:
     assert documented(_n("mcp__s__memory-retrieve", "tool"),
                       {"a.md": "```\nmemory.retrieve(query)\n```\n"})
     assert not documented(name, {"a.md": "Call `memory_retrieve_all`.\n"})
+    assert documented(name, {"a.md": "Call `mcp__better_memory__memory_retrieve`.\n"})
 
 
 def test_param_documented_only_under_tool_heading() -> None:
@@ -164,6 +166,11 @@ def test_later_run_ignores_names_in_unchanged_files() -> None:
     then = [_n("b", file="changed.py")]
     got = candidates(now, then, ["changed.py"], [])
     assert [n["name"] for n in got] == ["new"]
+
+
+def test_gaps_needs_changed_files_on_later_run() -> None:
+    with pytest.raises(ValueError):
+        gaps([_n("a")], {"a.md": "x"}, [], [_n("b")], [])
 
 
 def test_short_flag_documented() -> None:

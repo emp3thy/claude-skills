@@ -419,6 +419,8 @@ def gaps(names: Sequence[Name], texts: Mapping[str, str], found: Sequence[List],
          names_then: Sequence[Name] | None, ok: Sequence[str],
          changed_files: Sequence[str] | None = None) -> list[Gap]:
     """The gaps among the candidates, each with its target (spec 8.2, 8.3)."""
+    if names_then is not None and changed_files is None:
+        raise ValueError("changed_files is required when names_then is given")
     docs = _prepare(texts)
     result: list[Gap] = []
     for name in candidates(names, names_then, changed_files, ok):
