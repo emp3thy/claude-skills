@@ -167,7 +167,7 @@ SOURCE_CLASSES: tuple[str, ...] = (
 SOURCE_EXTENSIONS: frozenset[str] = frozenset({
     ".py", ".pyi", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java", ".kt",
     ".cs", ".c", ".h", ".cc", ".cpp", ".hpp", ".rb", ".php", ".swift", ".scala", ".sh",
-    ".bash", ".ps1", ".lua", ".pl", ".ino", ".vue", ".svelte",
+    ".bash", ".ps1", ".lua", ".pl", ".ino", ".vue", ".svelte", ".sql",
 })
 CONFIG_EXTENSIONS: frozenset[str] = frozenset({
     ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".env", ".properties",

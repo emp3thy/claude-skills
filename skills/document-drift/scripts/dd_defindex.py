@@ -4,7 +4,7 @@
 Definition record is the shared contract in the plan. Definitions are sorted by
 (file, start, end, kind, name).
 
-- **Python** (``ast``): one ``module`` per file under its dotted path and its last segment, every
+- **Python** (``ast``): a ``module`` per dotted suffix of each file's path, every
   function, method and class with its exact ``lineno``..``end_lineno``, and every string literal
   that looks like a name. A literal's range is the largest enclosing node chain within
   ``LITERAL_NODE_LINES`` lines; it is a ``reg`` (registration) when it is a ``name=`` keyword
@@ -175,12 +175,12 @@ def signature_ranges(
 
 
 def _module_names(path: str) -> list[str]:
+    """Every dotted suffix of the module path (``src.svc.storage``, ``svc.storage``,
+    ``storage``), so a module answers to its import name whatever directory holds it."""
     parts = path[: -len(".py")].split("/")
     if parts[-1] == "__init__":
         parts = parts[:-1]
-    if not parts:
-        return []
-    return list(dict.fromkeys([".".join(parts), parts[-1]]))
+    return [".".join(parts[i:]) for i in range(len(parts))]
 
 
 def _call_name(func: ast.expr) -> str | None:

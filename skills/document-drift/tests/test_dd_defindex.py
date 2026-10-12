@@ -6,8 +6,10 @@ from typing import Any
 
 import pytest
 from dd_common import read_json, write_json
+from dd_config import DEFAULTS
 from dd_defindex import RANK, at_commit, build, by_norm, is_specific, norm, run
 from dd_helpers import make_repo
+from dd_inventory import run as inventory_run
 
 
 def _build(files: dict[str, str], unique: set[str] | None = None) -> list[dict[str, Any]]:
@@ -57,12 +59,16 @@ def test_python_function_and_class_ranges():
 
 
 def test_module_indexed_by_dotted_path_and_last_segment():
-    defs = _build({"svc/storage.py": "X = 1\nY = 2\n", "svc/__init__.py": "\n"})
+    defs = _build({"src/svc/storage.py": "X = 1\nY = 2\n", "src/svc/__init__.py": "\n"})
+    storage = [d for d in defs if d["kind"] == "module" and d["file"] == "src/svc/storage.py"]
+    # every dotted suffix of the path, so a src layout still answers to the import name
+    assert sorted(d["name"] for d in storage) == ["src.svc.storage", "storage", "svc.storage"]
+    assert all(_span(d) == (1, 2) for d in storage)
     dotted = _find(defs, "svc.storage", "module")
-    assert dotted["norm"] == "svc_storage" and _span(dotted) == (1, 2)
-    assert _span(_find(defs, "storage", "module")) == (1, 2)
-    package = [d for d in defs if d["kind"] == "module" and d["file"] == "svc/__init__.py"]
-    assert [d["name"] for d in package] == ["svc"]
+    assert dotted["norm"] == "svc_storage"
+    assert by_norm(defs)["svc_storage"] == [dotted]
+    package = [d for d in defs if d["kind"] == "module" and d["file"] == "src/svc/__init__.py"]
+    assert sorted(d["name"] for d in package) == ["src.svc", "svc"]
     assert not any("__init__" in d["name"] for d in defs if d["kind"] == "module")
 
 
@@ -337,3 +343,15 @@ def test_run_writes_sorted_index_and_skips_syntax_errors(tmp_path):
     assert not [d for d in defs if d["kind"] == "function" and d["file"] == "svc/a.py"]
     keys = [(d["file"], d["start"], d["end"], d["kind"], d["name"]) for d in defs]
     assert keys == sorted(keys)
+
+
+def test_run_indexes_sql_through_inventory(tmp_path):
+    files = {"db/schema.sql": "CREATE TABLE items (\n  id INTEGER,\n  body TEXT\n);\n",
+             "README.md": "# r\n"}
+    repo = make_repo(tmp_path, [{"date": "2026-01-01T00:00:00Z", "subject": "init",
+                                 "files": files}])
+    work = tmp_path / "work"
+    inventory_run(repo, work, {**DEFAULTS})
+    defs = run(repo, work)["definitions"]
+    assert _span(_find(defs, "items", "sql")) == (1, 4)
+    assert _find(defs, "body", "sqlcol")["owners"] == ["items"]

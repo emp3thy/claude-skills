@@ -446,3 +446,9 @@ def test_markdown_is_doc_class_not_source(tmp_path):
     inv = _inv(tmp_path, {"NOTES.MD": "n\n", "docs/guide.md": "g\n", "x.py": "x\n"})
     assert inv["sources"]["doc"] == ["NOTES.MD", "docs/guide.md"]
     assert inv["sources"]["source"] == ["x.py"]
+
+
+def test_sql_file_is_source(tmp_path):
+    inv = _inv(tmp_path, {"db/schema.sql": "CREATE TABLE t (id INTEGER);\n", "x.py": "x\n"})
+    assert inv["sources"]["source"] == ["db/schema.sql", "x.py"]
+    assert "db/schema.sql" in indexed_files(inv)
