@@ -32,6 +32,7 @@ STORE = (
     "        return None\n"
     "\n"
     'FLAGS = ["--dry-run"]\n'
+    "cfg.retry_count = 3\n"
 )
 OTHER = "def helper_fn():\n    return 2\n"
 README = (
@@ -64,7 +65,7 @@ README = (
     "We used to have a flag.\n"
 )
 GUIDE = ("# Guide\n\n" + "".join(f"guide line {n}\n" for n in range(1, 21))
-         + "\n## Part two\n\nMore text.\n")
+         + "\n## Part two\n\nMore text.\n\n- db\n    image: postgres\n\nimage: postgres\n")
 FILES = {"src/store.py": STORE, "src/other.py": OTHER, "README.md": README,
          "docs/guide.md": GUIDE}
 
@@ -138,6 +139,27 @@ def test_old_mismatch_is_not_repaired_when_lines_differ(ctx: Context) -> None:
     assert "repaired" not in worded
 
 
+def test_old_mismatch_is_not_repaired_when_lines_differ_by_one(ctx: Context) -> None:
+    plain = _line("docs/guide.md", "guide line 5")
+    shifted = _edit("u001-e01", doc="docs/guide.md", start=plain + 1, old="guide line 5",
+                    new="guide line five")
+    assert _result(shifted, ctx) == ("dropped", "old-mismatch", None)
+    pair = _edit("u001-e02", doc="docs/guide.md", start=plain + 1, end=plain + 2,
+                 old="guide line 5\nguide line 6", new="guide line 5\nguide line six")
+    assert _result(pair, ctx) == ("dropped", "old-mismatch", None)
+    indented = _line("docs/guide.md", "    image: postgres")
+    flat = _line("docs/guide.md", "image: postgres")
+    twin = _edit("u001-e03", doc="docs/guide.md", start=flat, old="    image: postgres",
+                 new="    image: postgres:16")
+    assert _result(twin, ctx) == ("dropped", "old-mismatch", None)
+    assert twin["old"] == "    image: postgres"
+    assert "repaired" not in twin
+    reverse = _edit("u001-e04", doc="docs/guide.md", start=indented, old="image: postgres",
+                    new="image: mysql")
+    assert _result(reverse, ctx) == ("dropped", "old-mismatch", None)
+    assert "repaired" not in reverse
+
+
 def test_whitespace_repair_reindents_new(ctx: Context) -> None:
     start = _line("README.md", "    nested text one")
     edit = _edit("u001-e01", start=start, end=start + 1,
@@ -188,6 +210,9 @@ def test_still_in_source_drops_removal_of_a_live_name(ctx: Context) -> None:
         removal = _edit(f"u001-f{n}", start=start, new="", kind="remove", evidence=(),
                         subject=flag)
         assert _result(removal, ctx) == ("dropped", "still-in-source", None)
+    dotted = _edit("u001-e04", start=start, new="", kind="remove", evidence=(),
+                   subject="retry_count")
+    assert _result(dotted, ctx) == ("dropped", "still-in-source", None)
     gone = _edit("u001-e03", start=start, new="", kind="remove", evidence=(),
                  subject="old_options")
     assert _result(gone, ctx) == ("kept", None, None)
@@ -385,8 +410,9 @@ def test_notice_edits_checked_not_batched(tmp_path: Path, repo: tuple[Path, Path
                       "n002": ("notice", "human", "large-deletion")}
     plan = read_json(work / "plan-verify.json")
     assert [p["edits"] for p in plan] == [["u001-e01"]]
-    assert [(h["doc"], h["line"], h["kind"]) for h in result["human"]] == [
-        ("docs/guide.md", first + 2, "large-deletion")]
+    assert result["human"] == [
+        {"doc": "docs/guide.md", "line": first + 2, "kind": "large-deletion",
+         "text": "claim n002 (deletes 16 lines (more than 15))", "evidence": []}]
 
 
 def test_order_review_gap_notice(tmp_path: Path, repo: tuple[Path, Path]) -> None:
@@ -409,6 +435,9 @@ def test_order_review_gap_notice(tmp_path: Path, repo: tuple[Path, Path]) -> Non
         ("u001-e01", "kept", None), ("u002-e01", "kept", None),
         ("g001-e01", "human", "overlap"), ("n001", "human", "overlap")]
     assert result["code_claims"] == {"README.md": 4}
+    overlap = [h for h in result["human"] if h["kind"] == "overlap"]
+    assert overlap[0]["evidence"] == ["src/store.py:3"]
+    assert overlap[0]["text"].startswith("claim g001-e01 (lines ")
 
 
 def test_gap_refusals_counted_or_human(tmp_path: Path, repo: tuple[Path, Path]) -> None:

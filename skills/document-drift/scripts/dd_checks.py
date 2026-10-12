@@ -8,7 +8,9 @@
   ``old`` becomes the doc's text and each line of ``new`` gets the indentation of the doc line
   at the same index (lines past ``old``'s count take the last doc line's), replacing the
   agent's own indentation of that ``old`` line when the ``new`` line starts with it; the edit
-  then carries ``repaired: true``.
+  then carries ``repaired: true``. No repair when ``old`` is exactly the text of another range
+  of the doc: the range is then misplaced (an off-by-one onto an indentation twin), not
+  mis-indented.
 - ``protected`` (human): a line of the range is in an honoured ``drift-ignore`` target, a
   generated region or a never-edit section. ``clear`` edits are exempt: they remove the
   skill's own notice line, and a ``drift-ignore`` over a notice is the reason to clear it.
@@ -16,8 +18,9 @@
   tracked at HEAD and lines inside it, or a ``correct``, ``add`` or ``anchor`` edit has none.
 - ``still-in-source`` (dropped): a ``remove`` edit's ``subject`` (backticks and a call's
   argument list dropped, then ``dd_defindex.norm``) is a whole word of a tracked source or
-  project file, whose content is compared with ``-`` and ``.`` between word characters read
-  as ``_``.
+  project file, whose content is compared both as written and with ``-`` and ``.`` between
+  word characters read as ``_`` (so ``cfg.retry_count`` holds ``retry_count`` and
+  ``cfg_retry_count``).
 - ``anchor-adds-name`` (dropped): ``old`` holds a guarantee word, or ``new``'s tokens
   (whitespace-separated, a backtick span kept whole, ``()[]{},:;`` and sentence ``.!?``
   stripped from the edges) are not ``old``'s tokens in order plus exactly one inline-code span
@@ -49,7 +52,8 @@ writes ``edits.json`` and plans the verifier batches with ``dd_dispatch.plan_ver
 ``{"edits", "questions", "refusals", "human", "unverified_blocks", "code_claims",
 "unchecked_units", "unchecked_gap_docs", "unverified_batches"}``. Every edit gains ``source``
 (``review``, ``gap``, ``notice``), ``status`` (``kept``, ``dropped``, ``human``), ``check``,
-``human_kind`` and ``reason``. ``human`` holds a Human-decision entry for each question, each
+``human_kind`` and ``reason``; a check failure's human entry has the text ``<claim> (<reason>)``
+and the edit's evidence. ``human`` holds a Human-decision entry for each question, each
 check failure with a human kind and each ``target-refused`` gap refusal, sorted by doc and
 line; ``refusals`` holds the other gap refusals with their target doc. Notice edits are checked
 but never batched: they are not sent to a verifier (spec 7.3).
@@ -187,8 +191,9 @@ def context(root: Path, workdir: Path, config: Mapping[str, Any],
             continue
         texts[doc] = _split(text)
         protected[doc], headings[doc] = _protected(doc, text, markers, never)
-    source_texts = [_normalise(t) for t in (_read(root, p) for p in indexed_files(inventory))
-                    if t is not None]
+    raw = [t for t in (_read(root, p) for p in indexed_files(inventory)) if t is not None]
+    # raw and normalised: `cfg.retry_count` holds `retry_count` as well as `cfg_retry_count`
+    source_texts = raw + [_normalise(t) for t in raw]
     words = frozenset(w for t in source_texts for pattern in _WORDS for w in pattern.findall(t))
     files, dirs = History(root).head_files()
     return Context(root=root, texts=texts, protected=protected, headings=headings,
@@ -245,6 +250,11 @@ def _old_mismatch(edit: dict[str, Any], ctx: Context) -> str | None:
     if len(old_lines) != len(doc_lines) or any(
             a.lstrip() != b.lstrip() for a, b in zip(old_lines, doc_lines, strict=True)):
         return f"old is not the text of lines {start}-{end}"
+    size = len(old_lines)
+    for other in range(1, len(lines) - size + 2):
+        if lines[other - 1] == old_lines[0] and lines[other - 1:other - 1 + size] == old_lines:
+            return (f"old is the text of lines {other}-{other + size - 1}, not of lines "
+                    f"{start}-{end}")
     new_lines = edit["new"].split("\n") if edit["new"] else []
     out = []
     for i, line in enumerate(new_lines):
@@ -559,7 +569,7 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any],
             checked.append(edit)
             if kind is not None and reason is not None:
                 human.append(_human(edit["doc"], int(edit["start_line"]), kind,
-                                    str(edit["claim"]), edit.get("evidence") or [reason]))
+                                    f"{edit['claim']} ({reason})", edit.get("evidence") or []))
     planned = batches(checked)
     cap = int(config.get("caps", {}).get("verify", DEFAULT_VERIFY_CAP))
     result: dict[str, Any] = {
