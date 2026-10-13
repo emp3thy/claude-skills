@@ -90,8 +90,14 @@ def _doc_lines(root: Path, doc: str) -> list[str] | None:
         return None
 
 
+NO_ANCHORS = "no anchors in these lines"
+
+
 def _docs_value(root: Path, unit: Mapping[str, Any], affected: Mapping[str, Any],
                 later: bool) -> str:
+    """One line per doc of the unit: its size, the reviewed ranges, on a later run the changed
+    sections, and ``NO_ANCHORS`` when none of the unit's anchors sits in those ranges (the
+    agent is asked for ``anchor`` edits and unverified blocks there)."""
     out = []
     for entry in unit["docs"]:
         lines = _doc_lines(root, entry["doc"])
@@ -100,6 +106,9 @@ def _docs_value(root: Path, unit: Mapping[str, Any], affected: Mapping[str, Any]
         if later:
             sections = affected.get(entry["doc"], {}).get("sections", [])
             line += f"; changed sections: {_ranges(sections) if sections else 'none'}"
+        if not any(a["doc"] == entry["doc"] and _in_ranges(int(a["line"]), entry["ranges"])
+                   for a in unit["anchors"]):
+            line += f"; {NO_ANCHORS}"
         out.append(line)
     return "\n".join(out)
 

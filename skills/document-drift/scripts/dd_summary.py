@@ -255,9 +255,7 @@ def _human_section(workdir: Path, root: Path | None, edits: dict[str, Any] | Non
         return ["Needs a human decision", NOT_RUN]
     found = collect_human(workdir, root)
     lines = ["Needs a human decision", f"entries: {len(found)}"]
-    for entry in found:
-        text = human_line(entry)
-        lines.append(text if entry["doc"] else text.replace("- :0 ", "- ", 1))
+    lines.extend(human_line(entry) for entry in found)
     return lines
 
 

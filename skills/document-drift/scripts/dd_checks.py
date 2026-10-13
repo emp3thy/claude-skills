@@ -338,6 +338,17 @@ def _extras(old: list[str], new: list[str]) -> list[str] | None:
     return extras if i == len(old) else None
 
 
+def _wrapped(old: list[str], new: list[str]) -> str | None:
+    """The one token of ``old`` that ``new`` wraps in backticks and changes nothing else, or
+    None."""
+    if len(old) != len(new):
+        return None
+    changed = [(o, n) for o, n in zip(old, new, strict=True) if o != n]
+    if len(changed) == 1 and changed[0][1] == f"`{changed[0][0]}`":
+        return changed[0][1]
+    return None
+
+
 def _evidence_file(edit: Mapping[str, Any]) -> str | None:
     evidence = edit.get("evidence") or []
     if not evidence:
@@ -351,9 +362,13 @@ def _anchor_adds_name(edit: dict[str, Any], ctx: Context) -> str | None:
         return None
     if _guarantees(edit["old"]):
         return "old holds a guarantee word"
-    extras = _extras(_tokens(edit["old"]), _tokens(edit["new"]))
+    old_tokens, new_tokens = _tokens(edit["old"]), _tokens(edit["new"])
+    extras = _extras(old_tokens, new_tokens)
     if extras is None:
-        return "new does not keep old's words in order"
+        wrapped = _wrapped(old_tokens, new_tokens)
+        if wrapped is None:
+            return "new does not keep old's words in order"
+        extras = [wrapped]
     spans = [t for t in extras if _SPAN.fullmatch(t)]
     if len(spans) != 1:
         return f"new adds {len(spans)} inline-code spans, not one"
