@@ -65,10 +65,11 @@ def _hint_dismissed(hint: Mapping[str, Any], dismissed: list[str]) -> bool:
 
 
 def validate(sheet: Any, area: Mapping[str, Any], root: Path | None,
-             tracked: set[str] | None) -> list[str]:
+             tracked: set[str] | None, *, require_hints: bool = True) -> list[str]:
     """Problems with one sheet output; empty when valid. Without ``root`` the file-reading
     rules (line within the file, name at its place) are skipped; without ``tracked`` so is
-    the tracked-at-HEAD rule."""
+    the tracked-at-HEAD rule. Without ``require_hints`` (the output after the retry, spec
+    5.4) a hint that is neither an entry nor dismissed is no problem: ``fill`` adds it."""
     if not isinstance(sheet, dict):
         return ["output is not a JSON object"]
     surface, behaviours, dismissed = (sheet.get(k) for k in
@@ -146,7 +147,7 @@ def validate(sheet: Any, area: Mapping[str, Any], root: Path | None,
     missing = [f"{h['kind']} {h['name']}" for h in area["hints"]
                if _key(h["kind"], h["name"], h.get("parent")) not in seen
                and not _hint_dismissed(h, reasons)]
-    if missing:
+    if missing and require_hints:
         problems.append(f"hints neither an entry nor dismissed: {', '.join(missing)}")
     return problems
 
@@ -193,7 +194,9 @@ def _load(path: Path) -> Any | None:
 def run(root: Path, workdir: Path, config: Mapping[str, Any],
         failed: frozenset[str]) -> dict[str, Any]:
     """Write ``sheets.json``: each planned area's valid sheet with ids, hidden corrected and
-    hints filled; every other area is unchecked with its reason."""
+    hints filled; every other area is unchecked with its reason. ``failed`` holds the areas
+    whose output failed validation after the retry; a sheet short only of hints is valid here,
+    since this step fills them."""
     from dd_dispatch import _problems  # dd_dispatch imports this module lazily
 
     areas_path = workdir / "areas.json"
@@ -216,7 +219,7 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any],
             unchecked.append({"area": aid, "why": "invalid after retry"})
         elif sheet is None:
             unchecked.append({"area": aid, "why": "no output"})
-        elif _problems(workdir, entry, root=root):
+        elif _problems(workdir, entry, root=root, require_hints=False):
             unchecked.append({"area": aid, "why": "invalid after retry"})
         else:
             sheet = copy.deepcopy(sheet)

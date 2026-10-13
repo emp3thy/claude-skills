@@ -1,0 +1,24 @@
+{
+ "area": "a01",
+ "surface": [
+  {"kind": "env", "name": "APP_HOST", "parent": null,
+   "summary": "the server address the app connects to", "default": null,
+   "defined_at": "src/app.py:10", "user_facing": true, "hidden": false},
+  {"kind": "env", "name": "APP_TOKEN", "parent": null,
+   "summary": "the token the app sends to the server", "default": null,
+   "defined_at": "src/app.py:11", "user_facing": true, "hidden": false},
+  {"kind": "function", "name": "connect", "parent": null,
+   "summary": "opens the connection, retrying on failure", "default": null,
+   "defined_at": "src/app.py:4", "user_facing": true, "hidden": false},
+  {"kind": "function", "name": "main", "parent": null,
+   "summary": "reads the environment and opens the connection", "default": null,
+   "defined_at": "src/app.py:9", "user_facing": true, "hidden": false}
+ ],
+ "behaviours": [
+  {"statement": "`connect` retries 3 times by default (`retries=3`)",
+   "evidence": ["src/app.py:4"]},
+  {"statement": "`main` reads `APP_HOST` and `APP_TOKEN` from the environment, then calls `connect`",
+   "evidence": ["src/app.py:10", "src/app.py:11", "src/app.py:12"]}
+ ],
+ "dismissed": []
+}

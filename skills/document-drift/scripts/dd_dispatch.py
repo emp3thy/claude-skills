@@ -14,6 +14,8 @@ and ``output`` are absolute POSIX-style paths inside the workdir. Gap entries al
 - ``plan_retry`` appends review entries for the retry units of ``dd_units.retry_units`` to
   ``plan-docs.json`` and writes their prompts; ``not_reviewed`` collects, per valid review
   output, the ranges its agent reported as ``not_reviewed`` (an optional key).
+- ``plan_readme`` writes ``plan-readme.json``: one writer entry ``r001`` (prompt
+  ``prompts/readme-r001.md``, output ``readme/r001.json``) rendered from ``sheets.json``.
 - ``check_outputs`` validates a wave's outputs; ``write_retry`` writes ``retry.json``;
   ``collect_verdicts`` writes ``verdicts.json``.
 
@@ -26,6 +28,7 @@ import argparse
 import json
 import re
 import sys
+import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict, TypeGuard
@@ -39,7 +42,13 @@ EDIT_TYPES = {"review": ("correct", "remove", "anchor"), "gap": ("add",)}
 QUESTION_KINDS = {"guarantee-mismatch": "code", "unsure": "question"}
 REFUSAL_KINDS = ("not-user-facing", "already-documented", "target-refused")
 VERDICTS = ("accept", "reject", "unsure")
-ROLE_DIRS = {"review": "review", "gap": "gaps", "verify": "verdicts", "sheet": "sheets"}
+ROLE_DIRS = {"review": "review", "gap": "gaps", "verify": "verdicts", "sheet": "sheets",
+             "readme": "readme"}
+NO_DESCRIPTION = "(the manifest has no description)"
+# manifest -> where its description lives: TOML tables, or None for package.json's key
+_DESCRIPTIONS: dict[str, tuple[str, ...] | None] = {
+    "pyproject.toml": ("project", "tool.poetry"), "Cargo.toml": ("package",),
+    "package.json": None}
 
 _PLACEHOLDER = re.compile(r"\{\{([A-Za-z_]+)\}\}")
 _TICKS = re.compile(r"`+")
@@ -194,7 +203,8 @@ def _edit_value(edit: Mapping[str, Any], lines: list[str] | None) -> str:
 # ---------------------------------------------------------------- plans
 
 def _entry(workdir: Path, eid: str, role: str, model: str) -> PlanEntry:
-    prefix = {"review": "review", "gap": "gap", "verify": "verify", "sheet": "sheet"}[role]
+    prefix = {"review": "review", "gap": "gap", "verify": "verify", "sheet": "sheet",
+              "readme": "readme"}[role]
     return {"id": eid, "role": role,
             "prompt": (workdir / "prompts" / f"{prefix}-{eid}.md").absolute().as_posix(),
             "output": (workdir / ROLE_DIRS[role] / f"{eid}.json").absolute().as_posix(),
@@ -294,6 +304,84 @@ def plan_sheets(root: Path, workdir: Path, config: Mapping[str, Any]) -> list[Pl
     existing = read_json(path) if path.is_file() else []
     write_json(path, [*existing, *entries])
     return entries
+
+
+def _description(manifest: str, text: str) -> str:
+    """The description ``manifest`` declares, or ``NO_DESCRIPTION``."""
+    tables = _DESCRIPTIONS.get(manifest, ())
+    try:
+        if tables is None:
+            data: Any = json.loads(text)
+            value = data.get("description") if isinstance(data, dict) else None
+            return value.strip() if isinstance(value, str) and value.strip() else NO_DESCRIPTION
+        parsed: Any = tomllib.loads(text) if tables else {}
+    except ValueError:  # json.JSONDecodeError and tomllib.TOMLDecodeError are ValueErrors
+        return NO_DESCRIPTION
+    for table in tables:
+        node: Any = parsed
+        for part in table.split("."):
+            node = node.get(part) if isinstance(node, dict) else None
+        value = node.get("description") if isinstance(node, dict) else None
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return NO_DESCRIPTION
+
+
+def _project(root: Path, inventory: Mapping[str, Any]) -> tuple[str, str]:
+    """The project's name and description: from the first project file (root files first, then
+    in path order) whose manifest names the project, else the root directory's name."""
+    from dd_inventory import _manifest_name
+
+    paths = sorted((str(p) for p in inventory.get("project_files", [])),
+                   key=lambda p: (p.count("/"), p))
+    for path in paths:
+        manifest = path.rsplit("/", 1)[-1]
+        try:
+            text = (root / path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        name = _manifest_name(manifest, text)
+        if name:
+            return name, _description(manifest, text)
+    return root.resolve().name, NO_DESCRIPTION
+
+
+def _sheet_lines(sheet: Mapping[str, Any]) -> list[str]:
+    """One line per surface entry and behaviour of a sheet; hidden entries are left out."""
+    lines = []
+    for entry in sheet.get("surface", []):
+        if entry.get("hidden"):
+            continue
+        parent = f", parent `{entry['parent']}`" if entry.get("parent") else ""
+        default = f"; default `{entry['default']}`" if entry.get("default") is not None else ""
+        filled = " (filled from the scan)" if entry.get("filled") else ""
+        lines.append(f"- {entry['id']} {entry['kind']} `{entry['name']}`{parent}: "
+                     f"{entry['summary']}{default}; {entry['defined_at']}{filled}")
+    for behaviour in sheet.get("behaviours", []):
+        lines.append(f"- {behaviour['id']}: {behaviour['statement']} "
+                     f"({', '.join(str(e) for e in behaviour['evidence'])})")
+    return lines
+
+
+def plan_readme(root: Path, workdir: Path, config: Mapping[str, Any]) -> list[PlanEntry]:
+    """Write the README writer's prompt (``prompts/readme-r001.md``) from ``sheets.json`` and
+    ``plan-readme.json`` with its one entry; create ``readme/``."""
+    sheets = _require(workdir, "sheets.json", "dd_sheets")
+    inventory = _require(workdir, "inventory.json", "dd_inventory")
+    (workdir / ROLE_DIRS["readme"]).mkdir(parents=True, exist_ok=True)
+    name, description = _project(root, inventory)
+    lines = [line for aid in sorted(sheets["sheets"])
+             for line in _sheet_lines(sheets["sheets"][aid])]
+    unchecked = sorted({str(u["area"]) for u in sheets.get("unchecked", [])})
+    entry = _entry(workdir, "r001", "readme", str(config["models"]["readme"]))
+    _write_prompt(entry, render("readme", {
+        "repo": root.resolve().as_posix(), "name": name, "description": description,
+        "sheets": "\n".join(lines) or "(none)",
+        "unchecked": "\n".join(f"- {a}" for a in unchecked) or "(none)",
+        "readme_lines": str(config["readme_lines"]), "output": entry["output"]}))
+    plan = [entry]
+    write_json(workdir / "plan-readme.json", plan)
+    return plan
 
 
 def plan_retry(root: Path, workdir: Path, config: Mapping[str, Any],
@@ -501,6 +589,19 @@ def validate_sheet(obj: Any) -> list[str]:
     return problems
 
 
+def validate_readme(obj: Any) -> list[str]:
+    """Shape problems with the README writer's output (spec 6.3); empty when well-formed. The
+    citation check is ``dd_readme``'s."""
+    if not isinstance(obj, dict):
+        return ["output is not a JSON object"]
+    problems = _fields(obj, "output", {"text": "str", "claims": "list"})
+    claims = obj.get("claims")
+    for n, claim in enumerate(claims if isinstance(claims, list) else []):
+        problems += _fields(claim, f"claims[{n}]",
+                            {"start_line": "int", "end_line": "int", "cites": "strs"})
+    return problems
+
+
 def validate_verdicts(obj: Any, expected_ids: Iterable[str]) -> list[str]:
     """Problems with a verifier output (spec 9.2): every expected edit id exactly once, no
     other id; empty when valid."""
@@ -528,8 +629,10 @@ def validate_verdicts(obj: Any, expected_ids: Iterable[str]) -> list[str]:
     return problems
 
 
-def _problems(workdir: Path, entry: PlanEntry, root: Path | None = None) -> list[str]:
-    """Why ``entry``'s output is unusable: missing, not JSON, invalid, or another entry's."""
+def _problems(workdir: Path, entry: PlanEntry, root: Path | None = None, *,
+              require_hints: bool = True) -> list[str]:
+    """Why ``entry``'s output is unusable: missing, not JSON, invalid, or another entry's.
+    ``require_hints`` is ``dd_sheets.validate``'s, for a sheet."""
     path = Path(entry["output"])
     if not path.is_absolute():
         path = workdir / path
@@ -546,17 +649,19 @@ def _problems(workdir: Path, entry: PlanEntry, root: Path | None = None) -> list
         problems, key = validate_gap(obj, entry.get("doc")), "doc"
     elif role == "sheet":
         problems, key = validate_sheet(obj), "area"
+    elif role == "readme":
+        return validate_readme(obj)  # one writer: no id key to compare
     else:
         problems, key = validate_verdicts(obj, entry.get("edits", [])), "batch"
     if isinstance(obj, dict) and isinstance(obj.get(key), str) and obj[key] != entry["id"]:
         problems.append(f"{key} {obj[key]!r} is not {entry['id']!r}")
     if role == "sheet" and not problems:
-        problems += _sheet_content_problems(workdir, entry, obj, root)
+        problems += _sheet_content_problems(workdir, entry, obj, root, require_hints)
     return problems
 
 
 def _sheet_content_problems(workdir: Path, entry: PlanEntry, obj: Any,
-                            root: Path | None) -> list[str]:
+                            root: Path | None, require_hints: bool) -> list[str]:
     """``dd_sheets.validate`` for a well-formed sheet; without ``root`` the file-reading
     rules are skipped."""
     from dd_sheets import validate  # dd_sheets imports this module lazily
@@ -570,18 +675,19 @@ def _sheet_content_problems(workdir: Path, entry: PlanEntry, obj: Any,
     inventory = workdir / "inventory.json"
     if root is not None and inventory.is_file():
         tracked = {str(p) for p in read_json(inventory)["files"]}
-    return validate(obj, area, root, tracked)
+    return validate(obj, area, root, tracked, require_hints=require_hints)
 
 
 def check_outputs(workdir: Path, plan: Sequence[PlanEntry], role: str, *,
-                  root: Path | None = None) -> tuple[list[str], list[PlanEntry]]:
+                  root: Path | None = None,
+                  require_hints: bool = True) -> tuple[list[str], list[PlanEntry]]:
     """The ids of ``role`` entries whose output is valid, and the entries that failed."""
     valid: list[str] = []
     failed: list[PlanEntry] = []
     for entry in plan:
         if entry["role"] != role:
             continue
-        if _problems(workdir, entry, root=root):
+        if _problems(workdir, entry, root=root, require_hints=require_hints):
             failed.append(entry)
         else:
             valid.append(entry["id"])

@@ -131,6 +131,8 @@ def test_every_hint_is_an_entry_or_dismissed(tmp_path: Path) -> None:
     problems = _check(tmp_path, sheet, AREA2)
     assert len(problems) == 1
     assert "env APP_TOKEN" in problems[0]
+    root = tmp_path / "repo"  # after the retry the missing hints are filled, not a problem
+    assert dd_sheets.validate(sheet, AREA2, root, set(FILES), require_hints=False) == []
     sheet["dismissed"] = [{"hint": "env APP_TOKEN", "why": "internal"}]
     assert _check(tmp_path, sheet, AREA2) == []
 

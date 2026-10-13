@@ -512,3 +512,105 @@ def test_validate_sheet_shape(tmp_path: Path) -> None:
     entry_a02 = dd_dispatch.plan_sheets(root, workdir, _config())[1]
     write_json(Path(entry_a02["output"]), _sheet())
     assert dd_dispatch._problems(workdir, entry_a02) == ["area 'a01' is not 'a02'"]
+
+
+def _readme_workdir(tmp_path: Path, manifest: dict[str, str] | None) -> tuple[Path, Path]:
+    root = tmp_path / "my-repo"
+    workdir = root / ".document-drift"
+    workdir.mkdir(parents=True)
+    for name, text in (manifest or {}).items():
+        (root / name).write_text(text, encoding="utf-8")
+    write_json(workdir / "inventory.json", {"docs": [], "project_files": sorted(manifest or {})})
+    surface = [
+        {"id": "a01-s01", "kind": "command", "name": "sync", "parent": None,
+         "summary": "pulls the remote state", "default": None, "defined_at": "src/cli.py:4",
+         "user_facing": True, "hidden": False},
+        {"id": "a01-s02", "kind": "flag", "name": "--force", "parent": "sync",
+         "summary": "overwrites local rows", "default": "false",
+         "defined_at": "src/cli.py:7", "user_facing": True, "hidden": False},
+        {"id": "a01-s03", "kind": "flag", "name": "--legacy", "parent": "sync",
+         "summary": "old mode", "default": None, "defined_at": "src/cli.py:9",
+         "user_facing": True, "hidden": True},
+        {"id": "a01-s04", "kind": "env", "name": "APP_TOKEN", "parent": None,
+         "summary": "from the pattern scan", "default": None, "defined_at": "src/cfg.py:2",
+         "user_facing": True, "hidden": False, "filled": True}]
+    behaviours = [{"id": "a01-b01", "statement": "`sync` writes `state.db`",
+                   "evidence": ["src/cli.py:12", "src/db.py:3"]}]
+    second = {"area": "a03", "dismissed": [], "behaviours": [],
+              "surface": [{"id": "a03-s01", "kind": "route", "name": "/items", "parent": "GET",
+                           "summary": "lists items", "default": None,
+                           "defined_at": "web/app.py:5", "user_facing": True,
+                           "hidden": False}]}
+    write_json(workdir / "sheets.json", {
+        "sheets": {"a03": second,
+                   "a01": {"area": "a01", "surface": surface, "behaviours": behaviours,
+                           "dismissed": []}},
+        "unchecked": [{"area": "a02", "why": "invalid after retry"},
+                      {"area": "a04", "why": "over the cap"}],
+        "filled": 1, "hidden_corrected": 0})
+    return root, workdir
+
+
+def test_plan_readme_renders_sheets_and_name(tmp_path: Path) -> None:
+    pyproject = '[project]\nname = "myproject"\ndescription = "Syncs a store."\n'
+    root, workdir = _readme_workdir(tmp_path, {"pyproject.toml": pyproject})
+    config = _config()
+    plan = dd_dispatch.plan_readme(root, workdir, config)
+    assert [(e["id"], e["role"], e["model"]) for e in plan] == [
+        ("r001", "readme", config["models"]["readme"])]
+    assert plan[0]["prompt"].endswith("/prompts/readme-r001.md")
+    assert plan[0]["output"].endswith("/readme/r001.json")
+    assert (workdir / "readme").is_dir()
+    assert read_json(workdir / "plan-readme.json") == plan
+    text = Path(plan[0]["prompt"]).read_text(encoding="utf-8")
+    assert all(line in text for line in MANDATORY)
+    assert "{{" not in text and plan[0]["output"] in text
+    assert "`myproject`" in text and "Syncs a store." in text
+    assert root.resolve().as_posix() in text
+    assert f"At most {config['readme_lines']} lines" in text
+    expected = (
+        "- a01-s01 command `sync`: pulls the remote state; src/cli.py:4\n"
+        "- a01-s02 flag `--force`, parent `sync`: overwrites local rows; default `false`; "
+        "src/cli.py:7\n"
+        "- a01-s04 env `APP_TOKEN`: from the pattern scan; src/cfg.py:2 (filled from the scan)\n"
+        "- a01-b01: `sync` writes `state.db` (src/cli.py:12, src/db.py:3)\n"
+        "- a03-s01 route `/items`, parent `GET`: lists items; web/app.py:5\n")
+    assert expected in text
+    assert "--legacy" not in text and "a01-s03" not in text
+    assert "- a02\n- a04\n" in text
+    # no manifest: the directory's name; a manifest without a description says so
+    root2, workdir2 = _readme_workdir(tmp_path / "two", None)
+    text2 = Path(dd_dispatch.plan_readme(root2, workdir2, config)[0]["prompt"]).read_text(
+        encoding="utf-8")
+    assert "`my-repo`" in text2 and "(the manifest has no description)" in text2
+    root3, workdir3 = _readme_workdir(tmp_path / "three", {"package.json": '{"name": "web"}'})
+    text3 = Path(dd_dispatch.plan_readme(root3, workdir3, config)[0]["prompt"]).read_text(
+        encoding="utf-8")
+    assert "`web`" in text3 and "(the manifest has no description)" in text3
+
+
+def test_validate_readme_shape(tmp_path: Path) -> None:
+    good = {"text": "# x\n\nx does `y`.\n",
+            "claims": [{"start_line": 3, "end_line": 3, "cites": ["a01-b01"]}]}
+    assert dd_dispatch.validate_readme(good) == []
+    assert dd_dispatch.validate_readme([]) == ["output is not a JSON object"]
+    assert any("text" in p for p in dd_dispatch.validate_readme({"claims": []}))
+    assert any("claims is not a list" in p
+               for p in dd_dispatch.validate_readme({"text": "", "claims": {}}))
+    bad = {"text": "# x\n", "claims": [{"start_line": "3", "end_line": 3, "cites": "a01"},
+                                       "claim"]}
+    problems = dd_dispatch.validate_readme(bad)
+    assert any("claims[0]: start_line" in p for p in problems)
+    assert any("claims[0]: cites" in p for p in problems)
+    assert any("claims[1] is not a JSON object" in p for p in problems)
+    # _problems routes the role and has no id key to compare
+    workdir = tmp_path / "work"
+    (workdir / "readme").mkdir(parents=True)
+    out = workdir / "readme" / "r001.json"
+    entry: dd_dispatch.PlanEntry = {"id": "r001", "role": "readme", "model": "opus",
+                                    "prompt": "p", "output": out.as_posix()}
+    assert dd_dispatch._problems(workdir, entry) == [f"{out.as_posix()} is missing"]
+    write_json(out, good)
+    assert dd_dispatch.check_outputs(workdir, [entry], "readme") == (["r001"], [])
+    write_json(out, bad)
+    assert dd_dispatch.check_outputs(workdir, [entry], "readme")[0] == []
