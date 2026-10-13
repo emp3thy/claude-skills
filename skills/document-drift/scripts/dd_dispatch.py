@@ -39,7 +39,7 @@ EDIT_TYPES = {"review": ("correct", "remove", "anchor"), "gap": ("add",)}
 QUESTION_KINDS = {"guarantee-mismatch": "code", "unsure": "question"}
 REFUSAL_KINDS = ("not-user-facing", "already-documented", "target-refused")
 VERDICTS = ("accept", "reject", "unsure")
-ROLE_DIRS = {"review": "review", "gap": "gaps", "verify": "verdicts"}
+ROLE_DIRS = {"review": "review", "gap": "gaps", "verify": "verdicts", "sheet": "sheets"}
 
 _PLACEHOLDER = re.compile(r"\{\{([A-Za-z_]+)\}\}")
 _TICKS = re.compile(r"`+")
@@ -194,7 +194,7 @@ def _edit_value(edit: Mapping[str, Any], lines: list[str] | None) -> str:
 # ---------------------------------------------------------------- plans
 
 def _entry(workdir: Path, eid: str, role: str, model: str) -> PlanEntry:
-    prefix = {"review": "review", "gap": "gap", "verify": "verify"}[role]
+    prefix = {"review": "review", "gap": "gap", "verify": "verify", "sheet": "sheet"}[role]
     return {"id": eid, "role": role,
             "prompt": (workdir / "prompts" / f"{prefix}-{eid}.md").absolute().as_posix(),
             "output": (workdir / ROLE_DIRS[role] / f"{eid}.json").absolute().as_posix(),
@@ -239,8 +239,8 @@ def plan_docs(root: Path, workdir: Path, config: Mapping[str, Any]) -> list[Plan
     changes = _require(workdir, "changes.json", "dd_changes")
     inventory = _require(workdir, "inventory.json", "dd_inventory")
     in_scope = "\n".join(f"- {d}" for d in sorted(inventory.get("docs", []))) or "(none)"
-    for name in ROLE_DIRS.values():
-        (workdir / name).mkdir(parents=True, exist_ok=True)
+    for role in ("review", "gap", "verify"):
+        (workdir / ROLE_DIRS[role]).mkdir(parents=True, exist_ok=True)
     models = config["models"]
     repo = root.resolve().as_posix()
     plan: list[PlanEntry] = [_review_entry(root, workdir, config, unit, changes)
@@ -255,6 +255,45 @@ def plan_docs(root: Path, workdir: Path, config: Mapping[str, Any]) -> list[Plan
         plan.append(entry)
     write_json(workdir / "plan-docs.json", plan)
     return plan
+
+
+def _sheet_files(area: Mapping[str, Any]) -> str:
+    return "\n".join(f"- {f['path']} ({f['lines']} lines)" for f in area["files"])
+
+
+def _sheet_hints(area: Mapping[str, Any]) -> str:
+    lines = []
+    for hint in area["hints"]:
+        parent = f" (parent {hint['parent']})" if hint.get("parent") else ""
+        hidden = " hidden" if hint.get("hidden") else ""
+        lines.append(f"- {hint['kind']} {hint['name']}{parent} "
+                     f"{hint['file']}:{hint['line']}{hidden}")
+    return "\n".join(lines) or "(none)"
+
+
+def plan_sheets(root: Path, workdir: Path, config: Mapping[str, Any]) -> list[PlanEntry]:
+    """Append one sheet entry per area of ``areas.json`` to ``plan-docs.json``, within
+    ``caps.sheet_agents``; the smallest areas past the cap are recorded in ``areas.json`` as
+    ``unplanned``. Returns the sheet entries; prompts are ``prompts/sheet-aNN.md``."""
+    areas = _require(workdir, "areas.json", "dd_areas")
+    (workdir / ROLE_DIRS["sheet"]).mkdir(parents=True, exist_ok=True)
+    cap = int(config["caps"]["sheet_agents"])
+    ordered = sorted(areas["areas"], key=lambda a: (-int(a["lines"]), str(a["id"])))
+    kept, dropped = ordered[:cap], ordered[cap:]
+    repo = root.resolve().as_posix()
+    entries: list[PlanEntry] = []
+    for area in sorted(kept, key=lambda a: str(a["id"])):
+        entry = _entry(workdir, str(area["id"]), "sheet", str(config["models"]["sheet"]))
+        _write_prompt(entry, render("sheet", {
+            "repo": repo, "area": entry["id"], "files": _sheet_files(area),
+            "hints": _sheet_hints(area), "output": entry["output"]}))
+        entries.append(entry)
+    areas["unplanned"] = sorted(str(a["id"]) for a in dropped)
+    write_json(workdir / "areas.json", areas)
+    path = workdir / "plan-docs.json"
+    existing = read_json(path) if path.is_file() else []
+    write_json(path, [*existing, *entries])
+    return entries
 
 
 def plan_retry(root: Path, workdir: Path, config: Mapping[str, Any],
@@ -318,7 +357,8 @@ def _is_int(value: Any) -> TypeGuard[int]:
 
 def _fields(obj: Any, where: str, spec: Mapping[str, str]) -> list[str]:
     """Check ``obj`` is an object holding each key of ``spec`` with its kind: ``str``,
-    ``int`` (>= 0), ``line`` (>= 1), ``list``, ``strs`` (list of str), ``str?`` (str or null)."""
+    ``int`` (>= 0), ``line`` (>= 1), ``bool``, ``list``, ``strs`` (list of str), ``str?`` (str
+    or null)."""
     if not isinstance(obj, dict):
         return [f"{where} is not a JSON object"]
     problems = []
@@ -333,6 +373,7 @@ def _fields(obj: Any, where: str, spec: Mapping[str, str]) -> list[str]:
               "line": _is_int(value) and value >= 1,
               "list": isinstance(value, list),
               "dict": isinstance(value, dict),
+              "bool": isinstance(value, bool),
               "strs": isinstance(value, list) and all(isinstance(v, str) for v in value),
               }[kind]
         if not ok:
@@ -342,6 +383,7 @@ def _fields(obj: Any, where: str, spec: Mapping[str, str]) -> list[str]:
 
 _KIND_NAMES = {"str": "a string", "str?": "a string or null", "int": "an integer >= 0",
                "line": "a line number >= 1", "list": "a list", "dict": "an object",
+               "bool": "a boolean",
                "strs": "a list of strings"}
 _EDIT = {"id": "str", "doc": "str", "start_line": "line", "end_line": "line", "old": "str",
          "new": "str", "type": "str", "claim": "str", "evidence": "strs", "subject": "str?"}
@@ -439,6 +481,26 @@ def validate_gap(obj: Any, target: str | None = None) -> list[str]:
     return problems
 
 
+_SURFACE = {"kind": "str", "name": "str", "summary": "str", "defined_at": "str",
+            "user_facing": "bool", "hidden": "bool", "parent": "str?", "default": "str?"}
+
+
+def validate_sheet(obj: Any) -> list[str]:
+    """Shape problems with a sheet output (spec 5.2); empty when well-formed. Content checks
+    (places, hints, duplicates) belong to ``dd_sheets.validate``."""
+    problems = _fields(obj, "output", {"area": "str", "surface": "list", "behaviours": "list",
+                                       "dismissed": "list"})
+    if not isinstance(obj, dict):
+        return problems
+    for key, spec in (("surface", _SURFACE),
+                      ("behaviours", {"statement": "str", "evidence": "list"}),
+                      ("dismissed", {"hint": "str", "why": "str"})):
+        items = obj.get(key)
+        for n, item in enumerate(items if isinstance(items, list) else []):
+            problems += _fields(item, f"{key}[{n}]", spec)
+    return problems
+
+
 def validate_verdicts(obj: Any, expected_ids: Iterable[str]) -> list[str]:
     """Problems with a verifier output (spec 9.2): every expected edit id exactly once, no
     other id; empty when valid."""
@@ -482,6 +544,8 @@ def _problems(workdir: Path, entry: PlanEntry) -> list[str]:
         problems, key = validate_review(obj), "unit"
     elif role == "gap":
         problems, key = validate_gap(obj, entry.get("doc")), "doc"
+    elif role == "sheet":
+        problems, key = validate_sheet(obj), "area"
     else:
         problems, key = validate_verdicts(obj, entry.get("edits", [])), "batch"
     if isinstance(obj, dict) and isinstance(obj.get(key), str) and obj[key] != entry["id"]:
