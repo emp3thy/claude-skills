@@ -161,10 +161,12 @@ def test_retry_units_clip_to_the_unit_pack_and_continue_numbering(tmp_path: Path
     (root / "a.md").write_text("".join(f"a{n}\n" for n in range(1, 21)), encoding="utf-8")
     kept = anchor("a.md", 3, start=5)
     gone = anchor("a.md", 2, file="src/b.py", start=1)
+    other = anchor("b.md", 4, start=5)  # on a doc the retry does not cover
     write_json(workdir / "units.json", {
         "units": [{"id": "u001", "docs": [{"doc": "a.md", "ranges": [[1, 20]]},
                                           {"doc": "b.md", "ranges": [[1, 20]]}],
-                   "anchors": [kept, gone], "hunks": [], "size": 60, "affected_anchors": 0}],
+                   "anchors": [kept, gone, other], "hunks": [], "size": 60,
+                   "affected_anchors": 0}],
         "unchecked": ["u002"]})
     write_json(workdir / "changes.json", {"mode": "first", "hunks": {}, "affected": {}})
     pending = {"u001": [{"doc": "a.md", "start_line": 3, "end_line": 30, "why": "w"},

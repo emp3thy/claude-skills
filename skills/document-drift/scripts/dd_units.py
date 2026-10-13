@@ -240,7 +240,8 @@ def retry_units(root: Path, workdir: Path, pending: Mapping[str, Sequence[Mappin
         review = {d: _merged(rs) for d, rs in review.items() if rs}
         if not review:
             continue
-        anchors = [a for a in unit["anchors"] if _in_ranges(int(a["line"]), review[a["doc"]])]
+        anchors = [a for a in unit["anchors"]
+                   if _in_ranges(int(a["line"]), review.get(str(a["doc"]), []))]
         texts: dict[str, str] = {}
         for doc in review:
             try:

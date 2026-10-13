@@ -5,6 +5,7 @@ dispatch an agent under pytest.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -171,7 +172,7 @@ def test_crash_still_records_calls_and_logs_a_row(
     log = tmp_path / "log.md"
     log.write_bytes(_log_text("").encode())
 
-    def crash(run: Any, check: bool) -> None:
+    def crash(run: Any, check: bool, resume: str | None = None) -> None:
         run.workdir.mkdir(parents=True)
         run.calls.append(Call("review", "u001", "sonnet", 3.0, 10, 0.25, "ok"))
         raise RuntimeError("boom")
@@ -185,6 +186,35 @@ def test_crash_still_records_calls_and_logs_a_row(
     assert len(rows) == 1
     cells = _cells(rows[0] + "\n")
     assert cells["cost usd"] == "0.25" and "crashed: RuntimeError: boom" in cells["notes"]
+
+
+def test_resume_reuses_the_recorded_calls(monkeypatch: pytest.MonkeyPatch,
+                                          tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    workdir = repo / ".document-drift"
+    workdir.mkdir(parents=True)
+    log = tmp_path / "log.md"
+    log.write_bytes(_log_text("").encode())
+    earlier = Call("review", "u001", "sonnet", 3.0, 10, 0.25, "ok")
+    workdir.joinpath("live-run.json").write_text(json.dumps(
+        {"repo": str(repo), "calls": [asdict(earlier)], "row": ""}), encoding="utf-8")
+    seen: list[tuple[Any, ...]] = []
+
+    def resumed(run: Any, check: bool, resume: str | None = None) -> None:
+        seen.append((resume, [c.id for c in run.calls]))
+        run.calls.append(Call("verify", "v01", "opus", 2.0, 5, 0.5, "ok"))
+
+    monkeypatch.setattr(dd_live_run, "drive", resumed)
+    assert live_run(parse_args([str(repo), "--resume", "verify"]), "claude", None, repo,
+                    log) == 0
+    assert seen == [("verify", ["u001"])]
+    rows = [ln for ln in log.read_text("utf-8").splitlines() if ln.startswith("| 20")]
+    cells = _cells(rows[0] + "\n")
+    assert cells["cost usd"] == "0.75"
+    assert "resumed at verify with 1 earlier calls" in cells["notes"]
+    # nothing to resume
+    assert live_run(parse_args([str(tmp_path / "other"), "--resume", "finish"]), "claude",
+                    None, tmp_path / "other", log) == 2
 
 
 def test_fixture_name_or_path(tmp_path: Path) -> None:
