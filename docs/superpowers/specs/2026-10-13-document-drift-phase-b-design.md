@@ -36,7 +36,7 @@ Order of a full run: `start`, wave (review, gap, sheet), `compose`, wave (writer
 1. Every top-level source directory is an area. The project files (the manifests and build files of A §8.1: `pyproject.toml`, `setup.cfg`, `package.json`, `Makefile`, `justfile`, `Taskfile.yml`, Dockerfiles, `.env.example`, and the root's loose source files) form one area, `a01`.
 2. An area over budget is replaced by its subdirectories, each an area, plus one area for its loose files; the rule applies again to any of those over budget.
 3. Loose files over budget are cut into consecutive groups of whole files in path order, each within budget; a single file over budget is an area on its own.
-4. Sibling areas (same parent directory) are merged in path order while the merged size stays within budget.
+4. Sibling areas (same parent directory, the root included, so small top-level directories merge too) are merged in path order while the merged size stays within budget; `a01` takes part like any area.
 
 `areas.json` is `{"area_lines", "areas": [{"id", "files": [{"path", "lines"}], "lines", "hints": [...]}]}` with ids `a01`, `a02`, ... in path order and, per area, the pattern-scan hints whose `path` is in the area: `{"kind", "name", "parent", "path", "line", "hidden"}`. A hint whose file is in no area (a project file the scan read but the inventory did not index) goes to `a01`.
 
@@ -76,9 +76,9 @@ Order of a full run: `start`, wave (review, gap, sheet), `compose`, wave (writer
 `dd_sheets.validate(sheet, area, ctx)` returns the problems of one output; any problem makes it invalid and it goes through the exit-3 retry of A §7.4:
 
 - shape: the three lists present, every key present with the right type;
-- each surface entry: `kind` in the list above; `name` not empty; `defined_at` a `path:line` whose file is in the area and tracked at HEAD, whose line is within the file, and with the name's first token (A §5.3's `first_token`) within 3 lines of it; `summary` one line;
+- each surface entry: `kind` in the list above; `name` not empty; `defined_at` a `path:line` whose file is in the area and tracked at HEAD, whose line is within the file, and whose name is **at** that place: some token of the name of three or more characters, other than an interpreter or package-manager word (`python`, `node`, `npm`, `npx`, `uv`, `pip`) or a leading directory, appears within 3 lines of it, or the name, with a leading `python -m ` dropped and dots read as slashes, is the file's own path without its extension (a script or module names its file, and its line 1 is a valid place); `summary` one line;
 - each behaviour: a one-line `statement` with at least one inline-code span and no guarantee word (A §7.2's list); `evidence` not empty, each entry resolving as `defined_at` does;
-- no two surface entries with the same `(kind, norm(name), parent)`;
+- no two surface entries with the same `(kind, norm(name), parent)`, where a route's parent is its HTTP method (so `GET` and `POST` of one path are two entries);
 - every hint of the area is a surface entry (matched by `(kind, norm(name), parent)`, flags keeping their dashes) or a `dismissed` entry naming it.
 
 ### 5.4 Retry, fill and caps
@@ -95,7 +95,7 @@ A sheet still invalid after the retry makes its area **unchecked**: its names re
 
 ### 6.2 README rules
 
-Sections in this order, each omitted when no entry supports it: what the project is; install; run; commands and flags; configuration and environment variables; interfaces (routes, MCP tools, public API); files read and written. Surface entries go in lists or tables, one row per entry, with the summary and the default; behaviours become sentences in the section they belong to. Every statement about the code names its definition in an inline-code span, as the sheet wrote it. Hidden entries, dismissed hints and unchecked areas never appear. No statement about intent, roadmap, quality or comparisons, no guarantee word, no fact a sheet does not carry, no badge, no licence paragraph unless a project file names the licence. At most `readme_lines` lines (default 300): a large project gets the tables and one sentence per behaviour.
+Sections in this order, each omitted when no entry supports it: what the project is; install; run; commands and flags; configuration and environment variables; interfaces (routes, MCP tools, public API); files read and written. Surface entries go in lists or tables, one row per entry, with the summary and the default; behaviours become list items or one-sentence paragraphs in the section they belong to (a paragraph is one sentence, so a rejected statement costs one sentence, section 8). Every list item, table row and paragraph names the definition it rests on in an inline-code span once, as the sheet wrote it, preferring a public name (a command, a tool, an exported function) and naming a private helper only when no public name is what the statement describes; a run of statements about one definition names it in the first and says "it" after. Hidden entries, dismissed hints and unchecked areas never appear. No statement about intent, roadmap, quality or comparisons, no guarantee word, no fact a sheet does not carry, no badge, no licence paragraph unless a project file names the licence. At most `readme_lines` lines (default 300): a large project gets the tables and one sentence per behaviour.
 
 ### 6.3 Output
 
@@ -113,20 +113,21 @@ A claim covers whole lines of `text` (1-based) and cites the entries those lines
 
 ### 6.4 Citation check
 
-`dd_readme.check(output, sheets, config)` runs in `verify`; any problem makes the output invalid, with the exit-3 retry, and an output still invalid after the retry means no README (summary: `readme: not written (<problem>)`):
+`dd_readme.check(output, sheets, config)` runs in `verify`. A writer call costs minutes and dollars (section 16), so the check repairs what a script can repair and rejects statements rather than the whole output where it can; only a structural problem makes the output invalid, with the exit-3 retry, and an output still invalid after the retry means no README (summary: `readme: not written (<problem>)`):
 
-- the first line is a level-one heading; `text` has at most `readme_lines` lines;
-- every line outside headings, blank lines and fence markers is inside exactly one claim; claims do not overlap; every claim cites at least one id and every id exists in `sheets.json`;
-- a claim citing a surface entry names that entry in its lines (A §8.2's normalisation); a claim's lines name no surface entry of the sheets that the claim does not cite (the writer must cite what it names) and no hidden entry;
-- no guarantee word; no line over 160 characters outside fences.
+- invalid: the first line is not a level-one heading; `text` has more than `readme_lines` lines; a line outside headings, blank lines and fence markers is in no claim or in two; a claim cites nothing or cites an id not in `sheets.json`;
+- repaired and counted: a claim's lines name (in an inline-code span, by A §8.2's normalisation) a surface entry the claim does not cite: the id is added to the claim (`cites added`);
+- rejected before verification, as a Human-decision item `readme-rejected` with the check's reason: a statement naming a hidden entry; a statement with a guarantee word; a claim citing a surface entry its lines do not name (the writer paraphrased what it should have named).
+
+No line-length rule: the README is read rendered, and the commit grammar's 160-character cut applies to commit lines only.
 
 ### 6.5 Statements
 
-The check then splits the README into **statements**, the units the verifier judges and `finish` can remove: each list item (with its nested lines), each table row, each sentence of a paragraph (split on `. ` outside spans and fences), each fence as one statement, with its lines and the ids of the claim it lies in. `readme.json` is `{"text", "claims", "statements": [{"id": "r-s01", "start_line", "end_line", "section", "cites"}]}`. A heading is not a statement.
+The check then splits the README into **statements**, the units the verifier judges and `finish` can remove: each list item (with its nested lines), each table row, each paragraph, and each fence, as one statement each, with its lines and the ids of the claims it lies in. `readme.json` is `{"text", "claims", "statements": [{"id": "r-s01", "start_line", "end_line", "section", "kind", "cites"}]}`. A heading, a table's header and separator rows, and a blank line are not statements. Sentences are not split: the spike showed that cutting one sentence out of a paragraph leaves prose that no longer reads ("It is built with hatchling" after its subject went), and that a splitter trips on version numbers; the writer's one-sentence paragraphs keep the unit small instead.
 
 ## 7. Verification
 
-Statements are grouped by section into batches of at most 10 and appended to `plan-verify.json` with role `verify` and the prompt `prompts/verify-readme.md`: for each statement its text, its lines with 10 lines of context, the cited entries (kind, name, summary, `defined_at` or evidence), and read access to the repository. The verifier accepts a statement only when it is true of this repository's code, supported by the code at the cited places (not merely by the sheet), and not about intent, other software or history. It writes the batch's verdicts as in A §9.2 (`{"statement": id, "verdict": "accept" | "reject" | "unsure", "reason"}`); the verdicts land in `verdicts.json` under `readme`.
+Statements are grouped by section into batches of at most `caps.readme_batch` (default 15: a table row is a short judgement, and the spike's batches of 10 ran under 30 seconds) and appended to `plan-verify.json` with role `verify` and the prompt `prompts/verify-readme.md`: for each statement its text, its lines with 10 lines of context, the cited entries (kind, name, summary, `defined_at` or evidence), and read access to the repository. The verifier accepts a statement only when it is true of this repository's code, supported by the code at the cited places (not merely by the sheet), and not about intent, other software or history. It writes the batch's verdicts as in A §9.2 (`{"statement": id, "verdict": "accept" | "reject" | "unsure", "reason"}`); the verdicts land in `verdicts.json` under `readme`.
 
 A rejected or unsure statement is a Human-decision item of kind `readme-rejected` (`- README.md:<line> readme-rejected: <statement> (<reason>)`). A batch whose output is invalid after the retry leaves its statements **unverified**: they are removed as rejected ones are, and counted.
 
@@ -134,7 +135,7 @@ The README is one proposed edit in `edits.json`: `{"id": "r001", "doc": "README.
 
 ## 8. Finish: apply and commit
 
-`dd_readme.apply` builds the final text from `readme.json` and the verdicts: an accepted statement stays; a rejected, unsure or unverified one goes (a list item or table row is deleted; a sentence is deleted from its paragraph; a fence is deleted; a table left without rows, a section left with only its heading, and a blank-line run longer than one, are collapsed). No accepted statement at all means no README (summary: `readme: not written (no accepted statement)`). Otherwise `README.md` is written to the working tree with a trailing newline, recorded in `applied.json` as `{"applied": ["r001"], "readme": {"lines", "statements", "removed"}}`, and staged in the additions commit (A §9.4) with the bullet
+`dd_readme.apply` builds the final text from `readme.json` and the verdicts: an accepted statement stays; a rejected, unsure or unverified one goes whole (a list item with its nested lines, a table row, a paragraph, a fence; a table left without rows, a section left with only its heading, and a blank-line run longer than one, are collapsed). No accepted statement at all means no README (summary: `readme: not written (no accepted statement)`). Otherwise `README.md` is written to the working tree with a trailing newline, recorded in `applied.json` as `{"applied": ["r001"], "readme": {"lines", "statements", "removed"}}`, and staged in the additions commit (A §9.4) with the bullet
 
 ```
 - README.md:1 create readme (<n> statements from <n> sheets, <n> removed)
@@ -172,6 +173,7 @@ New keys of `.document-drift.yaml` (A §10), with defaults:
 | `area_lines` | `5000` | the area budget of section 4 |
 | `readme_lines` | `300` | the longest README the writer may produce |
 | `caps.sheet_agents` | `12` | areas given a sheet agent per run |
+| `caps.readme_batch` | `15` | README statements per verifier batch |
 | `models.sheet` | `sonnet` | the sheet agents |
 | `models.readme` | `opus` | the writer: one call, and composition is where quality shows |
 
@@ -203,14 +205,32 @@ The verifier model stays `models.verify`.
 | Fixture | a new no-docs fixture plus one live run judged by the owner (section 13) | a derived fixture; fixture only |
 | Writer's wave | a new `compose` stage between `start` and `verify` (section 3) | reusing the exit-3 retry round; a separate command |
 
-## 15. Assumptions
+## 15. Validation spike (2026-10-13)
+
+Run on `better-memory` at `9d5be26` (22,615 indexed lines, 113 files), ignoring its README, with throwaway scripts and draft prompts (`sheet.md`, `readme.md`, `verify-readme.md`) that the implementation plan turns into the real ones. The spike's workdir is `.document-drift-b/` in that repository (excluded from git), with the README at `README-spike.md`.
+
+| Step | Agents | Tokens | Time | Cost | Result |
+|---|---|---:|---:|---:|---|
+| Areas (section 4 as first written) | script | | | | 10 areas: 249, 4,236, 2,790, 4,879, 2,463, 4,440, 2,408, 28, 1,088, 34 lines; three tiny ones because rule 4 did not merge at the root (amended) |
+| Sheets | 10 Sonnet | 2,298,000 | 15 to 202 s each, 4 in parallel | $3.80 | 400 surface entries (99 functions, 95 params, 37 classes, 33 routes, 30 env, 28 config, 26 flags, 22 tools, 15 scripts, 8 commands), 323 behaviours, 4 hidden; all 10 parsed |
+| Validator (section 5.3 as first written) | script | | | | 4 sheets valid; 21 name-rule failures, 18 of them `python -m pkg.module` and `scripts/x.sh` names (rule amended, then 3 remain); 7 hints missed in 2 areas; 1 guarantee word; 1 duplicate route pair (`GET`/`POST`); 1 behaviour without a span. With the amended rule, strict-plus-retry retries 3 of 10 sheets |
+| Writer | 1 Opus | 517,703 | 750 s | $3.47 | 293 lines (cap 300), 100 claims, 225 statements (132 table rows, 83 list items, 10 paragraphs); 777-line prompt |
+| Citation check (section 6.4 as first written) | script | | | | 6 problems: a hidden flag named twice, one entry named without a cite, one 160-character line; under the first rules the whole output would have been retried (amended to repair and reject per statement) |
+| Verifiers | 3 Opus, 10 statements each | 403,944 | 23 to 29 s | $0.88 | 22 accept, 2 reject, 0 unsure; both rejections right (a version floor called a "default"; a boto3 error that fires only on the agentcore path) |
+| Removal | script | | | | list items and rows removed cleanly; a sentence cut from a paragraph left broken prose, and the splitter broke on `3.12` (amended: paragraphs are the unit, one sentence each) |
+
+A full run on this repository is about 10 sheet agents, 1 writer and 15 verifier batches of 15: about $15 and 20 minutes of agent time, the writer alone taking 12 of them.
+
+First read of the README (B2, by the spike's author; the owner judges the live run of section 13): accurate and complete as a reference (every command, flag, variable, tool and route, with defaults), and a maintainer would keep the tables; the prose carries the span rule's cost ("It (`_handle_init`) creates the episodic memory", private helpers as anchors), amended in section 6.2 to name once per statement and prefer public names.
+
+## 16. Assumptions
 
 | # | Assumption | Status | Cost if wrong |
 |---|---|---|---|
-| B1 | A Sonnet agent can write a sheet for a 5,000-line area that passes the validator, and account for every hint, within one call | Measured once (A §14.2: 3,411 lines, 148 entries, 129 behaviours, 203 s) before the validator existed; not yet measured against it | More retries and unchecked areas; `area_lines` comes down |
-| B2 | Sheets carry enough to write a README a maintainer keeps: the sheet's summaries and behaviours, not the code, are what the writer composes from | Unverified; the live run of section 13 measures it | The writer reads the code for facts after all, and the citation check cannot gate what it adds |
-| B3 | An Opus writer keeps to the sheets and cites what it names, so the citation check rejects few outputs | Unverified | A second writer call per run, and a README not written when both fail |
-| B4 | Splitting a README into statements by list item, table row and sentence gives units a verifier can judge and `finish` can remove without leaving broken prose | Unverified; the fixture tests the removal rules, the live run the prose | Rejected statements leave gaps a reader notices; the owner edits the README by hand once |
-| B5 | A verifier can judge a README statement from the cited places and the code without the sheet's reasoning | Unverified; A §9.2's verifier was validated on edits with old text (A §14.2), not on new text | Verdicts drift towards `unsure`, and the README loses true statements to the owner's list |
-| B6 | `readme_lines` of 300 fits the surface of a 25,000-line project as tables and one sentence per behaviour | Unverified; better-memory has 98 user-facing names and 20 MCP tools | A truncated README, or the writer drops behaviours to fit; the default moves |
+| B1 | A Sonnet agent can write a sheet for a 5,000-line area that passes the validator, and account for every hint, within one call | Measured (section 15): 10 of 10 sheets parsed, 7 of 10 pass the amended validator, the rest for 7 missed hints, 1 guarantee word, 1 duplicate; 202 s and $0.96 for the largest area | More retries and unchecked areas; `area_lines` comes down |
+| B2 | Sheets carry enough to write a README a maintainer keeps: the sheet's summaries and behaviours, not the code, are what the writer composes from | Measured once (section 15): a complete, accurate reference; prose quality rests on the amended span rule, which the live run of section 13 judges | The writer reads the code for facts after all, and the citation check cannot gate what it adds |
+| B3 | An Opus writer keeps to the sheets and cites what it names, so the citation check rejects few outputs | Measured once: 100 claims, 3 citation faults, 0 invented facts found by the verifiers in 24 statements; 750 s and $3.47 for the call, so the check now repairs and rejects per statement instead of retrying the output | A second writer call per run, and a README not written when both fail |
+| B4 | Statements by list item, table row, paragraph and fence are units a verifier can judge and `finish` can remove without leaving broken prose | Half measured: rows and items removed cleanly; sentence removal failed and was dropped in favour of one-sentence paragraphs, which the fixture and the live run test | Rejected statements leave gaps a reader notices; the owner edits the README by hand once |
+| B5 | A verifier can judge a README statement from the cited places and the code without the sheet's reasoning | Measured on 24 statements: 22 accept, 2 right rejections, 0 unsure, under 30 s a batch | Verdicts drift towards `unsure`, and the README loses true statements to the owner's list |
+| B6 | `readme_lines` of 300 fits the surface of a 25,000-line project as tables and one sentence per behaviour | Measured once: 293 lines for 22,615 lines of code with 389 user-facing entries, so the default holds with no room; a larger project needs the cap raised or the writer told to drop behaviours first | A truncated README, or the writer drops behaviours to fit; the default moves |
 | B7 | Later runs treat the written README as any doc without a special case | Follows from A §5 and §7 by construction | A README that drifts unseen, the thing phase A exists to prevent |
