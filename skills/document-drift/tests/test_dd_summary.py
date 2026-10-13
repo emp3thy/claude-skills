@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from dd_common import EXIT_MISSING, StepError, write_json
+from dd_common import EXIT_MISSING, StepError, read_json, write_json
 from dd_summary import render
 from dd_summary import run as run_a
 
@@ -307,3 +307,20 @@ def test_summary_without_preflight_is_exit_5(tmp_path: Path) -> None:
     with pytest.raises(StepError) as exc:
         run_a(workdir)
     assert exc.value.code == EXIT_MISSING
+
+
+def test_review_units_lists_retry_units_and_not_reviewed_ranges(tmp_path: Path) -> None:
+    body = _section(render(_wd(tmp_path)), "Review units")
+    assert body == ["checked 2, unchecked by cap 1, unchecked after retry 1, retry units 0, "
+                    "not reviewed 0 ranges"]
+    wd = _wd(tmp_path / "r", **{
+        "units.json": {"units": [{"id": "u001"}, {"id": "u002", "retry_of": "u001"}],
+                       "unchecked": []}})
+    edits = read_json(wd / "edits.json")
+    edits["unchecked_units"] = []
+    edits["not_reviewed"] = [{"unit": "u002", "doc": "docs/a.md", "start_line": 4,
+                              "end_line": 9, "why": "too long"}]
+    write_json(wd / "edits.json", edits)
+    assert _section(render(wd), "Review units") == [
+        "checked 2, unchecked by cap 0, unchecked after retry 0, retry units 1, "
+        "not reviewed 1 ranges", "- docs/a.md:4-9 (too long)"]

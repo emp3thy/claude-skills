@@ -283,13 +283,20 @@ def _stage_with_retry(run: Run, stage: str, ok: tuple[int, ...]) -> tuple[int, s
     return _stage(run, ["--stage", stage, "--retried"], ok)
 
 
-def drive(run: Run, check: bool) -> None:
-    """start, the review and gap wave, verify, the verifier wave, finish."""
-    print(f"start: {run.repo}", flush=True)
-    _, out = _stage(run, ["--stage", "start", *run.flags], (0,))
-    docs_plan = _plan(out, run.workdir, "plan-docs")
-    if docs_plan:
-        _wave(run, docs_plan)
+def drive(run: Run, check: bool, resume: str | None = None) -> None:
+    """start, the review and gap wave, verify, the verifier wave, finish; with ``resume``
+    (``verify`` or ``finish``) the stages before it are skipped and their waves' outputs,
+    already in the workdir, are reused."""
+    if resume is None:
+        print(f"start: {run.repo}", flush=True)
+        _, out = _stage(run, ["--stage", "start", *run.flags], (0,))
+        docs_plan = _plan(out, run.workdir, "plan-docs")
+        if not docs_plan:
+            resume = "finish"
+        else:
+            _wave(run, docs_plan)
+    if resume != "finish":
+        print(f"verify: {run.repo}", flush=True)
         _, out = _stage_with_retry(run, "verify", (0,))
         _wave(run, _plan(out, run.workdir, "plan-verify"))
     _stage_with_retry(run, "finish", (0, 1) if check else (0,))
@@ -490,6 +497,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--full", action="store_true", help="passed to start")
     parser.add_argument("--check", action="store_true", help="passed to start")
     parser.add_argument("--keep", default=None, help="copy the workdir to this directory")
+    parser.add_argument("--resume", choices=("verify", "finish"), default=None,
+                        help="continue the run in the workdir from this stage, reusing the "
+                             "agent outputs already there; its live-run.json's calls count")
     parser.add_argument("--budget", type=float, default=2.0, help="dollars per agent call")
     parser.add_argument("--model-override", default=None,
                         help="run every agent on this model instead of the plan's")
@@ -561,6 +571,14 @@ def live_run(args: argparse.Namespace, claude: str, fixture: str | None,
         "add_dir": None if inside else workdir, "model_override": args.model_override,
         "timeout": args.timeout})
     notes: list[str] = []
+    if args.resume:
+        record = workdir / "live-run.json"
+        if not record.is_file():
+            print(f"error: nothing to resume: {record} is missing", file=sys.stderr)
+            return EXIT_REFUSED
+        run.calls.extend(Call(**c) for c in json.loads(record.read_text("utf-8"))["calls"])
+        notes.append(f"resumed at {args.resume} with {len(run.calls)} earlier calls; "
+                     "wall time from the resume")
     if args.from_sha:
         notes.append(f"from {args.from_sha[:7]} (as --base)")
     if args.check:
@@ -573,7 +591,7 @@ def live_run(args: argparse.Namespace, claude: str, fixture: str | None,
     began = time.monotonic()
     try:
         with _maybe_pinned(date):
-            drive(run, args.check)
+            drive(run, args.check, args.resume)
     except StageFailed as exc:
         print(f"error: {exc}", file=sys.stderr)
         notes.append(f"stopped: {exc}")
@@ -620,6 +638,10 @@ def live_run(args: argparse.Namespace, claude: str, fixture: str | None,
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # The stage summaries may hold characters the console code page cannot encode.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     args = parse_args(argv)
     claude = args.claude or shutil.which("claude") or ""
     if resolve_claude(claude) is None:

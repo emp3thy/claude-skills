@@ -11,6 +11,9 @@ and ``output`` are absolute POSIX-style paths inside the workdir. Gap entries al
   ``gaps/gNNN.json``). Both inputs are already within their caps.
 - ``plan_verify`` writes ``plan-verify.json``: one entry per batch within ``caps.verify``
   (ids ``v01``..., prompt ``prompts/verify-vNN.md``, output ``verdicts/vNN.json``).
+- ``plan_retry`` appends review entries for the retry units of ``dd_units.retry_units`` to
+  ``plan-docs.json`` and writes their prompts; ``not_reviewed`` collects, per valid review
+  output, the ranges its agent reported as ``not_reviewed`` (an optional key).
 - ``check_outputs`` validates a wave's outputs; ``write_retry`` writes ``retry.json``;
   ``collect_verdicts`` writes ``verdicts.json``.
 
@@ -202,6 +205,23 @@ def _require(workdir: Path, name: str, step: str) -> Any:
     return read_json(path)
 
 
+def _review_entry(root: Path, workdir: Path, config: Mapping[str, Any],
+                  unit: Mapping[str, Any], changes: Mapping[str, Any]) -> PlanEntry:
+    """The plan entry of one review unit, its prompt written."""
+    repo = root.resolve().as_posix()
+    later = changes.get("mode") != "first"
+    last_run = str(changes.get("last_run") or "")[:9]
+    affected = changes.get("affected", {}) if later else {}
+    entry = _entry(workdir, str(unit["id"]), "review", str(config["models"]["review"]))
+    values = {"repo": repo, "unit": str(unit["id"]), "output": entry["output"],
+              "docs": _docs_value(root, unit, affected, later),
+              "anchors": _anchors_value(unit, affected, later, last_run)}
+    if later:
+        values.update(diff=_diff_value(unit["hunks"]), last_run=last_run)
+    _write_prompt(entry, render("review-later" if later else "review-first", values))
+    return entry
+
+
 def plan_docs(root: Path, workdir: Path, config: Mapping[str, Any]) -> list[PlanEntry]:
     """Write the review and gap prompts and ``plan-docs.json``; create the output dirs. The gap
     prompts list ``inventory.json``'s docs as the only docs that count as documentation."""
@@ -214,19 +234,8 @@ def plan_docs(root: Path, workdir: Path, config: Mapping[str, Any]) -> list[Plan
         (workdir / name).mkdir(parents=True, exist_ok=True)
     models = config["models"]
     repo = root.resolve().as_posix()
-    later = changes.get("mode") != "first"
-    last_run = str(changes.get("last_run") or "")[:9]
-    affected = changes.get("affected", {}) if later else {}
-    plan: list[PlanEntry] = []
-    for unit in units["units"]:
-        entry = _entry(workdir, unit["id"], "review", str(models["review"]))
-        values = {"repo": repo, "unit": unit["id"], "output": entry["output"],
-                  "docs": _docs_value(root, unit, affected, later),
-                  "anchors": _anchors_value(unit, affected, later, last_run)}
-        if later:
-            values.update(diff=_diff_value(unit["hunks"]), last_run=last_run)
-        _write_prompt(entry, render("review-later" if later else "review-first", values))
-        plan.append(entry)
+    plan: list[PlanEntry] = [_review_entry(root, workdir, config, unit, changes)
+                             for unit in units["units"]]
     for number, doc in enumerate(sorted(gaps["targets"]), 1):
         entry = _entry(workdir, f"g{number:03d}", "gap", str(models["gap"]))
         entry["doc"] = doc
@@ -237,6 +246,35 @@ def plan_docs(root: Path, workdir: Path, config: Mapping[str, Any]) -> list[Plan
         plan.append(entry)
     write_json(workdir / "plan-docs.json", plan)
     return plan
+
+
+def plan_retry(root: Path, workdir: Path, config: Mapping[str, Any],
+               units: Sequence[Mapping[str, Any]]) -> list[PlanEntry]:
+    """Review entries for ``units`` (retry units), their prompts written and the entries
+    appended to ``plan-docs.json``."""
+    changes = _require(workdir, "changes.json", "dd_changes")
+    plan: list[PlanEntry] = _require(workdir, "plan-docs.json", "dd_dispatch")
+    entries = [_review_entry(root, workdir, config, unit, changes) for unit in units]
+    write_json(workdir / "plan-docs.json", [*plan, *entries])
+    return entries
+
+
+def not_reviewed(workdir: Path, plan: Sequence[PlanEntry],
+                 failed: Iterable[str]) -> dict[str, list[dict[str, Any]]]:
+    """Per review entry with a valid output, the ranges its agent reported as
+    ``not_reviewed`` (only the entries that have any)."""
+    skip = set(failed)
+    found: dict[str, list[dict[str, Any]]] = {}
+    for entry in plan:
+        if entry["role"] != "review" or entry["id"] in skip:
+            continue
+        path = Path(entry["output"])
+        if not path.is_absolute():
+            path = workdir / path
+        ranges = read_json(path).get("not_reviewed") or []
+        if ranges:
+            found[entry["id"]] = [dict(r) for r in ranges]
+    return found
 
 
 def plan_verify(root: Path, workdir: Path, batches: Sequence[Sequence[Mapping[str, Any]]],
@@ -298,6 +336,7 @@ _KIND_NAMES = {"str": "a string", "str?": "a string or null", "int": "an integer
                "strs": "a list of strings"}
 _EDIT = {"id": "str", "doc": "str", "start_line": "line", "end_line": "line", "old": "str",
          "new": "str", "type": "str", "claim": "str", "evidence": "strs", "subject": "str?"}
+_RANGE = {"doc": "str", "start_line": "line", "end_line": "line", "why": "str"}
 
 
 def _line_order(obj: Mapping[str, Any], where: str) -> list[str]:
@@ -340,12 +379,16 @@ def validate_review(obj: Any) -> list[str]:
     if isinstance(claims, dict):
         problems += [f"code_claims: {doc!r} is not a count >= 0"
                      for doc, count in claims.items() if not (_is_int(count) and count >= 0)]
-    for n, block in enumerate(obj.get("unverified_blocks") or []):
-        where = f"unverified_blocks[{n}]"
-        problems += _fields(block, where, {"doc": "str", "start_line": "line",
-                                           "end_line": "line", "why": "str"})
-        if isinstance(block, dict):
-            problems += _line_order(block, where)
+    for key in ("unverified_blocks", "not_reviewed"):  # not_reviewed is optional
+        ranges = obj.get(key) or []
+        if not isinstance(ranges, list):
+            problems.append(f"{key} is not a list")
+            continue
+        for n, block in enumerate(ranges):
+            where = f"{key}[{n}]"
+            problems += _fields(block, where, _RANGE)
+            if isinstance(block, dict):
+                problems += _line_order(block, where)
     if isinstance(obj.get("edits"), list):
         problems += _edits(obj["edits"], obj.get("unit"), EDIT_TYPES["review"])
     for n, question in enumerate(obj.get("questions") or []):

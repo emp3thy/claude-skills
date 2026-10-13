@@ -23,9 +23,13 @@ a completed ``verify``, or a ``start`` whose ``plan-docs.json`` is empty.
   message.
 - ``verify`` validates the review and gap outputs; without ``--retried`` a missing or invalid
   output writes ``retry.json``, prints ``retry.json <path> with <n> entries`` and exits 3,
-  changing nothing else; with it those entries are unchecked. Then it adds the review agents'
-  ``unverified_blocks`` as notice nominations, runs the script checks (``edits.json``,
-  ``plan-verify.json``) and prints ``plan-verify.json <path> with <n> entries``.
+  changing nothing else; with it those entries are unchecked. Without ``--retried`` the ranges
+  a valid review output reports as ``not_reviewed`` become retry units (``dd_units.retry_units``
+  appends them to ``units.json``, ``dd_dispatch.plan_retry`` to ``plan-docs.json``) listed in
+  the same ``retry.json``; with it those ranges are listed in ``edits.json`` as not reviewed.
+  Then it adds the review agents' ``unverified_blocks`` as notice nominations, runs the script
+  checks (``edits.json``, ``plan-verify.json``) and prints ``plan-verify.json <path> with <n>
+  entries``.
 - ``finish`` validates the verifier outputs the same way, writes ``verdicts.json`` and refuses
   (exit 2) when HEAD is no longer the preflight HEAD (naming both shas; a clean branch switch
   leaves the tree clean) or a file outside the workdir changed since preflight (naming them,
@@ -242,16 +246,27 @@ def _resume(workdir: Path, given: dict[str, Any]) -> dict[str, Any]:
     return pre
 
 
+def _failed(workdir: Path, plan: list[dd_dispatch.PlanEntry],
+            roles: tuple[str, ...]) -> list[dd_dispatch.PlanEntry]:
+    failed: list[dd_dispatch.PlanEntry] = []
+    for role in roles:
+        failed += dd_dispatch.check_outputs(workdir, plan, role)[1]
+    return failed
+
+
+def _retry(workdir: Path, entries: list[dd_dispatch.PlanEntry]) -> int:
+    dd_dispatch.write_retry(workdir, entries)
+    _say_plan(workdir, "retry.json", len(entries))
+    return EXIT_RETRY
+
+
 def _outputs_or_retry(workdir: Path, plan: list[dd_dispatch.PlanEntry],
                       roles: tuple[str, ...], retried: bool) -> frozenset[str] | None:
     """The ids of the ``roles`` entries whose output failed validation; None after writing
     ``retry.json`` when any failed and this is not the ``--retried`` rerun."""
-    failed: list[dd_dispatch.PlanEntry] = []
-    for role in roles:
-        failed += dd_dispatch.check_outputs(workdir, plan, role)[1]
+    failed = _failed(workdir, plan, roles)
     if failed and not retried:
-        dd_dispatch.write_retry(workdir, failed)
-        _say_plan(workdir, "retry.json", len(failed))
+        _retry(workdir, failed)
         return None
     return frozenset(e["id"] for e in failed)
 
@@ -266,9 +281,19 @@ def stage_verify(root: Path, workdir: Path, *, retried: bool,
         raise StepError("start found no doc in scope; run --stage finish", EXIT_REFUSED)
     config, _ = load_config(root)
     plan: list[dd_dispatch.PlanEntry] = read_json(workdir / "plan-docs.json")
-    failed = _outputs_or_retry(workdir, plan, ("review", "gap"), retried)
-    if failed is None:
-        return EXIT_RETRY
+    bad = _failed(workdir, plan, ("review", "gap"))
+    failed = frozenset(e["id"] for e in bad)
+    if not retried:
+        retry = list(bad)
+        pending = dd_dispatch.not_reviewed(workdir, plan, failed)
+        if pending:
+            units = _step("units", workdir, ("units.json",),
+                          lambda: dd_units.retry_units(root, workdir, pending,
+                                                       int(config["unit_lines"])))
+            retry += _step("dispatch", workdir, ("plan-docs.json",),
+                           lambda: dd_dispatch.plan_retry(root, workdir, config, units))
+        if retry:
+            return _retry(workdir, retry)
     nominations: list[dict[str, Any]] = []
     for entry in plan:
         if entry["role"] == "review" and entry["id"] not in failed:

@@ -509,3 +509,47 @@ def test_untracked_files_hidden_by_status_config_are_compared_too(tmp_path: Path
     assert _run(repo, "finish") == 2
     (repo / "helper.py").unlink()
     assert _run(repo, "finish") == 0
+
+
+def test_not_reviewed_ranges_are_re_dispatched_as_a_retry_unit(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    assert _run(repo, "start") == 0
+    workdir = repo / ".document-drift"
+    answer(workdir, "plan-docs.json", CANNED, CANNED / "not-reviewed")
+    capsys.readouterr()
+    assert _run(repo, "verify") == 3
+    retry = read_json(workdir / "retry.json")
+    assert [(e["id"], e["role"]) for e in retry] == [("u002", "review")]
+    assert capsys.readouterr().out == (
+        f"retry.json {(workdir / 'retry.json').as_posix()} with 1 entries\n")
+    units = read_json(workdir / "units.json")["units"]
+    assert [(u["id"], u.get("retry_of"), u["docs"]) for u in units][1:] == [
+        ("u002", "u001", [{"doc": "docs/config.md", "ranges": [[1, 5]]}])]
+    assert [e["id"] for e in _plan(repo, "plan-docs.json")] == ["u001", "g001", "u002"]
+    assert "docs/config.md (5 lines): lines 1-5" in Path(retry[0]["prompt"]).read_text(
+        encoding="utf-8")
+    assert not (workdir / "edits.json").exists()
+    answer(workdir, "retry.json", CANNED)
+    assert _run(repo, "verify", "--retried") == 0
+    edits = read_json(workdir / "edits.json")
+    assert edits["unchecked_units"] == [] and edits["not_reviewed"] == []
+    assert [e["id"] for e in edits["edits"]] == ["u001-e01", "g001-e01"]
+
+
+def test_not_reviewed_after_retry_is_listed(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    assert _run(repo, "start", "--check") == 0
+    workdir = repo / ".document-drift"
+    answer(workdir, "plan-docs.json", CANNED, CANNED / "not-reviewed")
+    assert _run(repo, "verify") == 3
+    answer(workdir, "retry.json", CANNED, CANNED / "not-reviewed")
+    assert _run(repo, "verify", "--retried") == 0
+    assert read_json(workdir / "edits.json")["not_reviewed"] == [
+        {"unit": "u002", "doc": "docs/config.md", "start_line": 5, "end_line": 5,
+         "why": "still too much"}]
+    _answer(repo, "plan-verify.json")
+    assert _run(repo, "finish", "--check") == 1
+    summary = (workdir / "summary.md").read_text(encoding="utf-8")
+    assert ("checked 2, unchecked by cap 0, unchecked after retry 0, retry units 1, "
+            "not reviewed 1 ranges\n- docs/config.md:5-5 (still too much)") in summary

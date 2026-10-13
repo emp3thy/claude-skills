@@ -47,6 +47,7 @@ Only within the changed sections: where a true statement describes a definition 
 
 - `code_claims` counts, for every doc in this unit, the statements about this repository's code you found in the parts you checked, including the ones that name nothing. 0 means those parts are not about the code.
 - `unverified_blocks` lists, only within the changed sections, whole blocks (a paragraph, a list, a table, by line range) that describe this repository's code, hold no reference that anchors, and that you could not tie to one definition (so no `anchor` edit was possible), each with a one-line `why`. Preamble, a pitch for the project, process, plans, history and statements about other software are never unverified blocks: they are not claims about the code. A block that already carries a `drift-unverified` notice (an HTML comment on the line directly above it), or that overlaps one of your edits, is not listed.
+- `not_reviewed` lists the line ranges of these docs you did not check against the code (for instance when the unit was too large to finish), each with a one-line `why`; another agent gets them. A range you did not check is never an unverified block and is not counted in `code_claims`. Checked everything: `[]`.
 - Do not edit or move an existing `drift-unverified` notice.
 
 ## Output
@@ -59,6 +60,7 @@ Write exactly one file, `{{output}}`, with the Write tool. It holds one JSON obj
   "claims_checked": 12,
   "code_claims": {"docs/configuration.md": 9, "README.md": 3},
   "unverified_blocks": [{"doc": "README.md", "start_line": 131, "end_line": 134, "why": "describes retrieval ordering; no function clearly owns it"}],
+  "not_reviewed": [],
   "edits": [
     {"id": "{{unit}}-e01", "doc": "docs/configuration.md", "start_line": 54, "end_line": 54,
      "old": "| `APP_TOP_N` | `3` | ... |", "new": "| `APP_TOP_N` | `5` | ... |",
@@ -82,4 +84,4 @@ Write exactly one file, `{{output}}`, with the Write tool. It holds one JSON obj
 
 ## Reply
 
-When the file is written, reply with only the receipt: the output path, its size in bytes, and the counts of edits, questions and unverified blocks. No other text.
+When the file is written, reply with only the receipt: the output path, its size in bytes, and the counts of edits, questions, unverified blocks and not-reviewed ranges. No other text.

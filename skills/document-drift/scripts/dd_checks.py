@@ -51,7 +51,9 @@ line being never-edit when a heading of its heading path matches.
 ``run`` checks the review edits, then the gap edits, then ``notices.json``'s edits, each by id,
 writes ``edits.json`` and plans the verifier batches with ``dd_dispatch.plan_verify``:
 ``{"edits", "questions", "refusals", "human", "unverified_blocks", "code_claims",
-"unchecked_units", "unchecked_gap_docs", "unverified_batches"}``. Every edit gains ``source``
+"unchecked_units", "unchecked_gap_docs", "not_reviewed", "unverified_batches"}``.
+``not_reviewed`` holds the ranges review outputs report as not reviewed, except those of a
+unit that a retry unit (``retry_of``) re-dispatched. Every edit gains ``source``
 (``review``, ``gap``, ``notice``), ``status`` (``kept``, ``dropped``, ``human``), ``check``,
 ``human_kind`` and ``reason``; a check failure's human entry has the text ``<claim> (<reason>)``
 and the edit's evidence. ``human`` holds a Human-decision entry for each question, each
@@ -573,6 +575,14 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any],
             if kind is not None and reason is not None:
                 human.append(_human(edit["doc"], int(edit["start_line"]), kind,
                                     f"{edit['claim']} ({reason})", edit.get("evidence") or []))
+    retried = {str(u["retry_of"]) for u in units["units"] if u.get("retry_of")}
+    not_reviewed = sorted(
+        ({"unit": str(entry["id"]), "doc": str(r["doc"]), "start_line": int(r["start_line"]),
+          "end_line": int(r["end_line"]), "why": str(r["why"])}
+         for entry, output in usable if entry["role"] == "review"
+         and str(entry["id"]) not in retried
+         for r in output.get("not_reviewed") or []),
+        key=lambda r: (r["doc"], r["start_line"], r["end_line"], r["unit"]))
     planned = batches(checked)
     cap = int(config.get("caps", {}).get("verify", DEFAULT_VERIFY_CAP))
     result: dict[str, Any] = {
@@ -584,6 +594,7 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any],
         "code_claims": claims,
         "unchecked_units": unchecked_units,
         "unchecked_gap_docs": unchecked_gap_docs,
+        "not_reviewed": not_reviewed,
         "unverified_batches": [[str(e["id"]) for e in b] for b in planned[cap:]],
     }
     write_json(workdir / "edits.json", result)

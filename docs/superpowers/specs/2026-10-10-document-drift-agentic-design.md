@@ -220,7 +220,8 @@ Affected docs (on a first run, all docs) are grouped into units so that shared c
 
 1. Docs are linked when they share an anchored definition.
 2. Linked docs are packed in path order into units while the unit's size stays within `unit_lines` (default 6,000). Size is the reviewed doc lines plus, on a first run, the anchors' reading-range lines, or, on a later run, the changed hunk lines for those anchors plus the reading-range lines of anchors whose definitions were deleted.
-3. A doc larger than the budget on its own is split at second-level headings.
+3. A linked group larger than the budget on its own loses its link: its docs are packed one by one, in path order, like unlinked docs (amended 2026-10-13 after the first live run packed 27 linked docs into one 10,757-line unit).
+4. A doc larger than the budget on its own is split at second-level headings.
 
 Each unit's prompt carries its docs (paths and the line ranges to review), its anchors (`reference (doc line) -> file:start-end`), on a later run the relevant hunks as a unified diff, and the unit's scope (section 7.1). Unit ids are `u001`, `u002`, ... in path order.
 
@@ -250,6 +251,7 @@ The agent writes `review/<unit>.json`:
   "claims_checked": 41,
   "code_claims": {"website/configuration.md": 38, "README.md": 60},
   "unverified_blocks": [{"doc": "README.md", "start_line": 131, "end_line": 134, "why": "describes retrieval ordering; no function clearly owns it"}],
+  "not_reviewed": [],
   "edits": [
     {"id": "u007-e01", "doc": "website/configuration.md", "start_line": 54, "end_line": 54,
      "old": "| `BETTER_MEMORY_TOP_N` | `3` | ... |", "new": "| `BETTER_MEMORY_TOP_N` | `5` | ... |",
@@ -272,6 +274,7 @@ The agent writes `review/<unit>.json`:
 - `type` is `correct` (change wrong text), `remove` (delete a statement about something the code no longer has) or `anchor` (name the definition a true statement describes). `subject` names the removed item for a `remove` edit when there is one, and the added name for an `anchor` edit; section 9.1 checks the former is absent from the source and the latter resolves to the evidence.
 - `code_claims` counts, per doc in the unit, the statements about this repository's code, including the ones that name nothing; 0 means the doc is not about the code.
 - `unverified_blocks` lists whole blocks (a paragraph, a list, a table, by line range) for the notice loop of section 7.3. A block that already carries a notice, or that overlaps an edit in the same output, is not listed.
+- `not_reviewed` (optional, added 2026-10-13) lists the ranges of the unit the agent did not check against the code, each with a `why`. The `verify` stage packs those ranges into retry units (fresh unit ids, `retry_of` naming the source unit, appended to `units.json` and `plan-docs.json`) and lists them in `retry.json` with the invalid outputs, so the session dispatches them once with the ordinary exit-3 rule. Ranges still reported as not reviewed on the `--retried` pass are listed in `edits.json` and the summary as not reviewed and are not retried again. A range the agent did not check is never an unverified block.
 
 ### 7.3 Blocks nothing can be tied to: the notice loop
 
@@ -296,7 +299,7 @@ On every run the script reads each notice and looks at its block:
 | 1st notice, block unchanged and still unanchored | the notice becomes a 2nd notice, and the block is listed under "Needs a human decision" as `unverified` | `escalate unverified notice` |
 | 2nd notice, block unchanged and still unanchored | the block and its notice are removed as a `remove` edit of type `unverified` | `remove unverified block (3rd notice, unchanged since <run id>)` |
 
-A newly nominated block gets a 1st notice. Every notice edit goes into the corrections commit and through the script checks of section 9.1: a removal over `max_delete_lines` goes to a human as `large-deletion` instead, a block in a protected region as `protected`. Notice edits are script-generated statements of fact (unchanged, unanchored, counted), so they are not sent to a verifier. Under `--check`, they are listed and nothing is written. A notice whose run id is newer than the current run, or that is malformed, is listed in the summary as a stale marker and left alone.
+A newly nominated block gets a 1st notice. A nomination counts only when it resolves to one block that is not a heading, its range does not run past that block, and the block holds no anchor; a nomination of a whole doc or of several blocks is skipped as `spans blocks` (added 2026-10-13: the first live run's review agent nominated seven whole docs it had not reviewed). Every notice edit goes into the corrections commit and through the script checks of section 9.1: a removal over `max_delete_lines` goes to a human as `large-deletion` instead, a block in a protected region as `protected`. Notice edits are script-generated statements of fact (unchanged, unanchored, counted), so they are not sent to a verifier. Under `--check`, they are listed and nothing is written. A notice whose run id is newer than the current run, or that is malformed, is listed in the summary as a stale marker and left alone.
 
 The loop runs on a doc even when nothing else affects it, so a doc that names no code is still visited by the script, if not by an agent, on every run. It is the only place the skill deletes text it does not know to be wrong; it does so after two PRs that carried the question, and the deletion is itself a bullet in a PR the owner opens.
 - `old` is the exact text of lines `start_line` to `end_line`, leading spaces included; `new` is their replacement (empty for a removal).
@@ -539,9 +542,9 @@ Phase B gets its own plan and PR after phase A's first live runs.
 | A8 | Read-only agents write only their output file | Validated only with an explicit prompt sentence (section 3.2); the `finish` tree check catches a stray write | A stray file in the repository; `finish` refuses the run |
 | A9 | Verifiers with a fresh context and the source catch most wrong edits | Partly validated: of 20 edits, the verifiers rejected 2, both rightly; none of the 18 accepted edits I checked was wrong | Wrong edits reach the PR, where the owner rejects them |
 | A10 | Gap agents write additions that are correct and match the doc's style | Validated on two gaps | Additions the owner has to rewrite |
-| A13 | The agent separates blocks that describe the code from preamble, pitch, process and history well enough that the notice loop does not delete legitimate prose | Not validated; two PR reviews stand between a nomination and a deletion, and the deletion is a reviewable bullet | A paragraph that was true but vague is deleted in a PR the owner merged without reading; one revert restores it |
+| A13 | The agent separates blocks that describe the code from preamble, pitch, process and history well enough that the notice loop does not delete legitimate prose | First live run on `better-memory` (2026-10-13): 7 nominations, all whole docs the agent had not reviewed, none a legitimate block; the one-block rule in 7.3 and `not_reviewed` in 7.2 now separate the two. Two PR reviews stand between a nomination and a deletion, and the deletion is a reviewable bullet | A paragraph that was true but vague is deleted in a PR the owner merged without reading; one revert restores it |
 | A11 | A `Drift-Base` line survives the owner's merge process | Holds for merge commits and GitHub's default squash message; a squash message edited by hand loses it, and the local record covers that machine only | A later run falls back to a first run, costly but correct |
-| A12 | Given a true statement that names nothing, an agent can tell when one definition clearly is the thing described, and its `anchor` edit names the right one | Not validated; the check and the verifier are the net. The first live run counts anchor edits proposed, accepted and judged right | Wrong anchors send later runs to the wrong code for that statement, and a doc gains checkability it does not have |
+| A12 | Given a true statement that names nothing, an agent can tell when one definition clearly is the thing described, and its `anchor` edit names the right one | Not validated: the fixture run and the first live run on `better-memory` (2026-10-13) proposed 0 anchor edits between them, so the prompt does not yet elicit them; the check and the verifier are the net | Wrong anchors send later runs to the wrong code for that statement, and a doc gains checkability it does not have |
 
 ### 14.2 Validation pass 1 (2026-10-10): the full-audit design
 

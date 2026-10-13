@@ -178,8 +178,13 @@ def _units_section(units: dict[str, Any] | None, edits: dict[str, Any] | None,
     retry = ([u for u in edits.get("unchecked_units", []) if str(u) not in by_cap]
              if edits else [])
     checked = len(units.get("units", [])) - len(retry)
+    retry_units = [u for u in units.get("units", []) if u.get("retry_of")]
+    ranges = list((edits or {}).get("not_reviewed", []))
     return ["Review units", f"checked {checked}, unchecked by cap {len(by_cap)}, "
-            f"unchecked after retry {len(retry)}"]
+            f"unchecked after retry {len(retry)}, retry units {len(retry_units)}, "
+            f"not reviewed {len(ranges)} ranges",
+            *(f"- {_r(str(r['doc']))}:{r['start_line']}-{r['end_line']} ({_r(str(r['why']))})"
+              for r in ranges)]
 
 
 def _claims_section(workdir: Path) -> list[str]:
