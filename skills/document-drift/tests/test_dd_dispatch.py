@@ -208,13 +208,15 @@ def test_prompts_carry_mandatory_sentences(tmp_path: Path) -> None:
     for text in reviews:
         for needed in ("`anchor`", "code_claims", "unverified_blocks", "drift-unverified",
                        "Preamble", "guarantee-mismatch", "`unsure`", "`must not`",
-                       "is required"):
+                       "is required", "relative to the repository root, with forward slashes",
+                       "`doc` is the doc's path as listed above, with forward slashes"):
             assert needed in text
     gap = [t for t in prompts if '"refusals"' in t]
     assert len(gap) == 4
     for text in gap:
         for needed in ("not-user-facing", "already-documented", "target-refused",
-                       "any spelling", "sorted list stays sorted", "evidence"):
+                       "any spelling", "sorted list stays sorted", "evidence",
+                       "relative to the repository root, with forward slashes"):
             assert needed in text
     for needed in ("1. ", "5. ", "other software", "minimal", "guarantee", "`anchor` edit",
                    "not merely a related one"):
@@ -283,6 +285,11 @@ def test_validate_gap_requires_add_edits_and_known_refusal_kinds() -> None:
     for wrong in ("g001", " "):
         edit = _edit("g001-e01", type="add", doc=wrong)
         assert any("target doc" in p for p in dd_dispatch.validate_gap({**good, "edits": [edit]}))
+    # an edit aimed at another doc than the entry's target is a retry, not a candidate
+    assert dd_dispatch.validate_gap(good, "docs/guide.md") == []
+    stray = _edit("g001-e01", type="add", subject="APP_PORT", doc="README.md")
+    problems = dd_dispatch.validate_gap({**good, "edits": [stray]}, "docs/guide.md")
+    assert problems == ["edits[0]: doc 'README.md' is not the target doc 'docs/guide.md'"]
 
 
 def test_validate_verdicts_requires_every_id_once() -> None:
@@ -310,6 +317,12 @@ def test_check_outputs_lists_missing_and_invalid(tmp_path: Path) -> None:
     assert dd_dispatch.check_outputs(workdir, plan, "review") == (["u001"], [plan[1]])
     # g002's output names the wrong id
     assert dd_dispatch.check_outputs(workdir, plan, "gap") == (["g001"], [plan[3]])
+    # g001's edit aims at a doc other than its entry's target doc
+    stray = _edit("g001-e01", type="add", subject="X",
+                  doc=next(d for d in ("README.md", "docs/guide.md") if d != plan[2]["doc"]))
+    write_json(workdir / "gaps" / "g001.json", {"doc": "g001", "edits": [stray],
+                                                "refusals": []})
+    assert dd_dispatch.check_outputs(workdir, plan, "gap") == ([], [plan[2], plan[3]])
 
     verify = dd_dispatch.plan_verify(root, workdir, [[_edit("u001-e01")],
                                                      [_edit("u002-e01")]], _config())

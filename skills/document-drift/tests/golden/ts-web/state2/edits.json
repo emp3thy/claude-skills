@@ -10,7 +10,7 @@
    "check": null,
    "claim": "fetchItems loads one page of items",
    "doc": "docs/api.md",
-   "end_line": 14,
+   "end_line": 15,
    "evidence": [
     "src/api/client.ts:11"
    ],
@@ -20,7 +20,7 @@
    "old": "`fetchItems` loads one page of items, and `fetchItem` loads one item by its id.",
    "reason": null,
    "source": "review",
-   "start_line": 14,
+   "start_line": 15,
    "status": "kept",
    "subject": null,
    "type": "correct"

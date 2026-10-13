@@ -281,12 +281,21 @@ def test_large_deletion_goes_to_human(ctx: Context) -> None:
     titled = _edit("u001-e02", doc="docs/guide.md", start=heading, end=heading + 2, new="",
                    kind="remove", evidence=())
     assert _result(titled, ctx) == ("human", "large-deletion", "large-deletion")
-    notice = _edit("n001", doc="docs/guide.md", start=first, end=first + 15, new="",
+    # an unverified removal's range holds its notice line too; spec 7.3 measures the block
+    notice = _edit("n001", doc="docs/guide.md", start=first, end=first + 16, new="",
                    kind="unverified", evidence=())
     assert _result(notice, ctx) == ("human", "large-deletion", "large-deletion")
     short = _edit("u001-e03", doc="docs/guide.md", start=first, end=first + 14, new="",
                   kind="remove", evidence=())
     assert _result(short, ctx) == ("kept", None, None)
+
+
+def test_unverified_removal_of_a_block_at_the_limit_is_kept(ctx: Context) -> None:
+    # a notice line plus a block of exactly max_delete_lines lines: the block is measured
+    first = _line("docs/guide.md", "guide line 1")
+    at_limit = _edit("n001", doc="docs/guide.md", start=first, end=first + 15, new="",
+                     kind="unverified", evidence=())
+    assert _result(at_limit, ctx) == ("kept", None, None)
 
 
 def test_large_section_goes_to_human(ctx: Context) -> None:
@@ -397,7 +406,7 @@ def test_notice_edits_checked_not_batched(tmp_path: Path, repo: tuple[Path, Path
     notice = _edit("n001", doc="docs/guide.md", start=first,
                    new="<!-- drift-unverified: 1st notice -->\nguide line 1", kind="notice",
                    evidence=())
-    removal = _edit("n002", doc="docs/guide.md", start=first + 2, end=first + 17, new="",
+    removal = _edit("n002", doc="docs/guide.md", start=first + 2, end=first + 18, new="",
                     kind="unverified", evidence=())
     review = _edit("u001-e01", start=_line("README.md", "Call `put` to save."),
                    new="Call `put` to store.")

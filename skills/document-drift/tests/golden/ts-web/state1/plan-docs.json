@@ -7,7 +7,7 @@
   "role": "review"
  },
  {
-  "doc": "docs/cli.md",
+  "doc": "docs/api.md",
   "id": "g001",
   "model": "sonnet",
   "output": "<workdir>/gaps/g001.json",
@@ -15,11 +15,19 @@
   "role": "gap"
  },
  {
-  "doc": "docs/configuration.md",
+  "doc": "docs/cli.md",
   "id": "g002",
   "model": "sonnet",
   "output": "<workdir>/gaps/g002.json",
   "prompt": "<workdir>/prompts/gap-g002.md",
+  "role": "gap"
+ },
+ {
+  "doc": "docs/configuration.md",
+  "id": "g003",
+  "model": "sonnet",
+  "output": "<workdir>/gaps/g003.json",
+  "prompt": "<workdir>/prompts/gap-g003.md",
   "role": "gap"
  }
 ]

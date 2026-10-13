@@ -71,6 +71,17 @@
      ],
      "ref": "storage.connect",
      "start": 12
+    },
+    {
+     "end": 1,
+     "file": "src/svc/legacy.py",
+     "line": 18,
+     "reading": [
+      1,
+      1
+     ],
+     "ref": "../src/svc/legacy.py",
+     "start": 1
     }
    ],
    "sections": [
@@ -80,7 +91,7 @@
     ],
     [
      11,
-     14
+     15
     ]
    ]
   },
@@ -125,6 +136,7 @@
   "docs/operations.md",
   "docs/tools.md",
   "src/svc/cli.py",
+  "src/svc/legacy.py",
   "src/svc/storage.py"
  ],
  "hunks": {
@@ -197,7 +209,7 @@
    }
   ]
  },
- "last_run": "09c42c0bfe44a30d3c7b1210884f9f201c751baa",
+ "last_run": "e60469bbdd91ad996e42509f04d7c699b8f4c52a",
  "last_run_source": "commit",
  "mode": "later",
  "review": {
@@ -222,7 +234,11 @@
   "docs/design.md": [
    [
     3,
-    14
+    15
+   ],
+   [
+    18,
+    19
    ]
   ],
   "docs/operations.md": [
@@ -238,5 +254,5 @@
    ]
   ]
  },
- "scope": "since 09c42c0bfe44a30d3c7b1210884f9f201c751baa"
+ "scope": "since e60469bbdd91ad996e42509f04d7c699b8f4c52a"
 }

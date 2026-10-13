@@ -6,6 +6,7 @@
 |---|---|
 | `GET /api/items` | One page of items. |
 | `GET /api/items/{id}` | One item. |
+| `GET /healthz` | A liveness check: `{"ok": true}`. |
 
 ## Client
 

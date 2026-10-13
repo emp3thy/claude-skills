@@ -15,6 +15,14 @@ commits:
       src/svc/_internal.py: "@final"
       src/svc/schema.sql: "@final"
       src/svc/config.py: "@final"
+      src/svc/legacy.py: |
+        """Page accounting kept for databases written by older releases."""
+        from __future__ import annotations
+
+
+        def shrink_pages(count: int) -> int:
+            """How many free pages remain once ``count`` are dropped."""
+            return max(count, 0)
       src/svc/storage.py: |
         """SQLite storage for the key-value service."""
         from __future__ import annotations
@@ -185,6 +193,11 @@ commits:
     files:
       src/svc/cli.py: "@final"
       src/svc/storage.py: "@final"
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2026-01-05T12:00:00+00:00"
+    subject: "chore: drop the legacy page helper"
+    delete:
+      - src/svc/legacy.py
   - author: "Ada Lovelace <ada@example.com>"
     date: "2026-01-06T09:00:00+00:00"
     subject: "docs: operations notes"

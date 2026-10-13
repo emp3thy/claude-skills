@@ -95,6 +95,14 @@
    "line": 10,
    "name": "/api/items/:id",
    "parent": null
+  },
+  {
+   "file": "src/server.ts",
+   "hidden": false,
+   "kind": "route",
+   "line": 14,
+   "name": "/healthz",
+   "parent": null
   }
  ],
  "gaps": [
@@ -119,6 +127,17 @@
    "reason": "missing-from-list",
    "target_doc": "docs/configuration.md",
    "target_line": 9
+  },
+  {
+   "file": "src/server.ts",
+   "gap_kind": "undocumented",
+   "kind": "route",
+   "line": 14,
+   "name": "/healthz",
+   "parent": null,
+   "reason": "most-names",
+   "target_doc": "docs/api.md",
+   "target_line": 3
   }
  ],
  "lists": [
@@ -153,6 +172,19 @@
  ],
  "no_home": [],
  "targets": {
+  "docs/api.md": [
+   {
+    "file": "src/server.ts",
+    "gap_kind": "undocumented",
+    "kind": "route",
+    "line": 14,
+    "name": "/healthz",
+    "parent": null,
+    "reason": "most-names",
+    "target_doc": "docs/api.md",
+    "target_line": 3
+   }
+  ],
   "docs/cli.md": [
    {
     "file": "src/cli.ts",

@@ -28,9 +28,9 @@ Do not check statements about other software, plans, intent or opinion, or histo
 
 Code is the truth. Make the minimal change: fix the wrong part, keep the doc's wording, voice and formatting. No reflowing, no style edits, no improvements to things that are not wrong. Do not add missing material here (another step documents what the code has and the docs lack), except where a statement is wrong because it is incomplete in a way that misleads. Edit a heading only when the heading itself is wrong.
 
-- An edit replaces whole lines `start_line` to `end_line` of one doc. `old` is the exact text of those lines, leading spaces included, joined with newlines; `new` is their replacement (empty for a removal). Edits never overlap.
+- An edit replaces whole lines `start_line` to `end_line` of one doc. `doc` is the doc's path as listed above, with forward slashes. `old` is the exact text of those lines, leading spaces included, joined with newlines; `new` is their replacement (empty for a removal). Edits never overlap.
 - `type` is `correct` (change wrong text), `remove` (delete a statement about something the code no longer has) or `anchor` (below).
-- `claim` is the statement you checked, in one line. `evidence` lists the `path:line` places in the current code that settle it, paths relative to the repository root.
+- `claim` is the statement you checked, in one line. `evidence` lists the `path:line` places in the current code that settle it, paths relative to the repository root, with forward slashes (`src/app/cli.py:17`).
 - `subject` names the removed item for a `remove` edit when there is one, the added name for an `anchor` edit, and is null otherwise.
 - `id` is `{{unit}}-e01`, `{{unit}}-e02`, ... in the order of the list.
 

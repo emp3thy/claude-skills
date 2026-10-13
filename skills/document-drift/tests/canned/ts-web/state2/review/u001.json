@@ -5,7 +5,7 @@
                  "docs/configuration.md": 4},
  "unverified_blocks": [],
  "edits": [
-  {"id": "u001-e01", "doc": "docs/api.md", "start_line": 14, "end_line": 14,
+  {"id": "u001-e01", "doc": "docs/api.md", "start_line": 15, "end_line": 15,
    "old": "`fetchItems` loads one page of items, and `fetchItem` loads one item by its id.",
    "new": "`listItems` loads one page of items, and `fetchItem` loads one item by its id.",
    "type": "correct", "claim": "fetchItems loads one page of items",

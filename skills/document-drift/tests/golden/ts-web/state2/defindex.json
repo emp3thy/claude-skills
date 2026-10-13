@@ -708,21 +708,21 @@
   {
    "change_ranges": [
     [
-     14,
-     16
+     18,
+     20
     ]
    ],
-   "end": 16,
+   "end": 20,
    "file": "src/server.ts",
    "kind": "function",
    "name": "start",
    "norm": "start",
    "owners": [],
    "reading": [
-    14,
-    16
+    18,
+    20
    ],
-   "start": 14
+   "start": 18
   }
  ],
  "skipped": []

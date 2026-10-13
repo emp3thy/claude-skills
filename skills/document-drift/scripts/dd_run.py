@@ -27,14 +27,16 @@ a completed ``verify``, or a ``start`` whose ``plan-docs.json`` is empty.
   ``unverified_blocks`` as notice nominations, runs the script checks (``edits.json``,
   ``plan-verify.json``) and prints ``plan-verify.json <path> with <n> entries``.
 - ``finish`` validates the verifier outputs the same way, writes ``verdicts.json`` and refuses
-  (exit 2, naming them) when a file outside the workdir changed since preflight
-  (``dd_preflight.tree_state``). Under ``--check`` it writes the summary and exits 1 when an
-  edit would apply (kept and accepted, or a kept notice edit), else 0; nothing is applied,
-  committed or recorded. Otherwise it applies the edits (with the heading-link updates), makes
-  the commits, writes ``last-run.json`` (``head``, ``run_id``, ``date``, ``committed``),
-  records the stage as finished and writes the summary, and exits 0. After a ``start`` with an
-  empty plan it first runs the script checks, so the notice edits ``start`` decided still
-  apply; after a ``start`` that found no doc it only writes the summary.
+  (exit 2) when HEAD is no longer the preflight HEAD (naming both shas; a clean branch switch
+  leaves the tree clean) or a file outside the workdir changed since preflight (naming them,
+  ``dd_preflight.tree_state``), before anything is applied. Under ``--check`` it writes the
+  summary and exits 1 when an edit would apply (kept and accepted, or a kept notice edit),
+  else 0; nothing is applied, committed or recorded. Otherwise it applies the edits (with the
+  heading-link updates), makes the commits, writes ``last-run.json`` (``head``, ``run_id``,
+  ``date``, ``committed``), records the stage as finished and writes the summary, and exits 0.
+  After a ``start`` with an empty plan it first runs the script checks, so the notice edits
+  ``start`` decided still apply; after a ``start`` that found no doc it only writes the
+  summary.
 
 Each stage prints one line, or for ``finish`` the summary. Exit codes: a ``StepError`` exits
 with its own code and message, except that a step's own exit 5 is reworded to name the step; a
@@ -80,6 +82,7 @@ from dd_common import (
     EXIT_RETRY,
     StepError,
     read_json,
+    run_git,
     write_json,
 )
 from dd_config import load_config
@@ -281,7 +284,13 @@ def stage_verify(root: Path, workdir: Path, *, retried: bool,
 
 
 def _tree_check(root: Path, workdir: Path, pre: dict[str, Any]) -> None:
-    """Refuse when a file outside the workdir changed since preflight."""
+    """Refuse when HEAD moved or a file outside the workdir changed since preflight. A clean
+    branch switch leaves the tree clean, so HEAD is compared on its own, before any edit is
+    applied (``dd_commit`` checks it again before it creates the branch)."""
+    head = (run_git(root, ["rev-parse", "HEAD"]) or "").strip()
+    if head != str(pre["head"]):
+        raise StepError(f"HEAD moved during the run: start saw {pre['head']}, now it is "
+                        f"{head or 'unknown'}; nothing was applied", EXIT_REFUSED)
     then: dict[str, str] = pre.get("dirty") or {}
     now = dd_preflight.tree_state(root, workdir)
     changed = sorted(p for p in {*then, *now} if then.get(p) != now.get(p))

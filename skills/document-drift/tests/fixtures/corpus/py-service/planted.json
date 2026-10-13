@@ -88,6 +88,9 @@
   {"id": "d9b", "state": 2, "doc": "docs/untouched.md", "line": 6, "kind": "decoy",
    "what": "untouched.md's `get_item` anchors at state 2, so d9 is not reviewed although it names code",
    "expect": ["anchors"]},
+  {"id": "p15", "state": 2, "doc": "docs/design.md", "line": 18, "kind": "deleted-path",
+   "what": "design.md links ../src/svc/legacy.py, which a state-2 commit deletes; the link resolved at the last-run commit and names nothing now",
+   "expect": ["affected:missing"]},
   {"id": "p10b", "state": 2, "doc": "docs/design.md", "line": 14, "kind": "unverified-block",
    "what": "the p10 block, unchanged and unanswered since its 1st notice, escalates to a 2nd notice",
    "expect": ["notice:2nd"]}

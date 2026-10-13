@@ -11,3 +11,8 @@ Expired rows are purged nightly.
 ## Durability
 
 Writes go to disk before the reply returns, so a crash loses no acknowledged write.
+
+## Upgrades
+
+[The legacy helper](../src/svc/legacy.py) counts the free pages of databases
+written by older releases.

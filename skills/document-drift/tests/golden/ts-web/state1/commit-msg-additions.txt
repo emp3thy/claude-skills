@@ -1,9 +1,10 @@
 docs(drift): document missing surface
 
-Drift-Run: 2026-01-02-07bb
-Drift-Base: a55160398a51008f74c4352a0346fffca3d895a8
+Drift-Run: 2026-01-02-f76d
+Drift-Base: ae474733522efc413b50c519be905b0a50088078
 Drift-Scope: first
 Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
 
+- docs/api.md:8 add route /healthz (src/server.ts:14)
 - docs/cli.md:16 add flag --minify (src/cli.ts:12)
 - docs/configuration.md:9 add env FEATURE_FLAGS (src/config.ts:5)

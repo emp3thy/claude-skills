@@ -15,7 +15,7 @@
      "end": 3,
      "file": "src/api/client.ts",
      "kind": "function",
-     "line": 12,
+     "line": 13,
      "reading": [
       3,
       3
@@ -34,7 +34,7 @@
      "end": 20,
      "file": "src/api/client.ts",
      "kind": "function",
-     "line": 14,
+     "line": 15,
      "reading": [
       17,
       20
@@ -114,8 +114,8 @@
      "doc": "docs/api.md",
      "ranges": [
       [
-       10,
-       14
+       3,
+       15
       ]
      ]
     },
@@ -140,7 +140,7 @@
    ],
    "hunks": [],
    "id": "u001",
-   "size": 32
+   "size": 40
   }
  ]
 }

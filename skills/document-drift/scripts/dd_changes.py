@@ -18,11 +18,15 @@
   overlaps a hunk of its file; a pure deletion touches its ``new_start``), ``missing`` (a
   reference that resolved against the definition index at the last-run commit and does not
   now, as ``{"ref", "line", "file", "start", "end", "reading"}`` of the definition it had
-  then), ``doc_changed`` and ``sections`` (the doc's heading sections that a hunk of the doc
-  itself touches). The index at the last-run commit is the current index with the changed
-  indexed files (deleted ones included) re-read at that commit.
+  then; or a path token of ``candidates.json`` that does not resolve at HEAD but named a file
+  or directory of the last-run commit's tree, relative to its doc or the root, as
+  ``{"ref": <token>, "line", "file": <old path>, "start": 1, "end": 1, "reading": [1, 1]}``),
+  ``doc_changed`` and ``sections`` (the doc's heading sections that a hunk of the doc itself
+  touches). The index at the last-run commit is the current index with the changed indexed
+  files (deleted ones included) re-read at that commit.
 - **Review** (``review_ranges``): on a first run every in-scope doc whole; on a later run each
-  affected doc's reference blocks and changed sections, merged.
+  affected doc's reference blocks (a missing path token's own block when it is no reference,
+  as in a link) and changed sections, merged.
 """
 from __future__ import annotations
 
@@ -48,6 +52,7 @@ from dd_defindex import Definition, at_commit, by_norm, norm
 from dd_history import History, Hunk, changed_files, diff_hunks, drift_base_commits, is_ancestor
 from dd_inventory import indexed_files, is_project_file, source_class
 from dd_md_scan import scan
+from dd_resolve import path_matches
 
 _Range = tuple[int, int]
 _NOTHING: frozenset[str] = frozenset()
@@ -148,13 +153,42 @@ def changed_sections(text: str, hunks: Iterable[Hunk]) -> list[list[int]]:
     return [list(section) for section in sorted(found)]
 
 
+def gone_paths(candidates: Iterable[Mapping[str, Any]],
+               tree_then: tuple[frozenset[str], frozenset[str]] | None,
+               ) -> list[dict[str, Any]]:
+    """The path tokens of ``candidates`` (``candidates.json``) that do not resolve at HEAD but
+    named a file or directory of ``tree_then``, relative to their doc or the root, each as
+    ``{"doc", "line", "ref", "file", "block"}`` with the path it named then and the line range
+    of the block holding it (spec 6.3: a doc naming a deleted or renamed file by path)."""
+    if tree_then is None:
+        return []
+    files, dirs = tree_then
+    found: list[dict[str, Any]] = []
+    for token in candidates:
+        if token.get("kind") != "path" or token.get("resolved"):
+            continue
+        hit = path_matches(str(token["text"]), str(token["doc"]), files, dirs, loose=False)
+        if hit is None:
+            continue
+        block = token.get("block") or {}
+        line = int(token["line"])
+        found.append({"doc": token["doc"], "line": line, "ref": token["text"],
+                      "file": hit[1][0],
+                      "block": [int(block.get("line_start", line)),
+                                int(block.get("line_end", line))]})
+    return found
+
+
 def affected(anchors: Iterable[Anchor], refs: Iterable[Reference],
              defs_then: Mapping[str, list[Definition]], hunks: Mapping[str, list[Hunk]],
-             changed_docs: set[str], texts: Mapping[str, str]) -> dict[str, dict[str, Any]]:
+             changed_docs: set[str], texts: Mapping[str, str],
+             gone_tokens: Iterable[Mapping[str, Any]] = ()) -> dict[str, dict[str, Any]]:
     """The affected docs, in path order, each ``{"anchor_reasons", "missing", "doc_changed",
     "sections"}`` (spec 6.3). ``refs`` are the references that are not existing paths now
     (anchored or unanchored at HEAD): one of them that anchors against ``defs_then`` and has
-    no anchor now is missing. ``hunks`` hold the changed docs' own hunks as well as code's."""
+    no anchor now is missing. ``gone_tokens`` (``gone_paths``) are path tokens that named a
+    file at the last-run commit and resolve to nothing now: each is missing, as that file's
+    line 1. ``hunks`` hold the changed docs' own hunks as well as code's."""
     anchors = list(anchors)
     entries: dict[str, dict[str, Any]] = {}
 
@@ -181,6 +215,12 @@ def affected(anchors: Iterable[Anchor], refs: Iterable[Reference],
         missing = entry(old["doc"])["missing"]
         if gone not in missing:
             missing.append(gone)
+    for path in gone_tokens:
+        was = {"ref": path["ref"], "line": path["line"], "file": path["file"], "start": 1,
+               "end": 1, "reading": [1, 1]}
+        missing = entry(path["doc"])["missing"]
+        if was not in missing:
+            missing.append(was)
     for doc in sorted(changed_docs):
         sections = changed_sections(texts.get(doc, ""), hunks.get(doc, []))
         if sections:
@@ -203,10 +243,12 @@ def _merge(ranges: Iterable[Iterable[int]]) -> list[list[int]]:
 
 
 def review_ranges(doc: str, affected_entry: Mapping[str, Any] | None,
-                  refs: Iterable[Reference], line_count: int = 0) -> list[list[int]]:
+                  refs: Iterable[Mapping[str, Any]], line_count: int = 0) -> list[list[int]]:
     """The line ranges of ``doc`` to review: on a first run (no entry) the whole doc of
     ``line_count`` lines; on a later run the blocks of the references named in the entry's
-    ``anchor_reasons`` and ``missing`` plus its ``sections``, merged."""
+    ``anchor_reasons`` and ``missing`` plus its ``sections``, merged. ``refs`` are
+    ``{"doc", "line", "text", "block"}`` records: References, and the ``gone_paths`` (with
+    their ``ref`` as ``text``) for path tokens that are no reference."""
     if affected_entry is None:
         return [[1, line_count]] if line_count > 0 else []
     named = {(r["line"], r["ref"])
@@ -237,13 +279,16 @@ def _old_file_definition(path: str) -> Definition:
 
 
 def _defs_then(root: Path, sha: str, changed: list[str], inventory: Mapping[str, Any],
-               current: list[Definition]) -> dict[str, list[Definition]]:
+               current: list[Definition],
+               tree: tuple[frozenset[str], frozenset[str]] | None,
+               ) -> dict[str, list[Definition]]:
     """The definition index as it was at ``sha``: the current definitions of unchanged files
     plus the changed files as they were at ``sha``. A changed indexed file is re-read there;
     a changed file missing from HEAD's inventory (deleted or renamed away) is classified by
     its path, as the inventory would. Any other changed non-test file that existed at ``sha``
     keeps the ``file`` definition it had when its basename was unique in that tree, so a
-    deleted config or doc named by its basename can still be reported missing."""
+    deleted config or doc named by its basename can still be reported missing. ``tree`` is
+    ``(files, dirs)`` at ``sha``."""
     tests = set(inventory["sources"].get("test", []))
     indexed = set(indexed_files(dict(inventory))) - tests
     tracked = set(inventory["files"])
@@ -255,7 +300,6 @@ def _defs_then(root: Path, sha: str, changed: list[str], inventory: Mapping[str,
               if path in indexed or (path not in tracked and not is_test(path)
                                      and (source_class(path) == "source"
                                           or is_project_file(path)))]
-    tree = History(root).tree_at(sha)
     old_files = tree[0] if tree is not None else frozenset()
     names = Counter(path.rsplit("/", 1)[-1] for path in old_files)
     done = set(reread)
@@ -301,12 +345,17 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any], base: str | None,
         not_path = {(a["doc"], a["line"], a["ref"])
                     for a in [*anchors, *anchors_doc["unanchored"]]}
         not_paths = [r for r in refs if (r["doc"], r["line"], r["text"]) in not_path]
-        then = _defs_then(root, sha, changed, inventory, defindex["definitions"])
-        found = affected(anchors, not_paths, then, all_hunks, changed_docs, texts)
+        tree = History(root).tree_at(sha)
+        then = _defs_then(root, sha, changed, inventory, defindex["definitions"], tree)
+        candidates = _load(workdir / "candidates.json", "dd_resolve")["candidates"]
+        gone = [g for g in gone_paths(candidates, tree) if g["doc"] in texts]
+        found = affected(anchors, not_paths, then, all_hunks, changed_docs, texts, gone)
+        spans = [*refs, *({"doc": g["doc"], "line": g["line"], "text": g["ref"],
+                           "block": g["block"]} for g in gone)]
         result["changed_files"] = changed
         result["hunks"] = {path: hunks for path, hunks in all_hunks.items() if path in indexed}
         result["affected"] = found
-        result["review"] = {doc: review_ranges(doc, entry, refs)
+        result["review"] = {doc: review_ranges(doc, entry, spans)
                             for doc, entry in found.items()}
     write_json(workdir / "changes.json", result)
     return result

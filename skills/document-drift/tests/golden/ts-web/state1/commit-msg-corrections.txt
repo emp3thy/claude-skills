@@ -1,9 +1,9 @@
 docs(drift): correct stale docs
 
-Drift-Run: 2026-01-02-07bb
-Drift-Base: a55160398a51008f74c4352a0346fffca3d895a8
+Drift-Run: 2026-01-02-f76d
+Drift-Base: ae474733522efc413b50c519be905b0a50088078
 Drift-Scope: first
 Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
 
-- README.md:13 correct the server registers three routes (src/server.ts:6, src/server.ts:10)
+- README.md:13 correct the server registers four routes (src/server.ts:6, src/server.ts:10, src/server.ts:14)
 - docs/api.md:12 correct the client asks for 20 items per page by default (src/api/client.ts:3)

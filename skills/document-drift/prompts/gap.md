@@ -25,7 +25,7 @@ Each line gives the name's kind, the name, its parent (the command or tool a fla
 2. Search the docs in scope listed above, and only those files, for the name under any spelling: other case, `-` for `_` or `.`, without a prefix, inside a longer command or a table. A name that is in fact documented in one of them is refused as `already-documented`. Changelogs, release notes, history, licences, specs and plans do not count as documentation, even when they mention the name.
 3. In a list: add rows or items matching the list's format, columns and order; a sorted list stays sorted.
 4. Without a list: add a sentence or bullet in the most fitting paragraph or section of this doc, or, only if nothing fits, a short new section under a heading at the level of its neighbours.
-5. Descriptions come from the code (its help text, default, type and behaviour), never from guesses. Every added entry cites `evidence`: the `path:line` of the definition and of anything else the description states.
+5. Descriptions come from the code (its help text, default, type and behaviour), never from guesses. Every added entry cites `evidence`: the `path:line` of the definition and of anything else the description states, paths relative to the repository root, with forward slashes (`src/app/cli.py:17`).
 6. If this doc is the wrong place for the gap, or you cannot write the entry correctly from the code, refuse it as `target-refused` with the reason.
 
 Keep the doc's wording, voice and formatting. Change no existing text. Every name you put in inline code must exist in the code.
@@ -56,7 +56,7 @@ Write exactly one file, `{{output}}`, with the Write tool. It holds one JSON obj
 }
 ```
 
-The top-level `doc` is exactly `{{id}}`; each edit's `doc` is `{{doc}}`. Every gap above ends as an added entry or a refusal, never both and never neither.
+The top-level `doc` is exactly `{{id}}`; each edit's `doc` is `{{doc}}`, exactly as written, with forward slashes. Every gap above ends as an added entry or a refusal, never both and never neither.
 
 ## Reply
 

@@ -10,7 +10,7 @@ Set `FEATURE_FLAGS` to a comma-separated list to turn on experimental features.
 
 ## API
 
-The server registers three routes in `src/server.ts`; [docs/api.md](docs/api.md) lists them.
+The server registers four routes in `src/server.ts`; [docs/api.md](docs/api.md) lists them.
 
 ## Command line
 

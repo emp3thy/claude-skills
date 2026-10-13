@@ -253,6 +253,9 @@ def test_phase_a_head_moved_creates_no_branch(tmp_path: Path) -> None:
     with pytest.raises(StepError) as exc:
         run(root, work, "drift/r", "r", "b" * 40, "first", [])
     assert exc.value.code == EXIT_COMMIT
+    listed = subprocess.run(["git", "-C", str(root), "branch", "--list", "drift/r"],
+                            capture_output=True, text=True, check=True).stdout
+    assert listed.strip() == ""
 
 
 def test_add_edit_matching_no_gap_is_an_error(tmp_path: Path) -> None:

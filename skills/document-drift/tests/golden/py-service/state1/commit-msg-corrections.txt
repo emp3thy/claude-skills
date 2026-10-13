@@ -1,7 +1,7 @@
 docs(drift): correct stale docs
 
-Drift-Run: 2026-01-02-3f03
-Drift-Base: 09c42c0bfe44a30d3c7b1210884f9f201c751baa
+Drift-Run: 2026-01-02-561c
+Drift-Base: e60469bbdd91ad996e42509f04d7c699b8f4c52a
 Drift-Scope: first
 Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
 

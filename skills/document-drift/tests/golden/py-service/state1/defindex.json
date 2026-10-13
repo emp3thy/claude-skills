@@ -1246,6 +1246,101 @@
     ]
    ],
    "end": 1,
+   "file": "src/svc/legacy.py",
+   "kind": "file",
+   "name": "legacy.py",
+   "norm": "legacy_py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/svc/legacy.py",
+   "kind": "module",
+   "name": "legacy",
+   "norm": "legacy",
+   "owners": [],
+   "reading": [
+    1,
+    7
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/svc/legacy.py",
+   "kind": "module",
+   "name": "src.svc.legacy",
+   "norm": "src_svc_legacy",
+   "owners": [],
+   "reading": [
+    1,
+    7
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/svc/legacy.py",
+   "kind": "module",
+   "name": "svc.legacy",
+   "norm": "svc_legacy",
+   "owners": [],
+   "reading": [
+    1,
+    7
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     5,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/svc/legacy.py",
+   "kind": "function",
+   "name": "shrink_pages",
+   "norm": "shrink_pages",
+   "owners": [],
+   "reading": [
+    5,
+    7
+   ],
+   "start": 5
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
    "file": "src/svc/routes.py",
    "kind": "file",
    "name": "routes.py",

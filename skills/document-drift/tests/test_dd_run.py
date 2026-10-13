@@ -303,6 +303,27 @@ def test_finish_refuses_when_tree_changed_outside_workdir(
     assert _git(repo, "branch", "--list", BRANCH) == ""
 
 
+def test_finish_refuses_when_head_moved_before_any_change(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # spec 2: exit 2 is refused before any change; a clean switch leaves the tree clean, so
+    # only the HEAD comparison catches it, and it must come before apply
+    repo = _repo(tmp_path)
+    head = _git(repo, "rev-parse", "HEAD").strip()
+    _through_verify(repo)
+    _git(repo, "switch", "-q", "-c", "elsewhere")
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "other work")
+    moved = _git(repo, "rev-parse", "HEAD").strip()
+    capsys.readouterr()
+    assert _run(repo, "finish") == 2
+    err = capsys.readouterr().err
+    assert head in err and moved in err
+    assert (repo / "README.md").read_text(encoding="utf-8") == README
+    assert (repo / "docs" / "config.md").read_text(encoding="utf-8") == CONFIG
+    assert _git(repo, "status", "--porcelain") == ""
+    assert _git(repo, "branch", "--list", BRANCH) == ""
+    assert not (repo / ".document-drift" / "applied.json").exists()
+
+
 def test_check_finish_refuses_a_dirty_file_that_changed_again(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     (repo / "notes.txt").write_text("local work\n", encoding="utf-8")

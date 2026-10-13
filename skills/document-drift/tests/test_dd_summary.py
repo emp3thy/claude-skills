@@ -61,7 +61,8 @@ def _wd(tmp_path: Path, *, check: bool = False, mode: str = "first",
         "changes.json": {"mode": mode, "last_run": None if mode == "first" else HEAD,
                          "last_run_source": None if mode == "first" else "commit",
                          "scope": "first" if mode == "first" else f"since {HEAD}",
-                         "changed_files": ["a.py", "b.py"], "hunks": [{}, {}, {}],
+                         "changed_files": ["a.py", "b.py"],
+                         "hunks": {"a.py": [{}, {}], "b.py": [{}]},
                          "review": {"docs/a.md": [[1, 9]]},
                          "affected": {"docs/a.md": {"anchor_reasons": [1, 2], "missing": [1],
                                                     "doc_changed": True}}},
@@ -279,7 +280,7 @@ def test_stale_markers_not_run_without_anchors(tmp_path: Path) -> None:
 
 def test_nothing_to_review_is_stated(tmp_path: Path) -> None:
     empty = {"mode": "later", "last_run": HEAD, "last_run_source": "commit",
-             "scope": f"since {HEAD}", "changed_files": [], "hunks": [], "affected": {},
+             "scope": f"since {HEAD}", "changed_files": [], "hunks": {}, "affected": {},
              "review": {}}
     wd = _wd(tmp_path, **{"changes.json": empty})
     gaps = {"candidates": [], "lists": [], "gaps": [], "targets": [], "no_home": [],

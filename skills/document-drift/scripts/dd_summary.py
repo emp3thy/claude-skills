@@ -146,8 +146,9 @@ def _notice_loop(notices: dict[str, Any] | None, effect: set[str]) -> list[str]:
 
 
 def _change_set(changes: dict[str, Any]) -> list[str]:
+    hunks: dict[str, list[Any]] = changes.get("hunks") or {}  # keyed by file
     lines = ["Change set", f"changed files {len(changes.get('changed_files', []))}, "
-             f"hunks {len(changes.get('hunks', []))}"]
+             f"hunks {sum(len(each) for each in hunks.values())}"]
     affected: dict[str, dict[str, Any]] = changes.get("affected", {})
     for doc in sorted(affected):
         a = affected[doc]

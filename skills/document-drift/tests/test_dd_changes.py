@@ -10,8 +10,10 @@ from dd_changes import affected, last_run, review_ranges, run
 from dd_common import EXIT_REFUSED, StepError, read_json, write_json
 from dd_config import DEFAULTS
 from dd_defindex import run as defindex_run
+from dd_extract import run as extract_run
 from dd_helpers import make_repo
 from dd_inventory import run as inventory_run
+from dd_resolve import run as resolve_run
 
 _IDENTITY = ("-c", "user.name=Fixture", "-c", "user.email=fixture@example.com",
              "-c", "commit.gpgsign=false")
@@ -46,9 +48,12 @@ def _commit(repo: Path, message: str, files: dict[str, str] | None = None,
 
 
 def _start(repo: Path, work: Path) -> None:
-    """The start-stage outputs dd_changes reads: preflight, inventory, index, anchors."""
+    """The start-stage outputs dd_changes reads: preflight, inventory, path candidates,
+    index, anchors."""
     write_json(work / "preflight.json", {"head": _rev(repo, "HEAD")})
     inventory_run(repo, work, {**DEFAULTS})
+    extract_run(repo, work)
+    resolve_run(repo, work)
     defindex_run(repo, work)
     anchors_run(repo, work, {**DEFAULTS})
 
@@ -292,6 +297,36 @@ def test_deleted_config_named_by_basename_is_missing(tmp_path: Path) -> None:
         "missing": [{"ref": "settings.yaml", "line": 3, "file": "config/settings.yaml",
                      "start": 1, "end": 1, "reading": [1, 1]}]}}
     assert result["review"] == {"docs/setup.md": [[3, 3]]}
+
+
+def test_deleted_file_named_by_path_or_link_is_missing(tmp_path: Path) -> None:
+    # spec 6.3: a doc naming a deleted file by its path (code span or link) is affected too,
+    # not only one naming it by its basename; a path that never existed is not
+    repo, work, _ = _later(tmp_path, {
+        "src/old.py": "def old_helper():\n    return 1\n",
+        "src/keep.py": "def kept_helper():\n    return 2\n",
+        "docs/bybase.md": "# Base\n\nThe helper lives in `old.py`.\n",
+        "docs/bypath.md": "# Path\n\nThe helper lives in `src/old.py`.\n",
+        "docs/bylink.md": "# Link\n\nIntro.\n\nSee [the helper](../src/old.py)\nfor details.\n",
+        "docs/kept.md": "# Kept\n\nSee `src/keep.py` and [it](../src/keep.py).\n",
+        "docs/typo.md": "# Typo\n\nSee `src/never.py`.\n",
+    })
+    _commit(repo, "drop the old helper", delete=("src/old.py",))
+    _start(repo, work)
+    result = run(repo, work, {**DEFAULTS}, None, False)
+    assert result["changed_files"] == ["src/old.py"]
+
+    def gone(ref: str, line: int) -> dict[str, Any]:
+        return {"ref": ref, "line": line, "file": "src/old.py", "start": 1, "end": 1,
+                "reading": [1, 1]}
+
+    assert sorted(result["affected"]) == ["docs/bybase.md", "docs/bylink.md", "docs/bypath.md"]
+    assert result["affected"]["docs/bybase.md"]["missing"] == [gone("old.py", 3)]
+    assert result["affected"]["docs/bypath.md"]["missing"] == [gone("src/old.py", 3)]
+    assert result["affected"]["docs/bylink.md"]["missing"] == [gone("../src/old.py", 5)]
+    # the link names no reference, so its review range is the block that holds it
+    assert result["review"] == {"docs/bybase.md": [[3, 3]], "docs/bylink.md": [[5, 6]],
+                                "docs/bypath.md": [[3, 3]]}
 
 
 SECTIONED = """\

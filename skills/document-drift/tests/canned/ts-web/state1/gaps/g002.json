@@ -1,11 +1,11 @@
 {
  "doc": "g002",
  "edits": [
-  {"id": "g002-e01", "doc": "docs/configuration.md", "start_line": 9, "end_line": 9,
-   "old": "| `LOG_LEVEL` | Log level (default info). |",
-   "new": "| `LOG_LEVEL` | Log level (default info). |\n| `FEATURE_FLAGS` | Comma-separated experimental features to turn on. |",
-   "type": "add", "claim": "the app reads FEATURE_FLAGS as a comma-separated list",
-   "evidence": ["src/config.ts:5"], "subject": "FEATURE_FLAGS"}
+  {"id": "g002-e01", "doc": "docs/cli.md", "start_line": 16, "end_line": 16,
+   "old": "| `--sourcemap` | Write source maps next to the bundle. |",
+   "new": "| `--sourcemap` | Write source maps next to the bundle. |\n| `--minify` | Minify the bundle. |",
+   "type": "add", "claim": "web build takes --minify, which minifies the bundle",
+   "evidence": ["src/cli.ts:12"], "subject": "--minify"}
  ],
  "refusals": []
 }

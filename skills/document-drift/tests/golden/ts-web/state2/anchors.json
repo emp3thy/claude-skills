@@ -11,7 +11,7 @@
    "end": 3,
    "file": "src/api/client.ts",
    "kind": "function",
-   "line": 12,
+   "line": 13,
    "reading": [
     3,
     3
@@ -30,7 +30,7 @@
    "end": 20,
    "file": "src/api/client.ts",
    "kind": "function",
-   "line": 14,
+   "line": 15,
    "reading": [
     17,
     20
@@ -164,10 +164,10 @@
   },
   "docs/api.md": {
    "anchored": 2,
-   "blocks": 5,
+   "blocks": 6,
    "blocks_noref": 1,
-   "rate": 0.4,
-   "references": 5,
+   "rate": 0.3333,
+   "references": 6,
    "status": "weak"
   },
   "docs/cli.md": {
@@ -207,8 +207,8 @@
   "ambiguous": 5,
   "anchored": 8,
   "paths": 3,
-  "references": 25,
-  "unknown": 9
+  "references": 26,
+  "unknown": 10
  },
  "references": [
   {
@@ -286,23 +286,38 @@
   },
   {
    "block": [
-    12,
-    12
+    9,
+    9
+   ],
+   "context": [
+    "Routes"
+   ],
+   "doc": "docs/api.md",
+   "heading": "Routes",
+   "line": 9,
+   "norm": "GET",
+   "specific": false,
+   "text": "GET"
+  },
+  {
+   "block": [
+    13,
+    13
    ],
    "context": [
     "Client"
    ],
    "doc": "docs/api.md",
    "heading": "Client",
-   "line": 12,
+   "line": 13,
    "norm": "PAGE_SIZE",
    "specific": true,
    "text": "PAGE_SIZE"
   },
   {
    "block": [
-    14,
-    14
+    15,
+    15
    ],
    "context": [
     "fetchItem",
@@ -310,15 +325,15 @@
    ],
    "doc": "docs/api.md",
    "heading": "Client",
-   "line": 14,
+   "line": 15,
    "norm": "fetchItems",
    "specific": true,
    "text": "fetchItems"
   },
   {
    "block": [
-    14,
-    14
+    15,
+    15
    ],
    "context": [
     "fetchItems",
@@ -326,7 +341,7 @@
    ],
    "doc": "docs/api.md",
    "heading": "Client",
-   "line": 14,
+   "line": 15,
    "norm": "fetchItem",
    "specific": true,
    "text": "fetchItem"
@@ -608,7 +623,13 @@
   },
   {
    "doc": "docs/api.md",
-   "line": 14,
+   "line": 9,
+   "reason": "unknown",
+   "ref": "GET"
+  },
+  {
+   "doc": "docs/api.md",
+   "line": 15,
    "reason": "unknown",
    "ref": "fetchItems"
   },

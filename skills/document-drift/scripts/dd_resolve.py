@@ -4,7 +4,9 @@
 ``anchor`` token of ``tokens.json``, the token plus ``resolved`` (bool) and ``resolved_to``
 (the path or slug it names at HEAD, or null), ordered by (doc, line, col, end_col, kind). A
 path absent from HEAD but present on disk (untracked or ignored, such as a once-tracked
-runtime artefact) counts as resolved, with ``resolved_to`` null (ruling R66).
+runtime artefact) counts as resolved, with ``resolved_to`` null (ruling R66). ``dd_changes``
+reads the unresolved ``path`` candidates on a later run: one that named a file of the last-run
+commit's tree makes its doc affected (spec 6.3).
 
 ``resolve_token`` is pure over a tree (``files``, ``dirs`` and ``read``) and serves the HEAD
 resolution and the in-memory re-check of ``dd_apply`` alike; it also resolves ``script``,

@@ -1,0 +1,11 @@
+{
+ "doc": "g003",
+ "edits": [
+  {"id": "g003-e01", "doc": "docs/configuration.md", "start_line": 9, "end_line": 9,
+   "old": "| `LOG_LEVEL` | Log level (default info). |",
+   "new": "| `LOG_LEVEL` | Log level (default info). |\n| `FEATURE_FLAGS` | Comma-separated experimental features to turn on. |",
+   "type": "add", "claim": "the app reads FEATURE_FLAGS as a comma-separated list",
+   "evidence": ["src/config.ts:5"], "subject": "FEATURE_FLAGS"}
+ ],
+ "refusals": []
+}

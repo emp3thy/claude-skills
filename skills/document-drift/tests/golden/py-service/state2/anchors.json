@@ -577,8 +577,8 @@
   },
   "docs/design.md": {
    "anchored": 1,
-   "blocks": 4,
-   "blocks_noref": 1,
+   "blocks": 5,
+   "blocks_noref": 2,
    "rate": 0.3333,
    "references": 3,
    "status": "weak"

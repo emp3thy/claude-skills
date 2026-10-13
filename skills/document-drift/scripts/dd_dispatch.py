@@ -363,8 +363,10 @@ def validate_review(obj: Any) -> list[str]:
     return problems
 
 
-def validate_gap(obj: Any) -> list[str]:
-    """Problems with a gap output (spec 8.4); empty when valid."""
+def validate_gap(obj: Any, target: str | None = None) -> list[str]:
+    """Problems with a gap output (spec 8.4); empty when valid. ``target`` is the plan entry's
+    target doc: an edit aimed at any other doc is a problem too, so it is retried rather than
+    taken as a candidate for a doc no gap agent was given."""
     if not isinstance(obj, dict):
         return ["output is not a JSON object"]
     problems = _fields(obj, "output", {"doc": "str", "edits": "list", "refusals": "list"})
@@ -374,6 +376,8 @@ def validate_gap(obj: Any) -> list[str]:
             path = edit.get("doc") if isinstance(edit, dict) else None
             if isinstance(path, str) and (not path.strip() or path == obj.get("doc")):
                 problems.append(f"edits[{n}]: doc {path!r} is not the target doc's path")
+            elif isinstance(path, str) and target is not None and path != target:
+                problems.append(f"edits[{n}]: doc {path!r} is not the target doc {target!r}")
     for n, refusal in enumerate(obj.get("refusals") or []):
         where = f"refusals[{n}]"
         problems += _fields(refusal, where, {"name": "str", "kind": "str", "reason": "str"})
@@ -425,7 +429,7 @@ def _problems(workdir: Path, entry: PlanEntry) -> list[str]:
     if role == "review":
         problems, key = validate_review(obj), "unit"
     elif role == "gap":
-        problems, key = validate_gap(obj), "doc"
+        problems, key = validate_gap(obj, entry.get("doc")), "doc"
     else:
         problems, key = validate_verdicts(obj, entry.get("edits", [])), "batch"
     if isinstance(obj, dict) and isinstance(obj.get(key), str) and obj[key] != entry["id"]:

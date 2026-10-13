@@ -95,6 +95,14 @@
    "line": 10,
    "name": "/api/items/:id",
    "parent": null
+  },
+  {
+   "file": "src/server.ts",
+   "hidden": false,
+   "kind": "route",
+   "line": 14,
+   "name": "/healthz",
+   "parent": null
   }
  ],
  "names_then": [],

@@ -18,7 +18,7 @@
     {
      "end": 15,
      "file": "src/api/client.ts",
-     "line": 14,
+     "line": 15,
      "reading": [
       11,
       15
@@ -29,8 +29,12 @@
    ],
    "sections": [
     [
-     10,
-     14
+     3,
+     10
+    ],
+    [
+     11,
+     15
     ]
    ]
   },
@@ -95,7 +99,7 @@
    }
   ]
  },
- "last_run": "a55160398a51008f74c4352a0346fffca3d895a8",
+ "last_run": "ae474733522efc413b50c519be905b0a50088078",
  "last_run_source": "commit",
  "mode": "later",
  "review": {
@@ -107,8 +111,8 @@
   ],
   "docs/api.md": [
    [
-    10,
-    14
+    3,
+    15
    ]
   ],
   "docs/cli.md": [
@@ -124,5 +128,5 @@
    ]
   ]
  },
- "scope": "since a55160398a51008f74c4352a0346fffca3d895a8"
+ "scope": "since ae474733522efc413b50c519be905b0a50088078"
 }

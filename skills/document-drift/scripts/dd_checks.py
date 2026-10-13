@@ -30,7 +30,8 @@
 - ``guarantee`` (human ``guarantee-mismatch``): a guarantee word of ``old`` is missing from
   ``new`` (the words compared as a multiset, case-insensitive, whole words).
 - ``large-deletion`` (human): a ``remove`` or ``unverified`` edit deletes more than
-  ``max_delete_lines`` lines or a heading line (a heading block of the markdown scanner).
+  ``max_delete_lines`` lines (for ``unverified``, the block's lines without its notice line,
+  spec 7.3) or a heading line (a heading block of the markdown scanner).
 - ``large-section`` (human): an ``add`` edit's ``new`` has more than ``max_section_lines`` lines
   beyond ``old``'s.
 - ``new-reference`` (dropped): a path token of ``new`` (phase 1 extractor) that ``old`` lacks
@@ -381,8 +382,10 @@ def _large_deletion(edit: dict[str, Any], ctx: Context) -> str | None:
         return None
     start, end = int(edit["start_line"]), int(edit["end_line"])
     limit = _setting(ctx, "max_delete_lines", MAX_DELETE_LINES)
-    if end - start + 1 > limit:
-        return f"deletes {end - start + 1} lines (more than {limit})"
+    # an unverified removal's range starts at its notice line; spec 7.3 measures the block
+    lines = end - start + 1 - (1 if edit["type"] == "unverified" else 0)
+    if lines > limit:
+        return f"deletes {lines} lines (more than {limit})"
     heads = ctx.headings.get(edit["doc"], set())
     for line in range(start, end + 1):
         if line in heads:
