@@ -808,9 +808,9 @@ out of order (exit 2). Each stage prints one line naming its plan file and entry
 
 | Stage | Steps (module) | Files written | Then the session dispatches |
 |---|---|---|---|
-| `start` | preflight (`dd_preflight`); inventory (`dd_inventory`); references (`dd_extract`, `dd_resolve`); definition index (`dd_defindex`); anchors and checkability (`dd_anchors`); run mode and change set (`dd_changes`); review units (`dd_units`); pattern scan (`dd_patterns`); gaps and targets (`dd_gaps`); notice decisions (`dd_unverified`); plan (`dd_dispatch`) | `preflight.json`, `inventory.json`, `tokens.json`, `candidates.json`, `defindex.json`, `anchors.json`, `changes.json`, `units.json`, `patterns.json`, `gaps.json`, `notices.json`, `plan-docs.json`, `prompts/review-uNNN.md`, `prompts/gap-gNNN.md` | one review agent per unit (`review/uNNN.json`) and one gap agent per target doc (`gaps/gNNN.json`); when the plan is empty, nothing, and the session goes straight to `finish` |
+| `start` | preflight (`dd_preflight`); inventory (`dd_inventory`); path and anchor tokens and their resolution at HEAD (`dd_extract`, `dd_resolve`; `dd_changes` reads the unresolved paths of `candidates.json`); definition index (`dd_defindex`); anchors and checkability (`dd_anchors`); run mode and change set (`dd_changes`); review units (`dd_units`); pattern scan (`dd_patterns`); gaps and targets (`dd_gaps`); notice decisions (`dd_unverified`); plan (`dd_dispatch`) | `preflight.json`, `inventory.json`, `tokens.json`, `candidates.json`, `defindex.json`, `anchors.json`, `changes.json`, `units.json`, `patterns.json`, `gaps.json`, `notices.json`, `plan-docs.json`, `prompts/review-uNNN.md`, `prompts/gap-gNNN.md` | one review agent per unit (`review/uNNN.json`) and one gap agent per target doc (`gaps/gNNN.json`); when the plan is empty, nothing, and the session goes straight to `finish` |
 | `verify` | output validation (`dd_dispatch`); the review agents' `unverified_blocks` as notice nominations (`dd_unverified`); script checks and verify batches (`dd_checks`) | `retry.json` (when needed), `notices.json`, `edits.json`, `plan-verify.json`, `prompts/verify-vNN.md` | one verifier agent per batch of at most 10 edits (`verdicts/vNN.json`) |
-| `finish` | output validation and verdicts (`dd_dispatch`); tree check (any file outside the workdir that changed since preflight refuses the run, exit 2); apply, re-scan and revert, heading link updates (`dd_apply`); commits (`dd_commit`); last-run record; summary (`dd_summary`) | `verdicts.json`, `applied.json`, `commits.json`, `commit-msg-corrections.txt`, `commit-msg-additions.txt`, `last-run.json`, `summary.md` | nothing |
+| `finish` | output validation and verdicts (`dd_dispatch`); tree check (HEAD no longer the preflight HEAD, a clean branch switch included, or any file outside the workdir that changed since preflight refuses the run, exit 2, before anything is applied); apply, re-scan and revert, heading link updates (`dd_apply`); commits (`dd_commit`); last-run record; summary (`dd_summary`) | `verdicts.json`, `applied.json`, `commits.json`, `commit-msg-corrections.txt`, `commit-msg-additions.txt`, `last-run.json`, `summary.md` | nothing |
 
 `start` deletes `preflight.json` first and, once preflight passes, every other pinned output of
 an earlier run except `last-run.json`, so a stale file is never read again and a refused start
@@ -857,8 +857,12 @@ one under `min_anchor_ratio` or with fewer than 3 anchors weakly anchored.
 `--full` or no record makes a first run. A first run reviews every doc in full; a later run
 diffs `<last-run commit>..HEAD` (`git diff -U0`) and reviews only the affected docs: an anchor
 whose change range a hunk touches, a reference that resolved at the last-run commit and no
-longer does, or a doc that itself changed (its changed sections). Affected docs are packed into
-review units within `unit_lines` (`dd_units`), linked when they share a definition.
+longer does, or a doc that itself changed (its changed sections). A name is resolved against
+the definition index as it was at that commit; a path in a code span or link that
+`candidates.json` lists as unresolved at HEAD is affected when it named a file or directory of
+that commit's tree, relative to its doc or the root, and its review range is the block holding
+it. Affected docs are packed into review units within `unit_lines` (`dd_units`), linked when
+they share a definition.
 
 **Review** (prompts `review-first.md`, `review-later.md`): the agent checks the statements in
 its ranges against the code and writes `correct`, `remove` and `anchor` edits (an `anchor` edit
@@ -870,9 +874,11 @@ and `unsure` questions, `code_claims` per doc and `unverified_blocks`.
 where the hash is the first 8 hex digits of the SHA-256 of the block's whitespace-collapsed
 text. On every run the script reads each notice: an anchored block, a changed hash or a
 `drift-ignore` marker clears it; an unchanged 1st notice becomes a 2nd notice and an
-`unverified` human-decision entry; an unchanged 2nd notice removes the block and its notice. A
-malformed notice, or one whose run id is dated after the current run's date, is listed as stale
-and left alone. Notice edits go through the script checks but not to a verifier.
+`unverified` human-decision entry; an unchanged 2nd notice removes the block and its notice
+(a block of more than `max_delete_lines` lines, its notice line not counted, goes to a human as
+`large-deletion` instead). A malformed notice, or one whose run id is dated after the current
+run's date, is listed as stale and left alone. Notice edits go through the script checks but
+not to a verifier.
 
 ### Code to docs
 

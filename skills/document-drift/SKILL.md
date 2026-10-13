@@ -108,7 +108,7 @@ refused).
 | `--base <ref>` | Compare against `<ref>` instead of the last drift run. An unknown ref is refused. |
 | `--full` | A first run (every doc reviewed in full) regardless of any previous run. |
 | `--branch <name>` | The branch to create. Default `docs/drift-<YYYY-MM-DD>`, or the `branch` pattern in `.document-drift.yaml`. |
-| `--check` | Run through verification and stop: no doc edit, no branch, no commit, no last-run record. The summary lists every edit that would apply as a commit bullet; `finish` exits 1 when an edit would apply (an accepted edit, or a kept notice edit, which needs no verdict). Runs from a detached HEAD or a dirty tree too. |
+| `--check` | Run through verification and stop: no doc edit, no branch, no commit, no last-run record. The summary lists every edit that would apply as a commit bullet; `finish` exits 1 when an edit would apply (an accepted edit, or a kept notice edit, which needs no verdict). Runs from a detached HEAD or a dirty tree too; results are judged against the working tree, and a dirty indexed file can shift line ranges. |
 | `--workdir <dir>` | Where the run's files go. Default `<repo>/.document-drift`, added to `.git/info/exclude`, never committed. Pass it only when the user asks, and then to every stage. |
 | `--date <YYYY-MM-DD>` | Fixes the branch date and run id (for tests). Pass it only when the user asks. |
 | `--retried` | Only on the rerun of a stage that exited 3, after dispatching `retry.json`. An output still missing or invalid then leaves its unit or batch unchecked, and the run goes on. |
@@ -124,7 +124,8 @@ top level), has no commits, or when `--base` names an unknown ref. Outside `--ch
 refuses a detached HEAD, uncommitted changes, an existing target branch, a missing git author
 identity (`user.name` and `user.email`) and an invalid branch name. Any stage refuses when it
 is run out of order or with a flag that differs from the one `start` recorded, and `finish`
-refuses, naming them, when files outside the workdir changed during the run.
+refuses, before it applies anything, when HEAD moved during the run (naming both commits; a
+branch switch counts) or when files outside the workdir changed during the run (naming them).
 
 ## Exit codes
 
@@ -132,7 +133,7 @@ refuses, naming them, when files outside the workdir changed during the run.
 |-----:|---------|-----------------------|
 | 0 | The stage succeeded. From `finish`: with edits, the branch exists with its commits and the user is on it; without edits, no branch was created. | After `start` and `verify`, nothing: go on to the next step. After `finish`, the final message below. |
 | 1 | `finish` under `--check` only: an edit would apply (an accepted edit, or a kept notice edit). Nothing was changed. | The printed summary; a run without `--check` would commit those edits. |
-| 2 | Refused before any change. | The error line verbatim and what to fix (commit or stash, check out a branch, choose another `--branch`, set the git identity, run the stages in order with the same flags, leave the working tree alone during a run). |
+| 2 | Refused before any change. | The error line verbatim and what to fix (commit or stash, check out a branch, choose another `--branch`, set the git identity, run the stages in order with the same flags, leave the working tree and the checked-out branch alone during a run). |
 | 3 | The previous agent wave left missing or invalid output files; the stage wrote `retry.json` and changed nothing else. | Nothing: dispatch the `retry.json` entries once and rerun the same stage with `--retried`. |
 | 5 | A script step crashed or a script's own expected output is missing. The message names the step; a crash outside a step names none, and at `finish` its message already carries the `git status` and `git branch` pointer. | The error line verbatim. Stop: do not edit docs by hand. When the step is `apply`, `commit` or `summary`, docs may already be edited and the drift branch may exist: tell the user to check `git status` and `git branch`. |
 | 6 | The commit failed after the edits were applied to the working tree. | The error line verbatim: it says where the edits are. Do not retry; the user decides. |
