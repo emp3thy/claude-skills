@@ -69,7 +69,8 @@ from dd_make_history import CORPUS_ROOT, continue_fixture, replay_fixture
 FIXTURES: tuple[str, ...] = ("py-service", "ts-web", "go-cli")  # the phase A fixtures
 CANNED_ROOT = Path(__file__).resolve().parent / "canned"
 DATES = {1: "2026-01-02", 2: "2026-01-09"}  # each state's run date (--date)
-ROLE_DIRS = {"review": "review", "gap": "gaps", "verify": "verdicts", "sheet": "sheets"}
+ROLE_DIRS = {"review": "review", "gap": "gaps", "verify": "verdicts", "sheet": "sheets",
+             "readme": "readme"}
 STATES = (1, 2)
 
 
@@ -150,13 +151,20 @@ def _canned_verdicts(canned: Path) -> dict[str, dict[str, Any]]:
 
 
 def answer(workdir: Path, plan_name: str, canned: Path, invalid: Path | None = None) -> None:
-    """Write the canned output of every entry of plan ``plan_name``: a review, gap or sheet
-    entry gets ``canned/<role dir>/<output name>`` (or ``invalid/<output name>`` when that
-    exists); a verify entry gets the canned verdicts of its batch's edits, found by edit id."""
+    """Write the canned output of every entry of plan ``plan_name``: a review, gap, sheet or
+    readme entry gets ``canned/<role dir>/<output name>`` (or ``invalid/<output name>`` when
+    that exists); a verify entry gets the canned verdicts of its batch's edits, found by edit
+    id, and a README batch (``statements``) an ``accept`` for each statement."""
     plan: list[dict[str, Any]] = read_json(workdir / plan_name)
     verdicts: dict[str, dict[str, Any]] | None = None
     for entry in plan:
         out = Path(entry["output"])
+        if entry["role"] == "verify" and "statements" in entry:  # a README batch
+            batch = {"batch": entry["id"],
+                     "verdicts": [{"statement": s, "verdict": "accept", "reason": "canned"}
+                                  for s in entry["statements"]]}
+            out.write_text(json.dumps(batch, indent=1) + "\n", encoding="utf-8")
+            continue
         if entry["role"] == "verify":
             if verdicts is None:
                 verdicts = _canned_verdicts(canned)

@@ -36,15 +36,19 @@ case-insensitively; an excluded or ignored one counts too), and prints ``readme:
   with at least one valid sheet, the writer's ``plan-readme.json`` (printing its line), else
   an empty ``plan-readme.json`` and ``readme: no sheet; nothing to compose``.
 - ``verify`` validates the review and gap outputs (in README mode the writer's output too,
-  in the same ``retry.json``); without ``--retried`` a missing or invalid output writes
+  shape and citation check against the config's ``readme_lines``, in the same
+  ``retry.json``); without ``--retried`` a missing or invalid output writes
   ``retry.json``, prints ``retry.json <path> with <n> entries`` and exits 3, changing
   nothing else; with it those entries are unchecked. Without ``--retried`` the ranges
   a valid review output reports as ``not_reviewed`` become retry units (``dd_units.retry_units``
   appends them to ``units.json``, ``dd_dispatch.plan_retry`` to ``plan-docs.json``) listed in
   the same ``retry.json``; with it those ranges are listed in ``edits.json`` as not reviewed.
   Then it adds the review agents' ``unverified_blocks`` as notice nominations, runs the script
-  checks (``edits.json``, ``plan-verify.json``) and prints ``plan-verify.json <path> with <n>
-  entries``.
+  checks (``edits.json``, ``plan-verify.json``), in README mode the README check
+  (``dd_readme.check_step``: ``readme.json``, the ``create`` edit and the statement batches
+  appended to ``edits.json`` and ``plan-verify.json``; a writer output still invalid after
+  the retry, or none, is recorded in ``readme.json`` as ``invalid``), and prints
+  ``plan-verify.json <path> with <n> entries``, README batches included.
 - ``finish`` validates the verifier outputs the same way, writes ``verdicts.json`` and refuses
   (exit 2) when HEAD is no longer the preflight HEAD (naming both shas; a clean branch switch
   leaves the tree clean) or a file outside the workdir changed since preflight (naming them,
@@ -91,6 +95,7 @@ import dd_gaps
 import dd_inventory
 import dd_patterns
 import dd_preflight
+import dd_readme
 import dd_resolve
 import dd_sheets
 import dd_summary
@@ -284,14 +289,15 @@ def _resume(workdir: Path, given: dict[str, Any]) -> dict[str, Any]:
 
 
 def _failed(workdir: Path, plan: list[dd_dispatch.PlanEntry], roles: tuple[str, ...], *,
-            root: Path | None = None,
-            require_hints: bool = True) -> list[dd_dispatch.PlanEntry]:
+            root: Path | None = None, require_hints: bool = True,
+            readme_lines: int | None = None) -> list[dd_dispatch.PlanEntry]:
     """The ``roles`` entries of ``plan`` whose output failed validation; ``root`` and
-    ``require_hints`` go to the sheet validator."""
+    ``require_hints`` go to the sheet validator, ``readme_lines`` to the writer's check."""
     failed: list[dd_dispatch.PlanEntry] = []
     for role in roles:
         failed += dd_dispatch.check_outputs(workdir, plan, role, root=root,
-                                            require_hints=require_hints)[1]
+                                            require_hints=require_hints,
+                                            readme_lines=readme_lines)[1]
     return failed
 
 
@@ -367,7 +373,8 @@ def stage_verify(root: Path, workdir: Path, *, retried: bool,
     plan: list[dd_dispatch.PlanEntry] = read_json(workdir / "plan-docs.json")
     writer: list[dd_dispatch.PlanEntry] = (read_json(workdir / "plan-readme.json")
                                            if readme else [])
-    bad = _failed(workdir, plan, ("review", "gap")) + _failed(workdir, writer, ("readme",))
+    bad = _failed(workdir, plan, ("review", "gap")) + _failed(
+        workdir, writer, ("readme",), readme_lines=int(config["readme_lines"]))
     failed = frozenset(e["id"] for e in bad)
     if not retried:
         retry = list(bad)
@@ -389,6 +396,9 @@ def stage_verify(root: Path, workdir: Path, *, retried: bool,
           lambda: dd_unverified.run_verify(root, workdir, nominations, run_id))
     _step("checks", workdir, ("edits.json", "plan-verify.json"),
           lambda: dd_checks.run(root, workdir, config, failed))
+    if readme:  # the README's create edit and statement batches join edits and plan-verify
+        _step("readme", workdir, ("readme.json",),
+              lambda: dd_readme.check_step(root, workdir, config, failed))
     _record(workdir, stage="verify")
     _say_plan(workdir, "plan-verify.json", len(read_json(workdir / "plan-verify.json")))
     return EXIT_OK

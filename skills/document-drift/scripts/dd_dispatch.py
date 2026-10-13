@@ -11,12 +11,19 @@ and ``output`` are absolute POSIX-style paths inside the workdir. Gap entries al
   ``gaps/gNNN.json``). Both inputs are already within their caps.
 - ``plan_verify`` writes ``plan-verify.json``: one entry per batch within ``caps.verify``
   (ids ``v01``..., prompt ``prompts/verify-vNN.md``, output ``verdicts/vNN.json``).
+- ``plan_verify_readme`` appends the README's statement batches to ``plan-verify.json``
+  (phase B spec 7): the statements without ``prereject``, grouped by ``section`` in README
+  order and cut into batches of ``caps.readme_batch`` (a batch never mixes sections; the
+  ``caps.verify`` cap is phase A's alone), ids continuing after the ones already there, key
+  ``statements``, prompt from ``verify-readme``.
 - ``plan_retry`` appends review entries for the retry units of ``dd_units.retry_units`` to
   ``plan-docs.json`` and writes their prompts; ``not_reviewed`` collects, per valid review
   output, the ranges its agent reported as ``not_reviewed`` (an optional key).
 - ``plan_readme`` writes ``plan-readme.json``: one writer entry ``r001`` (prompt
   ``prompts/readme-r001.md``, output ``readme/r001.json``) rendered from ``sheets.json``.
-- ``check_outputs`` validates a wave's outputs; ``write_retry`` writes ``retry.json``;
+- ``check_outputs`` validates a wave's outputs (a writer output also by
+  ``dd_readme.structural_problems`` against ``sheets.json`` and ``readme_lines``, a README
+  batch's verdicts by ``validate_readme_verdicts``); ``write_retry`` writes ``retry.json``;
   ``collect_verdicts`` writes ``verdicts.json``.
 
 Templates live in ``prompts/`` next to the scripts directory; ``{{name}}`` placeholders are
@@ -34,6 +41,7 @@ from pathlib import Path
 from typing import Any, NotRequired, TypedDict, TypeGuard
 
 from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json, write_json
+from dd_config import DEFAULTS
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 CONTEXT_LINES = 10
@@ -62,6 +70,7 @@ class PlanEntry(TypedDict):
     model: str
     doc: NotRequired[str]
     edits: NotRequired[list[str]]
+    statements: NotRequired[list[str]]
 
 
 # ---------------------------------------------------------------- rendering
@@ -437,6 +446,74 @@ def plan_verify(root: Path, workdir: Path, batches: Sequence[Sequence[Mapping[st
     return plan
 
 
+def _cited_line(cid: str, entry: Mapping[str, Any] | None) -> str:
+    if entry is None:
+        return f"- {cid}: (not in sheets.json)"
+    if "name" in entry:
+        return (f"- {cid}: {entry['kind']} `{entry['name']}`, {entry['summary']}, "
+                f"{entry['defined_at']}")
+    return f"- {cid}: {entry['statement']} ({', '.join(str(e) for e in entry['evidence'])})"
+
+
+def _statement_value(statement: Mapping[str, Any], entries: Mapping[str, Mapping[str, Any]],
+                     lines: Sequence[str]) -> str:
+    """One statement of a README batch: its text, the cited sheet entries and the README
+    around it, numbered."""
+    start, end = int(statement["start_line"]), int(statement["end_line"])
+    cited = [_cited_line(str(c), entries.get(str(c))) for c in statement["cites"]]
+    low, high = max(1, start - CONTEXT_LINES), min(len(lines), end + CONTEXT_LINES)
+    numbered = "\n".join(f"{n}: {lines[n - 1]}" for n in range(low, high + 1))
+    return "\n".join([
+        f"### Statement {statement['id']} (section {statement['section'] or 'none'}, "
+        f"lines {start}-{end})", "",
+        "Text:", _fence(str(statement["text"])), "",
+        "Cited sheet entries:", *(cited or ["(none)"]), "",
+        f"The README around it (lines {low}-{high}):", _fence(numbered)])
+
+
+def plan_verify_readme(root: Path, workdir: Path, statements: Sequence[Mapping[str, Any]],
+                       config: Mapping[str, Any]) -> list[PlanEntry]:
+    """Append the README statements' verifier batches to ``plan-verify.json`` and write their
+    prompts; ``readme.json`` and ``sheets.json`` give the README text and the cited
+    entries."""
+    path = workdir / "plan-verify.json"
+    existing: list[PlanEntry] = read_json(path) if path.is_file() else []
+    groups: list[list[Mapping[str, Any]]] = []
+    for statement in statements:
+        if statement.get("prereject"):
+            continue
+        if groups and groups[-1][0]["section"] == statement["section"]:
+            groups[-1].append(statement)
+        else:
+            groups.append([statement])
+    size = int(config["caps"]["readme_batch"])
+    batches = [group[i:i + size] for group in groups for i in range(0, len(group), size)]
+    plan: list[PlanEntry] = []
+    if batches:
+        (workdir / "verdicts").mkdir(parents=True, exist_ok=True)
+        text = str(_require(workdir, "readme.json", "dd_readme")["text"])
+        lines = re.split(r"\r?\n", text)  # as dd_readme numbers them
+        if lines and lines[-1] == "":
+            lines.pop()
+        sheets = _require(workdir, "sheets.json", "dd_sheets")
+        entries = {str(e["id"]): e for sheet in sheets["sheets"].values()
+                   for key in ("surface", "behaviours") for e in sheet.get(key, [])}
+        number = max((int(e["id"][1:]) for e in existing if re.fullmatch(r"v\d+", e["id"])),
+                     default=0)
+        repo = root.resolve().as_posix()
+        for batch in batches:
+            number += 1
+            entry = _entry(workdir, f"v{number:02d}", "verify", str(config["models"]["verify"]))
+            entry["statements"] = [str(s["id"]) for s in batch]
+            _write_prompt(entry, render("verify-readme", {
+                "repo": repo, "batch": entry["id"], "output": entry["output"],
+                "statements": "\n\n".join(_statement_value(s, entries, lines)
+                                          for s in batch)}))
+            plan.append(entry)
+    write_json(path, [*existing, *plan])
+    return plan
+
+
 # ---------------------------------------------------------------- validation
 
 def _is_int(value: Any) -> TypeGuard[int]:
@@ -602,9 +679,9 @@ def validate_readme(obj: Any) -> list[str]:
     return problems
 
 
-def validate_verdicts(obj: Any, expected_ids: Iterable[str]) -> list[str]:
-    """Problems with a verifier output (spec 9.2): every expected edit id exactly once, no
-    other id; empty when valid."""
+def _verdict_problems(obj: Any, expected_ids: Iterable[str], key: str) -> list[str]:
+    """Problems with a verifier output whose verdicts name their ``key`` (``edit`` or
+    ``statement``): every expected id exactly once, no other id; empty when valid."""
     if not isinstance(obj, dict):
         return ["output is not a JSON object"]
     problems = _fields(obj, "output", {"batch": "str", "verdicts": "list"})
@@ -612,27 +689,52 @@ def validate_verdicts(obj: Any, expected_ids: Iterable[str]) -> list[str]:
     counts = dict.fromkeys(expected, 0)
     for n, verdict in enumerate(obj.get("verdicts") or []):
         where = f"verdicts[{n}]"
-        problems += _fields(verdict, where, {"edit": "str", "verdict": "str", "reason": "str"})
+        problems += _fields(verdict, where, {key: "str", "verdict": "str", "reason": "str"})
         if not isinstance(verdict, dict):
             continue
         if isinstance(verdict.get("verdict"), str) and verdict["verdict"] not in VERDICTS:
             problems.append(f"{where}: verdict {verdict['verdict']!r} is not one of "
                             f"{', '.join(VERDICTS)}")
-        eid = verdict.get("edit")
+        eid = verdict.get(key)
         if isinstance(eid, str):
             if eid not in counts:
-                problems.append(f"{where}: edit {eid!r} is not in this batch")
+                problems.append(f"{where}: {key} {eid!r} is not in this batch")
             else:
                 counts[eid] += 1
-    problems += [f"edit {eid!r} has no verdict" for eid, c in counts.items() if c == 0]
-    problems += [f"edit {eid!r} has {c} verdicts" for eid, c in counts.items() if c > 1]
+    problems += [f"{key} {eid!r} has no verdict" for eid, c in counts.items() if c == 0]
+    problems += [f"{key} {eid!r} has {c} verdicts" for eid, c in counts.items() if c > 1]
     return problems
 
 
+def validate_verdicts(obj: Any, expected_ids: Iterable[str]) -> list[str]:
+    """Problems with a verifier output (spec 9.2): every expected edit id exactly once, no
+    other id; empty when valid."""
+    return _verdict_problems(obj, expected_ids, "edit")
+
+
+def validate_readme_verdicts(obj: Any, expected_ids: Iterable[str]) -> list[str]:
+    """Problems with a README batch's verifier output (phase B spec 7): as
+    ``validate_verdicts``, each verdict naming its ``statement``."""
+    return _verdict_problems(obj, expected_ids, "statement")
+
+
+def _readme_problems(workdir: Path, obj: Any, readme_lines: int | None) -> list[str]:
+    """``dd_readme.structural_problems`` for a well-formed writer output, against
+    ``sheets.json`` and ``readme_lines`` (the default when None)."""
+    from dd_readme import structural_problems  # dd_readme imports this module
+
+    path = workdir / "sheets.json"
+    if not path.is_file():
+        return ["sheets.json is missing"]
+    lines = int(DEFAULTS["readme_lines"]) if readme_lines is None else readme_lines
+    return structural_problems(obj, read_json(path), lines)
+
+
 def _problems(workdir: Path, entry: PlanEntry, root: Path | None = None, *,
-              require_hints: bool = True) -> list[str]:
+              require_hints: bool = True, readme_lines: int | None = None) -> list[str]:
     """Why ``entry``'s output is unusable: missing, not JSON, invalid, or another entry's.
-    ``require_hints`` is ``dd_sheets.validate``'s, for a sheet."""
+    ``require_hints`` is ``dd_sheets.validate``'s, for a sheet; ``readme_lines`` the config's,
+    for the README writer (the default when None)."""
     path = Path(entry["output"])
     if not path.is_absolute():
         path = workdir / path
@@ -649,8 +751,10 @@ def _problems(workdir: Path, entry: PlanEntry, root: Path | None = None, *,
         problems, key = validate_gap(obj, entry.get("doc")), "doc"
     elif role == "sheet":
         problems, key = validate_sheet(obj), "area"
-    elif role == "readme":
-        return validate_readme(obj)  # one writer: no id key to compare
+    elif role == "readme":  # one writer: no id key to compare
+        return validate_readme(obj) or _readme_problems(workdir, obj, readme_lines)
+    elif "statements" in entry:
+        problems, key = validate_readme_verdicts(obj, entry["statements"]), "batch"
     else:
         problems, key = validate_verdicts(obj, entry.get("edits", [])), "batch"
     if isinstance(obj, dict) and isinstance(obj.get(key), str) and obj[key] != entry["id"]:
@@ -680,14 +784,16 @@ def _sheet_content_problems(workdir: Path, entry: PlanEntry, obj: Any,
 
 def check_outputs(workdir: Path, plan: Sequence[PlanEntry], role: str, *,
                   root: Path | None = None,
-                  require_hints: bool = True) -> tuple[list[str], list[PlanEntry]]:
+                  require_hints: bool = True,
+                  readme_lines: int | None = None) -> tuple[list[str], list[PlanEntry]]:
     """The ids of ``role`` entries whose output is valid, and the entries that failed."""
     valid: list[str] = []
     failed: list[PlanEntry] = []
     for entry in plan:
         if entry["role"] != role:
             continue
-        if _problems(workdir, entry, root=root, require_hints=require_hints):
+        if _problems(workdir, entry, root=root, require_hints=require_hints,
+                     readme_lines=readme_lines):
             failed.append(entry)
         else:
             valid.append(entry["id"])
@@ -701,19 +807,24 @@ def write_retry(workdir: Path, failed: Sequence[PlanEntry]) -> None:
 
 def collect_verdicts(workdir: Path, plan: Sequence[PlanEntry]) -> dict[str, Any]:
     """Write ``verdicts.json``: each verdict of a valid batch output; every edit of a batch
-    whose output is missing or invalid is unverified."""
-    verdicts: dict[str, dict[str, str]] = {}
-    unverified: list[str] = []
+    whose output is missing or invalid is unverified. README batches (``statements``) go to
+    ``readme`` and ``readme_unverified``, which are empty without a README."""
+    found: dict[str, dict[str, dict[str, str]]] = {"edit": {}, "statement": {}}
+    missing: dict[str, list[str]] = {"edit": [], "statement": []}
     for entry in plan:
         if entry["role"] != "verify":
             continue
+        key = "statement" if "statements" in entry else "edit"
         if _problems(workdir, entry):
-            unverified += entry.get("edits", [])
+            missing[key] += (entry.get("statements", []) if key == "statement"
+                             else entry.get("edits", []))
             continue
         for verdict in read_json(Path(entry["output"]))["verdicts"]:
-            verdicts[verdict["edit"]] = {"verdict": verdict["verdict"],
-                                         "reason": verdict["reason"]}
-    result: dict[str, Any] = {"verdicts": verdicts, "unverified": unverified}
+            found[key][verdict[key]] = {"verdict": verdict["verdict"],
+                                        "reason": verdict["reason"]}
+    result: dict[str, Any] = {"verdicts": found["edit"], "unverified": missing["edit"],
+                              "readme": found["statement"],
+                              "readme_unverified": missing["statement"]}
     write_json(workdir / "verdicts.json", result)
     return result
 

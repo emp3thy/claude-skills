@@ -736,3 +736,56 @@ def test_readme_below_the_root_still_triggers(tmp_path: Path,
     assert _run(repo, "start") == 0
     assert capsys.readouterr().out.startswith("readme: yes\n")
     assert read_json(repo / ".document-drift" / "preflight.json")["readme"] is True
+
+
+def test_verify_in_readme_mode_checks_the_writer_output_and_plans_batches(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path, {"src/app.py": APP})  # no doc at all: README mode past exit 3
+    workdir = repo / ".document-drift"
+    _start_and_answer(repo)
+    assert _run(repo, "compose") == 0
+    _answer(repo, "plan-readme.json")
+    capsys.readouterr()
+    assert _run(repo, "verify") == 0
+    plan = _plan(repo, "plan-verify.json")
+    assert capsys.readouterr().out == (
+        f"plan-verify.json {(workdir / 'plan-verify.json').as_posix()} with 3 entries\n")
+    assert [(e["id"], e["role"], e["statements"]) for e in plan] == [
+        ("v01", "verify", ["r-s001"]), ("v02", "verify", ["r-s002", "r-s003"]),
+        ("v03", "verify", ["r-s004", "r-s005"])]
+    assert all(Path(e["prompt"]).is_file() for e in plan)
+    readme = read_json(workdir / "readme.json")
+    assert readme["cites_added"] == 1 and readme["cited_unnamed"] == 0
+    assert [(s["kind"], s["section"]) for s in readme["statements"]] == [
+        ("paragraph", "demo"), ("row", "Environment variables"),
+        ("row", "Environment variables"), ("item", "Functions"), ("item", "Functions")]
+    edits = read_json(workdir / "edits.json")
+    assert [(e["id"], e["type"], e["source"], e["status"], e["statements"])
+            for e in edits["edits"]] == [("r001", "create", "readme", "kept", 5)]
+    assert edits["human"] == []
+    assert read_json(workdir / "preflight.json")["stage"] == "verify"
+    _answer(repo, "plan-verify.json")  # canned statement verdicts validate
+    assert all(not dd_run.dd_dispatch._problems(workdir, e) for e in plan)
+
+
+def test_invalid_writer_output_is_retried_then_no_readme(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo_no_readme(tmp_path)
+    workdir = repo / ".document-drift"
+    _start_and_answer(repo)
+    assert _run(repo, "compose") == 0
+    writer = _plan(repo, "plan-readme.json")[0]
+    bad = read_json(CANNED / "readme" / "r001.json")
+    bad["text"] = bad["text"].replace("# demo", "## demo", 1)
+    write_json(Path(writer["output"]), bad)
+    capsys.readouterr()
+    assert _run(repo, "verify") == 3
+    assert read_json(workdir / "retry.json") == [writer]
+    assert not (workdir / "readme.json").exists()
+    assert _run(repo, "verify", "--retried") == 0  # the retry's output is still bad
+    assert read_json(workdir / "readme.json") == {
+        "invalid": ["the first line is not a level-one heading"]}
+    edits = read_json(workdir / "edits.json")
+    assert all(e["type"] != "create" for e in edits["edits"])
+    assert all("statements" not in e for e in _plan(repo, "plan-verify.json"))
+    assert read_json(workdir / "preflight.json")["stage"] == "verify"
