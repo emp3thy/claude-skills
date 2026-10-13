@@ -1,0 +1,6 @@
+{
+ "batch": "v02",
+ "verdicts": [
+  {"edit": "u001-e01", "verdict": "accept", "reason": "Parse registers the output flag at internal/cli/options.go:20"}
+ ]
+}

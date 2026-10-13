@@ -1,0 +1,3 @@
+# store.list is an internal maintenance tool; it is deliberately left out of the docs.
+undocumented_ok:
+  - store.list

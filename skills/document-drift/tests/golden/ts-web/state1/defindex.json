@@ -1,0 +1,729 @@
+{
+ "definitions": [
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "README.md",
+   "kind": "file",
+   "name": "README.md",
+   "norm": "README_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/api.md",
+   "kind": "file",
+   "name": "api.md",
+   "norm": "api_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/cli.md",
+   "kind": "file",
+   "name": "cli.md",
+   "norm": "cli_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/configuration.md",
+   "kind": "file",
+   "name": "configuration.md",
+   "norm": "configuration_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/frontend.md",
+   "kind": "file",
+   "name": "frontend.md",
+   "norm": "frontend_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "index.md",
+   "kind": "file",
+   "name": "index.md",
+   "norm": "index_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "package.json",
+   "kind": "file",
+   "name": "package.json",
+   "norm": "package_json",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/App.tsx",
+   "kind": "file",
+   "name": "App.tsx",
+   "norm": "App_tsx",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     4,
+     6
+    ]
+   ],
+   "end": 6,
+   "file": "src/App.tsx",
+   "kind": "function",
+   "name": "renderApp",
+   "norm": "renderApp",
+   "owners": [],
+   "reading": [
+    4,
+    6
+   ],
+   "start": 4
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/api/client.ts",
+   "kind": "file",
+   "name": "client.ts",
+   "norm": "client_ts",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     3,
+     3
+    ]
+   ],
+   "end": 3,
+   "file": "src/api/client.ts",
+   "kind": "function",
+   "name": "PAGE_SIZE",
+   "norm": "PAGE_SIZE",
+   "owners": [],
+   "reading": [
+    3,
+    3
+   ],
+   "start": 3
+  },
+  {
+   "change_ranges": [
+    [
+     11,
+     15
+    ]
+   ],
+   "end": 15,
+   "file": "src/api/client.ts",
+   "kind": "function",
+   "name": "fetchItems",
+   "norm": "fetchItems",
+   "owners": [],
+   "reading": [
+    11,
+    15
+   ],
+   "start": 11
+  },
+  {
+   "change_ranges": [
+    [
+     17,
+     20
+    ]
+   ],
+   "end": 20,
+   "file": "src/api/client.ts",
+   "kind": "function",
+   "name": "fetchItem",
+   "norm": "fetchItem",
+   "owners": [],
+   "reading": [
+    17,
+    20
+   ],
+   "start": 17
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/build.ts",
+   "kind": "file",
+   "name": "build.ts",
+   "norm": "build_ts",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     8,
+     10
+    ]
+   ],
+   "end": 10,
+   "file": "src/build.ts",
+   "kind": "function",
+   "name": "buildBundle",
+   "norm": "buildBundle",
+   "owners": [],
+   "reading": [
+    8,
+    10
+   ],
+   "start": 8
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/cli.ts",
+   "kind": "file",
+   "name": "cli.ts",
+   "norm": "cli_ts",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/cli.ts",
+   "kind": "literal",
+   "name": "commander",
+   "norm": "commander",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     4,
+     4
+    ]
+   ],
+   "end": 4,
+   "file": "src/cli.ts",
+   "kind": "literal",
+   "name": "web",
+   "norm": "web",
+   "owners": [],
+   "reading": [
+    4,
+    4
+   ],
+   "start": 4
+  },
+  {
+   "change_ranges": [
+    [
+     7,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/cli.ts",
+   "kind": "reg",
+   "name": "build",
+   "norm": "build",
+   "owners": [],
+   "reading": [
+    7,
+    7
+   ],
+   "start": 7
+  },
+  {
+   "change_ranges": [
+    [
+     9,
+     9
+    ]
+   ],
+   "end": 9,
+   "file": "src/cli.ts",
+   "kind": "reg",
+   "name": "dist",
+   "norm": "dist",
+   "owners": [],
+   "reading": [
+    9,
+    9
+   ],
+   "start": 9
+  },
+  {
+   "change_ranges": [
+    [
+     10,
+     10
+    ]
+   ],
+   "end": 10,
+   "file": "src/cli.ts",
+   "kind": "reg",
+   "name": "--watch",
+   "norm": "--watch",
+   "owners": [],
+   "reading": [
+    10,
+    10
+   ],
+   "start": 10
+  },
+  {
+   "change_ranges": [
+    [
+     11,
+     11
+    ]
+   ],
+   "end": 11,
+   "file": "src/cli.ts",
+   "kind": "reg",
+   "name": "--sourcemap",
+   "norm": "--sourcemap",
+   "owners": [],
+   "reading": [
+    11,
+    11
+   ],
+   "start": 11
+  },
+  {
+   "change_ranges": [
+    [
+     12,
+     12
+    ]
+   ],
+   "end": 12,
+   "file": "src/cli.ts",
+   "kind": "reg",
+   "name": "--minify",
+   "norm": "--minify",
+   "owners": [],
+   "reading": [
+    12,
+    12
+   ],
+   "start": 12
+  },
+  {
+   "change_ranges": [
+    [
+     16,
+     16
+    ]
+   ],
+   "end": 16,
+   "file": "src/cli.ts",
+   "kind": "reg",
+   "name": "serve",
+   "norm": "serve",
+   "owners": [],
+   "reading": [
+    16,
+    16
+   ],
+   "start": 16
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/config.ts",
+   "kind": "file",
+   "name": "config.ts",
+   "norm": "config_ts",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     6
+    ]
+   ],
+   "end": 6,
+   "file": "src/config.ts",
+   "kind": "function",
+   "name": "config",
+   "norm": "config",
+   "owners": [],
+   "reading": [
+    1,
+    6
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     4,
+     4
+    ]
+   ],
+   "end": 4,
+   "file": "src/config.ts",
+   "kind": "literal",
+   "name": "info",
+   "norm": "info",
+   "owners": [
+    "config"
+   ],
+   "reading": [
+    4,
+    4
+   ],
+   "start": 4
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/helpers/format.ts",
+   "kind": "file",
+   "name": "format.ts",
+   "norm": "format_ts",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     3
+    ]
+   ],
+   "end": 3,
+   "file": "src/helpers/format.ts",
+   "kind": "function",
+   "name": "formatPrice",
+   "norm": "formatPrice",
+   "owners": [],
+   "reading": [
+    1,
+    3
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     5,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/helpers/format.ts",
+   "kind": "function",
+   "name": "formatDay",
+   "norm": "formatDay",
+   "owners": [],
+   "reading": [
+    5,
+    7
+   ],
+   "start": 5
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/main.tsx",
+   "kind": "file",
+   "name": "main.tsx",
+   "norm": "main_tsx",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     3,
+     3
+    ]
+   ],
+   "end": 3,
+   "file": "src/main.tsx",
+   "kind": "literal",
+   "name": "root",
+   "norm": "root",
+   "owners": [],
+   "reading": [
+    3,
+    3
+   ],
+   "start": 3
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/pages/ItemsPage.tsx",
+   "kind": "file",
+   "name": "ItemsPage.tsx",
+   "norm": "ItemsPage_tsx",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/pages/ItemsPage.tsx",
+   "kind": "literal",
+   "name": "react",
+   "norm": "react",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     5,
+     19
+    ]
+   ],
+   "end": 19,
+   "file": "src/pages/ItemsPage.tsx",
+   "kind": "function",
+   "name": "ItemsPage",
+   "norm": "ItemsPage",
+   "owners": [],
+   "reading": [
+    5,
+    19
+   ],
+   "start": 5
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/server.ts",
+   "kind": "file",
+   "name": "server.ts",
+   "norm": "server_ts",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/server.ts",
+   "kind": "literal",
+   "name": "express",
+   "norm": "express",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     18,
+     20
+    ]
+   ],
+   "end": 20,
+   "file": "src/server.ts",
+   "kind": "function",
+   "name": "start",
+   "norm": "start",
+   "owners": [],
+   "reading": [
+    18,
+    20
+   ],
+   "start": 18
+  }
+ ],
+ "skipped": []
+}

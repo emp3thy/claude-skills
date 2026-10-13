@@ -1,0 +1,258 @@
+{
+ "affected": {
+  "README.md": {
+   "anchor_reasons": [
+    {
+     "file": "src/svc/cli.py",
+     "hunk": [
+      17,
+      17
+     ],
+     "line": 9,
+     "ref": "--port"
+    }
+   ],
+   "doc_changed": true,
+   "missing": [],
+   "sections": [
+    [
+     5,
+     16
+    ],
+    [
+     17,
+     20
+    ]
+   ]
+  },
+  "docs/cli.md": {
+   "anchor_reasons": [
+    {
+     "file": "src/svc/cli.py",
+     "hunk": [
+      17,
+      17
+     ],
+     "line": 17,
+     "ref": "--port"
+    }
+   ],
+   "doc_changed": true,
+   "missing": [],
+   "sections": [
+    [
+     1,
+     26
+    ]
+   ]
+  },
+  "docs/configuration.md": {
+   "anchor_reasons": [],
+   "doc_changed": true,
+   "missing": [],
+   "sections": [
+    [
+     1,
+     10
+    ]
+   ]
+  },
+  "docs/design.md": {
+   "anchor_reasons": [],
+   "doc_changed": true,
+   "missing": [
+    {
+     "end": 20,
+     "file": "src/svc/storage.py",
+     "line": 5,
+     "reading": [
+      12,
+      20
+     ],
+     "ref": "storage.connect",
+     "start": 12
+    },
+    {
+     "end": 1,
+     "file": "src/svc/legacy.py",
+     "line": 18,
+     "reading": [
+      1,
+      1
+     ],
+     "ref": "../src/svc/legacy.py",
+     "start": 1
+    }
+   ],
+   "sections": [
+    [
+     3,
+     10
+    ],
+    [
+     11,
+     15
+    ]
+   ]
+  },
+  "docs/operations.md": {
+   "anchor_reasons": [
+    {
+     "file": "src/svc/cli.py",
+     "hunk": [
+      19,
+      19
+     ],
+     "line": 3,
+     "ref": "--timeout"
+    }
+   ],
+   "doc_changed": true,
+   "missing": [],
+   "sections": [
+    [
+     1,
+     3
+    ]
+   ]
+  },
+  "docs/tools.md": {
+   "anchor_reasons": [],
+   "doc_changed": true,
+   "missing": [],
+   "sections": [
+    [
+     1,
+     18
+    ]
+   ]
+  }
+ },
+ "changed_files": [
+  "README.md",
+  "docs/cli.md",
+  "docs/configuration.md",
+  "docs/design.md",
+  "docs/operations.md",
+  "docs/tools.md",
+  "src/svc/cli.py",
+  "src/svc/legacy.py",
+  "src/svc/storage.py"
+ ],
+ "hunks": {
+  "src/svc/cli.py": [
+   {
+    "file": "src/svc/cli.py",
+    "new_end": 7,
+    "new_start": 7,
+    "old_end": 7,
+    "old_start": 7,
+    "text": "-from svc.storage import Store, connect\n+from svc.storage import Store, open_store\n"
+   },
+   {
+    "file": "src/svc/cli.py",
+    "new_end": 17,
+    "new_start": 17,
+    "old_end": 17,
+    "old_start": 17,
+    "text": "-    serve.add_argument(\"--port\", type=int, default=8080)\n+    serve.add_argument(\"--port\", type=int, default=9090)\n"
+   },
+   {
+    "file": "src/svc/cli.py",
+    "new_end": 19,
+    "new_start": 19,
+    "old_end": 17,
+    "old_start": 18,
+    "text": "+    serve.add_argument(\"--timeout\", type=float, default=30.0)\n"
+   },
+   {
+    "file": "src/svc/cli.py",
+    "new_end": 40,
+    "new_start": 40,
+    "old_end": 39,
+    "old_start": 39,
+    "text": "-        connect(args.db, create=True, force=args.force).close()\n+        open_store(args.db, create=True, force=args.force).close()\n"
+   },
+   {
+    "file": "src/svc/cli.py",
+    "new_end": 45,
+    "new_start": 45,
+    "old_end": 44,
+    "old_start": 44,
+    "text": "-        routes.STORE = Store(connect(str(settings.home / \"svc.db\"), create=True))\n+        routes.STORE = Store(open_store(str(settings.home / \"svc.db\"), create=True))\n"
+   },
+   {
+    "file": "src/svc/cli.py",
+    "new_end": 48,
+    "new_start": 48,
+    "old_end": 47,
+    "old_start": 47,
+    "text": "-    store = Store(connect(getattr(args, \"db\", \"svc.db\")))\n+    store = Store(open_store(getattr(args, \"db\", \"svc.db\")))\n"
+   }
+  ],
+  "src/svc/storage.py": [
+   {
+    "file": "src/svc/storage.py",
+    "new_end": 12,
+    "new_start": 12,
+    "old_end": 12,
+    "old_start": 12,
+    "text": "-def connect(path: str, create: bool = False, force: bool = False) -> sqlite3.Connection:\n+def open_store(path: str, create: bool = False, force: bool = False) -> sqlite3.Connection:\n"
+   },
+   {
+    "file": "src/svc/storage.py",
+    "new_end": 48,
+    "new_start": 48,
+    "old_end": 48,
+    "old_start": 48,
+    "text": "-        if expires is not None and expires < time.time():\n+        if expires is not None and expires <= time.time():\n"
+   }
+  ]
+ },
+ "last_run": "e60469bbdd91ad996e42509f04d7c699b8f4c52a",
+ "last_run_source": "commit",
+ "mode": "later",
+ "review": {
+  "README.md": [
+   [
+    5,
+    20
+   ]
+  ],
+  "docs/cli.md": [
+   [
+    1,
+    26
+   ]
+  ],
+  "docs/configuration.md": [
+   [
+    1,
+    10
+   ]
+  ],
+  "docs/design.md": [
+   [
+    3,
+    15
+   ],
+   [
+    18,
+    19
+   ]
+  ],
+  "docs/operations.md": [
+   [
+    1,
+    3
+   ]
+  ],
+  "docs/tools.md": [
+   [
+    1,
+    18
+   ]
+  ]
+ },
+ "scope": "since e60469bbdd91ad996e42509f04d7c699b8f4c52a"
+}

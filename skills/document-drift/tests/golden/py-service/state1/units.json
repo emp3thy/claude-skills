@@ -1,0 +1,560 @@
+{
+ "unchecked": [],
+ "units": [
+  {
+   "affected_anchors": 23,
+   "anchors": [
+    {
+     "change_ranges": [
+      [
+       17,
+       17
+      ]
+     ],
+     "doc": "README.md",
+     "end": 17,
+     "file": "src/svc/cli.py",
+     "kind": "reg",
+     "line": 9,
+     "reading": [
+      17,
+      17
+     ],
+     "ref": "--port",
+     "start": 17
+    },
+    {
+     "change_ranges": [
+      [
+       23,
+       30
+      ]
+     ],
+     "doc": "README.md",
+     "end": 30,
+     "file": "src/svc/config.py",
+     "kind": "literal",
+     "line": 13,
+     "reading": [
+      23,
+      30
+     ],
+     "ref": "SVC_LOG_LEVEL",
+     "start": 23
+    },
+    {
+     "change_ranges": [
+      [
+       16,
+       16
+      ]
+     ],
+     "doc": "docs/cli.md",
+     "end": 16,
+     "file": "src/svc/cli.py",
+     "kind": "reg",
+     "line": 15,
+     "reading": [
+      16,
+      16
+     ],
+     "ref": "--host",
+     "start": 16
+    },
+    {
+     "change_ranges": [
+      [
+       17,
+       17
+      ]
+     ],
+     "doc": "docs/cli.md",
+     "end": 17,
+     "file": "src/svc/cli.py",
+     "kind": "reg",
+     "line": 16,
+     "reading": [
+      17,
+      17
+     ],
+     "ref": "--port",
+     "start": 17
+    },
+    {
+     "change_ranges": [
+      [
+       18,
+       18
+      ]
+     ],
+     "doc": "docs/cli.md",
+     "end": 18,
+     "file": "src/svc/cli.py",
+     "kind": "reg",
+     "line": 17,
+     "reading": [
+      18,
+      18
+     ],
+     "ref": "--workers",
+     "start": 18
+    },
+    {
+     "change_ranges": [
+      [
+       22,
+       22
+      ]
+     ],
+     "doc": "docs/cli.md",
+     "end": 22,
+     "file": "src/svc/cli.py",
+     "kind": "reg",
+     "line": 21,
+     "reading": [
+      22,
+      22
+     ],
+     "ref": "--db",
+     "start": 22
+    },
+    {
+     "change_ranges": [
+      [
+       29,
+       29
+      ]
+     ],
+     "doc": "docs/cli.md",
+     "end": 29,
+     "file": "src/svc/cli.py",
+     "kind": "reg",
+     "line": 21,
+     "reading": [
+      29,
+      29
+     ],
+     "ref": "--db",
+     "start": 29
+    },
+    {
+     "change_ranges": [
+      [
+       23,
+       23
+      ]
+     ],
+     "doc": "docs/cli.md",
+     "end": 23,
+     "file": "src/svc/cli.py",
+     "kind": "reg",
+     "line": 21,
+     "reading": [
+      23,
+      23
+     ],
+     "ref": "--repair",
+     "start": 23
+    },
+    {
+     "change_ranges": [
+      [
+       26,
+       26
+      ]
+     ],
+     "doc": "docs/cli.md",
+     "end": 26,
+     "file": "src/svc/cli.py",
+     "kind": "reg",
+     "line": 25,
+     "reading": [
+      26,
+      26
+     ],
+     "ref": "--output",
+     "start": 26
+    },
+    {
+     "change_ranges": [
+      [
+       23,
+       30
+      ]
+     ],
+     "doc": "docs/configuration.md",
+     "end": 30,
+     "file": "src/svc/config.py",
+     "kind": "reg",
+     "line": 7,
+     "reading": [
+      23,
+      30
+     ],
+     "ref": "SVC_HOME",
+     "start": 23
+    },
+    {
+     "change_ranges": [
+      [
+       23,
+       30
+      ]
+     ],
+     "doc": "docs/configuration.md",
+     "end": 30,
+     "file": "src/svc/config.py",
+     "kind": "reg",
+     "line": 8,
+     "reading": [
+      23,
+      30
+     ],
+     "ref": "SVC_PORT",
+     "start": 23
+    },
+    {
+     "change_ranges": [
+      [
+       23,
+       30
+      ]
+     ],
+     "doc": "docs/configuration.md",
+     "end": 30,
+     "file": "src/svc/config.py",
+     "kind": "reg",
+     "line": 9,
+     "reading": [
+      23,
+      30
+     ],
+     "ref": "SVC_WORKERS",
+     "start": 23
+    },
+    {
+     "change_ranges": [
+      [
+       12,
+       20
+      ]
+     ],
+     "doc": "docs/design.md",
+     "end": 20,
+     "file": "src/svc/storage.py",
+     "kind": "function",
+     "line": 5,
+     "reading": [
+      12,
+      20
+     ],
+     "ref": "storage.connect",
+     "start": 12
+    },
+    {
+     "change_ranges": [
+      [
+       23,
+       24
+      ],
+      [
+       26,
+       26
+      ],
+      [
+       30,
+       30
+      ],
+      [
+       40,
+       40
+      ],
+      [
+       52,
+       52
+      ],
+      [
+       57,
+       57
+      ],
+      [
+       62,
+       62
+      ],
+      [
+       69,
+       69
+      ],
+      [
+       72,
+       72
+      ],
+      [
+       82,
+       82
+      ]
+     ],
+     "doc": "docs/storage.md",
+     "end": 84,
+     "file": "src/svc/storage.py",
+     "kind": "class",
+     "line": 3,
+     "reading": [
+      23,
+      24
+     ],
+     "ref": "Store",
+     "start": 23
+    },
+    {
+     "change_ranges": [
+      [
+       7,
+       12
+      ]
+     ],
+     "doc": "docs/tools.md",
+     "end": 12,
+     "file": "src/svc/tools.py",
+     "kind": "reg",
+     "line": 5,
+     "reading": [
+      7,
+      12
+     ],
+     "ref": "store.put",
+     "start": 7
+    },
+    {
+     "change_ranges": [
+      [
+       13,
+       17
+      ]
+     ],
+     "doc": "docs/tools.md",
+     "end": 17,
+     "file": "src/svc/tools.py",
+     "kind": "reg",
+     "line": 6,
+     "reading": [
+      13,
+      17
+     ],
+     "ref": "store.get",
+     "start": 13
+    },
+    {
+     "change_ranges": [
+      [
+       7,
+       12
+      ]
+     ],
+     "doc": "docs/tools.md",
+     "end": 12,
+     "file": "src/svc/tools.py",
+     "kind": "reg",
+     "line": 9,
+     "reading": [
+      7,
+      12
+     ],
+     "ref": "store.put",
+     "start": 7
+    },
+    {
+     "change_ranges": [
+      [
+       7,
+       12
+      ]
+     ],
+     "doc": "docs/tools.md",
+     "end": 12,
+     "file": "src/svc/tools.py",
+     "kind": "literal",
+     "line": 11,
+     "reading": [
+      7,
+      12
+     ],
+     "ref": "key",
+     "start": 7
+    },
+    {
+     "change_ranges": [
+      [
+       7,
+       12
+      ]
+     ],
+     "doc": "docs/tools.md",
+     "end": 12,
+     "file": "src/svc/tools.py",
+     "kind": "literal",
+     "line": 11,
+     "reading": [
+      7,
+      12
+     ],
+     "ref": "value",
+     "start": 7
+    },
+    {
+     "change_ranges": [
+      [
+       13,
+       17
+      ]
+     ],
+     "doc": "docs/tools.md",
+     "end": 17,
+     "file": "src/svc/tools.py",
+     "kind": "reg",
+     "line": 13,
+     "reading": [
+      13,
+      17
+     ],
+     "ref": "store.get",
+     "start": 13
+    },
+    {
+     "change_ranges": [
+      [
+       13,
+       17
+      ]
+     ],
+     "doc": "docs/tools.md",
+     "end": 17,
+     "file": "src/svc/tools.py",
+     "kind": "literal",
+     "line": 15,
+     "reading": [
+      13,
+      17
+     ],
+     "ref": "key",
+     "start": 13
+    },
+    {
+     "change_ranges": [
+      [
+       13,
+       17
+      ]
+     ],
+     "doc": "docs/tools.md",
+     "end": 17,
+     "file": "src/svc/tools.py",
+     "kind": "reg",
+     "line": 19,
+     "reading": [
+      13,
+      17
+     ],
+     "ref": "store.get",
+     "start": 13
+    },
+    {
+     "change_ranges": [
+      [
+       19,
+       24
+      ]
+     ],
+     "doc": "docs/untouched.md",
+     "end": 24,
+     "file": "src/svc/routes.py",
+     "kind": "function",
+     "line": 6,
+     "reading": [
+      19,
+      24
+     ],
+     "ref": "get_item",
+     "start": 19
+    }
+   ],
+   "docs": [
+    {
+     "doc": "README.md",
+     "ranges": [
+      [
+       1,
+       27
+      ]
+     ]
+    },
+    {
+     "doc": "docs/cli.md",
+     "ranges": [
+      [
+       1,
+       25
+      ]
+     ]
+    },
+    {
+     "doc": "docs/configuration.md",
+     "ranges": [
+      [
+       1,
+       9
+      ]
+     ]
+    },
+    {
+     "doc": "docs/design.md",
+     "ranges": [
+      [
+       1,
+       18
+      ]
+     ]
+    },
+    {
+     "doc": "docs/process.md",
+     "ranges": [
+      [
+       1,
+       7
+      ]
+     ]
+    },
+    {
+     "doc": "docs/storage.md",
+     "ranges": [
+      [
+       1,
+       3
+      ]
+     ]
+    },
+    {
+     "doc": "docs/tools.md",
+     "ranges": [
+      [
+       1,
+       19
+      ]
+     ]
+    },
+    {
+     "doc": "docs/untouched.md",
+     "ranges": [
+      [
+       1,
+       7
+      ]
+     ]
+    }
+   ],
+   "hunks": [],
+   "id": "u001",
+   "size": 158
+  }
+ ]
+}

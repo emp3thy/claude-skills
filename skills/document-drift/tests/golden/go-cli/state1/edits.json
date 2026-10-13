@@ -1,0 +1,78 @@
+{
+ "code_claims": {
+  "README.md": 3,
+  "docs/legacy.md": 4,
+  "docs/usage.md": 22
+ },
+ "edits": [
+  {
+   "check": null,
+   "claim": "the flag that writes the report to a file is --out",
+   "doc": "README.md",
+   "end_line": 7,
+   "evidence": [
+    "internal/cli/options.go:20"
+   ],
+   "human_kind": null,
+   "id": "u001-e01",
+   "new": "Pass `--output` to write the report to a file instead of standard output.",
+   "old": "Pass `--out` to write the report to a file instead of standard output.",
+   "reason": null,
+   "source": "review",
+   "start_line": 7,
+   "status": "kept",
+   "subject": null,
+   "type": "correct"
+  },
+  {
+   "check": null,
+   "claim": "the Makefile has a release target that packs the binary",
+   "doc": "README.md",
+   "end_line": 15,
+   "evidence": [
+    "Makefile:9-10"
+   ],
+   "human_kind": null,
+   "id": "g001-e01",
+   "new": "make lint\nmake release",
+   "old": "make lint",
+   "reason": null,
+   "source": "gap",
+   "start_line": 15,
+   "status": "kept",
+   "subject": "release",
+   "type": "add"
+  },
+  {
+   "check": null,
+   "claim": "1st notice",
+   "doc": "docs/legacy.md",
+   "end_line": 3,
+   "evidence": [],
+   "human_kind": null,
+   "id": "n001",
+   "new": "<!-- drift-unverified: 1st notice, run 2026-01-02-4e1d, block 20d485bd. This describes the code but names nothing in it. Name what it describes, or add drift-ignore: <reason>. -->\nOld reports listed findings in the order the files were read, so two runs over one tree could disagree.",
+   "old": "Old reports listed findings in the order the files were read, so two runs over one tree could disagree.",
+   "reason": null,
+   "source": "notice",
+   "start_line": 3,
+   "status": "kept",
+   "subject": "20d485bd",
+   "type": "notice"
+  }
+ ],
+ "human": [],
+ "questions": [],
+ "refusals": [],
+ "unchecked_gap_docs": [],
+ "unchecked_units": [],
+ "unverified_batches": [],
+ "unverified_blocks": [
+  {
+   "doc": "docs/legacy.md",
+   "end_line": 3,
+   "start_line": 3,
+   "why": "describes how old reports ordered findings; nothing in the code names that order"
+  }
+ ]
+}

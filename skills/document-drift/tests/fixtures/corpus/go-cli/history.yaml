@@ -1,0 +1,26 @@
+# go-cli: a Go command line tool built with make. Go has no definition parser, so its docs
+# anchor to source files by unique basename (options.go, env.go). One state (tag state1): the
+# first drift run's repository; tests/test_dd_notice_loop.py drives later runs on it with the
+# owner's own commits in between. files/ is the final tree.
+# planted.json lists what the state-1 run must find; the canned agent outputs under
+# tests/canned/go-cli/ quote these docs line for line, so change them together.
+commits:
+  - author: "Ken Thompson <ken@example.com>"
+    date: "2025-05-05T09:00:00+00:00"
+    subject: "feat: cli skeleton, options and reporters"
+    files:
+      go.mod: "@final"
+      Makefile: "@final"
+      cmd/drift/main.go: "@final"
+      internal/cli/options.go: "@final"
+      internal/cli/env.go: "@final"
+      internal/report/json.go: "@final"
+      internal/report/table.go: "@final"
+  - author: "Barbara Liskov <barbara@example.com>"
+    date: "2025-05-19T09:00:00+00:00"
+    subject: "docs: readme, usage guide and legacy notes"
+    tag: state1
+    files:
+      README.md: "@final"
+      docs/usage.md: "@final"
+      docs/legacy.md: "@final"

@@ -1,0 +1,9 @@
+{
+ "batch": "v01",
+ "verdicts": [
+  {"edit": "g001-e01", "verdict": "accept", "reason": "build_parser adds the init command at src/svc/cli.py:28"},
+  {"edit": "u001-e01", "verdict": "accept", "reason": "--port defaults to 8080 at src/svc/cli.py:17"},
+  {"edit": "u001-e02", "verdict": "accept", "reason": "the flag is --workers at src/svc/cli.py:18"},
+  {"edit": "u001-e05", "verdict": "reject", "reason": "--workers defaults to 2 at src/svc/cli.py:18; the doc was right"}
+ ]
+}

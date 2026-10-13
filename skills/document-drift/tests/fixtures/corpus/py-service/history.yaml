@@ -1,0 +1,206 @@
+# py-service: a Python key-value service (argparse CLI, Flask routes, MCP tools, SQLite).
+# State 1 (tag state1) is the first drift run's repository; state 2 (tag state2) adds commits
+# that change the code under the docs the state-1 run fixed. files/ is the final tree: a path
+# written literally below is a state-1 version that a state-2 commit replaces with "@final".
+# The state-1 run is dated 2026-01-02 and the state-2 run 2026-01-09 (dd_corpus.DATES).
+# planted.json lists what each state's run must find; the canned agent outputs under
+# tests/canned/py-service/ quote these docs line for line, so change them together.
+commits:
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2025-03-03T09:00:00+00:00"
+    subject: "feat: sqlite store and settings"
+    files:
+      pyproject.toml: "@final"
+      src/svc/__init__.py: "@final"
+      src/svc/_internal.py: "@final"
+      src/svc/schema.sql: "@final"
+      src/svc/config.py: "@final"
+      src/svc/legacy.py: |
+        """Page accounting kept for databases written by older releases."""
+        from __future__ import annotations
+
+
+        def shrink_pages(count: int) -> int:
+            """How many free pages remain once ``count`` are dropped."""
+            return max(count, 0)
+      src/svc/storage.py: |
+        """SQLite storage for the key-value service."""
+        from __future__ import annotations
+
+        import sqlite3
+        import threading
+        import time
+        from pathlib import Path
+
+        SCHEMA = Path(__file__).with_name("schema.sql")
+
+
+        def connect(path: str, create: bool = False, force: bool = False) -> sqlite3.Connection:
+            """Open the database file at ``path``; with ``create``, apply the schema first."""
+            target = Path(path)
+            if force and target.exists():
+                target.unlink()
+            conn = sqlite3.connect(target, check_same_thread=False)
+            if create:
+                conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+            return conn
+
+
+        class Store:
+            """Items keyed by string, each with an optional expiry time."""
+
+            def __init__(self, conn: sqlite3.Connection) -> None:
+                self._conn = conn
+                self._lock = threading.Lock()
+
+            def put(self, key: str, value: bytes, ttl: int | None = None) -> None:
+                """Save ``value`` under ``key``; with ``ttl`` it expires after that many seconds."""
+                expires = None if ttl is None else int(time.time()) + ttl
+                with self._lock:
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO items (key, value, expires_at) VALUES (?, ?, ?)",
+                        (key, value, expires),
+                    )
+                    self._conn.commit()
+
+            def get(self, key: str) -> bytes | None:
+                """The value saved under ``key``, or None when it is missing or expired."""
+                row = self._conn.execute(
+                    "SELECT value, expires_at FROM items WHERE key = ?", (key,)
+                ).fetchone()
+                if row is None:
+                    return None
+                value, expires = row
+                if expires is not None and expires < time.time():
+                    return None
+                return bytes(value)
+
+            def keys(self) -> list[str]:
+                """Every stored key, expired ones included, in key order."""
+                rows = self._conn.execute("SELECT key FROM items ORDER BY key").fetchall()
+                return [str(row[0]) for row in rows]
+
+            def count(self) -> int:
+                """How many items are stored."""
+                (total,) = self._conn.execute("SELECT COUNT(*) FROM items").fetchone()
+                return int(total)
+
+            def expires_at(self, key: str) -> int | None:
+                """The expiry time of ``key`` in seconds since the epoch, or None."""
+                row = self._conn.execute(
+                    "SELECT expires_at FROM items WHERE key = ?", (key,)
+                ).fetchone()
+                return None if row is None or row[0] is None else int(row[0])
+
+            def __contains__(self, key: object) -> bool:
+                return isinstance(key, str) and self.get(key) is not None
+
+            def purge(self) -> int:
+                """Delete every expired item; return how many went."""
+                with self._lock:
+                    cursor = self._conn.execute(
+                        "DELETE FROM items WHERE expires_at IS NOT NULL AND expires_at < ?",
+                        (int(time.time()),),
+                    )
+                    self._conn.commit()
+                return cursor.rowcount
+
+            def close(self) -> None:
+                """Close the connection; the store is unusable afterwards."""
+                self._conn.close()
+
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2025-03-10T09:00:00+00:00"
+    subject: "feat: command line, routes and MCP tools"
+    files:
+      src/svc/routes.py: "@final"
+      src/svc/tools.py: "@final"
+      src/svc/cli.py: |
+        """The ``svc`` command line."""
+        from __future__ import annotations
+
+        import argparse
+
+        from svc.config import load
+        from svc.storage import Store, connect
+
+
+        def build_parser() -> argparse.ArgumentParser:
+            """The ``svc`` parser with its four commands."""
+            parser = argparse.ArgumentParser(prog="svc")
+            commands = parser.add_subparsers(dest="command", required=True)
+
+            serve = commands.add_parser("serve", help="run the HTTP service")
+            serve.add_argument("--host", default="127.0.0.1")
+            serve.add_argument("--port", type=int, default=8080)
+            serve.add_argument("--workers", type=int, default=2)
+            serve.add_argument("--debug", action="store_true", help=argparse.SUPPRESS)
+
+            check = commands.add_parser("check", help="verify the database file")
+            check.add_argument("--db", default="svc.db")
+            check.add_argument("--repair", action="store_true")
+
+            export = commands.add_parser("export", help="write every item as JSON lines")
+            export.add_argument("--output", default="-")
+
+            init = commands.add_parser("init", help="create an empty database file")
+            init.add_argument("--db", default="svc.db")
+            init.add_argument("--force", action="store_true")
+            return parser
+
+
+        def main(argv: list[str] | None = None) -> int:
+            """Run one command; return its exit status."""
+            args = build_parser().parse_args(argv)
+            settings = load()
+            if args.command == "init":
+                connect(args.db, create=True, force=args.force).close()
+                return 0
+            if args.command == "serve":
+                from svc import routes
+
+                routes.STORE = Store(connect(str(settings.home / "svc.db"), create=True))
+                routes.app.run(host=args.host, port=settings.port or args.port)
+                return 0
+            store = Store(connect(getattr(args, "db", "svc.db")))
+            try:
+                if args.command == "check":
+                    return 0 if store.count() >= 0 else 1
+                for key in store.keys():
+                    print(key)
+                return 0
+            finally:
+                store.close()
+
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2025-03-17T09:00:00+00:00"
+    subject: "docs: readme, guides and drift config"
+    tag: state1
+    files:
+      .document-drift.yaml: "@final"
+      CHANGELOG.md: "@final"
+      README.md: "@final"
+      docs/cli.md: "@final"
+      docs/configuration.md: "@final"
+      docs/design.md: "@final"
+      docs/process.md: "@final"
+      docs/storage.md: "@final"
+      docs/tools.md: "@final"
+      docs/untouched.md: "@final"
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2026-01-05T09:00:00+00:00"
+    subject: "feat: serve --timeout, port 9090, connect renamed open_store"
+    files:
+      src/svc/cli.py: "@final"
+      src/svc/storage.py: "@final"
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2026-01-05T12:00:00+00:00"
+    subject: "chore: drop the legacy page helper"
+    delete:
+      - src/svc/legacy.py
+  - author: "Ada Lovelace <ada@example.com>"
+    date: "2026-01-06T09:00:00+00:00"
+    subject: "docs: operations notes"
+    tag: state2
+    files:
+      docs/operations.md: "@final"

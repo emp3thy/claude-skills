@@ -1,0 +1,6 @@
+{
+ "batch": "v01",
+ "verdicts": [
+  {"edit": "u001-e01", "verdict": "accept", "reason": "fetchItems was renamed listItems at src/api/client.ts:11"}
+ ]
+}

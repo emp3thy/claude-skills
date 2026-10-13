@@ -1,0 +1,11 @@
+{
+ "doc": "g001",
+ "edits": [
+  {"id": "g001-e01", "doc": "docs/cli.md", "start_line": 18, "end_line": 18,
+   "old": "| `--workers` | Number of worker processes (default 2). |",
+   "new": "| `--workers` | Number of worker processes (default 2). |\n| `--timeout` | Seconds before a request gives up (default 30). |",
+   "type": "add", "claim": "svc serve takes --timeout, default 30 seconds",
+   "evidence": ["src/svc/cli.py:19"], "subject": "--timeout"}
+ ],
+ "refusals": []
+}

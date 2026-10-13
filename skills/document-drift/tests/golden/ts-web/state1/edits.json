@@ -1,0 +1,116 @@
+{
+ "code_claims": {
+  "README.md": 4,
+  "docs/api.md": 5,
+  "docs/cli.md": 6,
+  "docs/configuration.md": 3,
+  "docs/frontend.md": 2,
+  "index.md": 1
+ },
+ "edits": [
+  {
+   "check": null,
+   "claim": "the server registers four routes",
+   "doc": "README.md",
+   "end_line": 13,
+   "evidence": [
+    "src/server.ts:6",
+    "src/server.ts:10",
+    "src/server.ts:14"
+   ],
+   "human_kind": null,
+   "id": "u001-e01",
+   "new": "The server registers three routes in `src/server.ts`; [docs/api.md](docs/api.md) lists them.",
+   "old": "The server registers four routes in `src/server.ts`; [docs/api.md](docs/api.md) lists them.",
+   "reason": null,
+   "source": "review",
+   "start_line": 13,
+   "status": "kept",
+   "subject": null,
+   "type": "correct"
+  },
+  {
+   "check": null,
+   "claim": "the client asks for 20 items per page by default",
+   "doc": "docs/api.md",
+   "end_line": 12,
+   "evidence": [
+    "src/api/client.ts:3"
+   ],
+   "human_kind": null,
+   "id": "u001-e02",
+   "new": "The client asks for 50 items per page by default (`PAGE_SIZE`).",
+   "old": "The client asks for 20 items per page by default (`PAGE_SIZE`).",
+   "reason": null,
+   "source": "review",
+   "start_line": 12,
+   "status": "kept",
+   "subject": null,
+   "type": "correct"
+  },
+  {
+   "check": null,
+   "claim": "the server answers GET /healthz with {ok: true}",
+   "doc": "docs/api.md",
+   "end_line": 8,
+   "evidence": [
+    "src/server.ts:14"
+   ],
+   "human_kind": null,
+   "id": "g001-e01",
+   "new": "| `GET /api/items/{id}` | One item. |\n| `GET /healthz` | A liveness check: `{\"ok\": true}`. |",
+   "old": "| `GET /api/items/{id}` | One item. |",
+   "reason": null,
+   "source": "gap",
+   "start_line": 8,
+   "status": "kept",
+   "subject": "/healthz",
+   "type": "add"
+  },
+  {
+   "check": null,
+   "claim": "web build takes --minify, which minifies the bundle",
+   "doc": "docs/cli.md",
+   "end_line": 16,
+   "evidence": [
+    "src/cli.ts:12"
+   ],
+   "human_kind": null,
+   "id": "g002-e01",
+   "new": "| `--sourcemap` | Write source maps next to the bundle. |\n| `--minify` | Minify the bundle. |",
+   "old": "| `--sourcemap` | Write source maps next to the bundle. |",
+   "reason": null,
+   "source": "gap",
+   "start_line": 16,
+   "status": "kept",
+   "subject": "--minify",
+   "type": "add"
+  },
+  {
+   "check": null,
+   "claim": "the app reads FEATURE_FLAGS as a comma-separated list",
+   "doc": "docs/configuration.md",
+   "end_line": 9,
+   "evidence": [
+    "src/config.ts:5"
+   ],
+   "human_kind": null,
+   "id": "g003-e01",
+   "new": "| `LOG_LEVEL` | Log level (default info). |\n| `FEATURE_FLAGS` | Comma-separated experimental features to turn on. |",
+   "old": "| `LOG_LEVEL` | Log level (default info). |",
+   "reason": null,
+   "source": "gap",
+   "start_line": 9,
+   "status": "kept",
+   "subject": "FEATURE_FLAGS",
+   "type": "add"
+  }
+ ],
+ "human": [],
+ "questions": [],
+ "refusals": [],
+ "unchecked_gap_docs": [],
+ "unchecked_units": [],
+ "unverified_batches": [],
+ "unverified_blocks": []
+}

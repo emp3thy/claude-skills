@@ -123,6 +123,74 @@ defect is quarantined rather than fixed. Reproduce a run locally with Docker or 
 KB_CONTAINERS=1 pytest -m containers -k spring-shipments -v
 ```
 
+## Also in this repo: document-drift
+
+`document-drift` keeps a repository's markdown docs matching what its code does, in both
+directions. Docs to code: a statement the code contradicts, or one that names something the
+code no longer has, is rewritten or removed. Code to docs: a command, flag, environment
+variable, MCP tool, route or script the code offers its users that no doc mentions, or that is
+missing from a doc's list of such things, is added. The docs are the record of what to check:
+the first run reviews every doc against the code it points at; later runs review only the
+statements whose code changed since the last drift run, and document only user-facing names
+added since then. A guarantee the code does not keep is listed for you, never edited, because
+the code may be the bug. It never pushes, never opens a pull request, never runs the project's
+code, never creates a doc file and never edits changelogs, licences, ADRs, plans and specs,
+research or archive folders, vendored libraries, templates or generated files.
+
+Install it the same way:
+
+```bash
+ln -s "$PWD/claude-skills/skills/document-drift" ~/.claude/skills/document-drift
+```
+
+```powershell
+New-Item -ItemType SymbolicLink -Path "$HOME\.claude\skills\document-drift" `
+  -Target "$PWD\claude-skills\skills\document-drift"
+```
+
+Then, in Claude Code:
+
+```
+/document-drift <repo-path> [--base <ref>] [--full] [--branch <name>] [--check]
+```
+
+The session drives `scripts/dd_run.py` in three stages. `start` indexes the code's definitions,
+ties each doc reference to the definition it names (its anchor), decides the run's scope (a
+first run, or the changes since the newest `Drift-Base` commit or the local last-run record),
+groups the docs to review into units, scans the code for undocumented user-facing names, and
+writes `plan-docs.json`: one review agent per unit and one gap agent per target doc. `verify`
+validates their output files, runs the script checks on every proposed edit and writes
+`plan-verify.json`: one verifier agent per batch of up to ten edits. `finish` collects the
+verdicts, applies the accepted edits, re-scans the edited docs and reverts any edit that breaks
+a path or anchor reference, commits and prints the summary. Every agent is a general-purpose
+agent with Read, Grep, Glob and Write, read-only toward the repository, and writes only its one
+output file; a missing or invalid output is re-dispatched once (exit 3, `--retried`), then
+counted as unchecked.
+
+The output contract is a branch (default name `docs/drift-<YYYY-MM-DD>`) created from the
+starting HEAD with at most two commits, `docs(drift): correct stale docs` and
+`docs(drift): document missing surface`; the run leaves you on it. Each body carries the
+`Drift-Run`, `Drift-Base`, `Drift-Scope` and `Drift-Unchecked` lines and one bullet per edit,
+and the last commit ends with a `Needs a human decision:` list when there is one. Pushing the
+branch and opening the pull request are your own process. When no edit is applied, no branch is
+created and the summary is the whole output. `--check` runs through verification with no doc
+edit, no branch and no commit, and exits 1 when an edit would apply.
+
+A block that describes the code but names nothing the skill can tie to a definition gets a
+`drift-unverified` notice, an HTML comment on the line above it. Name what it describes, add a
+`drift-ignore: <reason>` marker or rewrite it, and the next run clears the notice; left alone,
+the next run escalates it to a 2nd notice that needs a human decision, and the run after that
+removes the block. The summary also reports every doc's checkability: how many of its
+references anchor, and which docs name nothing a later run could check.
+
+This release is phase A, normal runs on a repository that has docs; it replaces the phase 1
+history-gated pipeline, which never shipped. Writing a README for a repository with none is
+phase B, designed and built later. See
+[`skills/document-drift/SKILL.md`](skills/document-drift/SKILL.md) for the procedure, flags and
+exit codes, [`docs/architecture.md`](docs/architecture.md#document-drift) for the stages, files
+and modules, and `docs/superpowers/specs/2026-10-10-document-drift-agentic-design.md` for the
+design.
+
 ## Output formats
 
 | Artefact | Written by | Shape |

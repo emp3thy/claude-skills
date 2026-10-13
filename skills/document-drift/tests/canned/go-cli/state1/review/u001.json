@@ -1,0 +1,17 @@
+{
+ "unit": "u001",
+ "claims_checked": 30,
+ "code_claims": {"README.md": 3, "docs/legacy.md": 4, "docs/usage.md": 22},
+ "unverified_blocks": [
+  {"doc": "docs/legacy.md", "start_line": 3, "end_line": 3,
+   "why": "describes how old reports ordered findings; nothing in the code names that order"}
+ ],
+ "edits": [
+  {"id": "u001-e01", "doc": "README.md", "start_line": 7, "end_line": 7,
+   "old": "Pass `--out` to write the report to a file instead of standard output.",
+   "new": "Pass `--output` to write the report to a file instead of standard output.",
+   "type": "correct", "claim": "the flag that writes the report to a file is --out",
+   "evidence": ["internal/cli/options.go:20"], "subject": null}
+ ],
+ "questions": []
+}

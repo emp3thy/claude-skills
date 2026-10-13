@@ -1,0 +1,93 @@
+{
+ "code_claims": {
+  "README.md": 5,
+  "docs/cli.md": 10,
+  "docs/configuration.md": 4,
+  "docs/design.md": 3,
+  "docs/operations.md": 1,
+  "docs/tools.md": 4
+ },
+ "edits": [
+  {
+   "check": null,
+   "claim": "the default port is 8080",
+   "doc": "README.md",
+   "end_line": 9,
+   "evidence": [
+    "src/svc/cli.py:17"
+   ],
+   "human_kind": null,
+   "id": "u001-e01",
+   "new": "The service listens on port 9090 by default; pass `--port` to change it.",
+   "old": "The service listens on port 8080 by default; pass `--port` to change it.",
+   "reason": null,
+   "source": "review",
+   "start_line": 9,
+   "status": "kept",
+   "subject": null,
+   "type": "correct"
+  },
+  {
+   "check": null,
+   "claim": "commands open the database through storage.connect",
+   "doc": "docs/design.md",
+   "end_line": 5,
+   "evidence": [
+    "src/svc/storage.py:12"
+   ],
+   "human_kind": null,
+   "id": "u001-e02",
+   "new": "Every command opens the database through `storage.open_store`, which creates the file on first use.",
+   "old": "Every command opens the database through `storage.connect`, which creates the file on first use.",
+   "reason": null,
+   "source": "review",
+   "start_line": 5,
+   "status": "kept",
+   "subject": null,
+   "type": "correct"
+  },
+  {
+   "check": null,
+   "claim": "svc serve takes --timeout, default 30 seconds",
+   "doc": "docs/cli.md",
+   "end_line": 18,
+   "evidence": [
+    "src/svc/cli.py:19"
+   ],
+   "human_kind": null,
+   "id": "g001-e01",
+   "new": "| `--workers` | Number of worker processes (default 2). |\n| `--timeout` | Seconds before a request gives up (default 30). |",
+   "old": "| `--workers` | Number of worker processes (default 2). |",
+   "reason": null,
+   "source": "gap",
+   "start_line": 18,
+   "status": "kept",
+   "subject": "--timeout",
+   "type": "add"
+  },
+  {
+   "check": null,
+   "claim": "2nd notice",
+   "doc": "docs/design.md",
+   "end_line": 13,
+   "evidence": [],
+   "human_kind": null,
+   "id": "n001",
+   "new": "<!-- drift-unverified: 2nd notice, run 2026-01-09-bf13, block 368ee08c. NEEDS A HUMAN DECISION: name what this describes, add drift-ignore: <reason>, or rewrite it. The next drift run removes this block otherwise. -->",
+   "old": "<!-- drift-unverified: 1st notice, run 2026-01-02-561c, block 368ee08c. This describes the code but names nothing in it. Name what it describes, or add drift-ignore: <reason>. -->",
+   "reason": null,
+   "source": "notice",
+   "start_line": 13,
+   "status": "kept",
+   "subject": "368ee08c",
+   "type": "escalate"
+  }
+ ],
+ "human": [],
+ "questions": [],
+ "refusals": [],
+ "unchecked_gap_docs": [],
+ "unchecked_units": [],
+ "unverified_batches": [],
+ "unverified_blocks": []
+}

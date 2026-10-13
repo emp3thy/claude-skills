@@ -1,0 +1,7 @@
+{
+ "batch": "v01",
+ "verdicts": [
+  {"edit": "g001-e01", "verdict": "accept", "reason": "serve adds --timeout with default 30.0 at src/svc/cli.py:19"},
+  {"edit": "u001-e01", "verdict": "accept", "reason": "--port defaults to 9090 at src/svc/cli.py:17"}
+ ]
+}

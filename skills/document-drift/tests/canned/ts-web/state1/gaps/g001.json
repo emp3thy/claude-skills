@@ -1,0 +1,11 @@
+{
+ "doc": "g001",
+ "edits": [
+  {"id": "g001-e01", "doc": "docs/api.md", "start_line": 8, "end_line": 8,
+   "old": "| `GET /api/items/{id}` | One item. |",
+   "new": "| `GET /api/items/{id}` | One item. |\n| `GET /healthz` | A liveness check: `{\"ok\": true}`. |",
+   "type": "add", "claim": "the server answers GET /healthz with {ok: true}",
+   "evidence": ["src/server.ts:14"], "subject": "/healthz"}
+ ],
+ "refusals": []
+}

@@ -1,0 +1,2376 @@
+{
+ "definitions": [
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": ".document-drift.yaml",
+   "kind": "file",
+   "name": ".document-drift.yaml",
+   "norm": "_document_drift_yaml",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "CHANGELOG.md",
+   "kind": "file",
+   "name": "CHANGELOG.md",
+   "norm": "CHANGELOG_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "README.md",
+   "kind": "file",
+   "name": "README.md",
+   "norm": "README_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/cli.md",
+   "kind": "file",
+   "name": "cli.md",
+   "norm": "cli_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/configuration.md",
+   "kind": "file",
+   "name": "configuration.md",
+   "norm": "configuration_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/design.md",
+   "kind": "file",
+   "name": "design.md",
+   "norm": "design_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/process.md",
+   "kind": "file",
+   "name": "process.md",
+   "norm": "process_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/storage.md",
+   "kind": "file",
+   "name": "storage.md",
+   "norm": "storage_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/tools.md",
+   "kind": "file",
+   "name": "tools.md",
+   "norm": "tools_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "docs/untouched.md",
+   "kind": "file",
+   "name": "untouched.md",
+   "norm": "untouched_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "pyproject.toml",
+   "kind": "file",
+   "name": "pyproject.toml",
+   "norm": "pyproject_toml",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/svc/__init__.py",
+   "kind": "file",
+   "name": "__init__.py",
+   "norm": "__init___py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/svc/__init__.py",
+   "kind": "module",
+   "name": "src.svc",
+   "norm": "src_svc",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/svc/__init__.py",
+   "kind": "module",
+   "name": "svc",
+   "norm": "svc",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/svc/_internal.py",
+   "kind": "file",
+   "name": "_internal.py",
+   "norm": "_internal_py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/svc/_internal.py",
+   "kind": "module",
+   "name": "_internal",
+   "norm": "_internal",
+   "owners": [],
+   "reading": [
+    1,
+    7
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/svc/_internal.py",
+   "kind": "module",
+   "name": "src.svc._internal",
+   "norm": "src_svc__internal",
+   "owners": [],
+   "reading": [
+    1,
+    7
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/svc/_internal.py",
+   "kind": "module",
+   "name": "svc._internal",
+   "norm": "svc__internal",
+   "owners": [],
+   "reading": [
+    1,
+    7
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     5,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/svc/_internal.py",
+   "kind": "function",
+   "name": "_helper",
+   "norm": "_helper",
+   "owners": [],
+   "reading": [
+    5,
+    7
+   ],
+   "start": 5
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/svc/cli.py",
+   "kind": "file",
+   "name": "cli.py",
+   "norm": "cli_py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     55
+    ]
+   ],
+   "end": 55,
+   "file": "src/svc/cli.py",
+   "kind": "module",
+   "name": "cli",
+   "norm": "cli",
+   "owners": [],
+   "reading": [
+    1,
+    55
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     55
+    ]
+   ],
+   "end": 55,
+   "file": "src/svc/cli.py",
+   "kind": "module",
+   "name": "src.svc.cli",
+   "norm": "src_svc_cli",
+   "owners": [],
+   "reading": [
+    1,
+    55
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     55
+    ]
+   ],
+   "end": 55,
+   "file": "src/svc/cli.py",
+   "kind": "module",
+   "name": "svc.cli",
+   "norm": "svc_cli",
+   "owners": [],
+   "reading": [
+    1,
+    55
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     10,
+     31
+    ]
+   ],
+   "end": 31,
+   "file": "src/svc/cli.py",
+   "kind": "function",
+   "name": "build_parser",
+   "norm": "build_parser",
+   "owners": [],
+   "reading": [
+    10,
+    31
+   ],
+   "start": 10
+  },
+  {
+   "change_ranges": [
+    [
+     12,
+     12
+    ]
+   ],
+   "end": 12,
+   "file": "src/svc/cli.py",
+   "kind": "literal",
+   "name": "svc",
+   "norm": "svc",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    12,
+    12
+   ],
+   "start": 12
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     13
+    ]
+   ],
+   "end": 13,
+   "file": "src/svc/cli.py",
+   "kind": "literal",
+   "name": "command",
+   "norm": "command",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    13,
+    13
+   ],
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     15,
+     15
+    ]
+   ],
+   "end": 15,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "serve",
+   "norm": "serve",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    15,
+    15
+   ],
+   "start": 15
+  },
+  {
+   "change_ranges": [
+    [
+     16,
+     16
+    ]
+   ],
+   "end": 16,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "--host",
+   "norm": "--host",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    16,
+    16
+   ],
+   "start": 16
+  },
+  {
+   "change_ranges": [
+    [
+     17,
+     17
+    ]
+   ],
+   "end": 17,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "--port",
+   "norm": "--port",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    17,
+    17
+   ],
+   "start": 17
+  },
+  {
+   "change_ranges": [
+    [
+     18,
+     18
+    ]
+   ],
+   "end": 18,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "--workers",
+   "norm": "--workers",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    18,
+    18
+   ],
+   "start": 18
+  },
+  {
+   "change_ranges": [
+    [
+     19,
+     19
+    ]
+   ],
+   "end": 19,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "--debug",
+   "norm": "--debug",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    19,
+    19
+   ],
+   "start": 19
+  },
+  {
+   "change_ranges": [
+    [
+     19,
+     19
+    ]
+   ],
+   "end": 19,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "store_true",
+   "norm": "store_true",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    19,
+    19
+   ],
+   "start": 19
+  },
+  {
+   "change_ranges": [
+    [
+     21,
+     21
+    ]
+   ],
+   "end": 21,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "check",
+   "norm": "check",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    21,
+    21
+   ],
+   "start": 21
+  },
+  {
+   "change_ranges": [
+    [
+     22,
+     22
+    ]
+   ],
+   "end": 22,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "--db",
+   "norm": "--db",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    22,
+    22
+   ],
+   "start": 22
+  },
+  {
+   "change_ranges": [
+    [
+     22,
+     22
+    ]
+   ],
+   "end": 22,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "svc.db",
+   "norm": "svc_db",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    22,
+    22
+   ],
+   "start": 22
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     23
+    ]
+   ],
+   "end": 23,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "--repair",
+   "norm": "--repair",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    23,
+    23
+   ],
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     23
+    ]
+   ],
+   "end": 23,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "store_true",
+   "norm": "store_true",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    23,
+    23
+   ],
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     25,
+     25
+    ]
+   ],
+   "end": 25,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "export",
+   "norm": "export",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    25,
+    25
+   ],
+   "start": 25
+  },
+  {
+   "change_ranges": [
+    [
+     26,
+     26
+    ]
+   ],
+   "end": 26,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "--output",
+   "norm": "--output",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    26,
+    26
+   ],
+   "start": 26
+  },
+  {
+   "change_ranges": [
+    [
+     28,
+     28
+    ]
+   ],
+   "end": 28,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "init",
+   "norm": "init",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    28,
+    28
+   ],
+   "start": 28
+  },
+  {
+   "change_ranges": [
+    [
+     29,
+     29
+    ]
+   ],
+   "end": 29,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "--db",
+   "norm": "--db",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    29,
+    29
+   ],
+   "start": 29
+  },
+  {
+   "change_ranges": [
+    [
+     29,
+     29
+    ]
+   ],
+   "end": 29,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "svc.db",
+   "norm": "svc_db",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    29,
+    29
+   ],
+   "start": 29
+  },
+  {
+   "change_ranges": [
+    [
+     30,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "--force",
+   "norm": "--force",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    30,
+    30
+   ],
+   "start": 30
+  },
+  {
+   "change_ranges": [
+    [
+     30,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "name": "store_true",
+   "norm": "store_true",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    30,
+    30
+   ],
+   "start": 30
+  },
+  {
+   "change_ranges": [
+    [
+     34,
+     55
+    ]
+   ],
+   "end": 55,
+   "file": "src/svc/cli.py",
+   "kind": "function",
+   "name": "main",
+   "norm": "main",
+   "owners": [],
+   "reading": [
+    34,
+    55
+   ],
+   "start": 34
+  },
+  {
+   "change_ranges": [
+    [
+     38,
+     40
+    ]
+   ],
+   "end": 40,
+   "file": "src/svc/cli.py",
+   "kind": "literal",
+   "name": "init",
+   "norm": "init",
+   "owners": [
+    "main"
+   ],
+   "reading": [
+    38,
+    40
+   ],
+   "start": 38
+  },
+  {
+   "change_ranges": [
+    [
+     41,
+     46
+    ]
+   ],
+   "end": 46,
+   "file": "src/svc/cli.py",
+   "kind": "literal",
+   "name": "serve",
+   "norm": "serve",
+   "owners": [
+    "main"
+   ],
+   "reading": [
+    41,
+    46
+   ],
+   "start": 41
+  },
+  {
+   "change_ranges": [
+    [
+     41,
+     46
+    ]
+   ],
+   "end": 46,
+   "file": "src/svc/cli.py",
+   "kind": "literal",
+   "name": "svc.db",
+   "norm": "svc_db",
+   "owners": [
+    "main"
+   ],
+   "reading": [
+    41,
+    46
+   ],
+   "start": 41
+  },
+  {
+   "change_ranges": [
+    [
+     47,
+     47
+    ]
+   ],
+   "end": 47,
+   "file": "src/svc/cli.py",
+   "kind": "literal",
+   "name": "svc.db",
+   "norm": "svc_db",
+   "owners": [
+    "main"
+   ],
+   "reading": [
+    47,
+    47
+   ],
+   "start": 47
+  },
+  {
+   "change_ranges": [
+    [
+     48,
+     55
+    ]
+   ],
+   "end": 55,
+   "file": "src/svc/cli.py",
+   "kind": "literal",
+   "name": "check",
+   "norm": "check",
+   "owners": [
+    "main"
+   ],
+   "reading": [
+    48,
+    55
+   ],
+   "start": 48
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/svc/config.py",
+   "kind": "file",
+   "name": "config.py",
+   "norm": "config_py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "module",
+   "name": "config",
+   "norm": "config",
+   "owners": [],
+   "reading": [
+    1,
+    30
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "module",
+   "name": "src.svc.config",
+   "norm": "src_svc_config",
+   "owners": [],
+   "reading": [
+    1,
+    30
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "module",
+   "name": "svc.config",
+   "norm": "svc_config",
+   "owners": [],
+   "reading": [
+    1,
+    30
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     9,
+     12
+    ]
+   ],
+   "end": 12,
+   "file": "src/svc/config.py",
+   "kind": "function",
+   "name": "_env",
+   "norm": "_env",
+   "owners": [],
+   "reading": [
+    9,
+    12
+   ],
+   "start": 9
+  },
+  {
+   "change_ranges": [
+    [
+     16,
+     20
+    ]
+   ],
+   "end": 20,
+   "file": "src/svc/config.py",
+   "kind": "class",
+   "name": "Settings",
+   "norm": "Settings",
+   "owners": [],
+   "reading": [
+    16,
+    20
+   ],
+   "start": 16
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "function",
+   "name": "load",
+   "norm": "load",
+   "owners": [],
+   "reading": [
+    23,
+    30
+   ],
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "literal",
+   "name": "SVC_LOG_LEVEL",
+   "norm": "SVC_LOG_LEVEL",
+   "owners": [
+    "load"
+   ],
+   "reading": [
+    23,
+    30
+   ],
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "literal",
+   "name": "info",
+   "norm": "info",
+   "owners": [
+    "load"
+   ],
+   "reading": [
+    23,
+    30
+   ],
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "reg",
+   "name": "SVC_HOME",
+   "norm": "SVC_HOME",
+   "owners": [
+    "load"
+   ],
+   "reading": [
+    23,
+    30
+   ],
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "reg",
+   "name": "SVC_PORT",
+   "norm": "SVC_PORT",
+   "owners": [
+    "load"
+   ],
+   "reading": [
+    23,
+    30
+   ],
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/config.py",
+   "kind": "reg",
+   "name": "SVC_WORKERS",
+   "norm": "SVC_WORKERS",
+   "owners": [
+    "load"
+   ],
+   "reading": [
+    23,
+    30
+   ],
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/svc/legacy.py",
+   "kind": "file",
+   "name": "legacy.py",
+   "norm": "legacy_py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/svc/legacy.py",
+   "kind": "module",
+   "name": "legacy",
+   "norm": "legacy",
+   "owners": [],
+   "reading": [
+    1,
+    7
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/svc/legacy.py",
+   "kind": "module",
+   "name": "src.svc.legacy",
+   "norm": "src_svc_legacy",
+   "owners": [],
+   "reading": [
+    1,
+    7
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/svc/legacy.py",
+   "kind": "module",
+   "name": "svc.legacy",
+   "norm": "svc_legacy",
+   "owners": [],
+   "reading": [
+    1,
+    7
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     5,
+     7
+    ]
+   ],
+   "end": 7,
+   "file": "src/svc/legacy.py",
+   "kind": "function",
+   "name": "shrink_pages",
+   "norm": "shrink_pages",
+   "owners": [],
+   "reading": [
+    5,
+    7
+   ],
+   "start": 5
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/svc/routes.py",
+   "kind": "file",
+   "name": "routes.py",
+   "norm": "routes_py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/routes.py",
+   "kind": "module",
+   "name": "routes",
+   "norm": "routes",
+   "owners": [],
+   "reading": [
+    1,
+    30
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/routes.py",
+   "kind": "module",
+   "name": "src.svc.routes",
+   "norm": "src_svc_routes",
+   "owners": [],
+   "reading": [
+    1,
+    30
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/routes.py",
+   "kind": "module",
+   "name": "svc.routes",
+   "norm": "svc_routes",
+   "owners": [],
+   "reading": [
+    1,
+    30
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     8,
+     8
+    ]
+   ],
+   "end": 8,
+   "file": "src/svc/routes.py",
+   "kind": "literal",
+   "name": "svc",
+   "norm": "svc",
+   "owners": [],
+   "reading": [
+    8,
+    8
+   ],
+   "start": 8
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     15
+    ]
+   ],
+   "end": 15,
+   "file": "src/svc/routes.py",
+   "kind": "function",
+   "name": "health",
+   "norm": "health",
+   "owners": [],
+   "reading": [
+    13,
+    15
+   ],
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     19,
+     24
+    ]
+   ],
+   "end": 24,
+   "file": "src/svc/routes.py",
+   "kind": "function",
+   "name": "get_item",
+   "norm": "get_item",
+   "owners": [],
+   "reading": [
+    19,
+    24
+   ],
+   "start": 19
+  },
+  {
+   "change_ranges": [
+    [
+     28,
+     30
+    ]
+   ],
+   "end": 30,
+   "file": "src/svc/routes.py",
+   "kind": "function",
+   "name": "stats",
+   "norm": "stats",
+   "owners": [],
+   "reading": [
+    28,
+    30
+   ],
+   "start": 28
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/svc/schema.sql",
+   "kind": "file",
+   "name": "schema.sql",
+   "norm": "schema_sql",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     5
+    ]
+   ],
+   "end": 5,
+   "file": "src/svc/schema.sql",
+   "kind": "sql",
+   "name": "items",
+   "norm": "items",
+   "owners": [],
+   "reading": [
+    1,
+    5
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     3,
+     3
+    ]
+   ],
+   "end": 3,
+   "file": "src/svc/schema.sql",
+   "kind": "sqlcol",
+   "name": "value",
+   "norm": "value",
+   "owners": [
+    "items"
+   ],
+   "reading": [
+    3,
+    3
+   ],
+   "start": 3
+  },
+  {
+   "change_ranges": [
+    [
+     4,
+     4
+    ]
+   ],
+   "end": 4,
+   "file": "src/svc/schema.sql",
+   "kind": "sqlcol",
+   "name": "expires_at",
+   "norm": "expires_at",
+   "owners": [
+    "items"
+   ],
+   "reading": [
+    4,
+    4
+   ],
+   "start": 4
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/svc/storage.py",
+   "kind": "file",
+   "name": "storage.py",
+   "norm": "storage_py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     84
+    ]
+   ],
+   "end": 84,
+   "file": "src/svc/storage.py",
+   "kind": "module",
+   "name": "src.svc.storage",
+   "norm": "src_svc_storage",
+   "owners": [],
+   "reading": [
+    1,
+    84
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     84
+    ]
+   ],
+   "end": 84,
+   "file": "src/svc/storage.py",
+   "kind": "module",
+   "name": "storage",
+   "norm": "storage",
+   "owners": [],
+   "reading": [
+    1,
+    84
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     84
+    ]
+   ],
+   "end": 84,
+   "file": "src/svc/storage.py",
+   "kind": "module",
+   "name": "svc.storage",
+   "norm": "svc_storage",
+   "owners": [],
+   "reading": [
+    1,
+    84
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     9,
+     9
+    ]
+   ],
+   "end": 9,
+   "file": "src/svc/storage.py",
+   "kind": "literal",
+   "name": "schema.sql",
+   "norm": "schema_sql",
+   "owners": [],
+   "reading": [
+    9,
+    9
+   ],
+   "start": 9
+  },
+  {
+   "change_ranges": [
+    [
+     12,
+     20
+    ]
+   ],
+   "end": 20,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "name": "connect",
+   "norm": "connect",
+   "owners": [],
+   "reading": [
+    12,
+    20
+   ],
+   "start": 12
+  },
+  {
+   "change_ranges": [
+    [
+     12,
+     20
+    ]
+   ],
+   "end": 20,
+   "file": "src/svc/storage.py",
+   "kind": "literal",
+   "name": "utf-8",
+   "norm": "utf_8",
+   "owners": [
+    "connect"
+   ],
+   "reading": [
+    12,
+    20
+   ],
+   "start": 12
+  },
+  {
+   "change_ranges": [
+    [
+     23,
+     24
+    ],
+    [
+     26,
+     26
+    ],
+    [
+     30,
+     30
+    ],
+    [
+     40,
+     40
+    ],
+    [
+     52,
+     52
+    ],
+    [
+     57,
+     57
+    ],
+    [
+     62,
+     62
+    ],
+    [
+     69,
+     69
+    ],
+    [
+     72,
+     72
+    ],
+    [
+     82,
+     82
+    ]
+   ],
+   "end": 84,
+   "file": "src/svc/storage.py",
+   "kind": "class",
+   "name": "Store",
+   "norm": "Store",
+   "owners": [],
+   "reading": [
+    23,
+    24
+   ],
+   "start": 23
+  },
+  {
+   "change_ranges": [
+    [
+     26,
+     28
+    ]
+   ],
+   "end": 28,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "name": "__init__",
+   "norm": "__init__",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    26,
+    28
+   ],
+   "start": 26
+  },
+  {
+   "change_ranges": [
+    [
+     30,
+     38
+    ]
+   ],
+   "end": 38,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "name": "put",
+   "norm": "put",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    30,
+    38
+   ],
+   "start": 30
+  },
+  {
+   "change_ranges": [
+    [
+     40,
+     50
+    ]
+   ],
+   "end": 50,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "name": "get",
+   "norm": "get",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    40,
+    50
+   ],
+   "start": 40
+  },
+  {
+   "change_ranges": [
+    [
+     52,
+     55
+    ]
+   ],
+   "end": 55,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "name": "keys",
+   "norm": "keys",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    52,
+    55
+   ],
+   "start": 52
+  },
+  {
+   "change_ranges": [
+    [
+     57,
+     60
+    ]
+   ],
+   "end": 60,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "name": "count",
+   "norm": "count",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    57,
+    60
+   ],
+   "start": 57
+  },
+  {
+   "change_ranges": [
+    [
+     62,
+     67
+    ]
+   ],
+   "end": 67,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "name": "expires_at",
+   "norm": "expires_at",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    62,
+    67
+   ],
+   "start": 62
+  },
+  {
+   "change_ranges": [
+    [
+     69,
+     70
+    ]
+   ],
+   "end": 70,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "name": "__contains__",
+   "norm": "__contains__",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    69,
+    70
+   ],
+   "start": 69
+  },
+  {
+   "change_ranges": [
+    [
+     72,
+     80
+    ]
+   ],
+   "end": 80,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "name": "purge",
+   "norm": "purge",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    72,
+    80
+   ],
+   "start": 72
+  },
+  {
+   "change_ranges": [
+    [
+     82,
+     84
+    ]
+   ],
+   "end": 84,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "name": "close",
+   "norm": "close",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    82,
+    84
+   ],
+   "start": 82
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "src/svc/tools.py",
+   "kind": "file",
+   "name": "tools.py",
+   "norm": "tools_py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     23
+    ]
+   ],
+   "end": 23,
+   "file": "src/svc/tools.py",
+   "kind": "module",
+   "name": "src.svc.tools",
+   "norm": "src_svc_tools",
+   "owners": [],
+   "reading": [
+    1,
+    23
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     23
+    ]
+   ],
+   "end": 23,
+   "file": "src/svc/tools.py",
+   "kind": "module",
+   "name": "svc.tools",
+   "norm": "svc_tools",
+   "owners": [],
+   "reading": [
+    1,
+    23
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     23
+    ]
+   ],
+   "end": 23,
+   "file": "src/svc/tools.py",
+   "kind": "module",
+   "name": "tools",
+   "norm": "tools",
+   "owners": [],
+   "reading": [
+    1,
+    23
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     7,
+     12
+    ]
+   ],
+   "end": 12,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "key",
+   "norm": "key",
+   "owners": [
+    "store_put"
+   ],
+   "reading": [
+    7,
+    12
+   ],
+   "start": 7
+  },
+  {
+   "change_ranges": [
+    [
+     7,
+     12
+    ]
+   ],
+   "end": 12,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "object",
+   "norm": "object",
+   "owners": [
+    "store_put"
+   ],
+   "reading": [
+    7,
+    12
+   ],
+   "start": 7
+  },
+  {
+   "change_ranges": [
+    [
+     7,
+     12
+    ]
+   ],
+   "end": 12,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "properties",
+   "norm": "properties",
+   "owners": [
+    "store_put"
+   ],
+   "reading": [
+    7,
+    12
+   ],
+   "start": 7
+  },
+  {
+   "change_ranges": [
+    [
+     7,
+     12
+    ]
+   ],
+   "end": 12,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "string",
+   "norm": "string",
+   "owners": [
+    "store_put"
+   ],
+   "reading": [
+    7,
+    12
+   ],
+   "start": 7
+  },
+  {
+   "change_ranges": [
+    [
+     7,
+     12
+    ]
+   ],
+   "end": 12,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "type",
+   "norm": "type",
+   "owners": [
+    "store_put"
+   ],
+   "reading": [
+    7,
+    12
+   ],
+   "start": 7
+  },
+  {
+   "change_ranges": [
+    [
+     7,
+     12
+    ]
+   ],
+   "end": 12,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "value",
+   "norm": "value",
+   "owners": [
+    "store_put"
+   ],
+   "reading": [
+    7,
+    12
+   ],
+   "start": 7
+  },
+  {
+   "change_ranges": [
+    [
+     7,
+     12
+    ]
+   ],
+   "end": 12,
+   "file": "src/svc/tools.py",
+   "kind": "reg",
+   "name": "store.put",
+   "norm": "store_put",
+   "owners": [],
+   "reading": [
+    7,
+    12
+   ],
+   "start": 7
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     17
+    ]
+   ],
+   "end": 17,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "key",
+   "norm": "key",
+   "owners": [
+    "store_get"
+   ],
+   "reading": [
+    13,
+    17
+   ],
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     17
+    ]
+   ],
+   "end": 17,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "object",
+   "norm": "object",
+   "owners": [
+    "store_get"
+   ],
+   "reading": [
+    13,
+    17
+   ],
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     17
+    ]
+   ],
+   "end": 17,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "properties",
+   "norm": "properties",
+   "owners": [
+    "store_get"
+   ],
+   "reading": [
+    13,
+    17
+   ],
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     17
+    ]
+   ],
+   "end": 17,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "string",
+   "norm": "string",
+   "owners": [
+    "store_get"
+   ],
+   "reading": [
+    13,
+    17
+   ],
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     17
+    ]
+   ],
+   "end": 17,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "type",
+   "norm": "type",
+   "owners": [
+    "store_get"
+   ],
+   "reading": [
+    13,
+    17
+   ],
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     17
+    ]
+   ],
+   "end": 17,
+   "file": "src/svc/tools.py",
+   "kind": "reg",
+   "name": "store.get",
+   "norm": "store_get",
+   "owners": [],
+   "reading": [
+    13,
+    17
+   ],
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     18,
+     22
+    ]
+   ],
+   "end": 22,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "object",
+   "norm": "object",
+   "owners": [
+    "store_list"
+   ],
+   "reading": [
+    18,
+    22
+   ],
+   "start": 18
+  },
+  {
+   "change_ranges": [
+    [
+     18,
+     22
+    ]
+   ],
+   "end": 22,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "properties",
+   "norm": "properties",
+   "owners": [
+    "store_list"
+   ],
+   "reading": [
+    18,
+    22
+   ],
+   "start": 18
+  },
+  {
+   "change_ranges": [
+    [
+     18,
+     22
+    ]
+   ],
+   "end": 22,
+   "file": "src/svc/tools.py",
+   "kind": "literal",
+   "name": "type",
+   "norm": "type",
+   "owners": [
+    "store_list"
+   ],
+   "reading": [
+    18,
+    22
+   ],
+   "start": 18
+  },
+  {
+   "change_ranges": [
+    [
+     18,
+     22
+    ]
+   ],
+   "end": 22,
+   "file": "src/svc/tools.py",
+   "kind": "reg",
+   "name": "store.list",
+   "norm": "store_list",
+   "owners": [],
+   "reading": [
+    18,
+    22
+   ],
+   "start": 18
+  }
+ ],
+ "skipped": []
+}

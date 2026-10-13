@@ -1,0 +1,11 @@
+{
+ "doc": "g002",
+ "edits": [
+  {"id": "g002-e01", "doc": "docs/cli.md", "start_line": 16, "end_line": 16,
+   "old": "| `--sourcemap` | Write source maps next to the bundle. |",
+   "new": "| `--sourcemap` | Write source maps next to the bundle. |\n| `--minify` | Minify the bundle. |",
+   "type": "add", "claim": "web build takes --minify, which minifies the bundle",
+   "evidence": ["src/cli.ts:12"], "subject": "--minify"}
+ ],
+ "refusals": []
+}

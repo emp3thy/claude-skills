@@ -1,0 +1,336 @@
+{
+ "candidates": [
+  {
+   "file": "pyproject.toml",
+   "hidden": false,
+   "kind": "script",
+   "line": 8,
+   "name": "svc",
+   "parent": null
+  },
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "command",
+   "line": 15,
+   "name": "serve",
+   "parent": null
+  },
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 16,
+   "name": "--host",
+   "parent": "serve"
+  },
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 17,
+   "name": "--port",
+   "parent": "serve"
+  },
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 18,
+   "name": "--workers",
+   "parent": "serve"
+  },
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "command",
+   "line": 21,
+   "name": "check",
+   "parent": null
+  },
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 22,
+   "name": "--db",
+   "parent": "check"
+  },
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 23,
+   "name": "--repair",
+   "parent": "check"
+  },
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "command",
+   "line": 25,
+   "name": "export",
+   "parent": null
+  },
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 26,
+   "name": "--output",
+   "parent": "export"
+  },
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "command",
+   "line": 28,
+   "name": "init",
+   "parent": null
+  },
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 29,
+   "name": "--db",
+   "parent": "init"
+  },
+  {
+   "file": "src/svc/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 30,
+   "name": "--force",
+   "parent": "init"
+  },
+  {
+   "file": "src/svc/config.py",
+   "hidden": false,
+   "kind": "env",
+   "line": 26,
+   "name": "SVC_HOME",
+   "parent": null
+  },
+  {
+   "file": "src/svc/config.py",
+   "hidden": false,
+   "kind": "env",
+   "line": 27,
+   "name": "SVC_PORT",
+   "parent": null
+  },
+  {
+   "file": "src/svc/config.py",
+   "hidden": false,
+   "kind": "env",
+   "line": 28,
+   "name": "SVC_WORKERS",
+   "parent": null
+  },
+  {
+   "file": "src/svc/config.py",
+   "hidden": false,
+   "kind": "env",
+   "line": 29,
+   "name": "SVC_LOG_LEVEL",
+   "parent": null
+  },
+  {
+   "file": "src/svc/routes.py",
+   "hidden": false,
+   "kind": "route",
+   "line": 12,
+   "name": "/health",
+   "parent": null
+  },
+  {
+   "file": "src/svc/routes.py",
+   "hidden": false,
+   "kind": "route",
+   "line": 18,
+   "name": "/items/<key>",
+   "parent": null
+  },
+  {
+   "file": "src/svc/routes.py",
+   "hidden": false,
+   "kind": "route",
+   "line": 27,
+   "name": "/stats",
+   "parent": null
+  },
+  {
+   "file": "src/svc/tools.py",
+   "hidden": false,
+   "kind": "tool",
+   "line": 8,
+   "name": "store.put",
+   "parent": null
+  },
+  {
+   "file": "src/svc/tools.py",
+   "hidden": false,
+   "kind": "param",
+   "line": 11,
+   "name": "key",
+   "parent": "store.put"
+  },
+  {
+   "file": "src/svc/tools.py",
+   "hidden": false,
+   "kind": "param",
+   "line": 11,
+   "name": "value",
+   "parent": "store.put"
+  },
+  {
+   "file": "src/svc/tools.py",
+   "hidden": false,
+   "kind": "tool",
+   "line": 14,
+   "name": "store.get",
+   "parent": null
+  },
+  {
+   "file": "src/svc/tools.py",
+   "hidden": false,
+   "kind": "param",
+   "line": 16,
+   "name": "key",
+   "parent": "store.get"
+  }
+ ],
+ "gaps": [
+  {
+   "file": "src/svc/cli.py",
+   "gap_kind": "undocumented",
+   "kind": "command",
+   "line": 28,
+   "name": "init",
+   "parent": null,
+   "reason": "complete-list",
+   "target_doc": "docs/cli.md",
+   "target_line": 9
+  },
+  {
+   "file": "src/svc/cli.py",
+   "gap_kind": "undocumented",
+   "kind": "flag",
+   "line": 30,
+   "name": "--force",
+   "parent": "init",
+   "reason": "most-names",
+   "target_doc": "docs/cli.md",
+   "target_line": 19
+  },
+  {
+   "file": "src/svc/config.py",
+   "gap_kind": "missing-from-list",
+   "kind": "env",
+   "line": 29,
+   "name": "SVC_LOG_LEVEL",
+   "parent": null,
+   "reason": "missing-from-list",
+   "target_doc": "docs/configuration.md",
+   "target_line": 9
+  }
+ ],
+ "lists": [
+  {
+   "complete": true,
+   "doc": "docs/cli.md",
+   "kind": "command",
+   "line_end": 9,
+   "line_start": 5,
+   "scope": null,
+   "subjects": [
+    "serve",
+    "check",
+    "export"
+   ]
+  },
+  {
+   "complete": true,
+   "doc": "docs/cli.md",
+   "kind": "flag",
+   "line_end": 17,
+   "line_start": 13,
+   "scope": [
+    "serve"
+   ],
+   "subjects": [
+    "--host",
+    "--port",
+    "--workers"
+   ]
+  },
+  {
+   "complete": true,
+   "doc": "docs/configuration.md",
+   "kind": "env",
+   "line_end": 9,
+   "line_start": 5,
+   "scope": null,
+   "subjects": [
+    "SVC_HOME",
+    "SVC_PORT",
+    "SVC_WORKERS"
+   ]
+  },
+  {
+   "complete": true,
+   "doc": "docs/untouched.md",
+   "kind": "route",
+   "line_end": 7,
+   "line_start": 3,
+   "scope": null,
+   "subjects": [
+    "/health",
+    "/items/<key>",
+    "/stats"
+   ]
+  }
+ ],
+ "no_home": [],
+ "targets": {
+  "docs/cli.md": [
+   {
+    "file": "src/svc/cli.py",
+    "gap_kind": "undocumented",
+    "kind": "command",
+    "line": 28,
+    "name": "init",
+    "parent": null,
+    "reason": "complete-list",
+    "target_doc": "docs/cli.md",
+    "target_line": 9
+   },
+   {
+    "file": "src/svc/cli.py",
+    "gap_kind": "undocumented",
+    "kind": "flag",
+    "line": 30,
+    "name": "--force",
+    "parent": "init",
+    "reason": "most-names",
+    "target_doc": "docs/cli.md",
+    "target_line": 19
+   }
+  ],
+  "docs/configuration.md": [
+   {
+    "file": "src/svc/config.py",
+    "gap_kind": "missing-from-list",
+    "kind": "env",
+    "line": 29,
+    "name": "SVC_LOG_LEVEL",
+    "parent": null,
+    "reason": "missing-from-list",
+    "target_doc": "docs/configuration.md",
+    "target_line": 9
+   }
+  ]
+ },
+ "unchecked": []
+}

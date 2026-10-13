@@ -1,0 +1,11 @@
+{
+ "doc": "g002",
+ "edits": [
+  {"id": "g002-e01", "doc": "docs/configuration.md", "start_line": 9, "end_line": 9,
+   "old": "| `SVC_WORKERS` | Number of worker processes. |",
+   "new": "| `SVC_WORKERS` | Number of worker processes. |\n| `SVC_LOG_LEVEL` | Log level, such as `debug`; the default is `info`. |",
+   "type": "add", "claim": "the service reads SVC_LOG_LEVEL for its log level",
+   "evidence": ["src/svc/config.py:29"], "subject": "SVC_LOG_LEVEL"}
+ ],
+ "refusals": []
+}

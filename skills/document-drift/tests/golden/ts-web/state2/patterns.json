@@ -1,0 +1,110 @@
+{
+ "names": [
+  {
+   "file": "src/cli.ts",
+   "hidden": false,
+   "kind": "command",
+   "line": 7,
+   "name": "build",
+   "parent": null
+  },
+  {
+   "file": "src/cli.ts",
+   "hidden": false,
+   "kind": "flag",
+   "line": 9,
+   "name": "--out-dir",
+   "parent": null
+  },
+  {
+   "file": "src/cli.ts",
+   "hidden": false,
+   "kind": "flag",
+   "line": 10,
+   "name": "--watch",
+   "parent": null
+  },
+  {
+   "file": "src/cli.ts",
+   "hidden": false,
+   "kind": "flag",
+   "line": 11,
+   "name": "--sourcemap",
+   "parent": null
+  },
+  {
+   "file": "src/cli.ts",
+   "hidden": false,
+   "kind": "flag",
+   "line": 12,
+   "name": "--minify",
+   "parent": null
+  },
+  {
+   "file": "src/cli.ts",
+   "hidden": false,
+   "kind": "command",
+   "line": 16,
+   "name": "serve",
+   "parent": null
+  },
+  {
+   "file": "src/config.ts",
+   "hidden": false,
+   "kind": "env",
+   "line": 2,
+   "name": "API_URL",
+   "parent": null
+  },
+  {
+   "file": "src/config.ts",
+   "hidden": false,
+   "kind": "env",
+   "line": 3,
+   "name": "PORT",
+   "parent": null
+  },
+  {
+   "file": "src/config.ts",
+   "hidden": false,
+   "kind": "env",
+   "line": 4,
+   "name": "LOG_LEVEL",
+   "parent": null
+  },
+  {
+   "file": "src/config.ts",
+   "hidden": false,
+   "kind": "env",
+   "line": 5,
+   "name": "FEATURE_FLAGS",
+   "parent": null
+  },
+  {
+   "file": "src/server.ts",
+   "hidden": false,
+   "kind": "route",
+   "line": 6,
+   "name": "/api/items",
+   "parent": null
+  },
+  {
+   "file": "src/server.ts",
+   "hidden": false,
+   "kind": "route",
+   "line": 10,
+   "name": "/api/items/:id",
+   "parent": null
+  },
+  {
+   "file": "src/server.ts",
+   "hidden": false,
+   "kind": "route",
+   "line": 14,
+   "name": "/healthz",
+   "parent": null
+  }
+ ],
+ "names_then": [],
+ "skipped": []
+}

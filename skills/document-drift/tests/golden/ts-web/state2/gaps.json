@@ -1,0 +1,52 @@
+{
+ "candidates": [],
+ "gaps": [],
+ "lists": [
+  {
+   "complete": true,
+   "doc": "docs/api.md",
+   "kind": "route",
+   "line_end": 9,
+   "line_start": 5,
+   "scope": null,
+   "subjects": [
+    "/api/items",
+    "/api/items/{id}",
+    "/healthz"
+   ]
+  },
+  {
+   "complete": true,
+   "doc": "docs/cli.md",
+   "kind": "flag",
+   "line_end": 17,
+   "line_start": 12,
+   "scope": [
+    null
+   ],
+   "subjects": [
+    "--out-dir",
+    "--watch",
+    "--sourcemap",
+    "--minify"
+   ]
+  },
+  {
+   "complete": true,
+   "doc": "docs/configuration.md",
+   "kind": "env",
+   "line_end": 10,
+   "line_start": 5,
+   "scope": null,
+   "subjects": [
+    "API_URL",
+    "PORT",
+    "LOG_LEVEL",
+    "FEATURE_FLAGS"
+   ]
+  }
+ ],
+ "no_home": [],
+ "targets": {},
+ "unchecked": []
+}

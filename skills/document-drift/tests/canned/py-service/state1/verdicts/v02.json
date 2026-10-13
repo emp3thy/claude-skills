@@ -1,0 +1,6 @@
+{
+ "batch": "v02",
+ "verdicts": [
+  {"edit": "g002-e01", "verdict": "accept", "reason": "load reads SVC_LOG_LEVEL with default info at src/svc/config.py:29"}
+ ]
+}

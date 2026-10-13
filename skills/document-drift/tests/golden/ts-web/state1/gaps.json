@@ -1,0 +1,216 @@
+{
+ "candidates": [
+  {
+   "file": "src/cli.ts",
+   "hidden": false,
+   "kind": "command",
+   "line": 7,
+   "name": "build",
+   "parent": null
+  },
+  {
+   "file": "src/cli.ts",
+   "hidden": false,
+   "kind": "flag",
+   "line": 9,
+   "name": "--out-dir",
+   "parent": null
+  },
+  {
+   "file": "src/cli.ts",
+   "hidden": false,
+   "kind": "flag",
+   "line": 10,
+   "name": "--watch",
+   "parent": null
+  },
+  {
+   "file": "src/cli.ts",
+   "hidden": false,
+   "kind": "flag",
+   "line": 11,
+   "name": "--sourcemap",
+   "parent": null
+  },
+  {
+   "file": "src/cli.ts",
+   "hidden": false,
+   "kind": "flag",
+   "line": 12,
+   "name": "--minify",
+   "parent": null
+  },
+  {
+   "file": "src/cli.ts",
+   "hidden": false,
+   "kind": "command",
+   "line": 16,
+   "name": "serve",
+   "parent": null
+  },
+  {
+   "file": "src/config.ts",
+   "hidden": false,
+   "kind": "env",
+   "line": 2,
+   "name": "API_URL",
+   "parent": null
+  },
+  {
+   "file": "src/config.ts",
+   "hidden": false,
+   "kind": "env",
+   "line": 3,
+   "name": "PORT",
+   "parent": null
+  },
+  {
+   "file": "src/config.ts",
+   "hidden": false,
+   "kind": "env",
+   "line": 4,
+   "name": "LOG_LEVEL",
+   "parent": null
+  },
+  {
+   "file": "src/config.ts",
+   "hidden": false,
+   "kind": "env",
+   "line": 5,
+   "name": "FEATURE_FLAGS",
+   "parent": null
+  },
+  {
+   "file": "src/server.ts",
+   "hidden": false,
+   "kind": "route",
+   "line": 6,
+   "name": "/api/items",
+   "parent": null
+  },
+  {
+   "file": "src/server.ts",
+   "hidden": false,
+   "kind": "route",
+   "line": 10,
+   "name": "/api/items/:id",
+   "parent": null
+  },
+  {
+   "file": "src/server.ts",
+   "hidden": false,
+   "kind": "route",
+   "line": 14,
+   "name": "/healthz",
+   "parent": null
+  }
+ ],
+ "gaps": [
+  {
+   "file": "src/cli.ts",
+   "gap_kind": "undocumented",
+   "kind": "flag",
+   "line": 12,
+   "name": "--minify",
+   "parent": null,
+   "reason": "complete-list",
+   "target_doc": "docs/cli.md",
+   "target_line": 16
+  },
+  {
+   "file": "src/config.ts",
+   "gap_kind": "missing-from-list",
+   "kind": "env",
+   "line": 5,
+   "name": "FEATURE_FLAGS",
+   "parent": null,
+   "reason": "missing-from-list",
+   "target_doc": "docs/configuration.md",
+   "target_line": 9
+  },
+  {
+   "file": "src/server.ts",
+   "gap_kind": "undocumented",
+   "kind": "route",
+   "line": 14,
+   "name": "/healthz",
+   "parent": null,
+   "reason": "most-names",
+   "target_doc": "docs/api.md",
+   "target_line": 3
+  }
+ ],
+ "lists": [
+  {
+   "complete": true,
+   "doc": "docs/cli.md",
+   "kind": "flag",
+   "line_end": 16,
+   "line_start": 12,
+   "scope": [
+    null
+   ],
+   "subjects": [
+    "--out-dir",
+    "--watch",
+    "--sourcemap"
+   ]
+  },
+  {
+   "complete": true,
+   "doc": "docs/configuration.md",
+   "kind": "env",
+   "line_end": 9,
+   "line_start": 5,
+   "scope": null,
+   "subjects": [
+    "API_URL",
+    "PORT",
+    "LOG_LEVEL"
+   ]
+  }
+ ],
+ "no_home": [],
+ "targets": {
+  "docs/api.md": [
+   {
+    "file": "src/server.ts",
+    "gap_kind": "undocumented",
+    "kind": "route",
+    "line": 14,
+    "name": "/healthz",
+    "parent": null,
+    "reason": "most-names",
+    "target_doc": "docs/api.md",
+    "target_line": 3
+   }
+  ],
+  "docs/cli.md": [
+   {
+    "file": "src/cli.ts",
+    "gap_kind": "undocumented",
+    "kind": "flag",
+    "line": 12,
+    "name": "--minify",
+    "parent": null,
+    "reason": "complete-list",
+    "target_doc": "docs/cli.md",
+    "target_line": 16
+   }
+  ],
+  "docs/configuration.md": [
+   {
+    "file": "src/config.ts",
+    "gap_kind": "missing-from-list",
+    "kind": "env",
+    "line": 5,
+    "name": "FEATURE_FLAGS",
+    "parent": null,
+    "reason": "missing-from-list",
+    "target_doc": "docs/configuration.md",
+    "target_line": 9
+   }
+  ]
+ },
+ "unchecked": []
+}

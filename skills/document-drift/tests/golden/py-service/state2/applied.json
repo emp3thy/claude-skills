@@ -1,0 +1,15 @@
+{
+ "applied": [
+  "g001-e01",
+  "n001",
+  "u001-e01",
+  "u001-e02"
+ ],
+ "docs": [
+  "README.md",
+  "docs/cli.md",
+  "docs/design.md"
+ ],
+ "link_updates": [],
+ "reverted": []
+}

@@ -1,0 +1,83 @@
+# ts-web: a TypeScript front end with a commander build tool and an express API server.
+# State 1 (tag state1) is the first drift run's repository; state 2 (tag state2) renames the
+# client's fetchItems to listItems, which docs/api.md names. files/ is the final tree: a path
+# written literally below is a state-1 version that the state-2 commit replaces with "@final".
+# The state-1 run is dated 2026-01-02 and the state-2 run 2026-01-09 (dd_corpus.DATES).
+# planted.json lists what each state's run must find; the canned agent outputs under
+# tests/canned/ts-web/ quote these docs line for line, so change them together.
+commits:
+  - author: "Linus Pauling <linus@example.com>"
+    date: "2025-04-01T09:00:00+00:00"
+    subject: "feat: config, item client, helpers and the app shell"
+    files:
+      package.json: "@final"
+      src/config.ts: "@final"
+      src/helpers/format.ts: "@final"
+      src/App.tsx: "@final"
+      src/main.tsx: "@final"
+      src/api/client.ts: |
+        import { config } from "../config";
+
+        export const PAGE_SIZE = 50;
+
+        export interface Item {
+          id: string;
+          name: string;
+          priceCents: number;
+        }
+
+        export async function fetchItems(page = 1): Promise<Item[]> {
+          const url = `${config.apiUrl}/api/items?page=${page}&size=${PAGE_SIZE}`;
+          const response = await fetch(url);
+          return (await response.json()) as Item[];
+        }
+
+        export async function fetchItem(id: string): Promise<Item> {
+          const response = await fetch(`${config.apiUrl}/api/items/${id}`);
+          return (await response.json()) as Item;
+        }
+      src/pages/ItemsPage.tsx: |
+        import { useEffect, useState } from "react";
+        import { fetchItems, type Item } from "../api/client";
+        import { formatPrice } from "../helpers/format";
+
+        export function ItemsPage() {
+          const [items, setItems] = useState<Item[]>([]);
+          useEffect(() => {
+            fetchItems().then(setItems);
+          }, []);
+          return (
+            <ul>
+              {items.map((item) => (
+                <li key={item.id}>
+                  {item.name}: {formatPrice(item.priceCents)}
+                </li>
+              ))}
+            </ul>
+          );
+        }
+  - author: "Rosalind Franklin <rosalind@example.com>"
+    date: "2025-04-08T09:00:00+00:00"
+    subject: "feat: build command and item routes"
+    files:
+      src/build.ts: "@final"
+      src/cli.ts: "@final"
+      src/server.ts: "@final"
+  - author: "Linus Pauling <linus@example.com>"
+    date: "2025-04-15T09:00:00+00:00"
+    subject: "docs: landing page, readme and guides"
+    tag: state1
+    files:
+      index.md: "@final"
+      README.md: "@final"
+      docs/api.md: "@final"
+      docs/cli.md: "@final"
+      docs/configuration.md: "@final"
+      docs/frontend.md: "@final"
+  - author: "Rosalind Franklin <rosalind@example.com>"
+    date: "2026-01-05T09:00:00+00:00"
+    subject: "refactor: fetchItems becomes listItems"
+    tag: state2
+    files:
+      src/api/client.ts: "@final"
+      src/pages/ItemsPage.tsx: "@final"

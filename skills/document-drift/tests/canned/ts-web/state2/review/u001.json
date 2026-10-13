@@ -1,0 +1,15 @@
+{
+ "unit": "u001",
+ "claims_checked": 9,
+ "code_claims": {"README.md": 1, "docs/api.md": 3, "docs/cli.md": 4,
+                 "docs/configuration.md": 4},
+ "unverified_blocks": [],
+ "edits": [
+  {"id": "u001-e01", "doc": "docs/api.md", "start_line": 15, "end_line": 15,
+   "old": "`fetchItems` loads one page of items, and `fetchItem` loads one item by its id.",
+   "new": "`listItems` loads one page of items, and `fetchItem` loads one item by its id.",
+   "type": "correct", "claim": "fetchItems loads one page of items",
+   "evidence": ["src/api/client.ts:11"], "subject": null}
+ ],
+ "questions": []
+}

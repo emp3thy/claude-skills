@@ -1,0 +1,6 @@
+{
+ "batch": "v02",
+ "verdicts": [
+  {"edit": "g002-e01", "verdict": "accept", "reason": "the build command adds --minify at src/cli.ts:12"}
+ ]
+}

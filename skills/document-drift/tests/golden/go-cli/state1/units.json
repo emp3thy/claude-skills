@@ -1,0 +1,80 @@
+{
+ "unchecked": [],
+ "units": [
+  {
+   "affected_anchors": 2,
+   "anchors": [
+    {
+     "change_ranges": [
+      [
+       1,
+       1
+      ]
+     ],
+     "doc": "docs/usage.md",
+     "end": 1,
+     "file": "internal/cli/options.go",
+     "kind": "file",
+     "line": 5,
+     "reading": [
+      1,
+      1
+     ],
+     "ref": "options.go",
+     "start": 1
+    },
+    {
+     "change_ranges": [
+      [
+       1,
+       1
+      ]
+     ],
+     "doc": "docs/usage.md",
+     "end": 1,
+     "file": "internal/cli/env.go",
+     "kind": "file",
+     "line": 7,
+     "reading": [
+      1,
+      1
+     ],
+     "ref": "env.go",
+     "start": 1
+    }
+   ],
+   "docs": [
+    {
+     "doc": "README.md",
+     "ranges": [
+      [
+       1,
+       16
+      ]
+     ]
+    },
+    {
+     "doc": "docs/legacy.md",
+     "ranges": [
+      [
+       1,
+       9
+      ]
+     ]
+    },
+    {
+     "doc": "docs/usage.md",
+     "ranges": [
+      [
+       1,
+       30
+      ]
+     ]
+    }
+   ],
+   "hunks": [],
+   "id": "u001",
+   "size": 57
+  }
+ ]
+}

@@ -1,0 +1,20 @@
+{
+ "unit": "u001",
+ "claims_checked": 18,
+ "code_claims": {"README.md": 4, "docs/api.md": 5, "docs/cli.md": 6,
+                 "docs/configuration.md": 3, "docs/frontend.md": 2, "index.md": 1},
+ "unverified_blocks": [],
+ "edits": [
+  {"id": "u001-e01", "doc": "README.md", "start_line": 13, "end_line": 13,
+   "old": "The server registers four routes in `src/server.ts`; [docs/api.md](docs/api.md) lists them.",
+   "new": "The server registers three routes in `src/server.ts`; [docs/api.md](docs/api.md) lists them.",
+   "type": "correct", "claim": "the server registers four routes",
+   "evidence": ["src/server.ts:6", "src/server.ts:10", "src/server.ts:14"], "subject": null},
+  {"id": "u001-e02", "doc": "docs/api.md", "start_line": 12, "end_line": 12,
+   "old": "The client asks for 20 items per page by default (`PAGE_SIZE`).",
+   "new": "The client asks for 50 items per page by default (`PAGE_SIZE`).",
+   "type": "correct", "claim": "the client asks for 20 items per page by default",
+   "evidence": ["src/api/client.ts:3"], "subject": null}
+ ],
+ "questions": []
+}

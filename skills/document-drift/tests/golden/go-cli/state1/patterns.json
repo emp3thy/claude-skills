@@ -1,0 +1,30 @@
+{
+ "names": [
+  {
+   "file": "Makefile",
+   "hidden": false,
+   "kind": "target",
+   "line": 3,
+   "name": "build",
+   "parent": null
+  },
+  {
+   "file": "Makefile",
+   "hidden": false,
+   "kind": "target",
+   "line": 6,
+   "name": "lint",
+   "parent": null
+  },
+  {
+   "file": "Makefile",
+   "hidden": false,
+   "kind": "target",
+   "line": 9,
+   "name": "release",
+   "parent": null
+  }
+ ],
+ "names_then": null,
+ "skipped": []
+}

@@ -1,0 +1,19 @@
+{
+ "unit": "u001",
+ "claims_checked": 30,
+ "code_claims": {"README.md": 3, "docs/legacy.md": 4, "docs/usage.md": 22},
+ "unverified_blocks": [
+  {"doc": "docs/legacy.md", "start_line": 3, "end_line": 3,
+   "why": "describes how old reports ordered findings; nothing in the code names that order"},
+  {"doc": "docs/legacy.md", "start_line": 5, "end_line": 5,
+   "why": "describes where the first versions wrote the report; no function owns it"},
+  {"doc": "docs/legacy.md", "start_line": 7, "end_line": 7,
+   "why": "describes how old configuration settings apply; names no option or file"},
+  {"doc": "docs/legacy.md", "start_line": 9, "end_line": 9,
+   "why": "describes how a doc without headings is split; names no function"},
+  {"doc": "docs/usage.md", "start_line": 14, "end_line": 14,
+   "why": "a list of run behaviours that names no function, flag or file"}
+ ],
+ "edits": [],
+ "questions": []
+}

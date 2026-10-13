@@ -781,3 +781,234 @@ fixtures. That run set no bar, because a decoy reached tier A on
 web-ts, so the provisional 0.80 figure stays until a run clears the
 hard gate (see `docs/evaluation-log.md`). Autonomously applying fixes
 without review is a separate follow-on, deferred and out of scope.
+
+## document-drift
+
+`skills/document-drift/` is a second skill in this repository: it keeps a repository's
+markdown docs matching what its code does, in both directions, and leaves at most two commits
+on a new branch. The canonical design is
+[`docs/superpowers/specs/2026-10-10-document-drift-agentic-design.md`](superpowers/specs/2026-10-10-document-drift-agentic-design.md)
+(phase A: normal runs on a repository that has docs). It replaces the phase 1 pipeline of
+`docs/superpowers/specs/2026-10-09-document-drift-design.md`, whose history gate (an edit only
+when git history proved a reference stale) is gone, with its fix classes. Scripts are standard
+library plus `pyyaml`; read-only agents the session dispatches from plan files do the reading.
+As above, where this page and the scripts disagree, the scripts win.
+
+### Stages
+
+`python scripts/dd_run.py <repo> --stage <start|verify|finish> [--retried] [--base REF]
+[--full] [--branch NAME] [--check] [--workdir DIR] [--date YYYY-MM-DD]` runs one stage. The
+workdir (default `<repo>/.document-drift`) is added to `.git/info/exclude` and never committed.
+`start` records `base`, `full`, `branch`, `check` and `date` in `preflight.json`, with the run
+id (`<date>-` plus the first 4 hex characters of `sha256("<head>:<scope>:<date>")`) and the
+scope; `verify` and `finish` read them from there and refuse a different value or a stage run
+out of order (exit 2). Each stage prints one line naming its plan file and entry count
+(`plan-docs.json <path> with <n> entries`, `plan-verify.json <path> with <n> entries`, or
+`retry.json <path> with <n> entries` on exit 3); `finish` prints the summary.
+
+| Stage | Steps (module) | Files written | Then the session dispatches |
+|---|---|---|---|
+| `start` | preflight (`dd_preflight`); inventory (`dd_inventory`); path and anchor tokens and their resolution at HEAD (`dd_extract`, `dd_resolve`; `dd_changes` reads the unresolved paths of `candidates.json`); definition index (`dd_defindex`); anchors and checkability (`dd_anchors`); run mode and change set (`dd_changes`); review units (`dd_units`); pattern scan (`dd_patterns`); gaps and targets (`dd_gaps`); notice decisions (`dd_unverified`); plan (`dd_dispatch`) | `preflight.json`, `inventory.json`, `tokens.json`, `candidates.json`, `defindex.json`, `anchors.json`, `changes.json`, `units.json`, `patterns.json`, `gaps.json`, `notices.json`, `plan-docs.json`, `prompts/review-uNNN.md`, `prompts/gap-gNNN.md` | one review agent per unit (`review/uNNN.json`) and one gap agent per target doc (`gaps/gNNN.json`); when the plan is empty, nothing, and the session goes straight to `finish` |
+| `verify` | output validation (`dd_dispatch`); the review agents' `unverified_blocks` as notice nominations (`dd_unverified`); script checks and verify batches (`dd_checks`) | `retry.json` (when needed), `notices.json`, `edits.json`, `plan-verify.json`, `prompts/verify-vNN.md` | one verifier agent per batch of at most 10 edits (`verdicts/vNN.json`) |
+| `finish` | output validation and verdicts (`dd_dispatch`); tree check (HEAD no longer the preflight HEAD, a clean branch switch included, or any file outside the workdir that changed since preflight refuses the run, exit 2, before anything is applied); apply, re-scan and revert, heading link updates (`dd_apply`); commits (`dd_commit`); last-run record; summary (`dd_summary`) | `verdicts.json`, `applied.json`, `commits.json`, `commit-msg-corrections.txt`, `commit-msg-additions.txt`, `last-run.json`, `summary.md` | nothing |
+
+`start` deletes `preflight.json` first and, once preflight passes, every other pinned output of
+an earlier run except `last-run.json`, so a stale file is never read again and a refused start
+keeps the previous run's files. A repository with no in-scope doc stops after the inventory
+with the message that no-docs mode arrives in phase B (exit 0, empty plan, no branch). After a
+`start` with an empty plan, `finish` runs the script checks itself, so the notice edits `start`
+decided still apply.
+
+**Dispatch protocol.** A plan entry is `{id, role, prompt, output, model}` with absolute paths
+inside the workdir; `role` is `review`, `gap` or `verify` and `model` comes from config. The
+session dispatches one general-purpose Agent per entry (it needs Read, Grep, Glob and Write;
+it is read-only toward the repository), all entries of a plan in one message, with
+the prompt `Read the file <prompt> in full and follow it. Write only <output>.`; it never
+pastes a prompt and never writes an output file. The agent writes exactly `output` and replies
+with a receipt. The next stage validates every output of the wave against its schema; a
+missing or invalid one writes `retry.json` and exits 3, the session re-dispatches those
+entries once and reruns the stage with `--retried`, and an output still bad then marks its unit
+or batch unchecked. Prompt templates live in `skills/document-drift/prompts/`
+(`review-first.md`, `review-later.md`, `gap.md`, `verify.md`).
+
+### Docs to code
+
+**Definition index** (`dd_defindex`, spec 5.1): Python modules, functions, methods and classes
+with their `ast` ranges; string literals that look like names, with the range of the largest
+enclosing node spanning at most 15 lines; registrations (`name=` keywords, `add_argument`,
+`add_parser`, `getenv`, route decorators, `option`, `command`, `_resolve*`); SQL objects and
+columns; JavaScript and TypeScript functions, classes, exports and methods by brace matching;
+unique basenames of tracked non-test files. Kinds rank 0 (definitions), 1 (registrations, SQL
+columns) or 2 (other literals).
+
+**Anchors** (`dd_anchors`, spec 5.2 to 5.5): a reference is a path in a link or code span, or
+an inline-code span outside fences (HTML `<code>` included) whose first token looks like a
+name or path. A specific reference (containing
+`.`, `/` or `_`, a `--flag`, camelCase, or `UPPER_SNAKE`) resolves to its best-ranked
+definitions, at most 10; a bare one only through a specific name in its block or nearest
+heading, at most 3. Names are compared after normalisation (an `mcp__<server>__` prefix
+removed, `-` and `.` as `_`, a flag keeps its dashes). An anchor keeps a change range and a
+reading range, both cut to the signature for definitions over 60 lines. Every doc's
+checkability (references, anchors, rate) is reported; a doc with no anchor is unverifiable,
+one under `min_anchor_ratio` or with fewer than 3 anchors weakly anchored.
+
+**Run mode** (`dd_changes`, spec 6): the last run is the newest `Drift-Base:` commit on HEAD or
+`last-run.json`'s `head`, whichever descends from the other; `--base` replaces both, and
+`--full` or no record makes a first run. A first run reviews every doc in full; a later run
+diffs `<last-run commit>..HEAD` (`git diff -U0`) and reviews only the affected docs: an anchor
+whose change range a hunk touches, a reference that resolved at the last-run commit and no
+longer does, or a doc that itself changed (its changed sections). A name is resolved against
+the definition index as it was at that commit; a path in a code span or link that
+`candidates.json` lists as unresolved at HEAD is affected when it named a file or directory of
+that commit's tree, relative to its doc or the root, and its review range is the block holding
+it. Affected docs are packed into review units within `unit_lines` (`dd_units`), linked when
+they share a definition.
+
+**Review** (prompts `review-first.md`, `review-later.md`): the agent checks the statements in
+its ranges against the code and writes `correct`, `remove` and `anchor` edits (an `anchor` edit
+names, in an inline-code span, the definition a true statement describes), `guarantee-mismatch`
+and `unsure` questions, `code_claims` per doc and `unverified_blocks`.
+
+**Notice loop** (`dd_unverified`, spec 7.3): a nominated block gets
+`<!-- drift-unverified: 1st notice, run <run id>, block <hash>. ... -->` on the line above it,
+where the hash is the first 8 hex digits of the SHA-256 of the block's whitespace-collapsed
+text. On every run the script reads each notice: an anchored block, a changed hash or a
+`drift-ignore` marker clears it; an unchanged 1st notice becomes a 2nd notice and an
+`unverified` human-decision entry; an unchanged 2nd notice removes the block and its notice
+(a block of more than `max_delete_lines` lines, its notice line not counted, goes to a human as
+`large-deletion` instead). A malformed notice, or one whose run id is dated after the current
+run's date, is listed as stale and left alone. Notice edits go through the script checks but
+not to a verifier.
+
+### Code to docs
+
+**Pattern scan** (`dd_patterns`, spec 8.1) finds user-facing names in indexed files and project
+files: argparse and click commands and flags (with their parent command), environment
+variables, routes, MCP tools and their input-schema properties, commander and yargs options,
+`[project.scripts]`, `package.json` scripts and bin, Makefile, justfile and Taskfile targets,
+Dockerfile `ENV` and `.env.example` keys. Hidden names and `undocumented_ok` globs are never
+gaps. **Gaps** (`dd_gaps`, spec 8.2 and 8.3): a candidate (every name on a first run, names new
+since the last run otherwise) is undocumented when no in-scope doc mentions it, or missing from
+a list when a complete-intended list of its kind (holding at least half of the kind's names in
+its scope) lacks it. Each gap gets one target doc, or `no-home`. One gap agent per target doc
+(`gap.md`) writes `add` edits, or refuses as `not-user-facing`, `already-documented` or
+`target-refused`.
+
+### Checks, verification, apply
+
+`dd_checks` (spec 9.1) runs on every edit, first failure decides: `old-mismatch`, `protected`,
+`evidence`, `still-in-source`, `anchor-adds-name`, `guarantee`, `large-deletion`,
+`large-section`, `new-reference`, `overlap`. Dropped edits are counted; `protected`,
+`guarantee`, `large-deletion`, `large-section` and `overlap` become human-decision entries.
+Edits that pass are batched by the file of their first evidence path, at most 10 per batch and
+`caps.verify` batches; a verifier (`verify.md`) accepts, rejects or is unsure, and only accepted
+edits (plus kept notice edits) apply. `dd_apply` applies them per doc bottom-up by exact match
+of `old`, re-scans the edited doc with `dd_extract` and `dd_resolve`, reverts an edit after
+which a path or anchor reference no longer resolves (`recheck-failed`), and rewrites links to a
+renamed heading in the same commit.
+
+### Commit grammar
+
+```
+docs(drift): correct stale docs
+
+Drift-Run: <run id>
+Drift-Base: <starting HEAD sha>
+Drift-Scope: first | since <sha> | base <ref> | full
+Drift-Unchecked: <n> doc units, <n> gap docs, <n> verify batches
+
+- <doc>:<line> correct <claim> (<path:line>[, <path:line>...])
+- <doc>:<line> remove <claim> (<subject> not in source)
+- <doc>:<line> anchor <subject> (<path:line>)
+- <doc>:<line> notice unverified block (1st notice)
+- <doc>:<line> escalate unverified notice (2nd notice)
+- <doc>:<line> clear unverified notice (now anchored | block changed | drift-ignore)
+- <doc>:<line> remove unverified block (3rd notice, unchanged since <run id>)
+  - <doc>:<line> link #<old> -> #<new>
+```
+
+The indented `link` sub-bullet follows an edit whose heading change rewrote links to the old
+heading slug, one per rewritten link.
+
+The second commit, `docs(drift): document missing surface`, has the same `Drift-` lines and
+`- <doc>:<line> add <kind> <name> (<path:line>)` bullets. A commit with no edits is not made.
+The last commit made ends with `Needs a human decision:` and one
+`- <doc>:<line> <kind>: <claim or item> (<evidence or reason>)` line per entry, the kinds being
+`guarantee-mismatch`, `unsure`, `unverified`, `large-deletion`, `large-section`, `protected`,
+`overlap`, `no-home`, `target-refused`, `verify-rejected` and `recheck-failed`. Config
+`commit_trailers` are appended at the end of the message, after the human-decision block.
+`<line>` is the line at the starting HEAD; every repository-derived string passes through the
+redactor copied from tech-debt-scan and is cut to one line of at most 160 characters. `finish`
+creates the branch with `git switch -c` after checking HEAD still equals the preflight HEAD,
+and stages each doc by explicit path. After a successful `finish` outside `--check`,
+`last-run.json` records the starting HEAD, run id and date, so a run with nothing to fix still
+moves the anchor on this machine; the `Drift-Base` line carries it to other machines.
+
+Exit codes (spec 2): 0 stage succeeded; 1 `finish` under `--check` found an edit that would
+apply (an accepted edit or a kept notice edit); 2
+refused before any change; 3 an agent wave left missing or invalid outputs (`retry.json`); 5 a
+script step crashed or its expected output is missing (the message names the step, and after
+apply, commit or summary points to `git status` and `git branch`); 6 the commit failed after
+the edits were applied.
+
+### Configuration
+
+`.document-drift.yaml` at the repository root, optional (`dd_config`): `exclude`,
+`never_edit_heading`, `branch` (default `docs/drift-{date}`), `commit_trailers`, `unit_lines`
+(6000), `max_delete_lines` (15), `max_section_lines` (40), `min_anchor_ratio` (0.25),
+`undocumented_ok`, `caps` (`review` 40, `gaps` 15, `verify` 25) and `models` (`review` and
+`gap` `sonnet`, `verify` `opus`). An unknown key warns. Work beyond a cap is not dispatched and
+is listed in the summary and counted in `Drift-Unchecked`.
+
+### Exclusions
+
+Each recorded with its reason in `inventory.json` and the summary:
+
+- paths: `docs/superpowers/**`, `.superpowers/**`, `docs/research/**`, `**/research_notes/**`,
+  `**/archive/**`, `**/adr/**`, `**/adrs/**`, `**/decisions/**`, `**/rfcs/**`, `**/rfc/**`;
+- basenames: `CHANGELOG*`, `CHANGES*`, `HISTORY*`, `RELEASE_NOTES*`, `LICENSE*`, `LICENCE*`,
+  `NOTICE*`, `COPYING*`, `CODE_OF_CONDUCT*`, `SECURITY*`, `AUTHORS*`, `CONTRIBUTORS*`,
+  `MAINTAINERS*`, `CODEOWNERS` (case-sensitive globs, plus the exact conventional stem in any
+  case, so `changelog.md` is excluded and `license-faq.md` is not);
+- the tech-debt-scan path classes vendored, generated and tests; `.gitattributes`
+  `linguist-generated` and `linguist-vendored`; a `DO NOT EDIT` or `Code generated` header;
+  submodules; templates (`templates/`, `template/`, `skeleton/`, `cookiecutter*`, `*.tmpl.md`);
+- vendored nested libraries (a directory with its own `LICENSE*` and a manifest naming a
+  different project, or any directory under `libraries/`, `extern/`, `external/`,
+  `third_party/`, `deps/`);
+- a path component in `node_modules`, `.venv`, `venv`, `site-packages`, `dist`, `target`,
+  `.tox`, `__pycache__`, or `build`/`bin` holding no manifest;
+- `<!-- drift-ignore-file: reason -->` as a real HTML comment (quoted in inline code or a fence,
+  as here, it does not count), and config `exclude` globs.
+
+Inside an in-scope doc, a section whose heading matches the never-edit regex is protected: an
+edit there becomes a `protected` human-decision entry. The default regex is
+`(?i)\b(why|rationale|decision|decisions|history|roadmap|deprecated|deprecation|migration|changelog|release notes|license|licence)\b`
+(`dd_inventory.DEFAULT_NEVER_EDIT`), OR-ed with config `never_edit_heading`. Generated regions
+(embedme, mdsh, cog, terraform-docs, `BEGIN GENERATED`) and the targets of
+`<!-- drift-ignore: reason -->` (the next block) and `drift-ignore-next-line` markers are
+protected too. A marker with no colon or an empty reason is reported and suppresses nothing.
+
+### Tests
+
+Every module has its own `test_dd_<module>.py` except `dd_manifests` (exercised through the
+resolve and pattern tests), `dd_redaction` (`test_dd_copies.py` checks it is byte-identical to
+tech-debt-scan's `redaction.py`) and `dd_check_skill` (run in CI); no test calls a model, and
+agent outputs are canned JSON files. `test_dd_run.py` drives the three stages on a small repository with the
+canned outputs under `skills/document-drift/tests/canned/`, including an invalid output that
+exercises exit 3 and `--retried`. The fixture corpus under
+`skills/document-drift/tests/fixtures/corpus/` (`py-service`, `ts-web`, `go-cli`) replays a
+git history per fixture (`dd_make_history.py`) in one or two states, tagged `state1` and
+`state2` (`go-cli` has only the first). `test_dd_corpus.py` runs the pipeline on state 1 with
+the canned outputs under `tests/canned/<fixture>/state1/`, merges the drift branch, replays the
+state-2 commits and runs again with `state2/` (`dd_corpus.run_fixture`); each item of the
+fixture's `planted.json` is one test case, judged by `dd_corpus.evaluate` from the run's workdir
+files (an applied edit of a type, a human entry, a gap, a dropped edit, an affected or
+unreviewed doc, an anchor, an unverifiable doc, a notice, or nothing at all for a decoy).
+`test_dd_notice_loop.py` drives three runs on `go-cli` with the owner's commits in between, so
+one set of nominated blocks goes through every notice decision: 1st notice, escalation,
+the three kinds of clearing, removal, a removal too large to apply, and a stale notice. `md_scan` spans are compared with
+`markdown-it-py` (a dev-only dependency) on real documents. CI runs `dd_check_skill.py` over
+`skills/document-drift/SKILL.md`, so every `python scripts/<name>.py` command there uses only
+flags the script accepts. CI cannot run agents, so the phase 1 self-scan step is gone; the
+owner's own run on this repository before the PR replaces it (spec 1.4, criterion 8).

@@ -1,0 +1,241 @@
+{
+ "code_claims": {
+  "README.md": 7,
+  "docs/cli.md": 9,
+  "docs/configuration.md": 3,
+  "docs/design.md": 4,
+  "docs/process.md": 0,
+  "docs/storage.md": 1,
+  "docs/tools.md": 6,
+  "docs/untouched.md": 3
+ },
+ "edits": [
+  {
+   "check": null,
+   "claim": "the default port is 8000",
+   "doc": "README.md",
+   "end_line": 9,
+   "evidence": [
+    "src/svc/cli.py:17"
+   ],
+   "human_kind": null,
+   "id": "u001-e01",
+   "new": "The service listens on port 8080 by default; pass `--port` to change it.",
+   "old": "The service listens on port 8000 by default; pass `--port` to change it.",
+   "reason": null,
+   "source": "review",
+   "start_line": 9,
+   "status": "kept",
+   "subject": null,
+   "type": "correct"
+  },
+  {
+   "check": null,
+   "claim": "the flag is --worker",
+   "doc": "README.md",
+   "end_line": 11,
+   "evidence": [
+    "src/svc/cli.py:18"
+   ],
+   "human_kind": null,
+   "id": "u001-e02",
+   "new": "Pass `--workers` to run more than one worker process.",
+   "old": "Pass `--worker` to run more than one worker process.",
+   "reason": null,
+   "source": "review",
+   "start_line": 11,
+   "status": "kept",
+   "subject": null,
+   "type": "correct"
+  },
+  {
+   "check": "anchor-adds-name",
+   "claim": "each command opens the database once",
+   "doc": "README.md",
+   "end_line": 15,
+   "evidence": [
+    "src/svc/cli.py:7"
+   ],
+   "human_kind": null,
+   "id": "u001-e03",
+   "new": "Each command opens the database once with `connect` and closes it on exit.",
+   "old": "Each command opens the database once and closes it on exit.",
+   "reason": "connect does not resolve to a definition in src/svc/cli.py",
+   "source": "review",
+   "start_line": 15,
+   "status": "dropped",
+   "subject": "connect",
+   "type": "anchor"
+  },
+  {
+   "check": null,
+   "claim": "routes.py registers two HTTP routes",
+   "doc": "README.md",
+   "end_line": 19,
+   "evidence": [
+    "src/svc/routes.py:12",
+    "src/svc/routes.py:18",
+    "src/svc/routes.py:27"
+   ],
+   "human_kind": null,
+   "id": "u001-e04",
+   "new": "The service registers three HTTP routes in `src/svc/routes.py`.",
+   "old": "The service registers two HTTP routes in `src/svc/routes.py`.",
+   "reason": null,
+   "source": "review",
+   "start_line": 19,
+   "status": "kept",
+   "subject": null,
+   "type": "correct"
+  },
+  {
+   "check": null,
+   "claim": "--workers defaults to 2",
+   "doc": "docs/cli.md",
+   "end_line": 17,
+   "evidence": [
+    "src/svc/cli.py:18"
+   ],
+   "human_kind": null,
+   "id": "u001-e05",
+   "new": "| `--workers` | Number of worker processes (default 4). |",
+   "old": "| `--workers` | Number of worker processes (default 2). |",
+   "reason": null,
+   "source": "review",
+   "start_line": 17,
+   "status": "kept",
+   "subject": null,
+   "type": "correct"
+  },
+  {
+   "check": null,
+   "claim": "expired rows are purged",
+   "doc": "docs/design.md",
+   "end_line": 9,
+   "evidence": [
+    "src/svc/storage.py:72"
+   ],
+   "human_kind": null,
+   "id": "u001-e06",
+   "new": "Expired rows are purged nightly by `Store.purge`.",
+   "old": "Expired rows are purged nightly.",
+   "reason": null,
+   "source": "review",
+   "start_line": 9,
+   "status": "kept",
+   "subject": "Store.purge",
+   "type": "anchor"
+  },
+  {
+   "check": null,
+   "claim": "a store.delete tool removes a value",
+   "doc": "docs/tools.md",
+   "end_line": 7,
+   "evidence": [
+    "src/svc/tools.py:6-23"
+   ],
+   "human_kind": null,
+   "id": "u001-e07",
+   "new": "",
+   "old": "- `store.delete` removes a value.",
+   "reason": null,
+   "source": "review",
+   "start_line": 7,
+   "status": "kept",
+   "subject": "store.delete",
+   "type": "remove"
+  },
+  {
+   "check": null,
+   "claim": "svc init creates an empty database file",
+   "doc": "docs/cli.md",
+   "end_line": 9,
+   "evidence": [
+    "src/svc/cli.py:28-30"
+   ],
+   "human_kind": null,
+   "id": "g001-e01",
+   "new": "| `export` | Write every item as JSON lines. |\n| `init` | Create an empty database file; `--force` replaces an existing one. |",
+   "old": "| `export` | Write every item as JSON lines. |",
+   "reason": null,
+   "source": "gap",
+   "start_line": 9,
+   "status": "kept",
+   "subject": "init",
+   "type": "add"
+  },
+  {
+   "check": null,
+   "claim": "the service reads SVC_LOG_LEVEL for its log level",
+   "doc": "docs/configuration.md",
+   "end_line": 9,
+   "evidence": [
+    "src/svc/config.py:29"
+   ],
+   "human_kind": null,
+   "id": "g002-e01",
+   "new": "| `SVC_WORKERS` | Number of worker processes. |\n| `SVC_LOG_LEVEL` | Log level, such as `debug`; the default is `info`. |",
+   "old": "| `SVC_WORKERS` | Number of worker processes. |",
+   "reason": null,
+   "source": "gap",
+   "start_line": 9,
+   "status": "kept",
+   "subject": "SVC_LOG_LEVEL",
+   "type": "add"
+  },
+  {
+   "check": null,
+   "claim": "1st notice",
+   "doc": "docs/design.md",
+   "end_line": 13,
+   "evidence": [],
+   "human_kind": null,
+   "id": "n001",
+   "new": "<!-- drift-unverified: 1st notice, run 2026-01-02-561c, block 368ee08c. This describes the code but names nothing in it. Name what it describes, or add drift-ignore: <reason>. -->\nWrites go to disk before the reply returns, so a crash loses no acknowledged write.",
+   "old": "Writes go to disk before the reply returns, so a crash loses no acknowledged write.",
+   "reason": null,
+   "source": "notice",
+   "start_line": 13,
+   "status": "kept",
+   "subject": "368ee08c",
+   "type": "notice"
+  }
+ ],
+ "human": [
+  {
+   "doc": "README.md",
+   "evidence": [
+    "src/svc/storage.py:33",
+    "src/svc/storage.py:74"
+   ],
+   "kind": "guarantee-mismatch",
+   "line": 23,
+   "text": "the store never blocks"
+  }
+ ],
+ "questions": [
+  {
+   "claim": "the store never blocks",
+   "code": "Store.put and Store.purge hold a threading.Lock while they write",
+   "doc": "README.md",
+   "evidence": [
+    "src/svc/storage.py:33",
+    "src/svc/storage.py:74"
+   ],
+   "kind": "guarantee-mismatch",
+   "line": 23
+  }
+ ],
+ "refusals": [],
+ "unchecked_gap_docs": [],
+ "unchecked_units": [],
+ "unverified_batches": [],
+ "unverified_blocks": [
+  {
+   "doc": "docs/design.md",
+   "end_line": 13,
+   "start_line": 13,
+   "why": "describes when writes reach the disk; no single function clearly owns it"
+  }
+ ]
+}
