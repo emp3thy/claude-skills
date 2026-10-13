@@ -577,6 +577,8 @@ def test_readme_trigger_is_root_markdown_only(tmp_path: Path,
     assert dd_run.readme_wanted({"docs": []}, config)
     assert not dd_run.readme_wanted({"docs": ["Readme.MD", "docs/guide.md"]}, config)
     assert not dd_run.readme_wanted({"docs": ["README.md"]}, config)
+    assert not dd_run.readme_wanted({"docs": [], "files": ["README.md", "src/app.py"]}, config)
+    assert dd_run.readme_wanted({"docs": [], "files": ["docs/README.md"]}, config)
     config["readme"] = False
     assert not dd_run.readme_wanted({"docs": ["docs/README.md"]}, config)
     repo = _repo(tmp_path, {"src/app.py": APP, "docs/README.md": CONFIG,
@@ -708,3 +710,29 @@ def test_verify_refuses_before_compose_in_readme_mode(
     assert _run(repo, "verify") == 3  # the writer's output is missing
     retry = read_json(workdir / "retry.json")
     assert [(e["id"], e["role"]) for e in retry] == [("r001", "readme")]
+
+
+@pytest.mark.parametrize("files", [
+    {"README.md": README, ".document-drift.yaml": 'exclude: ["README.md"]\n'},
+    {"README.md": f"<!-- drift-ignore-file: kept by hand -->\n{README}"}],
+    ids=["config-exclude", "ignore-marker"])
+def test_excluded_root_readme_does_not_trigger(tmp_path: Path, files: dict[str, str],
+                                               capsys: pytest.CaptureFixture[str]) -> None:
+    # spec 2: the skill may not edit an excluded README, so it writes none either
+    repo = _repo(tmp_path, {"src/app.py": APP, "docs/config.md": CONFIG, **files})
+    assert _run(repo, "start") == 0
+    workdir = repo / ".document-drift"
+    inventory = read_json(workdir / "inventory.json")
+    assert "README.md" not in inventory["docs"]
+    assert "README.md" in [e["path"] for e in inventory["excluded"]]
+    assert capsys.readouterr().out.startswith("readme: no\n")
+    assert read_json(workdir / "preflight.json")["readme"] is False
+    assert not (workdir / "areas.json").exists()
+
+
+def test_readme_below_the_root_still_triggers(tmp_path: Path,
+                                              capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path, {"src/app.py": APP, "docs/README.md": CONFIG})
+    assert _run(repo, "start") == 0
+    assert capsys.readouterr().out.startswith("readme: yes\n")
+    assert read_json(repo / ".document-drift" / "preflight.json")["readme"] is True

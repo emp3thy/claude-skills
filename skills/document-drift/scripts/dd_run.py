@@ -17,8 +17,9 @@ which it repeats, ``finish`` a completed ``verify``, or (outside README mode) a 
 ``plan-docs.json`` is empty.
 
 README mode (phase B spec 2): ``start`` records ``readme`` in ``preflight.json``, true when the
-config's ``readme`` is on and the inventory has no in-scope ``README.md`` at the root (matched
-case-insensitively), and prints ``readme: yes`` or ``readme: no`` before anything else.
+config's ``readme`` is on and no tracked file at the root is ``README.md`` (matched
+case-insensitively; an excluded or ignored one counts too), and prints ``readme: yes`` or
+``readme: no`` before anything else.
 
 - ``start`` deletes ``preflight.json`` (a refused start leaves no started run), runs preflight
   and, once it passes, deletes every other pinned output (files and the ``review/``,
@@ -202,10 +203,13 @@ def _no_docs(workdir: Path) -> bool:
 
 
 def readme_wanted(inventory: dict[str, Any], config: dict[str, Any]) -> bool:
-    """Phase B spec 2: the config's ``readme`` is on and no in-scope doc is ``README.md`` at
-    the root, matched case-insensitively (a README elsewhere does not count)."""
+    """Phase B spec 2: the config's ``readme`` is on and no tracked file at the root is
+    ``README.md``, matched case-insensitively. An excluded or ``drift-ignore-file`` README
+    counts too: the skill may not edit it, so it writes none either; a README elsewhere does
+    not count."""
+    paths = {*inventory.get("files", []), *inventory["docs"]}
     return bool(config["readme"]) and not any(
-        str(doc).lower() == "readme.md" for doc in inventory["docs"])
+        str(path).lower() == "readme.md" for path in paths)
 
 
 def stage_start(root: Path, workdir: Path, *, base: str | None, full: bool,
