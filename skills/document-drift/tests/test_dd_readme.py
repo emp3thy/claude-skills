@@ -414,3 +414,22 @@ def test_apply_with_nothing_accepted_writes_nothing(tmp_path: Path) -> None:
         assert dd_readme.apply(root, workdir) is None
         assert not (root / "README.md").exists()
         assert read_json(workdir / "applied.json") == {**APPLIED, "readme": None}
+
+
+def test_apply_keeps_blank_lines_inside_a_kept_fence(tmp_path: Path) -> None:
+    lines = ["# demo",                                   # 1
+             "",                                         # 2
+             "`sync` pulls the remote state.",           # 3  s001: reject
+             "",                                         # 4
+             "```sh",                                    # 5  s002: accept
+             "sync",                                     # 6
+             "",                                         # 7
+             "",                                         # 8
+             "sync --force",                             # 9
+             "```"]                                      # 10
+    claims = ((3, 3, ["a01-s01"]), (6, 9, ["a01-s01", "a01-s02"]))
+    root, workdir = _apply_setup(tmp_path, lines, claims,
+                                 {"r-s001": "reject", "r-s002": "accept"})
+    dd_readme.apply(root, workdir)
+    assert (root / "README.md").read_text(encoding="utf-8") == (
+        "# demo\n\n```sh\nsync\n\n\nsync --force\n```\n")

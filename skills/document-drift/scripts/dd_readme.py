@@ -456,8 +456,8 @@ def _collapse(lines: Sequence[str], gone: set[int]) -> list[str]:
         if j == len(kept) or (after is not None and len(after.group(1)) <= level):
             del kept[i]
     out: list[str] = []
-    for line, _ in kept:
-        if line.strip() or (out and out[-1].strip()):
+    for line, tag in kept:
+        if tag or line.strip() or (out and out[-1].strip()):  # a fence keeps its blank lines
             out.append(line)
     while out and not out[-1].strip():
         out.pop()
