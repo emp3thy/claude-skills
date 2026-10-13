@@ -81,6 +81,8 @@ Order of a full run: `start`, wave (review, gap, sheet), `compose`, wave (writer
 - no two surface entries with the same `(kind, norm(name), parent)`, where a route's parent is its HTTP method (so `GET` and `POST` of one path are two entries);
 - every hint of the area is a surface entry (matched by `(kind, norm(name), parent)`, flags keeping their dashes) or a `dismissed` entry naming it.
 
+One repair, not a problem: a surface entry that matches a hint takes the hint's `hidden` value when the two differ, counted as `hidden corrected`. The scan reads the hiding from the code (`argparse.SUPPRESS`, `hidden=True`), and the spike's sheet agent marked a flag with a help string hidden, which cost five true README rows.
+
 ### 5.4 Retry, fill and caps
 
 A sheet still invalid after the retry makes its area **unchecked**: its names reach no README and the summary lists the area. A valid sheet missing hints after the retry (only possible when the retry output is valid in every other way but still short) gets them **filled** by script: one surface entry per missing hint with the scan's kind, name, parent, `defined_at` and `hidden`, the summary `from the pattern scan`, `default` null, `user_facing` true. Filled entries are counted in the summary and carry `"filled": true` so the writer can tell them apart.
@@ -116,8 +118,10 @@ A claim covers whole lines of `text` (1-based) and cites the entries those lines
 `dd_readme.check(output, sheets, config)` runs in `verify`. A writer call costs minutes and dollars (section 16), so the check repairs what a script can repair and rejects statements rather than the whole output where it can; only a structural problem makes the output invalid, with the exit-3 retry, and an output still invalid after the retry means no README (summary: `readme: not written (<problem>)`):
 
 - invalid: the first line is not a level-one heading; `text` has more than `readme_lines` lines; a line outside headings, blank lines and fence markers is in no claim or in two; a claim cites nothing or cites an id not in `sheets.json`;
-- repaired and counted: a claim's lines name (in an inline-code span, by A §8.2's normalisation) a surface entry the claim does not cite: the id is added to the claim (`cites added`);
-- rejected before verification, as a Human-decision item `readme-rejected` with the check's reason: a statement naming a hidden entry; a statement with a guarantee word; a claim citing a surface entry its lines do not name (the writer paraphrased what it should have named).
+- repaired and counted: a claim's lines name (in an inline-code span, by A §8.2's normalisation) a surface entry the claim does not cite: the id is added to the claim (`cites added`); a claim cites a surface entry none of its lines name (the name without a `$` prefix, as a span or as text): counted as `cited unnamed`, nothing removed;
+- rejected before verification, as a Human-decision item `readme-rejected` with the check's reason, judged on the statement's own lines (section 6.5), never on the whole claim: a statement naming a hidden entry in a span; a statement with a guarantee word outside a fence.
+
+A writer may make one claim per table or section (the spike's second writer made 26 claims for 299 lines, the first 100), so every rule that removes text looks at statements, not claims; a statement's cited entries are the claim's surface entries its own lines name plus all the claim's behaviours.
 
 No line-length rule: the README is read rendered, and the commit grammar's 160-character cut applies to commit lines only.
 
@@ -219,7 +223,16 @@ Run on `better-memory` at `9d5be26` (22,615 indexed lines, 113 files), ignoring 
 | Verifiers | 3 Opus, 10 statements each | 403,944 | 23 to 29 s | $0.88 | 22 accept, 2 reject, 0 unsure; both rejections right (a version floor called a "default"; a boto3 error that fires only on the agentcore path) |
 | Removal | script | | | | list items and rows removed cleanly; a sentence cut from a paragraph left broken prose, and the splitter broke on `3.12` (amended: paragraphs are the unit, one sentence each) |
 
-A full run on this repository is about 10 sheet agents, 1 writer and 15 verifier batches of 15: about $15 and 20 minutes of agent time, the writer alone taking 12 of them.
+**Full run with the amended rules (same day).** The writer re-run on the amended prompt (section 6.2), the statement-level check, every verifier batch, the removal pass.
+
+| Step | Agents | Tokens | Time | Cost | Result |
+|---|---|---:|---:|---:|---|
+| Writer | 1 Opus | 444,204 | 698 s | $3.24 | 299 lines, 26 claims (one per table or section), 228 statements (143 rows, 80 items, 5 paragraphs); prose reads as a README ("Its `setup` command wires it into Claude Code through hooks") |
+| Citation check | script | | | | 0 invalid; 16 cites added; 5 statements pre-rejected for naming a hidden flag, all five wrong because the sheet had marked `--home` hidden against the code (amended: the hint's `hidden` wins); the first version of the check judged hidden names and unnamed cites per claim and pre-rejected 61 statements, whole tables among them (amended: per statement) |
+| Verifiers | 22 Opus, batches of 15 | 6,687,000 | 11 to 67 s each, 4 in parallel | $9.98 | 213 accept, 10 reject, 0 unsure; the rejections are precise imprecisions (a flag that skips one check but not another, a hook list where three hooks do not record errors, a variable read only in one mode) |
+| Removal | script | | | | 15 statements removed (10 rejected, 5 pre-rejected), 300 to 285 lines, no broken prose |
+
+A full run on this repository is 10 sheet agents, 1 writer and 22 verifier batches: $17 ($3.80, $3.24, $9.98) and about 25 minutes of agent time, the writer alone taking 12 of them. Verification is the largest cost: a batch of 15 rows with context runs $0.04 to $0.88, the expensive ones being the batches whose statements cite many entries.
 
 First read of the README (B2, by the spike's author; the owner judges the live run of section 13): accurate and complete as a reference (every command, flag, variable, tool and route, with defaults), and a maintainer would keep the tables; the prose carries the span rule's cost ("It (`_handle_init`) creates the episodic memory", private helpers as anchors), amended in section 6.2 to name once per statement and prefer public names.
 
@@ -229,8 +242,8 @@ First read of the README (B2, by the spike's author; the owner judges the live r
 |---|---|---|---|
 | B1 | A Sonnet agent can write a sheet for a 5,000-line area that passes the validator, and account for every hint, within one call | Measured (section 15): 10 of 10 sheets parsed, 7 of 10 pass the amended validator, the rest for 7 missed hints, 1 guarantee word, 1 duplicate; 202 s and $0.96 for the largest area | More retries and unchecked areas; `area_lines` comes down |
 | B2 | Sheets carry enough to write a README a maintainer keeps: the sheet's summaries and behaviours, not the code, are what the writer composes from | Measured once (section 15): a complete, accurate reference; prose quality rests on the amended span rule, which the live run of section 13 judges | The writer reads the code for facts after all, and the citation check cannot gate what it adds |
-| B3 | An Opus writer keeps to the sheets and cites what it names, so the citation check rejects few outputs | Measured once: 100 claims, 3 citation faults, 0 invented facts found by the verifiers in 24 statements; 750 s and $3.47 for the call, so the check now repairs and rejects per statement instead of retrying the output | A second writer call per run, and a README not written when both fail |
-| B4 | Statements by list item, table row, paragraph and fence are units a verifier can judge and `finish` can remove without leaving broken prose | Half measured: rows and items removed cleanly; sentence removal failed and was dropped in favour of one-sentence paragraphs, which the fixture and the live run test | Rejected statements leave gaps a reader notices; the owner edits the README by hand once |
-| B5 | A verifier can judge a README statement from the cited places and the code without the sheet's reasoning | Measured on 24 statements: 22 accept, 2 right rejections, 0 unsure, under 30 s a batch | Verdicts drift towards `unsure`, and the README loses true statements to the owner's list |
+| B3 | An Opus writer keeps to the sheets and cites what it names, so the citation check rejects few outputs | Measured twice: 100 then 26 claims, 3 then 16 citation faults (all repairable), 0 invented facts in 247 verified statements; 750 and 698 s, $3.47 and $3.24 a call, so the check repairs and rejects per statement instead of retrying the output | A second writer call per run, and a README not written when both fail |
+| B4 | Statements by list item, table row, paragraph and fence are units a verifier can judge and `finish` can remove without leaving broken prose | Measured: 15 statements removed from the full run's README with no broken prose; sentence removal failed in the first pass and was dropped in favour of one-sentence paragraphs | Rejected statements leave gaps a reader notices; the owner edits the README by hand once |
+| B5 | A verifier can judge a README statement from the cited places and the code without the sheet's reasoning | Measured on 247 statements over two passes: 235 accept, 12 reject, 0 unsure; every rejection read as right; $9.98 for the full run's 22 batches | Verdicts drift towards `unsure`, and the README loses true statements to the owner's list |
 | B6 | `readme_lines` of 300 fits the surface of a 25,000-line project as tables and one sentence per behaviour | Measured once: 293 lines for 22,615 lines of code with 389 user-facing entries, so the default holds with no room; a larger project needs the cap raised or the writer told to drop behaviours first | A truncated README, or the writer drops behaviours to fit; the default moves |
 | B7 | Later runs treat the written README as any doc without a special case | Follows from A §5 and §7 by construction | A README that drifts unseen, the thing phase A exists to prevent |
