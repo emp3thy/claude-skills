@@ -620,6 +620,10 @@ def live_run(args: argparse.Namespace, claude: str, fixture: str | None,
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # The stage summaries may hold characters the console code page cannot encode.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     args = parse_args(argv)
     claude = args.claude or shutil.which("claude") or ""
     if resolve_claude(claude) is None:
