@@ -71,8 +71,12 @@ def test_defaults_include_agentic_keys(tmp_path):
     assert cfg["max_section_lines"] == 40
     assert cfg["min_anchor_ratio"] == 0.25
     assert cfg["undocumented_ok"] == []
-    assert cfg["caps"] == {"review": 40, "gaps": 15, "verify": 25}
-    assert cfg["models"] == {"review": "sonnet", "gap": "sonnet", "verify": "opus"}
+    assert {k: cfg["caps"][k] for k in ("review", "gaps", "verify")} == {
+        "review": 40, "gaps": 15, "verify": 25
+    }
+    assert {k: cfg["models"][k] for k in ("review", "gap", "verify")} == {
+        "review": "sonnet", "gap": "sonnet", "verify": "opus"
+    }
     assert cfg["caps"] is not DEFAULTS["caps"] and cfg["models"] is not DEFAULTS["models"]
 
 
@@ -82,8 +86,10 @@ def test_caps_and_models_are_validated_per_subkey(tmp_path):
         encoding="utf-8",
     )
     cfg, warnings = load_config(tmp_path)
-    assert cfg["caps"] == {"review": 40, "gaps": 3, "verify": 25}
-    assert cfg["models"] == {"review": "sonnet", "gap": "haiku", "verify": "opus"}
+    assert (cfg["caps"]["review"], cfg["caps"]["gaps"], cfg["caps"]["verify"]) == (40, 3, 25)
+    assert (cfg["models"]["review"], cfg["models"]["gap"], cfg["models"]["verify"]) == (
+        "sonnet", "haiku", "opus"
+    )
     assert len(warnings) == 3
     assert any("caps.review" in w for w in warnings)
     assert any("caps.bogus" in w for w in warnings)
@@ -116,3 +122,39 @@ def test_undocumented_ok_must_be_string_list(tmp_path):
     (tmp_path / CONFIG_FILENAME).write_text("undocumented_ok: [1]\n", encoding="utf-8")
     cfg, warnings = load_config(tmp_path)
     assert cfg["undocumented_ok"] == [] and len(warnings) == 1
+
+
+def test_defaults_include_phase_b_keys(tmp_path):
+    cfg, warnings = load_config(tmp_path)
+    assert warnings == []
+    assert cfg["readme"] is True
+    assert cfg["area_lines"] == 5000
+    assert cfg["readme_lines"] == 300
+    assert cfg["caps"] == {
+        "review": 40, "gaps": 15, "verify": 25, "sheet_agents": 12, "readme_batch": 15
+    }
+    assert cfg["models"] == {
+        "review": "sonnet", "gap": "sonnet", "verify": "opus", "sheet": "sonnet", "readme": "opus"
+    }
+
+
+def test_readme_must_be_bool_and_area_lines_positive(tmp_path):
+    (tmp_path / CONFIG_FILENAME).write_text(
+        "readme: 'yes'\narea_lines: 0\ncaps: {sheet_agents: x}\n"
+        "readme_lines: -1\nmodels: {sheet: ''}\n",
+        encoding="utf-8",
+    )
+    cfg, warnings = load_config(tmp_path)
+    assert cfg["readme"] is True
+    assert cfg["area_lines"] == 5000
+    assert cfg["readme_lines"] == 300
+    assert cfg["caps"]["sheet_agents"] == 12 and cfg["caps"]["readme_batch"] == 15
+    assert cfg["models"]["sheet"] == "sonnet"
+    assert len(warnings) == 5
+    (tmp_path / CONFIG_FILENAME).write_text(
+        "readme: false\narea_lines: 100\ncaps: {readme_batch: 3}\nmodels: {readme: haiku}\n",
+        encoding="utf-8",
+    )
+    cfg, warnings = load_config(tmp_path)
+    assert cfg["readme"] is False and cfg["area_lines"] == 100 and warnings == []
+    assert cfg["caps"]["readme_batch"] == 3 and cfg["models"]["readme"] == "haiku"
