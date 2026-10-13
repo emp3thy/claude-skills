@@ -528,7 +528,7 @@ def validate_verdicts(obj: Any, expected_ids: Iterable[str]) -> list[str]:
     return problems
 
 
-def _problems(workdir: Path, entry: PlanEntry) -> list[str]:
+def _problems(workdir: Path, entry: PlanEntry, root: Path | None = None) -> list[str]:
     """Why ``entry``'s output is unusable: missing, not JSON, invalid, or another entry's."""
     path = Path(entry["output"])
     if not path.is_absolute():
@@ -550,18 +550,38 @@ def _problems(workdir: Path, entry: PlanEntry) -> list[str]:
         problems, key = validate_verdicts(obj, entry.get("edits", [])), "batch"
     if isinstance(obj, dict) and isinstance(obj.get(key), str) and obj[key] != entry["id"]:
         problems.append(f"{key} {obj[key]!r} is not {entry['id']!r}")
+    if role == "sheet" and not problems:
+        problems += _sheet_content_problems(workdir, entry, obj, root)
     return problems
 
 
-def check_outputs(workdir: Path, plan: Sequence[PlanEntry],
-                  role: str) -> tuple[list[str], list[PlanEntry]]:
+def _sheet_content_problems(workdir: Path, entry: PlanEntry, obj: Any,
+                            root: Path | None) -> list[str]:
+    """``dd_sheets.validate`` for a well-formed sheet; without ``root`` the file-reading
+    rules are skipped."""
+    from dd_sheets import validate  # dd_sheets imports this module lazily
+
+    areas_path = workdir / "areas.json"
+    area = next((a for a in read_json(areas_path)["areas"] if a["id"] == entry["id"]),
+                None) if areas_path.is_file() else None
+    if area is None:
+        return [f"area {entry['id']!r} is not in areas.json"]
+    tracked: set[str] | None = None
+    inventory = workdir / "inventory.json"
+    if root is not None and inventory.is_file():
+        tracked = {str(p) for p in read_json(inventory)["files"]}
+    return validate(obj, area, root, tracked)
+
+
+def check_outputs(workdir: Path, plan: Sequence[PlanEntry], role: str, *,
+                  root: Path | None = None) -> tuple[list[str], list[PlanEntry]]:
     """The ids of ``role`` entries whose output is valid, and the entries that failed."""
     valid: list[str] = []
     failed: list[PlanEntry] = []
     for entry in plan:
         if entry["role"] != role:
             continue
-        if _problems(workdir, entry):
+        if _problems(workdir, entry, root=root):
             failed.append(entry)
         else:
             valid.append(entry["id"])
