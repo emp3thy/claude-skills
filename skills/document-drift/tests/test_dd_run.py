@@ -789,3 +789,55 @@ def test_invalid_writer_output_is_retried_then_no_readme(
     assert all(e["type"] != "create" for e in edits["edits"])
     assert all("statements" not in e for e in _plan(repo, "plan-verify.json"))
     assert read_json(workdir / "preflight.json")["stage"] == "verify"
+
+
+def _through_readme_verify(repo: Path, *extra: str) -> None:
+    """``start`` (with ``extra``), the canned sheet, ``compose``, the canned writer output,
+    ``verify`` and the canned statement verdicts (``verdicts/readme.json`` rejects r-s003)."""
+    _start_and_answer(repo, *extra)
+    assert _run(repo, "compose") == 0
+    _answer(repo, "plan-readme.json")
+    assert _run(repo, "verify") == 0
+    _answer(repo, "plan-verify.json")
+
+
+def test_finish_writes_the_readme_and_commits_it(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"src/app.py": APP})  # no doc at all
+    workdir = repo / ".document-drift"
+    _through_readme_verify(repo)
+    assert _run(repo, "finish") == 0
+    rejected = "| `APP_TOKEN` | the token the app sends to the server |"
+    assert rejected in read_json(workdir / "readme.json")["text"]
+    on_branch = _git(repo, "show", f"{BRANCH}:README.md")
+    assert rejected not in on_branch and "| `APP_HOST` |" in on_branch
+    assert on_branch == (repo / "README.md").read_text(encoding="utf-8")
+    applied = read_json(workdir / "applied.json")
+    assert applied["applied"] == ["r001"]
+    assert applied["readme"] == {"lines": len(on_branch.splitlines()), "statements": 4,
+                                 "removed": 1}
+    commits = read_json(workdir / "commits.json")
+    assert commits["branch"] == BRANCH
+    assert [c["kind"] for c in commits["commits"]] == ["additions"]
+    sha = commits["commits"][0]["sha"]
+    assert "README.md" in _git(repo, "show", "--stat", "--format=", sha)
+    message = _git(repo, "log", "-1", "--format=%B", sha)
+    assert "\n- README.md:1 create readme (5 statements from 1 sheets, 1 removed)\n" in message
+    human = dd_commit.collect_human(workdir, repo)
+    assert [(h["doc"], h["line"], h["kind"], h["evidence"]) for h in human] == [
+        ("README.md", 10, "readme-rejected",
+         ["main reads APP_TOKEN but nothing sends it to the server"])]
+    assert "README.md:10 readme-rejected" in message
+    assert _git(repo, "status", "--porcelain") == ""
+
+
+def test_check_mode_lists_the_readme_and_writes_nothing(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"src/app.py": APP})
+    head = _git(repo, "rev-parse", "HEAD").strip()
+    workdir = repo / ".document-drift"
+    _through_readme_verify(repo, "--check")
+    assert _run(repo, "finish") == 1
+    assert not (repo / "README.md").exists()
+    assert _git(repo, "branch", "--list", BRANCH) == ""
+    assert _git(repo, "rev-parse", "HEAD").strip() == head
+    assert not (workdir / "applied.json").exists()
+    assert not (workdir / "commits.json").exists()

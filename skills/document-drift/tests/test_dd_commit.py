@@ -323,3 +323,87 @@ def test_main_commits_from_the_preflight_head(tmp_path: Path) -> None:
                  "--scope", "first"]) == 0
     commits = read_json(work / "commits.json")["commits"]
     assert f"Drift-Base: {head}" in _show(root, commits[0]["sha"], "%B")
+
+
+# ---------------------------------------------------------------- phase B (the README)
+
+CREATE = _e("r001", "README.md", 1, "create", "readme from 2 sheets", source="readme",
+            statements=4)
+
+
+def _phase_b(tmp_path: Path) -> tuple[Path, Path, str]:
+    """A repository without a README whose run wrote one: a ``create`` edit applied, no other
+    edit, two valid sheets, one statement removed."""
+    root = make_repo(tmp_path, [{"date": "2026-01-01T00:00:00Z", "subject": "init",
+                                 "files": {"src/x.py": "X = 1\n"}}])
+    for key, value in (("user.name", "T"), ("user.email", "t@example.com"),
+                       ("commit.gpgsign", "false")):
+        _git(root, "config", key, value)
+    head = _rev_parse(root)
+    (root / "README.md").write_text("# x\n\n`X` is one.\n", encoding="utf-8")
+    work = root / ".document-drift"
+    statements = [{"id": f"r-s00{n}", "start_line": line, "end_line": line, "section": "x",
+                   "kind": "item", "text": f"- `X` fact {n}\n  more", "claims": [0],
+                   "cites": ["a01-s01"], "prereject": None}
+                  for n, line in ((1, 3), (2, 5), (3, 7), (4, 9))]
+    statements[1]["prereject"] = "guarantee word"
+    _w(work,
+       preflight={"head": head, "run_id": "r"},
+       edits={"edits": [{**CREATE, "old": "", "new": ""}],
+              "human": [{"doc": "README.md", "line": 5, "kind": "readme-rejected",
+                         "text": "- `X` fact 2", "evidence": ["guarantee word"]}]},
+       readme={"text": "", "claims": [], "statements": statements, "cites_added": 0,
+               "cited_unnamed": 0},
+       sheets={"sheets": {"a01": {}, "a02": {}}, "unchecked": [], "filled": 0},
+       verdicts={"verdicts": {}, "unverified": [],
+                 "readme": {"r-s001": {"verdict": "accept", "reason": "ok"},
+                            "r-s003": {"verdict": "reject", "reason": "X is two"},
+                            "r-s004": {"verdict": "unsure", "reason": "unclear"}},
+                 "readme_unverified": []},
+       applied={"applied": ["r001"], "reverted": [], "docs": [], "link_updates": [],
+                "readme": {"lines": 3, "statements": 1, "removed": 3}},
+       gaps={"no_home": [{"name": "X", "kind": "env", "file": "src/x.py", "line": 1,
+                          "parent": None, "hidden": False}], "gaps": []},
+       notices={"decisions": [], "edits": []})
+    return root, work, head
+
+
+def test_create_bullet_and_additions_commit_stage_the_readme(tmp_path: Path) -> None:
+    assert render_bullet({**CREATE, "sheets": 2, "removed": 3}) == (
+        "- README.md:1 create readme (4 statements from 2 sheets, 3 removed)")
+    root, work, head = _phase_b(tmp_path)
+    out = run(root, work, "drift/r", "r", head, "first", [])
+    assert [c["kind"] for c in out["commits"]] == ["additions"]
+    sha = out["commits"][0]["sha"]
+    assert _files(root, sha) == ["README.md"]
+    msg = _show(root, sha, "%B")
+    assert msg.startswith("docs(drift): document missing surface\n")
+    assert "\n- README.md:1 create readme (4 statements from 2 sheets, 3 removed)\n" in msg
+    assert "Needs a human decision:\n- README.md:5 readme-rejected" in msg
+    assert not (work / "commit-msg-corrections.txt").exists()
+    assert _git(root, "status", "--porcelain", "--untracked-files=no") == ""
+
+
+def test_create_edit_not_applied_makes_no_commit(tmp_path: Path) -> None:
+    root, work, head = _phase_b(tmp_path)
+    applied = read_json(work / "applied.json")
+    write_json(work / "applied.json", {**applied, "applied": [], "readme": None})
+    assert run(root, work, "drift/r", "r", head, "first", []) == {"branch": None, "commits": []}
+
+
+def test_readme_rejected_and_no_home_suppressed_in_human_list(tmp_path: Path) -> None:
+    _, work, _ = _phase_b(tmp_path)
+    got = collect_human(work)
+    assert got == [
+        {"doc": "README.md", "line": 5, "kind": "readme-rejected", "text": "- `X` fact 2",
+         "evidence": ["guarantee word"]},
+        {"doc": "README.md", "line": 7, "kind": "readme-rejected", "text": "- `X` fact 3",
+         "evidence": ["X is two"]},
+        {"doc": "README.md", "line": 9, "kind": "readme-rejected", "text": "- `X` fact 4",
+         "evidence": ["unclear"]}]
+    assert human_line(got[1]) == "- README.md:7 readme-rejected: - `X` fact 3 (X is two)"
+    # no README written (or none wanted): the names with no home are the owner's again
+    applied = read_json(work / "applied.json")
+    write_json(work / "applied.json", {**applied, "readme": None})
+    assert [h["kind"] for h in collect_human(work)] == [
+        "no-home", "readme-rejected", "readme-rejected", "readme-rejected"]

@@ -8,7 +8,9 @@ agent outputs live under ``tests/canned/<name>/``: ``state1/`` and ``state2/`` h
 they answer, and ``state1-invalid/`` (in one fixture) holds review outputs that fail validation
 (the retry test); other directories serve tests that drive their own runs. Verdicts are
 matched to a verify entry by edit id, so a batch that loses edits (an unchecked unit) still
-gets the verdicts of the edits it holds.
+gets the verdicts of the edits it holds. A README batch's verdicts come from
+``verdicts/readme.json`` when it exists, ``{statement id: {"verdict", "reason"}}``; a
+statement it does not name is accepted.
 
 ``run_fixture(name, state, tmp_path)`` replays state 1 and drives ``start``, ``verify`` and
 ``finish``; for state 2 it then merges the drift branch into ``main`` with
@@ -72,6 +74,7 @@ DATES = {1: "2026-01-02", 2: "2026-01-09"}  # each state's run date (--date)
 ROLE_DIRS = {"review": "review", "gap": "gaps", "verify": "verdicts", "sheet": "sheets",
              "readme": "readme"}
 STATES = (1, 2)
+README_VERDICTS = "readme.json"  # canned README statement verdicts, by statement id
 
 
 def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
@@ -145,6 +148,8 @@ def pinned_dates(date: str) -> Iterator[None]:
 def _canned_verdicts(canned: Path) -> dict[str, dict[str, Any]]:
     found: dict[str, dict[str, Any]] = {}
     for path in sorted((canned / "verdicts").glob("*.json")):
+        if path.name == README_VERDICTS:
+            continue
         for verdict in read_json(path)["verdicts"]:
             found[verdict["edit"]] = verdict
     return found
@@ -154,14 +159,18 @@ def answer(workdir: Path, plan_name: str, canned: Path, invalid: Path | None = N
     """Write the canned output of every entry of plan ``plan_name``: a review, gap, sheet or
     readme entry gets ``canned/<role dir>/<output name>`` (or ``invalid/<output name>`` when
     that exists); a verify entry gets the canned verdicts of its batch's edits, found by edit
-    id, and a README batch (``statements``) an ``accept`` for each statement."""
+    id, and a README batch (``statements``) the verdict ``verdicts/readme.json`` gives each
+    statement, or an ``accept``."""
     plan: list[dict[str, Any]] = read_json(workdir / plan_name)
     verdicts: dict[str, dict[str, Any]] | None = None
+    path = canned / "verdicts" / README_VERDICTS
+    readme: dict[str, dict[str, Any]] = read_json(path) if path.is_file() else {}
     for entry in plan:
         out = Path(entry["output"])
         if entry["role"] == "verify" and "statements" in entry:  # a README batch
+            accept = {"verdict": "accept", "reason": "canned"}
             batch = {"batch": entry["id"],
-                     "verdicts": [{"statement": s, "verdict": "accept", "reason": "canned"}
+                     "verdicts": [{"statement": s, **readme.get(s, accept)}
                                   for s in entry["statements"]]}
             out.write_text(json.dumps(batch, indent=1) + "\n", encoding="utf-8")
             continue

@@ -37,9 +37,22 @@ verifier batches (phase B spec 6.4, 6.5, 7).
   ``edits.json``'s ``edits`` and a ``readme-rejected`` Human-decision item per pre-rejected
   statement to its ``human`` (kept sorted), and appends the statement batches to
   ``plan-verify.json`` (``dd_dispatch.plan_verify_readme``).
+- ``apply(root, workdir)`` (spec 8, at ``finish``): a statement is accepted when it is not
+  pre-rejected, its ``verdicts.json`` ``readme`` verdict is ``accept`` and it is not in
+  ``readme_unverified`` (``accepted``). Every other statement's lines go whole; then a table
+  whose rows are all gone loses its header and separator, a heading followed only by blank
+  lines up to the next heading of its level or above (or the end) goes, bottom-up so a
+  section left with only empty subsections goes too, blank-line runs become one and the text
+  ends with one newline. ``README.md`` is written at the root (UTF-8, LF, atomically) and
+  ``applied.json`` gains ``r001`` in ``applied`` and ``readme`` ``{"lines", "statements",
+  "removed"}``, which is returned. With no ``readme.json``, an ``invalid`` one or no accepted
+  statement nothing is written, ``applied.json`` gains ``"readme": null`` and None is
+  returned.
 """
 from __future__ import annotations
 
+import contextlib
+import os
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
@@ -51,6 +64,7 @@ from dd_common import read_json, write_json
 from dd_defindex import norm
 
 README = "README.md"
+CREATE_ID = "r001"
 NO_OUTPUT = "no writer output"
 
 _LINE_SPLIT = re.compile(r"\r?\n")
@@ -345,7 +359,7 @@ def check(output: Mapping[str, Any], sheets: Mapping[str, Any],
 # ---------------------------------------------------------------- the verify step
 
 def _create_edit(sheets: Mapping[str, Any], statements: Sequence[Any]) -> dict[str, Any]:
-    return {"id": "r001", "doc": README, "start_line": 1, "end_line": 1, "old": "", "new": "",
+    return {"id": CREATE_ID, "doc": README, "start_line": 1, "end_line": 1, "old": "", "new": "",
             "type": "create", "claim": f"readme from {len(sheets.get('sheets', {}))} sheets",
             "evidence": [], "subject": None, "source": "readme", "status": "kept",
             "check": None, "human_kind": None, "reason": None, "statements": len(statements)}
@@ -389,3 +403,102 @@ def check_step(root: Path, workdir: Path, config: Mapping[str, Any],
     write_json(workdir / "edits.json", edits)
     dd_dispatch.plan_verify_readme(root, workdir, readme["statements"], config)
     return readme
+
+
+# ---------------------------------------------------------------- the finish step (spec 8)
+
+def accepted(readme: Mapping[str, Any], verdicts: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The statements of ``readme.json`` that stay: not pre-rejected, accepted by their
+    verifier and not unverified (``verdicts`` is the whole ``verdicts.json``)."""
+    found = verdicts.get("readme") or {}
+    unverified = set(verdicts.get("readme_unverified") or [])
+    return [dict(s) for s in readme.get("statements", [])
+            if not s.get("prereject") and s["id"] not in unverified
+            and (found.get(s["id"]) or {}).get("verdict") == "accept"]
+
+
+def _tables(lines: Sequence[str], tags: Sequence[str]) -> list[range]:
+    """The line indexes of each table: a run of consecutive lines outside fences that start
+    with ``|`` (as ``_blocks`` reads them)."""
+    out: list[range] = []
+    i = 0
+    while i < len(lines):
+        if tags[i] or not lines[i].startswith("|"):
+            i += 1
+            continue
+        start = i
+        while i < len(lines) and not tags[i] and lines[i].startswith("|"):
+            i += 1
+        out.append(range(start, i))
+    return out
+
+
+def _collapse(lines: Sequence[str], gone: set[int]) -> list[str]:
+    """``lines`` without the indexes in ``gone``, then without empty tables and sections and
+    with blank-line runs cut to one; no blank line at the start or the end."""
+    tags = _fence_tags(lines)
+    for table in _tables(lines, tags):
+        head = 2 if len(table) > 1 and _SEPARATOR.fullmatch(lines[table[1]].strip()) else 1
+        rows = table[head:]
+        if rows and all(i in gone for i in rows):
+            gone.update(table)
+    kept = [(line, tag) for i, (line, tag) in enumerate(zip(lines, tags, strict=True))
+            if i not in gone]
+    for i in range(len(kept) - 1, -1, -1):  # bottom-up: an emptied subsection goes first
+        line, tag = kept[i]
+        heading = None if tag else _heading(line)
+        if heading is None:
+            continue
+        level, j = len(heading.group(1)), i + 1
+        while j < len(kept) and not kept[j][0].strip():
+            j += 1
+        after = None if j == len(kept) or kept[j][1] else _heading(kept[j][0])
+        if j == len(kept) or (after is not None and len(after.group(1)) <= level):
+            del kept[i]
+    out: list[str] = []
+    for line, _ in kept:
+        if line.strip() or (out and out[-1].strip()):
+            out.append(line)
+    while out and not out[-1].strip():
+        out.pop()
+    return out
+
+
+def _write_new(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` via ``<name>.dd-tmp`` and ``os.replace``, as
+    ``dd_apply._write_atomic`` does for a doc that already exists."""
+    tmp = path.with_name(path.name + ".dd-tmp")
+    try:
+        tmp.write_bytes(text.encode("utf-8"))
+        os.replace(tmp, path)
+    except OSError:
+        with contextlib.suppress(OSError):
+            if tmp.is_file():
+                tmp.unlink()
+        raise
+
+
+def apply(root: Path, workdir: Path) -> dict[str, Any] | None:
+    """Write ``README.md`` from ``readme.json`` without the statements that did not pass, and
+    record it in ``applied.json``; None when there is no README to write."""
+    path = workdir / "applied.json"
+    applied: dict[str, Any] = (read_json(path) if path.is_file() else
+                               {"applied": [], "reverted": [], "docs": [], "link_updates": []})
+    readme_path, verdicts_path = workdir / "readme.json", workdir / "verdicts.json"
+    readme = read_json(readme_path) if readme_path.is_file() else None
+    verdicts = read_json(verdicts_path) if verdicts_path.is_file() else {}
+    keep = accepted(readme or {}, verdicts)  # an invalid readme.json has no statements
+    if readme is None or not keep:
+        write_json(path, {**applied, "readme": None})
+        return None
+    kept = {str(s["id"]) for s in keep}
+    statements = readme["statements"]
+    gone = {n - 1 for s in statements if str(s["id"]) not in kept
+            for n in range(int(s["start_line"]), int(s["end_line"]) + 1)}
+    out = _collapse(_lines(str(readme["text"])), gone)
+    _write_new(root / README, "\n".join(out) + "\n")
+    record = {"lines": len(out), "statements": len(keep),
+              "removed": len(statements) - len(keep)}
+    write_json(path, {**applied, "applied": sorted({*applied.get("applied", []), CREATE_ID}),
+                      "readme": record})
+    return record

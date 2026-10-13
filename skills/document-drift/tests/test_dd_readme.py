@@ -292,3 +292,125 @@ def test_check_step_without_a_usable_output_writes_no_readme(tmp_path: Path) -> 
         "invalid": ["the first line is not a level-one heading"]}
     assert read_json(workdir / "edits.json")["edits"] == []
     assert read_json(workdir / "plan-verify.json") == []
+
+
+# ---------------------------------------------------------------- apply (spec 8)
+
+APPLIED = {"applied": ["u001-e01"], "reverted": [], "docs": ["docs/a.md"], "link_updates": []}
+
+
+def _apply_setup(tmp_path: Path, lines: list[str], claims: tuple[tuple[int, int, list[str]], ...],
+                 verdicts: dict[str, str], unverified: tuple[str, ...] = ()) -> tuple[Path, Path]:
+    """A repository root with ``readme.json`` (the check of ``lines``), ``verdicts.json``
+    (``verdicts`` maps a statement id to its verdict) and a phase A ``applied.json``."""
+    root = tmp_path / "repo"
+    workdir = root / ".document-drift"
+    workdir.mkdir(parents=True)
+    problems, readme = _check(_out(lines, *claims))
+    assert problems == []
+    write_json(workdir / "readme.json", readme)
+    write_json(workdir / "verdicts.json", {
+        "verdicts": {}, "unverified": [],
+        "readme": {sid: {"verdict": v, "reason": f"{v} {sid}"} for sid, v in verdicts.items()},
+        "readme_unverified": list(unverified)})
+    write_json(workdir / "applied.json", APPLIED)
+    return root, workdir
+
+
+def test_apply_removes_items_rows_paragraphs_and_fences_whole(tmp_path: Path) -> None:
+    lines = ["# demo",                                   # 1
+             "",                                         # 2
+             "`sync` pulls the remote state",            # 3  s001 paragraph: reject
+             "and writes `state.db`.",                   # 4
+             "",                                         # 5
+             "## Commands",                              # 6
+             "",                                         # 7
+             "- `sync` pulls the remote state.",         # 8  s002 item: unsure
+             "  It writes `state.db`.",                  # 9
+             "- `sync --force` overwrites local rows.",  # 10 s003 item: accept
+             "",                                         # 11
+             "| Name | Meaning |",                        # 12
+             "|---|---|",                                # 13
+             "| `APP_TOKEN` | the token |",              # 14 s004 row: reject
+             "| `sync` | the command |",                 # 15 s005 row: accept
+             "",                                         # 16
+             "```sh",                                    # 17 s006 fence: unverified
+             "sync --force",                             # 18
+             "```",                                      # 19
+             "",                                         # 20
+             "One more sentence about `sync`.",          # 21 s007 paragraph: accept
+             "",                                         # 22
+             "`sync` always succeeds."]                  # 23 s008: guarantee word
+    claims = ((3, 4, ["a01-s01", "a01-b01"]), (8, 10, ["a01-s01", "a01-s02", "a01-b01"]),
+              (12, 15, ["a01-s04", "a01-s01"]), (18, 18, ["a01-s01", "a01-s02"]),
+              (21, 21, ["a01-s01"]), (23, 23, ["a01-s01"]))
+    root, workdir = _apply_setup(
+        tmp_path, lines, claims,
+        {"r-s001": "reject", "r-s002": "unsure", "r-s003": "accept", "r-s004": "reject",
+         "r-s005": "accept", "r-s007": "accept"}, unverified=("r-s006",))
+    assert read_json(workdir / "readme.json")["statements"][7]["prereject"] == "guarantee word"
+    record = dd_readme.apply(root, workdir)
+    expected = ("# demo\n\n## Commands\n\n- `sync --force` overwrites local rows.\n\n"
+                "| Name | Meaning |\n|---|---|\n| `sync` | the command |\n\n"
+                "One more sentence about `sync`.\n")
+    assert (root / "README.md").read_bytes() == expected.encode("utf-8")
+    assert record == {"lines": 11, "statements": 3, "removed": 5}
+    assert read_json(workdir / "applied.json") == {**APPLIED, "applied": ["r001", "u001-e01"],
+                                                   "readme": record}
+    assert not (root / "README.md.dd-tmp").exists()
+
+
+def test_apply_collapses_empty_tables_and_sections(tmp_path: Path) -> None:
+    lines = ["# demo",                                   # 1
+             "",                                         # 2
+             "`sync` pulls the remote state.",           # 3  s001: accept
+             "",                                         # 4
+             "## Environment",                           # 5
+             "",                                         # 6
+             "| Name | Meaning |",                        # 7
+             "|---|---|",                                # 8
+             "| `APP_TOKEN` | the token |",              # 9  s002: reject
+             "",                                         # 10
+             "## Commands",                              # 11
+             "",                                         # 12
+             "### Flags",                                # 13
+             "",                                         # 14
+             "- `--force` overwrites local rows.",       # 15 s003: reject
+             "",                                         # 16
+             "## Files",                                 # 17
+             "",                                         # 18
+             "- `sync` writes `state.db`.",              # 19 s004: accept
+             "",                                         # 20
+             "### Notes",                                # 21
+             "",                                         # 22
+             "`sync` keeps a log."]                      # 23 s005: unsure
+    claims = ((3, 3, ["a01-s01"]), (7, 9, ["a01-s04"]), (15, 15, ["a01-s02"]),
+              (19, 19, ["a01-s01", "a01-b01"]), (23, 23, ["a01-s01"]))
+    root, workdir = _apply_setup(
+        tmp_path, lines, claims,
+        {"r-s001": "accept", "r-s002": "reject", "r-s003": "reject", "r-s004": "accept",
+         "r-s005": "unsure"})
+    record = dd_readme.apply(root, workdir)
+    assert (root / "README.md").read_text(encoding="utf-8") == (
+        "# demo\n\n`sync` pulls the remote state.\n\n## Files\n\n- `sync` writes `state.db`.\n")
+    assert record == {"lines": 7, "statements": 2, "removed": 3}
+
+
+def test_apply_with_nothing_accepted_writes_nothing(tmp_path: Path) -> None:
+    lines = ["# demo", "", "`sync` pulls the remote state.", "", "- `--force` overwrites rows."]
+    claims = ((3, 3, ["a01-s01"]), (5, 5, ["a01-s02"]))
+    root, workdir = _apply_setup(tmp_path, lines, claims,
+                                 {"r-s001": "reject"}, unverified=("r-s002",))
+    assert dd_readme.apply(root, workdir) is None
+    assert not (root / "README.md").exists()
+    assert read_json(workdir / "applied.json") == {**APPLIED, "readme": None}
+    # no readme.json, or an invalid one: no README either
+    for readme in (None, {"invalid": ["no writer output"]}):
+        write_json(workdir / "applied.json", APPLIED)
+        if readme is None:
+            (workdir / "readme.json").unlink()
+        else:
+            write_json(workdir / "readme.json", readme)
+        assert dd_readme.apply(root, workdir) is None
+        assert not (root / "README.md").exists()
+        assert read_json(workdir / "applied.json") == {**APPLIED, "readme": None}

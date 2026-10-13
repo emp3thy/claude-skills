@@ -28,6 +28,8 @@ LINE_MAX = 160
 SUBJECTS = {"corrections": "docs(drift): correct stale docs",
             "additions": "docs(drift): document missing surface"}
 KIND_ORDER = ("corrections", "additions")
+ADDITION_SOURCES = ("gap", "readme")  # the README's create edit is an addition (spec B 8)
+README = "README.md"
 
 
 def _line(text: str) -> str:
@@ -41,7 +43,9 @@ def render_bullet(edit: dict[str, Any], line: int | None = None) -> str:
     (default: the edit's ``start_line``). An ``add`` edit's kind is ``edit["gap_kind"]``
     (``name`` when unset): ``run`` fills it from the ``gaps.json`` gap whose name is the edit's
     ``subject`` (the gap agent's ``subject`` is the name added), since the gap edit does not
-    carry the gap's kind."""
+    carry the gap's kind. A ``create`` edit (the README, phase B spec 8) reads its counts from
+    ``edit["statements"]``, ``edit["sheets"]`` (the valid sheets of ``sheets.json``) and
+    ``edit["removed"]`` (``applied.json`` ``readme``), which ``run`` fills in."""
     where = f"{edit['doc']}:{line if line is not None else edit['start_line']}"
     kind = edit["type"]
     claim = str(edit.get("claim") or "")
@@ -66,6 +70,9 @@ def render_bullet(edit: dict[str, Any], line: int | None = None) -> str:
     elif kind == "add":
         text = (f"add {edit.get('gap_kind') or 'name'} {subject.strip().strip('`').strip()} "
                 f"({evidence[0] if evidence else ''})")
+    elif kind == "create":
+        text = (f"create readme ({int(edit.get('statements') or 0)} statements from "
+                f"{int(edit.get('sheets') or 0)} sheets, {int(edit.get('removed') or 0)} removed)")
     else:
         raise StepError(f"edit {edit.get('id')} has the unknown type {kind!r}", EXIT_COMMIT)
     return _line(f"- {where} {text}")
@@ -125,13 +132,18 @@ def collect_human(workdir: Path, root: Path | None = None) -> list[dict[str, Any
     Sources, in order: ``edits.json`` ``human`` as it is; ``verify-rejected`` for each edit
     whose verdict is ``reject`` or ``unsure`` (text ``<claim>: <reason>``); ``recheck-failed``
     for each ``applied.json`` revert with that reason; ``no-home`` for ``gaps.json``
-    ``no_home`` (doc ``""``, line 0, text ``<kind> <name>``); ``unverified`` for each
-    ``notices.json`` decision with action ``escalate`` (the text is the first line of its
-    block, read from the starting HEAD's doc when ``root`` is given)."""
+    ``no_home`` (doc ``""``, line 0, text ``<kind> <name>``), left out when ``applied.json``
+    ``readme`` is set (the written README is where those names went); ``readme-rejected`` for
+    each ``verdicts.json`` ``readme`` verdict ``reject`` or ``unsure`` (doc ``README.md``, the
+    statement's ``readme.json`` ``start_line`` and the first line of its text, evidence the
+    reason); ``unverified`` for each ``notices.json`` decision with action ``escalate`` (the
+    text is the first line of its block, read from the starting HEAD's doc when ``root`` is
+    given)."""
     edits_doc = _need(workdir, "edits.json")
     by_id = {str(e["id"]): e for e in edits_doc.get("edits", [])}
     found: list[dict[str, Any]] = [dict(h) for h in edits_doc.get("human", [])]
-    verdicts = (_optional(workdir, "verdicts.json") or {}).get("verdicts", {})
+    verdicts_doc = _optional(workdir, "verdicts.json") or {}
+    verdicts = verdicts_doc.get("verdicts", {})
     for eid in sorted(verdicts):
         verdict, edit = verdicts[eid], by_id.get(eid)
         if edit is not None and verdict.get("verdict") in ("reject", "unsure"):
@@ -139,16 +151,28 @@ def collect_human(workdir: Path, root: Path | None = None) -> list[dict[str, Any
                           "kind": "verify-rejected",
                           "text": f"{edit.get('claim', '')}: {verdict.get('reason', '')}",
                           "evidence": list(edit.get("evidence") or [])})
-    for item in (_optional(workdir, "applied.json") or {}).get("reverted", []):
+    applied = _optional(workdir, "applied.json") or {}
+    for item in applied.get("reverted", []):
         edit = by_id.get(str(item.get("edit")))
         if edit is not None and item.get("reason") == "recheck-failed":
             found.append({"doc": edit["doc"], "line": int(edit["start_line"]),
                           "kind": "recheck-failed", "text": str(edit.get("claim", "")),
                           "evidence": list(edit.get("evidence") or [])})
-    for name in (_optional(workdir, "gaps.json") or {}).get("no_home", []):
-        found.append({"doc": "", "line": 0, "kind": "no-home",
-                      "text": f"{name['kind']} {name['name']}",
-                      "evidence": [f"{name['file']}:{name['line']}"]})
+    if not applied.get("readme"):
+        for name in (_optional(workdir, "gaps.json") or {}).get("no_home", []):
+            found.append({"doc": "", "line": 0, "kind": "no-home",
+                          "text": f"{name['kind']} {name['name']}",
+                          "evidence": [f"{name['file']}:{name['line']}"]})
+    statements = {str(s["id"]): s
+                  for s in (_optional(workdir, "readme.json") or {}).get("statements", [])}
+    readme_verdicts = verdicts_doc.get("readme") or {}
+    for sid in sorted(readme_verdicts):
+        verdict, statement = readme_verdicts[sid], statements.get(sid)
+        if statement is not None and verdict.get("verdict") in ("reject", "unsure"):
+            found.append({"doc": README, "line": int(statement["start_line"]),
+                          "kind": "readme-rejected",
+                          "text": str(statement["text"]).split("\n", 1)[0],
+                          "evidence": [str(verdict.get("reason", ""))]})
     head = str((_optional(workdir, "preflight.json") or {}).get("head") or "")
     for decision in (_optional(workdir, "notices.json") or {}).get("decisions", []):
         if decision.get("action") == "escalate":
@@ -192,24 +216,29 @@ def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: s
     ``{"branch", "commits": [{"sha", "kind"}]}`` and ``commit-msg-<kind>.txt``.
 
     Corrections hold the applied review and notice edits and their link updates, additions the
-    applied gap edits. The edits are already in the working tree, so a doc cannot be split: it
-    is staged in the first commit that touches it, and a doc with both kinds of edits lands in
-    the corrections commit, so a doc carrying both kinds has its additions in the corrections
-    commit (the additions commit is then made with ``--allow-empty`` when no doc is left to
-    stage, to keep its bullets). If the second commit fails, ``commits.json`` already lists the
-    first. Bullets are ordered by ``(doc, start_line,
-    id)`` with a link update as an indented sub-bullet under its edit. With no applied edit
-    there is no branch. The human list goes on the last commit made."""
+    applied gap edits and the README's ``create`` edit (``README.md`` staged by path, so the
+    additions commit is made for it even when it is the only edit; its bullet's counts come
+    from ``sheets.json`` and ``applied.json`` ``readme``). The edits are already in the working
+    tree, so a doc cannot be split: it is staged in the first commit that touches it, and a doc
+    with both kinds of edits lands in the corrections commit, so a doc carrying both kinds has
+    its additions in the corrections commit (the additions commit is then made with
+    ``--allow-empty`` when no doc is left to stage, to keep its bullets). If the second commit
+    fails, ``commits.json`` already lists the first. Bullets are ordered by ``(doc,
+    start_line, id)`` with a link update as an indented sub-bullet under its edit. With no
+    applied edit there is no branch. The human list goes on the last commit made."""
     edits_doc = _need(workdir, "edits.json")
     applied = _need(workdir, "applied.json")
     done = set(applied.get("applied", []))
     links: list[dict[str, Any]] = [u for u in applied.get("link_updates", [])
                                    if u.get("new") is not None]
     gaps = (_optional(workdir, "gaps.json") or {}).get("gaps", [])
+    sheets = len((_optional(workdir, "sheets.json") or {}).get("sheets", {}))
+    removed = int((applied.get("readme") or {}).get("removed") or 0)
     groups: dict[str, list[dict[str, Any]]] = {k: [] for k in KIND_ORDER}
     for edit in edits_doc["edits"]:
         if edit["id"] in done:
-            groups["additions" if edit.get("source") == "gap" else "corrections"].append(edit)
+            groups["additions" if edit.get("source") in ADDITION_SOURCES
+                   else "corrections"].append(edit)
     kinds = [k for k in KIND_ORDER if groups[k]]
     if not kinds:
         result: dict[str, Any] = {"branch": None, "commits": []}
@@ -235,6 +264,8 @@ def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: s
         for edit in group:
             if edit["type"] == "add":
                 edit = {**edit, "gap_kind": gap_kind(edit, gaps)}
+            elif edit["type"] == "create":
+                edit = {**edit, "sheets": sheets, "removed": removed}
             bullets.append(render_bullet(edit))
             docs.add(edit["doc"])
             for link in sorted((u for u in links if u["edit"] == edit["id"]),

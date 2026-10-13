@@ -53,10 +53,12 @@ case-insensitively; an excluded or ignored one counts too), and prints ``readme:
   (exit 2) when HEAD is no longer the preflight HEAD (naming both shas; a clean branch switch
   leaves the tree clean) or a file outside the workdir changed since preflight (naming them,
   ``dd_preflight.tree_state``), before anything is applied. Under ``--check`` it writes the
-  summary and exits 1 when an edit would apply (kept and accepted, or a kept notice edit),
-  else 0; nothing is applied, committed or recorded. Otherwise it applies the edits (with the
-  heading-link updates), makes the commits, writes ``last-run.json`` (``head``, ``run_id``,
-  ``date``, ``committed``), records the stage as finished and writes the summary, and exits 0.
+  summary and exits 1 when an edit would apply (kept and accepted, or a kept notice edit, or
+  in README mode a statement that would stay), else 0; nothing is applied, committed or
+  recorded. Otherwise it applies the edits (with the heading-link updates), in README mode
+  writes ``README.md`` (``dd_readme.apply``, recorded in ``applied.json``), makes the commits,
+  writes ``last-run.json`` (``head``, ``run_id``, ``date``, ``committed``), records the stage
+  as finished and writes the summary, and exits 0.
   After a ``start`` with an empty plan it first runs the script checks, so the notice edits
   ``start`` decided still apply; after a ``start`` that found no doc (outside README mode) it
   only writes the summary.
@@ -422,9 +424,14 @@ def _tree_check(root: Path, workdir: Path, pre: dict[str, Any]) -> None:
 
 def _would_apply(workdir: Path) -> bool:
     """An edit that a run without ``--check`` would apply: kept and accepted, or a kept notice
-    edit (no verdict needed)."""
-    return bool(dd_apply.selected_edits(read_json(workdir / "edits.json")["edits"],
-                                        read_json(workdir / "verdicts.json")["verdicts"]))
+    edit (no verdict needed), or a README statement that would stay (``dd_readme.accepted``)."""
+    verdicts = read_json(workdir / "verdicts.json")
+    if dd_apply.selected_edits(read_json(workdir / "edits.json")["edits"],
+                               verdicts["verdicts"]):
+        return True
+    path = workdir / "readme.json"
+    readme = read_json(path) if path.is_file() else {}
+    return bool(dd_readme.accepted(readme, verdicts))  # an invalid one has no statements
 
 
 def _summary(root: Path, workdir: Path, edits_at_risk: bool = False) -> str:
@@ -468,6 +475,9 @@ def stage_finish(root: Path, workdir: Path, *, retried: bool,
         return EXIT_FOUND if _would_apply(workdir) else EXIT_OK
     _step("apply", workdir, ("applied.json",), lambda: dd_apply.apply_edits(root, workdir),
           edits_at_risk=True)
+    if readme:  # phase B spec 8: the README, without the statements that did not pass
+        _step("readme-apply", workdir, ("applied.json",),
+              lambda: dd_readme.apply(root, workdir), edits_at_risk=True)
     trailers = [str(t) for t in config.get("commit_trailers", [])]
     head, run_id = str(pre["head"]), str(pre["run_id"])
     commits = _step("commit", workdir, ("commits.json",),
