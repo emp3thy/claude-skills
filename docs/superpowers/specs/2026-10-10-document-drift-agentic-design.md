@@ -509,6 +509,8 @@ An opt-in harness (`tests/dd_live_run.py`, adapted from tech-debt-scan's `live_r
 
 ## 12. Phase B: no-docs mode (designed, built later)
 
+Superseded on 2026-10-13 by `docs/superpowers/specs/2026-10-13-document-drift-phase-b-design.md`, which settles the trigger (no in-scope root README, other docs reviewed in the same run), the `compose` stage, the sheet validator, the writer's cited claims, per-statement verification and the fixture. The outline below is kept as written.
+
 When a repository has no in-scope doc, a full code scan writes `README.md`. This keeps the machinery of the first redesign:
 
 1. **Areas.** The source is split by line count against `area_lines` (default 5,000): each top-level source directory is an area; a directory over the budget is replaced by its subdirectories plus one area for its loose files, loose files over the budget are cut into consecutive groups of whole files; sibling areas are merged in path order while within the budget. Project files form one area.
