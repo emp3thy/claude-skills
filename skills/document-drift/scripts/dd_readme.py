@@ -13,17 +13,20 @@ verifier batches (phase B spec 6.4, 6.5, 7).
   one name, a flag of two commands, adds them all unless the claim cites one); a cited surface
   entry none of the claim's lines name is counted (``cited_unnamed``) and kept.
 - Statements (spec 6.5), ids ``r-s001``... in README order: a list item (a line ``- ``,
-  ``* ``, ``+ `` or ``1. `` at indentation 0, plus the lines right after it that start with
-  whitespace), a table row (a line starting with ``|``, not a table's first row, the header,
-  nor its second when that is a ``|---|`` separator), a paragraph (consecutive other non-blank
-  lines), a fence (from its opening marker to its closing one, or the text's end). Headings,
-  blank lines, table headers and separators are not statements. Each carries ``start_line``,
+  ``* ``, ``+ `` or ``1. `` at indentation 0, plus the lines under it that start with
+  whitespace, blank lines between them and a fence whose opening marker is indented, to its
+  closing marker, included), a table row (a line starting with ``|``, not a table's first
+  row, the header, nor its second when that is a ``|---|`` separator), a paragraph
+  (consecutive other non-blank lines), a fence (from its opening marker to its closing one,
+  or the text's end). Headings, blank lines, table headers and separators are not
+  statements. Each carries ``start_line``,
   ``end_line``, ``section`` (the nearest heading above it, ``""`` before the first), ``kind``
   (``item``, ``row``, ``paragraph``, ``fence``), ``text``, ``claims`` (the indexes of the
   claims its lines lie in), ``cites`` (those claims' surface entries its own lines name, plus
   all their behaviours, sorted) and ``prereject``: ``names hidden <name>`` when a span of its
-  lines names only hidden surface entries, else ``guarantee word`` when a non-fence statement
-  holds one outside its inline-code spans (``dd_checks._guarantees``), else null.
+  lines resolves to surface entries that are all hidden, or to a hidden one its claims cited
+  as the writer gave them (before the repair), else ``guarantee word`` when its lines outside
+  fences hold one outside their inline-code spans (``dd_checks._guarantees``), else null.
 - Naming is spec 6.4's loose match: the entry's name without a ``$`` prefix equals a span
   (also without ``$`` and a trailing ``()``) by ``dd_defindex.norm``, or occurs in the lines
   as text.
@@ -208,9 +211,31 @@ def _repair(claims: list[dict[str, Any]], lines: Sequence[str],
     return added, unnamed
 
 
-def _blocks(lines: Sequence[str]) -> list[dict[str, Any]]:
-    """The statements of spec 6.5 as ``{"start_line", "end_line", "section", "kind"}``."""
-    tags = _fence_tags(lines)
+def _fence_end(tags: Sequence[str], start: int) -> int:
+    """The index of the last line of the fence opening at ``start``: its closing marker, or
+    the last line of an unclosed fence."""
+    end = start + 1
+    while end < len(tags) and tags[end] == "code":
+        end += 1
+    return end if end < len(tags) and tags[end] == "marker" else end - 1
+
+
+def _indented(line: str) -> bool:
+    return bool(line.strip()) and line[0] in " \t"
+
+
+def _indented_next(lines: Sequence[str], start: int) -> bool:
+    """The first non-blank line from ``start`` on starts with whitespace."""
+    j = start
+    while j < len(lines) and not lines[j].strip():
+        j += 1
+    return j < len(lines) and _indented(lines[j])
+
+
+def _blocks(lines: Sequence[str], tags: Sequence[str]) -> list[dict[str, Any]]:
+    """The statements of spec 6.5 as ``{"start_line", "end_line", "section", "kind"}``. An
+    open item takes every indented line under it, blank lines between them and a fence
+    whose opening marker is indented (to its closing marker) included."""
     out: list[dict[str, Any]] = []
     section = ""
     current: dict[str, Any] | None = None  # the open item or paragraph
@@ -218,20 +243,26 @@ def _blocks(lines: Sequence[str]) -> list[dict[str, Any]]:
     i = 0
     while i < len(lines):
         line, number = lines[i], i + 1
+        in_item = current is not None and current["kind"] == "item"
+        if in_item and current is not None and _indented(line):
+            last = _fence_end(tags, i) if tags[i] == "marker" else i
+            current["end_line"] = last + 1
+            i = last + 1
+            continue
         if tags[i] == "marker":  # a fence opens: it runs to its closing marker
-            end = i + 1
-            while end < len(lines) and tags[end] == "code":
-                end += 1
-            last = end if end < len(lines) and tags[end] == "marker" else end - 1
+            last = _fence_end(tags, i)
             out.append({"start_line": number, "end_line": last + 1, "section": section,
                         "kind": "fence"})
             current, table_row, i = None, -1, last + 1
             continue
         i += 1
+        if not line.strip():
+            if not (in_item and _indented_next(lines, i)):  # an item goes on when indented
+                current, table_row = None, -1
+            continue
         heading = _heading(line)
-        if heading is not None or not line.strip():
-            if heading is not None:
-                section = (heading.group(2) or "").strip()
+        if heading is not None:
+            section = (heading.group(2) or "").strip()
             current, table_row = None, -1
             continue
         if line.startswith("|"):
@@ -256,29 +287,39 @@ def _blocks(lines: Sequence[str]) -> list[dict[str, Any]]:
     return out
 
 
-def _prereject(kind: str, text: str, index: _Index) -> str | None:
+def _prereject(text: str, prose: str, explicit: set[str], index: _Index) -> str | None:
+    """``names hidden <name>`` when a span resolves to entries that are all hidden, or to a
+    hidden entry the statement's claims cited themselves (before the repair); else
+    ``guarantee word`` when ``prose`` (the lines outside fences, spans dropped) holds one."""
     for entries in index.spans(text):
-        if all(e.get("hidden") for e in entries):
-            return f"names hidden {entries[0]['name']}"
-    if kind != "fence" and _guarantees(_SPAN.sub("", text)):
+        hidden = [e for e in entries if e.get("hidden")]
+        cited = [e for e in hidden if str(e["id"]) in explicit]
+        if cited or (hidden and len(hidden) == len(entries)):
+            return f"names hidden {(cited or hidden)[0]['name']}"
+    if _guarantees(_SPAN.sub("", prose)):
         return "guarantee word"
     return None
 
 
 def _statements(lines: Sequence[str], claims: Sequence[Mapping[str, Any]],
-                index: _Index) -> list[dict[str, Any]]:
+                explicit: Sequence[set[str]], index: _Index) -> list[dict[str, Any]]:
+    """The statements with their cites and pre-rejections; ``explicit`` holds each claim's
+    cites as the writer gave them."""
+    tags = _fence_tags(lines)
     statements = []
-    for number, block in enumerate(_blocks(lines), 1):
+    for number, block in enumerate(_blocks(lines, tags), 1):
         start, end = int(block["start_line"]), int(block["end_line"])
         text = "\n".join(lines[start - 1:end])
+        prose = "\n".join(lines[n - 1] for n in range(start, end + 1) if not tags[n - 1])
         keys = _span_keys(text)
         within = [n for n, claim in enumerate(claims)
                   if int(claim["start_line"]) <= end and int(claim["end_line"]) >= start]
         cites = {cid for n in within for cid in claims[n]["cites"]
                  if not _is_surface(index.ids.get(cid)) or _named(index.ids[cid], text, keys)}
+        written = {cid for n in within for cid in explicit[n]}
         statements.append({"id": f"r-s{number:03d}", **block, "text": text, "claims": within,
                            "cites": sorted(cites),
-                           "prereject": _prereject(str(block["kind"]), text, index)})
+                           "prereject": _prereject(text, prose, written, index)})
     return statements
 
 
@@ -294,9 +335,10 @@ def check(output: Mapping[str, Any], sheets: Mapping[str, Any],
     lines = _lines(text)
     claims = [{**claim, "cites": [str(c) for c in claim["cites"]]}
               for claim in output["claims"]]
+    explicit = [set(claim["cites"]) for claim in claims]  # before the repair adds any
     added, unnamed = _repair(claims, lines, index)
     return [], {"text": text, "claims": claims,
-                "statements": _statements(lines, claims, index),
+                "statements": _statements(lines, claims, explicit, index),
                 "cites_added": added, "cited_unnamed": unnamed}
 
 
