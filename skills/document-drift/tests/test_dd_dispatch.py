@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import dd_dispatch
+import dd_units
 import pytest
 from dd_common import read_json, write_json
 from dd_config import DEFAULTS
@@ -374,3 +375,35 @@ def test_main_writes_plan(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
     assert dd_dispatch.main([str(root), "--workdir", str(workdir)]) == 0
     assert len(read_json(workdir / "plan-docs.json")) == 4
     assert "plan-docs.json" in capsys.readouterr().out
+
+
+def test_validate_review_not_reviewed_is_optional_but_checked() -> None:
+    assert dd_dispatch.validate_review(_review()) == []
+    ok = _review(not_reviewed=[{"doc": "README.md", "start_line": 2, "end_line": 3,
+                                "why": "no room"}])
+    assert dd_dispatch.validate_review(ok) == []
+    bad = _review(not_reviewed=[{"doc": "README.md", "start_line": 3, "end_line": 2,
+                                 "why": "x"}, {"doc": "README.md"}])
+    problems = dd_dispatch.validate_review(bad)
+    assert any("not_reviewed[0]: start_line 3 is after end_line 2" in p for p in problems)
+    assert any("not_reviewed[1] has no start_line" in p for p in problems)
+    assert dd_dispatch.validate_review(_review(not_reviewed="all")) == [
+        "not_reviewed is not a list"]
+
+
+def test_not_reviewed_ranges_become_retry_entries(tmp_path: Path) -> None:
+    root, workdir = _tree(tmp_path)
+    plan = dd_dispatch.plan_docs(root, workdir, _config())
+    ranges = [{"doc": "README.md", "start_line": 2, "end_line": 3, "why": "no room"}]
+    write_json(workdir / "review" / "u001.json", _review("u001", not_reviewed=ranges))
+    write_json(workdir / "review" / "u002.json", _review("u002", not_reviewed=[]))
+    assert dd_dispatch.not_reviewed(workdir, plan, set()) == {"u001": ranges}
+    assert dd_dispatch.not_reviewed(workdir, plan, {"u001"}) == {}
+    units = dd_units.retry_units(root, workdir, {"u001": ranges}, 6000)
+    assert [(u["id"], u["retry_of"]) for u in units] == [("u004", "u001")]
+    entries = dd_dispatch.plan_retry(root, workdir, _config(), units)
+    assert [(e["id"], e["role"], e["model"]) for e in entries] == [("u004", "review", "sonnet")]
+    assert read_json(workdir / "plan-docs.json") == [*plan, *entries]
+    prompt = Path(entries[0]["prompt"]).read_text(encoding="utf-8")
+    assert "README.md (3 lines): lines 2-3" in prompt and "u004" in prompt
+    assert "docs/guide.md" not in prompt

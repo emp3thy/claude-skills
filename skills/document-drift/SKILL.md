@@ -77,7 +77,8 @@ refused).
 
    On exit 3 it prints `retry.json <path> with <n> entries`: read `retry.json` at that path,
    dispatch those entries once, exactly as in step 2, then rerun the same command with
-   `--retried`:
+   `--retried`. The entries are the agents whose output was missing or invalid, plus new
+   review entries (fresh unit ids) for the ranges a review agent reported it did not get to:
 
    ```bash
    python scripts/dd_run.py <repo> --stage verify --retried

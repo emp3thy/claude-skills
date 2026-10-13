@@ -2,9 +2,12 @@
 
 Docs to review are grouped by shared anchored definitions (two docs anchored to the same
 ``(file, start)`` definition are reviewed together), groups are packed into units of at most
-``unit_lines`` lines in path order, and a lone doc over budget is split at ``##`` headings.
+``unit_lines`` lines in path order, a group over budget on its own loses its link and its docs
+are packed one by one, and a lone doc over budget is split at ``##`` headings.
 ``units.json`` is ``{"units": [Unit], "unchecked": [unit id]}``; at most ``caps.review`` units
-are kept, README/CLAUDE/AGENTS units first.
+are kept, README/CLAUDE/AGENTS units first. ``retry_units`` adds, after the fact, one unit per
+packed set of the ranges a review agent reported as ``not_reviewed`` (ids continue the
+numbering, ``retry_of`` names the unit they came from).
 """
 from __future__ import annotations
 
@@ -12,7 +15,7 @@ import argparse
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from dd_anchors import Anchor
 from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json, write_json
@@ -36,6 +39,7 @@ class Unit(TypedDict):
     hunks: list[Hunk]
     size: int
     affected_anchors: int
+    retry_of: NotRequired[str]
 
 
 def _lines(ranges: Iterable[Sequence[int]]) -> int:
@@ -165,35 +169,93 @@ def build(review: Mapping[str, Sequence[Sequence[int]]], anchors: Iterable[Ancho
 
     units: list[Unit] = []
     current: list[_Part] = []
-    current_size = 0
 
     def flush() -> None:
-        nonlocal current, current_size
+        nonlocal current
         if current:
             units.append(unit_of(current))
-        current, current_size = [], 0
+        current = []
+
+    def pack(parts: list[_Part]) -> None:
+        if current and unit_of([*current, *parts])["size"] > unit_lines:
+            flush()
+        current.extend(parts)
 
     for group in _groups(sorted(review), mine):
         parts = [entry(d) for d in group]
-        size = unit_of(parts)["size"]
-        if size > unit_lines:
+        if unit_of(parts)["size"] <= unit_lines:
+            pack(parts)
+            continue
+        for doc in group:  # a linked group over budget loses its link: doc by doc
+            part = entry(doc)
+            if unit_of([part])["size"] <= unit_lines:
+                pack([part])
+                continue
             flush()
-            if len(group) == 1 and group[0] in texts:
-                for piece in _pieces(texts[group[0]]):
-                    sub = entry(group[0], piece)
+            if doc in texts:
+                for piece in _pieces(texts[doc]):
+                    sub = entry(doc, piece)
                     if sub[0]["ranges"]:
                         units.append(unit_of([sub]))
             else:
-                units.append(unit_of(parts))
-            continue
-        if current and current_size + size > unit_lines:
-            flush()
-        current.extend(parts)
-        current_size += size
+                units.append(unit_of([part]))
     flush()
     for number, unit in enumerate(units, 1):
         unit["id"] = f"u{number:03d}"
     return units
+
+
+def _merged(ranges: Iterable[Sequence[int]]) -> list[list[int]]:
+    out: list[list[int]] = []
+    for r in sorted([int(r[0]), int(r[1])] for r in ranges):
+        if out and r[0] <= out[-1][1] + 1:
+            out[-1][1] = max(out[-1][1], r[1])
+        else:
+            out.append(r)
+    return out
+
+
+def retry_units(root: Path, workdir: Path, pending: Mapping[str, Sequence[Mapping[str, Any]]],
+                unit_lines: int) -> list[Unit]:
+    """Units for ``pending`` (unit id -> the ranges its agent reported as ``not_reviewed``),
+    each clipped to that unit's own doc ranges and packed like any docs, with the unit's
+    anchors on those lines; ids continue ``units.json``'s numbering and ``retry_of`` names
+    the unit the ranges came from. The new units are appended to ``units.json``."""
+    stored = read_json(workdir / "units.json")
+    changes = read_json(workdir / "changes.json")
+    by_id = {str(u["id"]): u for u in stored["units"]}
+    number = max((int(str(i)[1:]) for i in [*by_id, *stored.get("unchecked", [])]), default=0)
+    new: list[Unit] = []
+    for uid in sorted(pending):
+        unit = by_id.get(uid)
+        if unit is None:
+            continue
+        own = {d["doc"]: d["ranges"] for d in unit["docs"]}
+        review: dict[str, list[list[int]]] = {}
+        for r in pending[uid]:
+            doc = str(r["doc"])
+            if doc in own:
+                review.setdefault(doc, []).extend(
+                    _clip(own[doc], (int(r["start_line"]), int(r["end_line"]))))
+        review = {d: _merged(rs) for d, rs in review.items() if rs}
+        if not review:
+            continue
+        anchors = [a for a in unit["anchors"] if _in_ranges(int(a["line"]), review[a["doc"]])]
+        texts: dict[str, str] = {}
+        for doc in review:
+            try:
+                texts[doc] = (root / doc).read_bytes().decode("utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+        for built in build(review, anchors, changes["hunks"], changes["mode"], texts,
+                           unit_lines, changes.get("affected", {})):
+            number += 1
+            built["id"] = f"u{number:03d}"
+            built["retry_of"] = uid
+            new.append(built)
+    stored["units"].extend(new)
+    write_json(workdir / "units.json", stored)
+    return new
 
 
 def order_for_cap(units: Sequence[Unit]) -> list[Unit]:

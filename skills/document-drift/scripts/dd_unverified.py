@@ -23,8 +23,10 @@ Notices inside code blocks are examples and are not read.
 ``run_verify`` turns the review agents' nominations into 1st notices. A nominated range is
 widened to the outermost block holding its first line (a whole list or table), so its hash is
 the one ``run_start`` computes on the next run. A nomination is skipped when its doc is not in
-scope, no block holds the line, the block carries ``drift-ignore`` or an anchor, another
-nomination already took the block, or a notice already covers it (a ``clear-changed`` block may
+scope, no block holds the line, the block is a heading, the nominated range runs past the
+block (an agent nominating a whole doc or several blocks), the block carries ``drift-ignore``
+or an anchor, another nomination already took the block, or a notice already covers it (a
+``clear-changed`` block may
 be noticed again: its notice goes and a new 1st notice starts, spec 7.3).
 
 ``notices.json`` is ``{"decisions": [Decision], "edits": [Edit], "stale": [{"doc", "line",
@@ -224,10 +226,19 @@ def decide(doc: str, text: str, anchors_for_doc: Sequence[Mapping[str, Any]],
     return decisions, edits, stale
 
 
+def _is_heading(sc: Scan, block: Range) -> bool:
+    return any(b.kind == "heading" and (b.line_start, b.line_end) == block for b in sc.blocks)
+
+
 def _skip(sc: Scan, block: Range | None, decisions: Sequence[Mapping[str, Any]],
-          ignore: Sequence[Range], anchored: set[int], taken: set[Range]) -> str | None:
+          ignore: Sequence[Range], anchored: set[int], taken: set[Range],
+          end_line: int | None = None) -> str | None:
     if block is None:
         return "no block"
+    if _is_heading(sc, block):
+        return "heading"
+    if end_line is not None and end_line > block[1]:
+        return "spans blocks"
     if any(_overlaps(r, block) for r in ignore):
         return "drift-ignore"
     if any(block[0] <= n <= block[1] for n in anchored):
@@ -266,7 +277,7 @@ def nominate(nominations: Sequence[Mapping[str, Any]], texts: Mapping[str, str],
             reason = _skip(sc, block, [d for d in existing_decisions if d["doc"] == doc],
                            (ignore or {}).get(doc, ()),
                            {int(a["line"]) for a in anchors if a["doc"] == doc},
-                           taken.setdefault(doc, set()))
+                           taken.setdefault(doc, set()), int(nom["end_line"]))
             if reason is None and block is not None:
                 taken[doc].add(block)
                 first = sc.lines[block[0] - 1]

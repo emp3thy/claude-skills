@@ -40,6 +40,22 @@ def test_packing_respects_unit_lines() -> None:
     assert [u["size"] for u in units] == [20, 10]
 
 
+def test_over_budget_linked_group_is_packed_doc_by_doc() -> None:
+    # a, b and c share one definition: linked, 60 doc lines + 10 reading = 70 > 55
+    anchors = [anchor(d, 1, start=5) for d in ("a.md", "b.md", "c.md")]
+    units = dd_units.build(whole("a.md", "b.md", "c.md", n=20), anchors, {}, "first", {}, 55)
+    assert [[d["doc"] for d in u["docs"]] for u in units] == [["a.md", "b.md"], ["c.md"]]
+    assert [u["size"] for u in units] == [50, 30]
+    # a doc of the group that is over budget on its own is still split at headings
+    text = chr(10).join(["# T", *["x"] * 30, "## A", *["y"] * 14, "## B", *["z"] * 15]) + chr(10)
+    n = len(text.splitlines())
+    review = {"a.md": [[1, n]], "b.md": [[1, 20]]}
+    anchors = [anchor("a.md", 2, start=5), anchor("b.md", 1, start=5)]
+    units = dd_units.build(review, anchors, {}, "first", {"a.md": text}, 55)
+    assert [(u["docs"][0]["doc"], u["docs"][0]["ranges"]) for u in units] == [
+        ("a.md", [[1, 46]]), ("a.md", [[47, 62]]), ("b.md", [[1, 20]])]
+
+
 def test_large_doc_split_at_second_level_headings() -> None:
     text = "# T\nintro\n## A\na1\na2\n```\n## not a heading\n```\n## B\nb1\nb2\n"
     n = len(text.splitlines())
@@ -137,3 +153,29 @@ def test_split_piece_anchors_follow_the_piece_not_the_ranges() -> None:
     units = dd_units.build(review, anchors, {}, "first", {"d.md": text}, 1)
     assert [u["docs"][0]["ranges"] for u in units] == [[[3, 3]], [[7, 7]]]
     assert [[a["line"] for a in u["anchors"]] for u in units] == [[3, 4], [7]]
+
+
+def test_retry_units_clip_to_the_unit_pack_and_continue_numbering(tmp_path: Path) -> None:
+    root, workdir = tmp_path / "repo", tmp_path / "wd"
+    root.mkdir()
+    (root / "a.md").write_text("".join(f"a{n}\n" for n in range(1, 21)), encoding="utf-8")
+    kept = anchor("a.md", 3, start=5)
+    gone = anchor("a.md", 2, file="src/b.py", start=1)
+    write_json(workdir / "units.json", {
+        "units": [{"id": "u001", "docs": [{"doc": "a.md", "ranges": [[1, 20]]},
+                                          {"doc": "b.md", "ranges": [[1, 20]]}],
+                   "anchors": [kept, gone], "hunks": [], "size": 60, "affected_anchors": 0}],
+        "unchecked": ["u002"]})
+    write_json(workdir / "changes.json", {"mode": "first", "hunks": {}, "affected": {}})
+    pending = {"u001": [{"doc": "a.md", "start_line": 3, "end_line": 30, "why": "w"},
+                        {"doc": "a.md", "start_line": 8, "end_line": 12, "why": "w"},
+                        {"doc": "c.md", "start_line": 1, "end_line": 2, "why": "w"}],
+               "u009": [{"doc": "a.md", "start_line": 1, "end_line": 2, "why": "w"}]}
+    new = dd_units.retry_units(root, workdir, pending, 6000)
+    assert [(u["id"], u["retry_of"], u["docs"]) for u in new] == [
+        ("u003", "u001", [{"doc": "a.md", "ranges": [[3, 20]]}])]
+    assert new[0]["anchors"] == [kept]
+    stored = read_json(workdir / "units.json")
+    assert [u["id"] for u in stored["units"]] == ["u001", "u003"]
+    assert stored["unchecked"] == ["u002"]
+    assert dd_units.retry_units(root, workdir, {"u001": []}, 6000) == []

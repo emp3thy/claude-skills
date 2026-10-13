@@ -809,7 +809,7 @@ out of order (exit 2). Each stage prints one line naming its plan file and entry
 | Stage | Steps (module) | Files written | Then the session dispatches |
 |---|---|---|---|
 | `start` | preflight (`dd_preflight`); inventory (`dd_inventory`); path and anchor tokens and their resolution at HEAD (`dd_extract`, `dd_resolve`; `dd_changes` reads the unresolved paths of `candidates.json`); definition index (`dd_defindex`); anchors and checkability (`dd_anchors`); run mode and change set (`dd_changes`); review units (`dd_units`); pattern scan (`dd_patterns`); gaps and targets (`dd_gaps`); notice decisions (`dd_unverified`); plan (`dd_dispatch`) | `preflight.json`, `inventory.json`, `tokens.json`, `candidates.json`, `defindex.json`, `anchors.json`, `changes.json`, `units.json`, `patterns.json`, `gaps.json`, `notices.json`, `plan-docs.json`, `prompts/review-uNNN.md`, `prompts/gap-gNNN.md` | one review agent per unit (`review/uNNN.json`) and one gap agent per target doc (`gaps/gNNN.json`); when the plan is empty, nothing, and the session goes straight to `finish` |
-| `verify` | output validation (`dd_dispatch`); the review agents' `unverified_blocks` as notice nominations (`dd_unverified`); script checks and verify batches (`dd_checks`) | `retry.json` (when needed), `notices.json`, `edits.json`, `plan-verify.json`, `prompts/verify-vNN.md` | one verifier agent per batch of at most 10 edits (`verdicts/vNN.json`) |
+| `verify` | output validation (`dd_dispatch`); retry units for the ranges review agents reported as `not_reviewed` (`dd_units.retry_units`, `dd_dispatch.plan_retry`); the review agents' `unverified_blocks` as notice nominations (`dd_unverified`); script checks and verify batches (`dd_checks`) | `retry.json` (when needed), `units.json` and `plan-docs.json` (appended retry units), `notices.json`, `edits.json`, `plan-verify.json`, `prompts/verify-vNN.md` | one verifier agent per batch of at most 10 edits (`verdicts/vNN.json`) |
 | `finish` | output validation and verdicts (`dd_dispatch`); tree check (HEAD no longer the preflight HEAD, a clean branch switch included, or any file outside the workdir that changed since preflight refuses the run, exit 2, before anything is applied); apply, re-scan and revert, heading link updates (`dd_apply`); commits (`dd_commit`); last-run record; summary (`dd_summary`) | `verdicts.json`, `applied.json`, `commits.json`, `commit-msg-corrections.txt`, `commit-msg-additions.txt`, `last-run.json`, `summary.md` | nothing |
 
 `start` deletes `preflight.json` first and, once preflight passes, every other pinned output of
@@ -828,7 +828,11 @@ pastes a prompt and never writes an output file. The agent writes exactly `outpu
 with a receipt. The next stage validates every output of the wave against its schema; a
 missing or invalid one writes `retry.json` and exits 3, the session re-dispatches those
 entries once and reruns the stage with `--retried`, and an output still bad then marks its unit
-or batch unchecked. Prompt templates live in `skills/document-drift/prompts/`
+or batch unchecked. At `verify`, the same `retry.json` also carries new review entries for the
+ranges a valid review output reported as `not_reviewed`: they are packed into retry units
+(fresh ids, `retry_of` naming the source unit) appended to `units.json` and `plan-docs.json`;
+ranges still reported as not reviewed on the `--retried` pass are listed in `edits.json` and
+the summary, not retried again. Prompt templates live in `skills/document-drift/prompts/`
 (`review-first.md`, `review-later.md`, `gap.md`, `verify.md`).
 
 ### Docs to code
@@ -862,14 +866,18 @@ the definition index as it was at that commit; a path in a code span or link tha
 `candidates.json` lists as unresolved at HEAD is affected when it named a file or directory of
 that commit's tree, relative to its doc or the root, and its review range is the block holding
 it. Affected docs are packed into review units within `unit_lines` (`dd_units`), linked when
-they share a definition.
+they share a definition; a linked group that is over budget on its own loses its link and its
+docs are packed one by one (a lone doc over budget is split at `##` headings).
 
 **Review** (prompts `review-first.md`, `review-later.md`): the agent checks the statements in
 its ranges against the code and writes `correct`, `remove` and `anchor` edits (an `anchor` edit
 names, in an inline-code span, the definition a true statement describes), `guarantee-mismatch`
-and `unsure` questions, `code_claims` per doc and `unverified_blocks`.
+and `unsure` questions, `code_claims` per doc, `unverified_blocks` and, when it could not
+finish, the `not_reviewed` ranges.
 
-**Notice loop** (`dd_unverified`, spec 7.3): a nominated block gets
+**Notice loop** (`dd_unverified`, spec 7.3): a nomination must resolve to one block that is
+not a heading (its range may not run past that block, so a nominated whole doc is skipped as
+`spans blocks`) and that holds no anchor; a nominated block gets
 `<!-- drift-unverified: 1st notice, run <run id>, block <hash>. ... -->` on the line above it,
 where the hash is the first 8 hex digits of the SHA-256 of the block's whitespace-collapsed
 text. On every run the script reads each notice: an anchored block, a changed hash or a

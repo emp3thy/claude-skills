@@ -268,6 +268,21 @@ def test_nomination_skips_noticed_and_ignored_blocks() -> None:
     assert edits[0]["end_line"] == 9
 
 
+def test_nomination_must_be_one_block_that_is_not_a_heading() -> None:
+    text = _doc("# Title", "", "First prose.", "", "- item one", "- item two", "",
+                "Last prose.")
+    skipped: list[str | None] = []
+    noms = [{"doc": "a.md", "start_line": 1, "end_line": 1, "why": "a heading"},
+            {"doc": "a.md", "start_line": 1, "end_line": 8, "why": "the whole doc"},
+            {"doc": "a.md", "start_line": 3, "end_line": 6, "why": "prose and list"},
+            {"doc": "a.md", "start_line": 5, "end_line": 6, "why": "the list"},
+            {"doc": "a.md", "start_line": 8, "end_line": 8, "why": "prose"}]
+    edits = nominate(noms, {"a.md": text}, [], RUN, skipped=skipped)
+    assert skipped == ["heading", "heading", "spans blocks", None, None]
+    assert [(e["start_line"], e["subject"]) for e in edits] == [
+        (5, _h("- item one - item two")), (8, _h("Last prose."))]
+
+
 def test_nomination_on_a_comment_line_resolves_to_the_block_below() -> None:
     later = "2026-10-26-0001"
     # (a) a plain comment line: the notice goes above the prose, hashed as decide hashes it
