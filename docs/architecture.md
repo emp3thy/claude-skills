@@ -871,7 +871,9 @@ docs are packed one by one (a lone doc over budget is split at `##` headings).
 
 **Review** (prompts `review-first.md`, `review-later.md`): the agent checks the statements in
 its ranges against the code and writes `correct`, `remove` and `anchor` edits (an `anchor` edit
-names, in an inline-code span, the definition a true statement describes), `guarantee-mismatch`
+names, in an inline-code span, the definition a true statement describes, inserted or wrapped
+around a bare name; the prompt's doc list marks a doc with `no anchors in these lines`, where
+every block about the code gets an anchor edit or an unverified block), `guarantee-mismatch`
 and `unsure` questions, `code_claims` per doc, `unverified_blocks` and, when it could not
 finish, the `not_reviewed` ranges.
 

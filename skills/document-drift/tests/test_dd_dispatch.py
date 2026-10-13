@@ -156,9 +156,25 @@ def test_plan_docs_one_entry_per_unit_and_gap_doc_within_caps(tmp_path: Path) ->
     assert "\n- README.md\n- docs/guide.md\n" in gap_prompt and "CHANGELOG.md" not in gap_prompt
     assert "Changelogs, release notes, history, licences, specs and plans" in gap_prompt
     review = Path(by_id["u002"]["prompt"]).read_text(encoding="utf-8")
-    assert "docs/guide.md (30 lines): lines 1-10, 20-30" in review
+    assert "docs/guide.md (30 lines): lines 1-10, 20-30\n" in review
+    assert f"; {dd_dispatch.NO_ANCHORS}" not in review
     assert "u003" not in review
     assert not (workdir / "prompts" / "review-u003.md").exists()
+
+
+def test_review_prompt_marks_docs_with_no_anchor_in_their_lines(tmp_path: Path) -> None:
+    root, workdir = _tree(tmp_path)
+    units = read_json(workdir / "units.json")
+    units["units"][1]["docs"] = [{"doc": "docs/guide.md", "ranges": [[20, 30]]},
+                                 {"doc": "README.md", "ranges": [[1, 3]]}]
+    units["units"][1]["anchors"].append(units["units"][0]["anchors"][0])
+    write_json(workdir / "units.json", units)
+    plan = dd_dispatch.plan_docs(root, workdir, _config())
+    review = Path(plan[1]["prompt"]).read_text(encoding="utf-8")
+    # the guide's anchor is on line 4, outside the reviewed lines; README's is on line 3
+    assert f"- docs/guide.md (30 lines): lines 20-30; {dd_dispatch.NO_ANCHORS}\n" in review
+    assert "- README.md (3 lines): lines 1-3\n" in review
+    assert "`no anchors in these lines`" in review
 
 
 def test_review_prompt_contains_anchors_and_diff_on_later_run(tmp_path: Path) -> None:

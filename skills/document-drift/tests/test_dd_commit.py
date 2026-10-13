@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from dd_commit import collect_human, main, render_bullet, render_message, run
+from dd_commit import collect_human, human_line, main, render_bullet, render_message, run
 from dd_common import EXIT_COMMIT, StepError, read_json, write_json
 from dd_helpers import make_repo
 
@@ -142,6 +142,10 @@ def test_collect_human_kinds_and_order(tmp_path: Path) -> None:
     assert by_kind[("x.md", "recheck-failed")]["text"] == "claim three"
     assert by_kind[("", "no-home")] == {"doc": "", "line": 0, "kind": "no-home",
                                         "text": "env X_Y", "evidence": ["src/c.py:7"]}
+    # a no-home item has no doc, so its line has no doc:line
+    assert human_line(by_kind[("", "no-home")]) == "- no-home: env X_Y (src/c.py:7)"
+    assert human_line(by_kind[("m.md", "guarantee-mismatch")]) == (
+        "- m.md:4 guarantee-mismatch: g (g.py:1)")
     assert by_kind[("n.md", "unverified")]["text"] == "First line of block"
 
 

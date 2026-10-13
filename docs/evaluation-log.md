@@ -258,3 +258,12 @@ rejected edits reached the human-decision list, so neither doc line was changed 
 | 2026-10-13 | py-service (state 1) | 09c42c0 | first | 8 | 8 | 1 | 7 (4/3/0) | 7 | 5/1/1/0 | 5 | - | 9 | 0 | 2/1 | 6/10 | 0/7 | 1/2/4 | 1m08s | 422201 | 0.71 | missed p2, p4, p8a, p10; canned-only: p14, d7 |
 | 2026-10-13 | better-memory | 9d5be26 | full | 38 | 38 | 2 | 29 (19/3/7) | 20 | 17/0/0/0 | 20 | - | 21 | 3 | 13/13 | - | - | 2/5/8 | 4m15s | 3597675 | 3.27 | run completed (2 commits on docs/drift-2026-10-13); the harness echo crashed afterwards on cp1252 stdout (fixed). u001 packed 27 linked docs at 10,757 lines against a 6,000 budget: the agent left 7 docs unreviewed and nominated them whole as unverified blocks; 3 whole-doc notices applied (read-spec, write-spec, synthesize-freeze), 4 refused by the never-edit heading check. 0 anchor edits proposed (A12) |
 | 2026-10-13 | better-memory | 9d5be26 | full | 38 | 38 | 4 | 91 (87/3/1) | 64 | 53/10/0/0 | 54 | - | 45 | 1 | 13/13 | - | - | 4/5/18 | 4m58s | 11420625 | 8.96 | second run, same head, with the fixed unit packer (3 units within budget); the first pass crashed in retry_units (fixed) and was resumed at verify with 8 earlier calls; wall time from the resume; 1 retried |
+
+Anchor check (2026-10-13, not a full run): one review agent re-run on the second run's unit
+u003, the unit holding better-memory's 11 docs with no anchor in their reviewed lines, with
+the prompt that marks such docs (`no anchors in these lines`) and asks for an `anchor` edit or
+an unverified block per code block there. 270 claims checked, 2 `correct` edits, 1 `unsure`,
+0 anchor edits, 0 unverified blocks: the agent counted those docs (tech-debt PBIs and plans,
+`CLAUDE.md`) as 0 code claims. A12 stays unvalidated (one Sonnet call, 1,442,094 tokens,
+$0.76; a first attempt with the workdir under `~/.claude` cost $1.10 and wrote nothing, since
+the agent refuses to write there).

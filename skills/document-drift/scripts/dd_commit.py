@@ -72,10 +72,12 @@ def render_bullet(edit: dict[str, Any], line: int | None = None) -> str:
 
 
 def human_line(entry: dict[str, Any]) -> str:
-    """One redacted `- doc:line kind: text (evidence)` line of a Human-decision entry."""
+    """One redacted `- doc:line kind: text (evidence)` line of a Human-decision entry; an entry
+    with no doc (``no-home``, whose place is its evidence) has no ``doc:line``."""
     evidence = ", ".join(str(e) for e in entry.get("evidence") or [])
     tail = f" ({evidence})" if evidence else ""
-    return _line(f"- {entry['doc']}:{entry['line']} {entry['kind']}: {entry['text']}{tail}")
+    where = f"{entry['doc']}:{entry['line']} " if entry.get("doc") else ""
+    return _line(f"- {where}{entry['kind']}: {entry['text']}{tail}")
 
 
 def render_message(kind: str, bullets: list[str], *, run_id: str, base: str, scope: str,

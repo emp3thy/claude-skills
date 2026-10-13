@@ -63,6 +63,10 @@ README = (
     "## History\n"
     "\n"
     "We used to have a flag.\n"
+    "\n"
+    "## Purge\n"
+    "\n"
+    "Expired rows go through Store.purge nightly.\n"
 )
 GUIDE = ("# Guide\n\n" + "".join(f"guide line {n}\n" for n in range(1, 21))
          + "\n## Part two\n\nMore text.\n\n- db\n    image: postgres\n\nimage: postgres\n")
@@ -253,6 +257,23 @@ def test_anchor_adds_name_accepts_bracketed_name(ctx: Context) -> None:
                    new="The store keeps values [`Store.purge`].", evidence=("src/store.py:13",))
     ctx.kept.clear()
     assert _result(dotted, ctx) == ("kept", None, None)
+
+
+def test_anchor_adds_name_accepts_one_bare_word_wrapped(ctx: Context) -> None:
+    start = _line("README.md", "Expired rows go through Store.purge nightly.")
+    wrapped = _edit("u001-e01", start=start, kind="anchor", subject="Store.purge",
+                    new="Expired rows go through `Store.purge` nightly.",
+                    evidence=("src/store.py:13",))
+    assert _result(wrapped, ctx) == ("kept", None, None)
+    ctx.kept.clear()
+    two = _edit("u001-e02", start=start, kind="anchor", subject="Store.purge",
+                new="Expired `rows` go through `Store.purge` nightly.",
+                evidence=("src/store.py:13",))
+    assert _result(two, ctx) == ("dropped", "anchor-adds-name", None)
+    reworded = _edit("u001-e03", start=start, kind="anchor", subject="Store.purge",
+                     new="Expired rows pass through `Store.purge` nightly.",
+                     evidence=("src/store.py:13",))
+    assert _result(reworded, ctx) == ("dropped", "anchor-adds-name", None)
 
 
 def test_anchor_adds_name_rejects_name_resolving_elsewhere(ctx: Context) -> None:
