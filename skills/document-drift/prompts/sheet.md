@@ -6,7 +6,7 @@ Repository root: `{{repo}}`
 
 ## The area
 
-Read every one of these files in full (line counts given):
+Read every one of these files in full (line counts given). A file too long to read in one pass is read in ranges, the hinted lines first (the hints below give each one's line), then the rest; every `defined_at` is still a line you read, never one you guessed.
 
 {{files}}
 

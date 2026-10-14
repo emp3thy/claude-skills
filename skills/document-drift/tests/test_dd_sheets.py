@@ -170,8 +170,9 @@ def test_run_writes_sheets_json_with_ids_and_unchecked(tmp_path: Path) -> None:
     write_json(workdir / "plan-docs.json", plan)
     write_json(workdir / "sheets" / "a01.json", _sheet())
     write_json(workdir / "sheets" / "a02.json", _sheet(area="a02", surface=[], behaviours=[]))
-    result = dd_sheets.run(root, workdir, {}, frozenset({"a02"}))
+    result = dd_sheets.run(root, workdir, {}, frozenset({"a02"}), retried=["a02", "a01"])
     assert read_json(workdir / "sheets.json") == result
+    assert result["retried"] == ["a01", "a02"]  # the sheets the compose retry re-dispatched
     assert result["unchecked"] == [{"area": "a02", "why": "invalid after retry"},
                                    {"area": "a03", "why": "over the cap"}]
     assert [e["id"] for e in result["sheets"]["a01"]["surface"]] == ["a01-s01", "a01-s02"]
@@ -180,6 +181,7 @@ def test_run_writes_sheets_json_with_ids_and_unchecked(tmp_path: Path) -> None:
     (workdir / "sheets" / "a02.json").unlink()
     again = dd_sheets.run(root, workdir, {}, frozenset())
     assert again["unchecked"][0] == {"area": "a02", "why": "no output"}
+    assert again["retried"] == []
 
 
 def test_check_outputs_runs_the_content_rules_only_with_a_root(tmp_path: Path) -> None:
@@ -213,3 +215,28 @@ def test_short_name_is_matched_whole(tmp_path: Path) -> None:
 
     assert check(4) == []
     assert any("'kv' is not within" in p for p in check(15))
+
+
+def test_paths_are_repaired_before_the_area_check(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    sheet = _sheet()
+    sheet["surface"][0]["defined_at"] = f"src\\app\\cli.py:{SYNC_LINE}"
+    sheet["surface"][1]["defined_at"] = "./src/app/cli.py:5"
+    sheet["behaviours"][0]["evidence"] = [f"{root.resolve().as_posix()}/src/app/cli.py:3",
+                                          f"{root.resolve()}\\src\\app\\cli.py:3"]
+    assert dd_sheets.validate(sheet, AREA1, root, set(FILES)) == []
+    dd_sheets.repair_paths(sheet, root)
+    assert [e["defined_at"] for e in sheet["surface"]] == [f"src/app/cli.py:{SYNC_LINE}",
+                                                           "src/app/cli.py:5"]
+    assert sheet["behaviours"][0]["evidence"] == ["src/app/cli.py:3", "src/app/cli.py:3"]
+
+
+def test_the_file_rule_counts_only_at_line_1(tmp_path: Path) -> None:
+    def module(at: str) -> dict[str, Any]:
+        return _sheet(surface=[_surface("entry", "python -m app.cli", at)],
+                      dismissed=[{"hint": "command sync", "why": "x"},
+                                 {"hint": "flag --force", "why": "x"}])
+
+    assert _check(tmp_path / "one", module("src/app/cli.py:1")) == []
+    problems = _check(tmp_path / "ten", module("src/app/cli.py:10"))
+    assert any("'python -m app.cli' is not within" in p for p in problems)

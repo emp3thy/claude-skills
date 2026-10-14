@@ -2,8 +2,10 @@
 (``correct_hidden``, ``fill``, spec 5.4) and ``sheets.json``.
 
 ``sheets.json`` is ``{"sheets": {"a01": sheet, ...}, "unchecked": [{"area", "why"}],
-"filled": n, "hidden_corrected": n}``; each surface entry and behaviour carries an ``id``
-(``a03-s12``, ``a03-b04``) for the README writer to cite.
+"filled": n, "hidden_corrected": n, "retried": [area ids]}``; each surface entry and behaviour
+carries an ``id`` (``a03-s12``, ``a03-b04``) for the README writer to cite. A sheet's
+``defined_at`` and ``evidence`` paths are repaired (``repair_path``) before they are checked
+and again in ``sheets.json``.
 """
 from __future__ import annotations
 
@@ -12,7 +14,7 @@ import copy
 import json
 import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -44,10 +46,53 @@ def _tokens(name: str) -> list[str]:
 
 
 def _names_its_file(name: str, path: str) -> bool:
+    """Spec 5.3's file rule: the name is its file's path or stem, or its module path (a
+    module under a source root, ``src/``, names a path suffix). It counts only at line 1."""
     text = name[len("python -m "):] if name.startswith("python -m ") else name
     stem = path.rsplit(".", 1)[0] if "." in path.rsplit("/", 1)[-1] else path
     dotted = text.replace(".", "/")  # a module under a source root (`src/`) names a path suffix
     return stem in (dotted, text) or stem.endswith("/" + dotted) or path.endswith("/" + text)
+
+
+def _roots(root: Path | None) -> list[str]:
+    """The repository root's absolute forms with forward slashes and a trailing ``/``."""
+    if root is None:
+        return []
+    forms = {root.as_posix(), root.absolute().as_posix(), root.resolve().as_posix()}
+    return sorted((f.rstrip("/") + "/" for f in forms if f not in ("", ".")), key=len,
+                  reverse=True)
+
+
+def repair_path(path: str, root: Path | None) -> str:
+    """A cited path as the area lists it: a backslash becomes ``/``, a leading ``./`` goes,
+    and so does the repository root's prefix of an absolute path (compared
+    case-insensitively, as Windows paths are)."""
+    text = path.strip().replace("\\", "/")
+    for prefix in _roots(root):
+        if text.lower().startswith(prefix.lower()):
+            text = text[len(prefix):]
+            break
+    while text.startswith("./"):
+        text = text[2:]
+    return text
+
+
+def _repair_ref(ref: Any, root: Path | None) -> Any:
+    match = _PLACE.fullmatch(str(ref)) if isinstance(ref, str) else None
+    if match is None:
+        return ref
+    return f"{repair_path(match.group(1), root)}:{match.group(2)}"
+
+
+def repair_paths(sheet: dict[str, Any], root: Path | None) -> None:
+    """Repair every ``defined_at`` and ``evidence`` path of ``sheet`` in place
+    (``repair_path``), as ``validate`` reads them."""
+    for entry in sheet.get("surface", []):
+        if isinstance(entry, dict) and "defined_at" in entry:
+            entry["defined_at"] = _repair_ref(entry["defined_at"], root)
+    for behaviour in sheet.get("behaviours", []):
+        if isinstance(behaviour, dict) and isinstance(behaviour.get("evidence"), list):
+            behaviour["evidence"] = [_repair_ref(e, root) for e in behaviour["evidence"]]
 
 
 def _hint_dismissed(hint: Mapping[str, Any], dismissed: list[str]) -> bool:
@@ -95,7 +140,7 @@ def validate(sheet: Any, area: Mapping[str, Any], root: Path | None,
         if not match:
             problems.append(f"{what}: {ref!r} is not path:line")
             return
-        path, number = match.group(1), int(match.group(2))
+        path, number = repair_path(match.group(1), root), int(match.group(2))
         if path not in paths:
             problems.append(f"{what}: {path} is outside the area")
             return
@@ -108,7 +153,7 @@ def validate(sheet: Any, area: Mapping[str, Any], root: Path | None,
         if not 1 <= number <= len(text):
             problems.append(f"{what}: line {number} is outside {path} ({len(text)} lines)")
             return
-        if name is None or _names_its_file(name, path):
+        if name is None or (number == 1 and _names_its_file(name, path)):
             return
         window = "\n".join(text[max(0, number - 1 - _WINDOW):number + _WINDOW])
         wanted = _tokens(name) or [name.replace("`", "").strip().removeprefix("$")]
@@ -193,11 +238,12 @@ def _load(path: Path) -> Any | None:
 
 
 def run(root: Path, workdir: Path, config: Mapping[str, Any],
-        failed: frozenset[str]) -> dict[str, Any]:
-    """Write ``sheets.json``: each planned area's valid sheet with ids, hidden corrected and
-    hints filled; every other area is unchecked with its reason. ``failed`` holds the areas
-    whose output failed validation after the retry; a sheet short only of hints is valid here,
-    since this step fills them."""
+        failed: frozenset[str], retried: Iterable[str] = ()) -> dict[str, Any]:
+    """Write ``sheets.json``: each planned area's valid sheet with ids, paths repaired, hidden
+    corrected and hints filled; every other area is unchecked with its reason. ``failed``
+    holds the areas whose output failed validation after the retry; a sheet short only of
+    hints is valid here, since this step fills them. ``retried`` (the sheet ids the compose
+    retry re-dispatched) is recorded sorted as ``retried``, for the summary."""
     from dd_dispatch import _problems  # dd_dispatch imports this module lazily
 
     areas_path = workdir / "areas.json"
@@ -224,6 +270,7 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any],
             unchecked.append({"area": aid, "why": "invalid after retry"})
         else:
             sheet = copy.deepcopy(sheet)
+            repair_paths(sheet, root)
             corrected += correct_hidden(sheet, by_id[aid])
             filled += fill(sheet, by_id[aid])
             for n, item in enumerate(sheet["surface"], 1):
@@ -233,7 +280,8 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any],
             sheets[aid] = sheet
     unchecked += [{"area": str(a), "why": "over the cap"} for a in areas.get("unplanned", [])]
     result: dict[str, Any] = {"sheets": sheets, "unchecked": unchecked, "filled": filled,
-                              "hidden_corrected": corrected}
+                              "hidden_corrected": corrected,
+                              "retried": sorted({str(r) for r in retried})}
     write_json(workdir / "sheets.json", result)
     return result
 

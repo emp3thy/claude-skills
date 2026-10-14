@@ -158,3 +158,16 @@ def test_readme_must_be_bool_and_area_lines_positive(tmp_path):
     cfg, warnings = load_config(tmp_path)
     assert cfg["readme"] is False and cfg["area_lines"] == 100 and warnings == []
     assert cfg["caps"]["readme_batch"] == 3 and cfg["models"]["readme"] == "haiku"
+
+
+def test_readme_batch_must_be_positive(tmp_path):
+    # a batch size of 0 would make the README verifier batching loop step by zero
+    for text in ("caps: {readme_batch: 0}\n", "caps: {readme_batch: -2}\n",
+                 "caps: {readme_batch: many}\n", "caps: {readme_batch: true}\n"):
+        (tmp_path / CONFIG_FILENAME).write_text(text, encoding="utf-8")
+        cfg, warnings = load_config(tmp_path)
+        assert cfg["caps"]["readme_batch"] == 15, text
+        assert len(warnings) == 1 and "caps.readme_batch must be a positive integer" in warnings[0]
+    (tmp_path / CONFIG_FILENAME).write_text("caps: {readme_batch: 1}\n", encoding="utf-8")
+    cfg, warnings = load_config(tmp_path)
+    assert cfg["caps"]["readme_batch"] == 1 and warnings == []

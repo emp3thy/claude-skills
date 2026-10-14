@@ -474,6 +474,9 @@ def test_sheet_prompt_has_mandatory_lines_and_no_placeholder_left(tmp_path: Path
         text = Path(entry["prompt"]).read_text(encoding="utf-8")
         assert all(line in text for line in MANDATORY)
         assert "{{" not in text and entry["output"] in text
+        # a file too long for one read is read in ranges, and defined_at is a line it read
+        assert "in ranges, the hinted lines first" in text
+        assert "`defined_at` is still a line you read" in text
     assert "(none)" in Path(entries[1]["prompt"]).read_text(encoding="utf-8")
     assert read_json(workdir / "areas.json")["unplanned"] == []
 

@@ -77,8 +77,10 @@ def _is_non_empty_str(value: Any) -> bool:
 # Nested mappings: per sub-key (validator, expectation); unknown sub-keys are ignored.
 _NESTED_VALIDATORS: dict[str, dict[str, tuple[Any, str]]] = {
     "caps": {
-        name: (_is_non_negative_int, "a non-negative integer")
-        for name in ("review", "gaps", "verify", "sheet_agents", "readme_batch")
+        **{name: (_is_non_negative_int, "a non-negative integer")
+           for name in ("review", "gaps", "verify", "sheet_agents")},
+        # the size of a README verifier batch: 0 would batch nothing
+        "readme_batch": (lambda v: _is_int(v) and v > 0, "a positive integer"),
     },
     "models": {
         name: (_is_non_empty_str, "a non-empty string")
