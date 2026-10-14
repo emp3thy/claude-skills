@@ -30,13 +30,16 @@ verifier batches (phase B spec 6.4, 6.5, 7).
 - Naming is spec 6.4's loose match: the entry's name without a ``$`` prefix equals a span
   (also without ``$`` and a trailing ``()``) by ``dd_defindex.norm``, or occurs in the lines
   as text.
-- ``check_step(root, workdir, config, failed)``: with an empty ``plan-readme.json`` or a
-  writer output that failed validation (its entry in ``failed``) it writes ``readme.json`` as
-  ``{"invalid": [...]}`` (``no writer output`` when there is no output at all) and returns
-  None. Otherwise it writes ``readme.json``, appends the README's ``create`` edit to
-  ``edits.json``'s ``edits`` and a ``readme-rejected`` Human-decision item per pre-rejected
-  statement to its ``human`` (kept sorted), and appends the statement batches to
-  ``plan-verify.json`` (``dd_dispatch.plan_verify_readme``).
+- ``check_step(root, workdir, config, failed, attempts)``: with an empty ``plan-readme.json``
+  or a writer output that failed validation (its entry in ``failed``) it writes
+  ``readme.json`` as ``{"invalid": [...], "attempts": n}`` (``no writer output`` when there is
+  no output at all; ``attempts`` is 0 when no writer was planned) and returns None.
+  Otherwise it writes ``readme.json`` (with ``attempts``), appends the README's ``create``
+  edit to ``edits.json``'s ``edits`` and a ``readme-rejected`` Human-decision item per
+  pre-rejected statement to its ``human`` (kept sorted; its text is the statement's first
+  line with `` (proposed line)`` appended, since its line number is the proposed README's),
+  and appends the statement batches to ``plan-verify.json``
+  (``dd_dispatch.plan_verify_readme``).
 - ``apply(root, workdir)`` (spec 8, at ``finish``): a statement is accepted when it is not
   pre-rejected, its ``verdicts.json`` ``readme`` verdict is ``accept`` and it is not in
   ``readme_unverified`` (``accepted``). Every other statement's lines go whole; then a table
@@ -366,35 +369,39 @@ def _create_edit(sheets: Mapping[str, Any], statements: Sequence[Any]) -> dict[s
 
 
 def _rejected(statements: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    # the line is the proposed README's: the written one lacks the statements that went
     return [{"doc": README, "line": int(s["start_line"]), "kind": "readme-rejected",
-             "text": str(s["text"]).split("\n", 1)[0], "evidence": [str(s["prereject"])]}
+             "text": str(s["text"]).split("\n", 1)[0] + " (proposed line)",
+             "evidence": [str(s["prereject"])]}
             for s in statements if s.get("prereject")]
 
 
-def _invalid(workdir: Path, problems: list[str]) -> None:
-    write_json(workdir / "readme.json", {"invalid": problems})
+def _invalid(workdir: Path, problems: list[str], attempts: int) -> None:
+    write_json(workdir / "readme.json", {"invalid": problems, "attempts": attempts})
 
 
 def check_step(root: Path, workdir: Path, config: Mapping[str, Any],
-               failed: frozenset[str]) -> dict[str, Any] | None:
+               failed: frozenset[str], attempts: int = 1) -> dict[str, Any] | None:
     """Check the writer's output and plan its statements' verifier batches; None when there
-    is no README to propose."""
+    is no README to propose. ``attempts`` (1, or 2 after a retry of the writer) is recorded
+    in ``readme.json``, 0 when no writer was planned."""
     plan: list[dd_dispatch.PlanEntry] = dd_dispatch._require(workdir, "plan-readme.json",
                                                              "compose")
     readme_lines = int(config["readme_lines"])
     if not plan or not Path(plan[0]["output"]).is_file():
-        _invalid(workdir, [NO_OUTPUT])
+        _invalid(workdir, [NO_OUTPUT], attempts if plan else 0)
         return None
     entry = plan[0]
     if entry["id"] in failed:
         _invalid(workdir, dd_dispatch._problems(workdir, entry, readme_lines=readme_lines)
-                 or ["invalid writer output"])
+                 or ["invalid writer output"], attempts)
         return None
     sheets = dd_dispatch._require(workdir, "sheets.json", "compose")
     problems, readme = check(read_json(Path(entry["output"])), sheets, readme_lines)
     if problems:
-        _invalid(workdir, problems)
+        _invalid(workdir, problems, attempts)
         return None
+    readme["attempts"] = attempts
     write_json(workdir / "readme.json", readme)
     edits = dd_dispatch._require(workdir, "edits.json", "dd_checks")
     edits["edits"].append(_create_edit(sheets, readme["statements"]))

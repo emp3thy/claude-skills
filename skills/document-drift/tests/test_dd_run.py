@@ -134,14 +134,17 @@ def test_start_writes_plan_and_prompts(tmp_path: Path,
 def test_start_clears_every_pinned_output(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     workdir = repo / ".document-drift"
-    for stale in ("edits.json", "retry.json", "summary.md", "review/u009.json",
-                  "verdicts/v09.json", "prompts/verify-v09.md", "gaps/g009.json"):
+    stales = ("edits.json", "retry.json", "summary.md", "review/u009.json",
+              "verdicts/v09.json", "prompts/verify-v09.md", "gaps/g009.json",
+              "areas.json", "sheets.json", "plan-readme.json", "readme.json",
+              "sheets/a09.json", "readme/r001.json")
+    for stale in stales:
         (workdir / stale).parent.mkdir(parents=True, exist_ok=True)
         (workdir / stale).write_text("stale", encoding="utf-8")
-    assert _run(repo, "start") == 0
-    for stale in ("edits.json", "retry.json", "summary.md", "review/u009.json",
-                  "verdicts/v09.json", "prompts/verify-v09.md", "gaps/g009.json"):
+    assert _run(repo, "start") == 0  # the repository has a README: no phase B file is rewritten
+    for stale in stales:
         assert not (workdir / stale).exists(), stale
+    assert not (workdir / "sheets").exists() and not (workdir / "readme").exists()
 
 
 def test_verify_before_start_is_refused(tmp_path: Path,
@@ -784,7 +787,7 @@ def test_invalid_writer_output_is_retried_then_no_readme(
     assert not (workdir / "readme.json").exists()
     assert _run(repo, "verify", "--retried") == 0  # the retry's output is still bad
     assert read_json(workdir / "readme.json") == {
-        "invalid": ["the first line is not a level-one heading"]}
+        "invalid": ["the first line is not a level-one heading"], "attempts": 2}
     edits = read_json(workdir / "edits.json")
     assert all(e["type"] != "create" for e in edits["edits"])
     assert all("statements" not in e for e in _plan(repo, "plan-verify.json"))
@@ -841,3 +844,49 @@ def test_check_mode_lists_the_readme_and_writes_nothing(tmp_path: Path) -> None:
     assert _git(repo, "rev-parse", "HEAD").strip() == head
     assert not (workdir / "applied.json").exists()
     assert not (workdir / "commits.json").exists()
+
+
+def test_retry_counts_survive_a_later_stage_retry(tmp_path: Path) -> None:
+    # retry.json holds only the latest exit 3: compose records the retried sheets in
+    # sheets.json and verify the writer's attempts in readme.json, for the summary
+    repo = _repo(tmp_path, {"src/app.py": APP})
+    workdir = repo / ".document-drift"
+    _start_and_answer(repo)
+    Path(_sheet_entry(repo)["output"]).unlink()
+    assert _run(repo, "compose") == 3
+    answer(workdir, "retry.json", CANNED)
+    assert _run(repo, "compose", "--retried") == 0
+    assert read_json(workdir / "sheets.json")["retried"] == ["a01"]
+    writer = _plan(repo, "plan-readme.json")[0]
+    assert _run(repo, "verify") == 3  # no writer output yet
+    assert read_json(workdir / "retry.json") == [writer]
+    answer(workdir, "retry.json", CANNED)
+    assert _run(repo, "verify", "--retried") == 0
+    assert read_json(workdir / "readme.json")["attempts"] == 2
+    _answer(repo, "plan-verify.json")
+    assert _run(repo, "finish") == 0
+    summary = (workdir / "summary.md").read_text(encoding="utf-8")
+    assert "sheets: 1 valid, 0 unchecked, 1 retried\n" in summary
+    assert "writer: 2 attempts\n" in summary
+
+
+def test_first_pass_counts_one_attempt_and_no_retried_sheet(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"src/app.py": APP})
+    workdir = repo / ".document-drift"
+    _through_readme_verify(repo)
+    assert read_json(workdir / "sheets.json")["retried"] == []
+    assert read_json(workdir / "readme.json")["attempts"] == 1
+
+
+@pytest.mark.parametrize("name", ["README.md", "readme.MD"])
+def test_untracked_root_readme_on_disk_turns_readme_mode_off(
+        tmp_path: Path, name: str, capsys: pytest.CaptureFixture[str]) -> None:
+    # finish would overwrite an untracked draft README: README mode is off
+    repo = _repo(tmp_path, {"src/app.py": APP, "docs/config.md": CONFIG})
+    _git(repo, "config", "status.showUntrackedFiles", "no")  # preflight's clean check passes
+    (repo / name).write_text("# draft\n", encoding="utf-8")
+    assert dd_run.readme_wanted({"docs": [], "files": []}, copy.deepcopy(DEFAULTS), repo) is False
+    assert _run(repo, "start") == 0
+    assert capsys.readouterr().out.startswith("readme: no\n")
+    assert read_json(repo / ".document-drift" / "preflight.json")["readme"] is False
+    assert not (repo / ".document-drift" / "areas.json").exists()

@@ -18,8 +18,8 @@ which it repeats, ``finish`` a completed ``verify``, or (outside README mode) a 
 
 README mode (phase B spec 2): ``start`` records ``readme`` in ``preflight.json``, true when the
 config's ``readme`` is on and no tracked file at the root is ``README.md`` (matched
-case-insensitively; an excluded or ignored one counts too), and prints ``readme: yes`` or
-``readme: no`` before anything else.
+case-insensitively; an excluded or ignored one counts too) nor any such file on disk there,
+tracked or not, and prints ``readme: yes`` or ``readme: no`` before anything else.
 
 - ``start`` deletes ``preflight.json`` (a refused start leaves no started run), runs preflight
   and, once it passes, deletes every other pinned output (files and the ``review/``,
@@ -32,7 +32,8 @@ case-insensitively; an excluded or ignored one counts too), and prints ``readme:
   ``plan-docs.json`` and prints the phase B message.
 - ``compose`` (README mode only; otherwise it refuses with exit 2) validates the sheet
   outputs with the same exit-3 retry as ``verify``; on the ``--retried`` rerun a sheet short
-  only of hints is accepted, and ``dd_sheets`` fills them. It writes ``sheets.json`` and,
+  only of hints is accepted, and ``dd_sheets`` fills them. It writes ``sheets.json`` (with
+  ``retried``, the sheets that rerun followed a retry of) and,
   with at least one valid sheet, the writer's ``plan-readme.json`` (printing its line), else
   an empty ``plan-readme.json`` and ``readme: no sheet; nothing to compose``.
 - ``verify`` validates the review and gap outputs (in README mode the writer's output too,
@@ -45,7 +46,8 @@ case-insensitively; an excluded or ignored one counts too), and prints ``readme:
   the same ``retry.json``; with it those ranges are listed in ``edits.json`` as not reviewed.
   Then it adds the review agents' ``unverified_blocks`` as notice nominations, runs the script
   checks (``edits.json``, ``plan-verify.json``), in README mode the README check
-  (``dd_readme.check_step``: ``readme.json``, the ``create`` edit and the statement batches
+  (``dd_readme.check_step``: ``readme.json`` with the writer's ``attempts``, 2 when the
+  ``--retried`` rerun follows a retry of it, the ``create`` edit and the statement batches
   appended to ``edits.json`` and ``plan-verify.json``; a writer output still invalid after
   the retry, or none, is recorded in ``readme.json`` as ``invalid``), and prints
   ``plan-verify.json <path> with <n> entries``, README batches included.
@@ -209,14 +211,18 @@ def _no_docs(workdir: Path) -> bool:
     return not read_json(workdir / "inventory.json")["docs"]
 
 
-def readme_wanted(inventory: dict[str, Any], config: dict[str, Any]) -> bool:
+def readme_wanted(inventory: dict[str, Any], config: dict[str, Any],
+                  root: Path | None = None) -> bool:
     """Phase B spec 2: the config's ``readme`` is on and no tracked file at the root is
     ``README.md``, matched case-insensitively. An excluded or ``drift-ignore-file`` README
     counts too: the skill may not edit it, so it writes none either; a README elsewhere does
-    not count."""
+    not count. With ``root``, a ``README.md`` (in any case) on disk at the root counts too,
+    tracked or not: ``finish`` would overwrite an untracked draft."""
     paths = {*inventory.get("files", []), *inventory["docs"]}
-    return bool(config["readme"]) and not any(
-        str(path).lower() == "readme.md" for path in paths)
+    if not config["readme"] or any(str(path).lower() == "readme.md" for path in paths):
+        return False
+    return root is None or not any(
+        p.name.lower() == "readme.md" and p.is_file() for p in root.iterdir())
 
 
 def stage_start(root: Path, workdir: Path, *, base: str | None, full: bool,
@@ -234,7 +240,7 @@ def stage_start(root: Path, workdir: Path, *, base: str | None, full: bool,
     head = str(pre["head"])
     _step("inventory", workdir, ("inventory.json",),
           lambda: dd_inventory.run(root, workdir, config))
-    readme = readme_wanted(read_json(workdir / "inventory.json"), config)
+    readme = readme_wanted(read_json(workdir / "inventory.json"), config, root)
     _record(workdir, readme=readme)
     _write_stdout(f"readme: {'yes' if readme else 'no'}\n")
     if not readme and _no_docs(workdir):  # README mode runs every step, docs or not
@@ -309,6 +315,14 @@ def _retry(workdir: Path, entries: list[dd_dispatch.PlanEntry]) -> int:
     return EXIT_RETRY
 
 
+def _in_retry(workdir: Path, role: str) -> list[str]:
+    """The ids of the ``role`` entries of ``retry.json``, the retry this ``--retried`` rerun
+    follows (start clears it, and each exit 3 rewrites it)."""
+    path = workdir / "retry.json"
+    retry: list[dd_dispatch.PlanEntry] = read_json(path) if path.is_file() else []
+    return [str(e["id"]) for e in retry if e.get("role") == role]
+
+
 def _outputs_or_retry(workdir: Path, plan: list[dd_dispatch.PlanEntry],
                       roles: tuple[str, ...], retried: bool, *, root: Path | None = None,
                       require_hints: bool = True) -> frozenset[str] | None:
@@ -343,8 +357,9 @@ def stage_compose(root: Path, workdir: Path, *, retried: bool,
     if found is None:
         return EXIT_RETRY
     failed: frozenset[str] = found
+    retried_sheets = _in_retry(workdir, "sheet") if retried else []
     sheets = _step("sheets", workdir, ("sheets.json",),
-                   lambda: dd_sheets.run(root, workdir, config, failed))
+                   lambda: dd_sheets.run(root, workdir, config, failed, retried_sheets))
     if sheets["sheets"]:
         writer = _step("readme", workdir, ("plan-readme.json",),
                        lambda: dd_dispatch.plan_readme(root, workdir, config))
@@ -399,8 +414,9 @@ def stage_verify(root: Path, workdir: Path, *, retried: bool,
     _step("checks", workdir, ("edits.json", "plan-verify.json"),
           lambda: dd_checks.run(root, workdir, config, failed))
     if readme:  # the README's create edit and statement batches join edits and plan-verify
+        attempts = 2 if retried and _in_retry(workdir, "readme") else 1
         _step("readme", workdir, ("readme.json",),
-              lambda: dd_readme.check_step(root, workdir, config, failed))
+              lambda: dd_readme.check_step(root, workdir, config, failed, attempts))
     _record(workdir, stage="verify")
     _say_plan(workdir, "plan-verify.json", len(read_json(workdir / "plan-verify.json")))
     return EXIT_OK

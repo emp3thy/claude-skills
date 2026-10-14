@@ -196,12 +196,16 @@ def _claims_section(workdir: Path) -> list[str]:
             f"claims checked: {sum(int(read_json(f).get('claims_checked', 0)) for f in files)}"]
 
 
-def _edits_section(edits: dict[str, Any] | None) -> list[str]:
+def _edits_section(edits: dict[str, Any] | None, readme: bool) -> list[str]:
+    """The proposed edits by source; in README mode ``readme`` too (the ``create`` edit, 1 or
+    0), so the count matches ``Script checks`` and ``Applied``."""
     if edits is None:
         return ["Edits proposed", NOT_RUN]
     sources = Counter(str(e.get("source")) for e in edits["edits"])
     lines = ["Edits proposed"]
     lines += [f"{name}: {sources.get(name, 0)}" for name in ("review", "gap", "notice")]
+    if readme:
+        lines.append(f"readme: {sum(1 for e in edits['edits'] if e.get('type') == 'create')}")
     return lines
 
 
@@ -251,13 +255,6 @@ def _gaps_section(gaps: dict[str, Any] | None, edits: dict[str, Any] | None) -> 
     return lines
 
 
-def _writer_attempts(workdir: Path) -> int:
-    plan, retry = _opt(workdir, "plan-readme.json"), _opt(workdir, "retry.json")
-    if not plan:
-        return 0
-    return 1 + sum(1 for e in retry or [] if e.get("role") == "readme")
-
-
 def _written(pre: dict[str, Any], sheets: dict[str, Any] | None,
              readme: dict[str, Any] | None, applied: dict[str, Any] | None) -> str:
     record = (applied or {}).get("readme")
@@ -270,7 +267,7 @@ def _written(pre: dict[str, Any], sheets: dict[str, Any] | None,
     elif readme is None or readme.get("invalid") == ["no writer output"]:
         reason = "no writer output"
     elif readme.get("invalid"):
-        reason = "invalid writer output"
+        reason = f"invalid writer output: {_r(readme['invalid'][0])}"
     else:
         reason = "no accepted statement"
     return f"written: none ({reason})"
@@ -281,7 +278,9 @@ def _readme_section(workdir: Path, pre: dict[str, Any]) -> list[str]:
     sheets, readme = _opt(workdir, "sheets.json"), _opt(workdir, "readme.json")
     verdicts = _opt(workdir, "verdicts.json")
     unchecked = (sheets or {}).get("unchecked", [])
-    retried = sum(e.get("role") == "sheet" for e in _opt(workdir, "retry.json") or [])
+    # recorded at compose and verify: retry.json holds only the latest stage's retry
+    retried = len((sheets or {}).get("retried") or [])
+    attempts = int((readme or {}).get("attempts") or 0)
     hints = sum(len(a.get("hints", [])) for a in areas)
     why = ", ".join(f"{_r(u['area'])}: {_r(u['why'])}" for u in unchecked)
     statements = (readme or {}).get("statements", [])
@@ -296,7 +295,7 @@ def _readme_section(workdir: Path, pre: dict[str, Any]) -> list[str]:
             f"{f' ({why})' if unchecked else ''}, {retried} retried",
             f"hints: {hints - int((sheets or {}).get('filled', 0))} accounted for, "
             f"{int((sheets or {}).get('filled', 0))} filled from the scan",
-            f"writer: {_plural(_writer_attempts(workdir), 'attempt')}",
+            f"writer: {_plural(attempts, 'attempt')}",
             f"statements: {len(statements)} proposed, "
             f"{len(readme_accepted(readme or {}, verdicts or {}))} accepted, {rejected} rejected, "
             f"{sum(v == 'unsure' for v in kinds.values())} unsure, {unverified} unverified",
@@ -425,8 +424,9 @@ def render(workdir: Path, root: Path | None = None) -> str:
         sections.append(_change_set(changes))
     units = _opt(workdir, "units.json")
     sections += [_units_section(units, edits, changes, gaps, first), _claims_section(workdir),
-                 _edits_section(edits), _checks_section(edits), _verdicts_section(verdicts),
-                 _applied_section(applied_doc, check), _gaps_section(gaps, edits)]
+                 _edits_section(edits, bool(pre.get("readme"))), _checks_section(edits),
+                 _verdicts_section(verdicts), _applied_section(applied_doc, check),
+                 _gaps_section(gaps, edits)]
     if pre.get("readme"):
         sections.append(_readme_section(workdir, pre))
     sections += [_human_section(workdir, root, edits),

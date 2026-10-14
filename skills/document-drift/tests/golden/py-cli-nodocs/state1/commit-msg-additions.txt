@@ -8,4 +8,4 @@ Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
 - README.md:1 create readme (14 statements from 4 sheets, 1 removed)
 
 Needs a human decision:
-- README.md:24 readme-rejected: `--dry-run` is on by default, so `sync` writes nothing unless it is turned off. (--dry-run is store_true at kv/cli.py:20, so it
+- README.md:24 readme-rejected: `--dry-run` is on by default, so `sync` writes nothing unless it is turned off. (proposed line) (--dry-run is store_true at kv/c

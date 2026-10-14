@@ -257,7 +257,7 @@ def test_check_step_writes_readme_json_the_create_edit_and_batches(tmp_path: Pat
     root, workdir = _workdir(tmp_path, output)
     config = copy.deepcopy(DEFAULTS)
     readme = dd_readme.check_step(root, workdir, config, frozenset())
-    assert readme is not None
+    assert readme is not None and readme["attempts"] == 1
     assert read_json(workdir / "readme.json") == readme
     assert len(readme["statements"]) == 3
     edits = read_json(workdir / "edits.json")
@@ -268,9 +268,10 @@ def test_check_step_writes_readme_json_the_create_edit_and_batches(tmp_path: Pat
         "reason": None, "statements": 3}]
     assert edits["human"] == [
         {"doc": "README.md", "line": 3, "kind": "readme-rejected",
-         "text": "`sync` always pulls.", "evidence": ["guarantee word"]},
+         "text": "`sync` always pulls. (proposed line)", "evidence": ["guarantee word"]},
         {"doc": "README.md", "line": 7, "kind": "readme-rejected",
-         "text": "- `--legacy` keeps the old mode.", "evidence": ["names hidden --legacy"]},
+         "text": "- `--legacy` keeps the old mode. (proposed line)",
+         "evidence": ["names hidden --legacy"]},
         {"doc": "docs/a.md", "line": 3, "kind": "unsure", "text": "x", "evidence": []},
         {"doc": "docs/z.md", "line": 1, "kind": "unsure", "text": "y", "evidence": []}]
     plan = read_json(workdir / "plan-verify.json")
@@ -281,15 +282,16 @@ def test_check_step_without_a_usable_output_writes_no_readme(tmp_path: Path) -> 
     config = copy.deepcopy(DEFAULTS)
     root, workdir = _workdir(tmp_path, None)
     assert dd_readme.check_step(root, workdir, config, frozenset()) is None
-    assert read_json(workdir / "readme.json") == {"invalid": ["no writer output"]}
+    assert read_json(workdir / "readme.json") == {"invalid": ["no writer output"],
+                                                  "attempts": 0}  # no writer was planned
     assert read_json(workdir / "edits.json")["edits"] == []
     assert read_json(workdir / "plan-verify.json") == []
 
     bad = _out(["## demo", "", "`sync` pulls."], (3, 3, ["a01-s01"]))
     root, workdir = _workdir(tmp_path / "bad", bad)
-    assert dd_readme.check_step(root, workdir, config, frozenset({"r001"})) is None
+    assert dd_readme.check_step(root, workdir, config, frozenset({"r001"}), 2) is None
     assert read_json(workdir / "readme.json") == {
-        "invalid": ["the first line is not a level-one heading"]}
+        "invalid": ["the first line is not a level-one heading"], "attempts": 2}
     assert read_json(workdir / "edits.json")["edits"] == []
     assert read_json(workdir / "plan-verify.json") == []
 

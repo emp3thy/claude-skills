@@ -351,7 +351,8 @@ def _phase_b(tmp_path: Path) -> tuple[Path, Path, str]:
        preflight={"head": head, "run_id": "r"},
        edits={"edits": [{**CREATE, "old": "", "new": ""}],
               "human": [{"doc": "README.md", "line": 5, "kind": "readme-rejected",
-                         "text": "- `X` fact 2", "evidence": ["guarantee word"]}]},
+                         "text": "- `X` fact 2 (proposed line)",
+                         "evidence": ["guarantee word"]}]},
        readme={"text": "", "claims": [], "statements": statements, "cites_added": 0,
                "cited_unnamed": 0},
        sheets={"sheets": {"a01": {}, "a02": {}}, "unchecked": [], "filled": 0},
@@ -363,6 +364,8 @@ def _phase_b(tmp_path: Path) -> tuple[Path, Path, str]:
        applied={"applied": ["r001"], "reverted": [], "docs": [], "link_updates": [],
                 "readme": {"lines": 3, "statements": 1, "removed": 3}},
        gaps={"no_home": [{"name": "X", "kind": "env", "file": "src/x.py", "line": 1,
+                          "parent": None, "hidden": False},
+                         {"name": "y-flag", "kind": "flag", "file": "src/x.py", "line": 1,
                           "parent": None, "hidden": False}], "gaps": []},
        notices={"decisions": [], "edits": []})
     return root, work, head
@@ -379,7 +382,10 @@ def test_create_bullet_and_additions_commit_stage_the_readme(tmp_path: Path) -> 
     msg = _show(root, sha, "%B")
     assert msg.startswith("docs(drift): document missing surface\n")
     assert "\n- README.md:1 create readme (4 statements from 2 sheets, 3 removed)\n" in msg
-    assert "Needs a human decision:\n- README.md:5 readme-rejected" in msg
+    # `X` is in the written README, so only y-flag is left with no home
+    assert ("Needs a human decision:\n- no-home: flag y-flag (src/x.py:1)\n"
+            "- README.md:5 readme-rejected: - `X` fact 2 (proposed line) (guarantee word)\n"
+            in msg)
     assert not (work / "commit-msg-corrections.txt").exists()
     assert _git(root, "status", "--porcelain", "--untracked-files=no") == ""
 
@@ -392,18 +398,33 @@ def test_create_edit_not_applied_makes_no_commit(tmp_path: Path) -> None:
 
 
 def test_readme_rejected_and_no_home_suppressed_in_human_list(tmp_path: Path) -> None:
-    _, work, _ = _phase_b(tmp_path)
-    got = collect_human(work)
+    root, work, _ = _phase_b(tmp_path)
+    got = collect_human(work, root)
+    # the written README names `X` in an inline-code span, so that no-home item is dropped;
+    # `y-flag` is named nowhere in it and stays the owner's
     assert got == [
-        {"doc": "README.md", "line": 5, "kind": "readme-rejected", "text": "- `X` fact 2",
-         "evidence": ["guarantee word"]},
-        {"doc": "README.md", "line": 7, "kind": "readme-rejected", "text": "- `X` fact 3",
-         "evidence": ["X is two"]},
-        {"doc": "README.md", "line": 9, "kind": "readme-rejected", "text": "- `X` fact 4",
-         "evidence": ["unclear"]}]
-    assert human_line(got[1]) == "- README.md:7 readme-rejected: - `X` fact 3 (X is two)"
+        {"doc": "", "line": 0, "kind": "no-home", "text": "flag y-flag",
+         "evidence": ["src/x.py:1"]},
+        {"doc": "README.md", "line": 5, "kind": "readme-rejected",
+         "text": "- `X` fact 2 (proposed line)", "evidence": ["guarantee word"]},
+        {"doc": "README.md", "line": 7, "kind": "readme-rejected",
+         "text": "- `X` fact 3 (proposed line)", "evidence": ["X is two"]},
+        {"doc": "README.md", "line": 9, "kind": "readme-rejected",
+         "text": "- `X` fact 4 (proposed line)", "evidence": ["unclear"]}]
+    assert human_line(got[2]) == (
+        "- README.md:7 readme-rejected: - `X` fact 3 (proposed line) (X is two)")
+    # a span names a no-home item by dd_defindex.norm: `y_flag` names y-flag
+    (root / "README.md").write_text("# x\n\n`X` is one; see `y_flag`.\n", encoding="utf-8")
+    assert [h["kind"] for h in collect_human(work, root)] == ["readme-rejected"] * 3
+    # without the repository the README is the readme.json text without the statements
+    # that did not stay: r-s001 (line 3, naming `X`) stays, r-s002 (line 5) does not
+    readme = read_json(work / "readme.json")
+    text = "# x\n\n- `X` fact 1\n\n- `X` fact 2 `y-flag`\n"
+    write_json(work / "readme.json", {**readme, "text": text})
+    assert [h["text"] for h in collect_human(work) if h["kind"] == "no-home"] == [
+        "flag y-flag"]
     # no README written (or none wanted): the names with no home are the owner's again
     applied = read_json(work / "applied.json")
     write_json(work / "applied.json", {**applied, "readme": None})
-    assert [h["kind"] for h in collect_human(work)] == [
-        "no-home", "readme-rejected", "readme-rejected", "readme-rejected"]
+    assert [h["kind"] for h in collect_human(work, root)] == [
+        "no-home", "no-home", "readme-rejected", "readme-rejected", "readme-rejected"]

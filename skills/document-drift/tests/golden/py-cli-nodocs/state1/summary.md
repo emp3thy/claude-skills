@@ -32,6 +32,7 @@ Edits proposed
 review: 0
 gap: 0
 notice: 0
+readme: 1
 
 Script checks
 kept 1
@@ -60,7 +61,7 @@ written: README.md, 39 lines
 
 Needs a human decision
 entries: 1
-- README.md:24 readme-rejected: `--dry-run` is on by default, so `sync` writes nothing unless it is turned off. (--dry-run is store_true at kv/cli.py:20, so it 
+- README.md:24 readme-rejected: `--dry-run` is on by default, so `sync` writes nothing unless it is turned off. (proposed line) (--dry-run is store_true at kv/c
 
 Markers
 markers without reasons: 0
@@ -69,5 +70,5 @@ stale notices: 0
 
 Result
 Branch: docs/drift-golden
-Commits: 446cbd099f3a4d43c84ccdd164f67560abfc00f8 (additions)
+Commits: c731256c546e4de9c95cd756c753364b97f7ebe2 (additions)
 README: README.md (39 lines)

@@ -22,6 +22,7 @@ from dd_common import (
     write_json,
 )
 from dd_defindex import norm
+from dd_readme import accepted as readme_accepted
 from dd_redaction import redact
 
 LINE_MAX = 160
@@ -30,6 +31,8 @@ SUBJECTS = {"corrections": "docs(drift): correct stale docs",
 KIND_ORDER = ("corrections", "additions")
 ADDITION_SOURCES = ("gap", "readme")  # the README's create edit is an addition (spec B 8)
 README = "README.md"
+PROPOSED = " (proposed line)"  # a readme-rejected line is the proposed README's, not the file's
+_SPAN = re.compile(r"`([^`\n]+)`")
 
 
 def _line(text: str) -> str:
@@ -125,6 +128,31 @@ def _first_line(root: Path | None, head: str, doc: str, block_start: int) -> str
     return lines[block_start - 1].strip() if 0 < block_start <= len(lines) else "unverified block"
 
 
+def _written_readme(workdir: Path, root: Path | None) -> str:
+    """The README the run wrote: ``README.md`` at ``root`` when it is there, else
+    ``readme.json``'s text without the lines of the statements that did not stay."""
+    if root is not None and (root / README).is_file():
+        return (root / README).read_text(encoding="utf-8", errors="replace")
+    readme = _optional(workdir, "readme.json") or {}
+    verdicts = _optional(workdir, "verdicts.json") or {}
+    kept = {str(s["id"]) for s in readme_accepted(readme, verdicts)}
+    gone = {n for s in readme.get("statements", []) if str(s["id"]) not in kept
+            for n in range(int(s["start_line"]), int(s.get("end_line", s["start_line"])) + 1)}
+    lines = str(readme.get("text") or "").split("\n")
+    return "\n".join(line for n, line in enumerate(lines, 1) if n not in gone)
+
+
+def _span_keys(text: str) -> set[str]:
+    """Each inline-code span of ``text`` by ``dd_defindex.norm`` (without a ``$`` prefix or a
+    trailing ``()``, also read as a route)."""
+    keys: set[str] = set()
+    for span in _SPAN.findall(text):
+        bare = span.strip().lstrip("$").removesuffix("()")
+        if bare:
+            keys |= {norm(bare), norm(bare, routes=True)}
+    return keys
+
+
 def collect_human(workdir: Path, root: Path | None = None) -> list[dict[str, Any]]:
     """Every Human-decision entry of the run, sorted by ``(doc, line)`` (source order breaks
     ties), without duplicates on ``(doc, line, kind, text)``.
@@ -133,12 +161,14 @@ def collect_human(workdir: Path, root: Path | None = None) -> list[dict[str, Any
     whose verdict is ``reject`` or ``unsure`` (text ``<claim>: <reason>``); ``recheck-failed``
     for each ``applied.json`` revert with that reason; ``no-home`` for ``gaps.json``
     ``no_home`` (doc ``""``, line 0, text ``<kind> <name>``), left out when ``applied.json``
-    ``readme`` is set (the written README is where those names went); ``readme-rejected`` for
-    each ``verdicts.json`` ``readme`` verdict ``reject`` or ``unsure`` (doc ``README.md``, the
-    statement's ``readme.json`` ``start_line`` and the first line of its text, evidence the
-    reason); ``unverified`` for each ``notices.json`` decision with action ``escalate`` (the
-    text is the first line of its block, read from the starting HEAD's doc when ``root`` is
-    given)."""
+    ``readme`` is set and an inline-code span of the written README names it by
+    ``dd_defindex.norm`` (the README is ``README.md`` at ``root``, else ``readme.json``'s text
+    without the statements that did not stay); ``readme-rejected`` for each ``verdicts.json``
+    ``readme`` verdict ``reject`` or ``unsure`` (doc ``README.md``, the statement's
+    ``readme.json`` ``start_line``, a line of the proposed README, and the first line of its
+    text with `` (proposed line)`` appended, evidence the reason); ``unverified`` for each
+    ``notices.json`` decision with action ``escalate`` (the text is the first line of its
+    block, read from the starting HEAD's doc when ``root`` is given)."""
     edits_doc = _need(workdir, "edits.json")
     by_id = {str(e["id"]): e for e in edits_doc.get("edits", [])}
     found: list[dict[str, Any]] = [dict(h) for h in edits_doc.get("human", [])]
@@ -158,11 +188,13 @@ def collect_human(workdir: Path, root: Path | None = None) -> list[dict[str, Any
             found.append({"doc": edit["doc"], "line": int(edit["start_line"]),
                           "kind": "recheck-failed", "text": str(edit.get("claim", "")),
                           "evidence": list(edit.get("evidence") or [])})
-    if not applied.get("readme"):
-        for name in (_optional(workdir, "gaps.json") or {}).get("no_home", []):
-            found.append({"doc": "", "line": 0, "kind": "no-home",
-                          "text": f"{name['kind']} {name['name']}",
-                          "evidence": [f"{name['file']}:{name['line']}"]})
+    named = _span_keys(_written_readme(workdir, root)) if applied.get("readme") else set()
+    for name in (_optional(workdir, "gaps.json") or {}).get("no_home", []):
+        if norm(str(name["name"]), routes=name["kind"] == "route") in named:
+            continue  # the written README documents it
+        found.append({"doc": "", "line": 0, "kind": "no-home",
+                      "text": f"{name['kind']} {name['name']}",
+                      "evidence": [f"{name['file']}:{name['line']}"]})
     statements = {str(s["id"]): s
                   for s in (_optional(workdir, "readme.json") or {}).get("statements", [])}
     readme_verdicts = verdicts_doc.get("readme") or {}
@@ -171,7 +203,7 @@ def collect_human(workdir: Path, root: Path | None = None) -> list[dict[str, Any
         if statement is not None and verdict.get("verdict") in ("reject", "unsure"):
             found.append({"doc": README, "line": int(statement["start_line"]),
                           "kind": "readme-rejected",
-                          "text": str(statement["text"]).split("\n", 1)[0],
+                          "text": str(statement["text"]).split("\n", 1)[0] + PROPOSED,
                           "evidence": [str(verdict.get("reason", ""))]})
     head = str((_optional(workdir, "preflight.json") or {}).get("head") or "")
     for decision in (_optional(workdir, "notices.json") or {}).get("decisions", []):
