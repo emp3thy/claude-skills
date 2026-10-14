@@ -1,28 +1,37 @@
 {
  "names": [
   {
+   "choices": null,
+   "default": null,
    "file": "Makefile",
    "hidden": false,
    "kind": "target",
    "line": 3,
    "name": "build",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "Makefile",
    "hidden": false,
    "kind": "target",
    "line": 6,
    "name": "lint",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "Makefile",
    "hidden": false,
    "kind": "target",
    "line": 9,
    "name": "release",
-   "parent": null
+   "parent": null,
+   "required": null
   }
  ],
  "names_then": null,

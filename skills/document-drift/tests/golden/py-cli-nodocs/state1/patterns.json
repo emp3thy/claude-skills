@@ -1,84 +1,114 @@
 {
  "names": [
   {
+   "choices": null,
+   "default": null,
    "file": "kv/cli.py",
    "hidden": false,
    "kind": "command",
    "line": 15,
    "name": "init",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": "false",
    "file": "kv/cli.py",
    "hidden": false,
    "kind": "flag",
    "line": 16,
    "name": "--force",
-   "parent": "init"
+   "parent": "init",
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "kv/cli.py",
    "hidden": false,
    "kind": "command",
    "line": 19,
    "name": "sync",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": "false",
    "file": "kv/cli.py",
    "hidden": false,
    "kind": "flag",
    "line": 20,
    "name": "--dry-run",
-   "parent": "sync"
+   "parent": "sync",
+   "required": null
   },
   {
+   "choices": null,
+   "default": "false",
    "file": "kv/cli.py",
    "hidden": true,
    "kind": "flag",
    "line": 22,
    "name": "--legacy",
-   "parent": "sync"
+   "parent": "sync",
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "kv/cli.py",
    "hidden": true,
    "kind": "command",
    "line": 26,
    "name": "migrate",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": "~/.kv",
    "file": "kv/config.py",
    "hidden": false,
    "kind": "env",
    "line": 18,
    "name": "KV_HOME",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "kv/config.py",
    "hidden": false,
    "kind": "env",
    "line": 23,
    "name": "KV_TOKEN",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "kv/server.py",
    "hidden": false,
    "kind": "route",
    "line": 12,
    "name": "/items/<key>",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "pyproject.toml",
    "hidden": false,
    "kind": "script",
    "line": 9,
    "name": "kv",
-   "parent": null
+   "parent": null,
+   "required": null
   }
  ],
  "names_then": null,

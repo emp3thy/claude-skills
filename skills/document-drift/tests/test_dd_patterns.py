@@ -451,3 +451,116 @@ def test_names_then_for_changed_files(tmp_path: Path) -> None:
 
     write_json(work / "changes.json", {"last_run": None, "changed_files": []})
     assert run(repo, work)["names_then"] is None
+
+
+def _facts(names: list[Name], kind: str, name: str) -> tuple[Any, Any, Any]:
+    n = next(x for x in names if x["kind"] == kind and x["name"] == name)
+    return n["default"], n["choices"], n["required"]
+
+
+def test_argparse_defaults_choices_required() -> None:
+    src = """\
+import argparse
+import os
+
+p = argparse.ArgumentParser()
+p.add_argument("--port", default=8080)
+p.add_argument("--host",
+               default="x")
+p.add_argument("--verbose", action="store_true")
+p.add_argument("--color", action="store_false")
+p.add_argument("--mode", choices=["a", "b"], required=True)
+p.add_argument("--level", choices=(1, 2), required=False)
+p.add_argument("--cwd", default=os.getcwd())
+p.add_argument("--flag", action="store_true", default=True)
+p.add_argument("--none", default=None)
+p.add_argument("--plain")
+"""
+    names = _scan({"cli.py": src})
+    assert _facts(names, "flag", "--port") == ("8080", None, None)
+    assert _facts(names, "flag", "--host") == ("x", None, None)
+    assert _facts(names, "flag", "--verbose") == ("false", None, None)
+    assert _facts(names, "flag", "--color") == ("true", None, None)
+    assert _facts(names, "flag", "--mode") == (None, ["a", "b"], True)
+    assert _facts(names, "flag", "--level") == (None, ["1", "2"], False)
+    assert _facts(names, "flag", "--cwd") == (None, None, None)
+    assert _facts(names, "flag", "--flag") == ("true", None, None)
+    assert _facts(names, "flag", "--none") == (None, None, None)
+    assert _facts(names, "flag", "--plain") == (None, None, None)
+
+
+def test_click_option_facts() -> None:
+    src = """\
+import click
+
+
+@click.command()
+@click.option("--fmt", "-f", type=click.Choice(["json", "yaml"]), default="json")
+@click.option("--count", default=3, required=False)
+@click.option("--name", required=True)
+def run(fmt, count, name):
+    pass
+"""
+    names = _scan({"cli.py": src})
+    assert _facts(names, "flag", "--fmt") == ("json", ["json", "yaml"], None)
+    assert _facts(names, "flag", "-f") == ("json", ["json", "yaml"], None)
+    assert _facts(names, "flag", "--count") == ("3", None, False)
+    assert _facts(names, "flag", "--name") == (None, None, True)
+
+
+def test_env_default_from_second_argument() -> None:
+    src = """\
+import os
+
+a = os.environ.get("APP_HOME", "/srv")
+b = os.getenv("APP_PORT", 80)
+c = os.getenv("APP_NONE")
+d = os.getenv("APP_EXPR", os.getcwd())
+e = os.environ["APP_KEY"]
+"""
+    names = _scan({"cfg.py": src})
+    assert _facts(names, "env", "APP_HOME") == ("/srv", None, None)
+    assert _facts(names, "env", "APP_PORT") == ("80", None, None)
+    assert _facts(names, "env", "APP_NONE") == (None, None, None)
+    assert _facts(names, "env", "APP_EXPR") == (None, None, None)
+    assert _facts(names, "env", "APP_KEY") == (None, None, None)
+
+
+def test_mcp_schema_default_enum_required() -> None:
+    src = """\
+from mcp.types import Tool
+
+
+def list_tools():
+    return [Tool(
+        name="search",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "default": 10},
+                "kind": {"type": "string", "enum": ["a", "b"], "default": "a"},
+                "deep": {"type": "boolean", "default": False},
+            },
+            "required": ["query"],
+        },
+    ), Tool(name="bare", inputSchema={"properties": {"x": {}}})]
+"""
+    names = _scan({"server.py": src})
+    assert _facts(names, "param", "query") == (None, None, True)
+    assert _facts(names, "param", "limit") == ("10", None, False)
+    assert _facts(names, "param", "kind") == ("a", ["a", "b"], False)
+    assert _facts(names, "param", "deep") == ("false", None, False)
+    assert _facts(names, "param", "x") == (None, None, None)
+
+
+def test_facts_are_null_when_absent() -> None:
+    files = {
+        "app.js": 'const p = process.env.APP_X || "v";\nprogram.command("go").option("--x");\n',
+        "Makefile": "build:\n\ttrue\n",
+        "pkg.py": "import click\n\n@click.command()\ndef go():\n    pass\n",
+    }
+    names = _scan(files)
+    assert names
+    for n in names:
+        assert (n["default"], n["choices"], n["required"]) == (None, None, None)

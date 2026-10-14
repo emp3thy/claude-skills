@@ -1,6 +1,7 @@
 """Pattern scan: the user-facing names in the indexed files -> patterns.json (spec 8.1).
 
-Each name is a ``Name`` record ``{"name", "kind", "file", "line", "parent", "hidden"}`` with
+Each name is a ``Name`` record ``{"name", "kind", "file", "line", "parent", "hidden", "default",
+"choices", "required"}`` (the last three null when the code sets none) with
 ``kind`` one of ``command``, ``flag``, ``env``, ``route``, ``tool``, ``param``, ``script``,
 ``target``. ``parent`` is a flag's command, an MCP parameter's tool, otherwise null.
 
@@ -65,6 +66,9 @@ class Name(TypedDict):
     line: int
     parent: str | None
     hidden: bool
+    default: str | None
+    choices: list[str] | None
+    required: bool | None
 
 
 class Skip(TypedDict):
@@ -129,15 +133,17 @@ class _File:
     literals: list[tuple[str, int]] = field(default_factory=list)
 
     def add(self, name: str, kind: str, line: int, parent: str | None = None,
-            hidden: bool = False) -> None:
+            hidden: bool = False, default: str | None = None,
+            choices: list[str] | None = None, required: bool | None = None) -> None:
         near = self.lines[max(line - 4, 0): line + 3]
         hidden = hidden or _underscored(name) or any(_DEPRECATED.search(t) for t in near)
         self.names.append(Name(name=name, kind=kind, file=self.path, line=line,
-                               parent=parent, hidden=hidden))
+                               parent=parent, hidden=hidden, default=default,
+                               choices=choices, required=required))
 
-    def env(self, name: str, line: int) -> None:
+    def env(self, name: str, line: int, default: str | None = None) -> None:
         self.direct_env.add(name)
-        self.add(name, "env", line)
+        self.add(name, "env", line, default=default)
 
 
 @dataclass
@@ -179,6 +185,52 @@ def _str(node: ast.expr | None) -> _Lit | None:
 
 def _keyword(call: ast.Call, name: str) -> ast.expr | None:
     return next((k.value for k in call.keywords if k.arg == name), None)
+
+
+def _const_text(node: ast.expr | None) -> str | None:
+    """The text of a constant (``true``/``false`` for booleans); None for null or any
+    other expression."""
+    if not isinstance(node, ast.Constant) or node.value is None:
+        return None
+    if isinstance(node.value, bool):
+        return "true" if node.value else "false"
+    if isinstance(node.value, (str, int, float)):
+        return str(node.value)
+    return None
+
+
+def _const_list(node: ast.expr | None) -> list[str] | None:
+    """A list or tuple of constants as text; None for anything else."""
+    if not isinstance(node, (ast.List, ast.Tuple)):
+        return None
+    items = [_const_text(e) for e in node.elts]
+    return None if any(i is None for i in items) else [i for i in items if i is not None]
+
+
+def _bool(node: ast.expr | None) -> bool | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, bool):
+        return node.value
+    return None
+
+
+class _Facts(NamedTuple):
+    default: str | None = None
+    choices: list[str] | None = None
+    required: bool | None = None
+
+
+def _call_facts(call: ast.Call) -> _Facts:
+    """``default`` / ``choices`` / ``required`` of an argparse or click option call."""
+    default = _const_text(_keyword(call, "default"))
+    action = _const_text(_keyword(call, "action"))
+    if _keyword(call, "default") is None and action in ("store_true", "store_false"):
+        default = "false" if action == "store_true" else "true"
+    choices = _const_list(_keyword(call, "choices"))
+    kind = _keyword(call, "type")
+    if choices is None and isinstance(kind, ast.Call) and (
+            _dotted(kind.func) or "").rsplit(".", 1)[-1] == "Choice" and kind.args:
+        choices = _const_list(kind.args[0])
+    return _Facts(default, choices, _bool(_keyword(call, "required")))
 
 
 def _call_hides(call: ast.Call) -> bool:
@@ -274,7 +326,8 @@ def _argparse(scope: _Scope, out: _File, outer: _Bindings) -> _Bindings:
             parent = _parser_command(node.func.value, local, outer, params)
             for const in filter(None, map(_str, node.args)):
                 if const.value.startswith("-"):
-                    out.add(const.value, "flag", const.lineno, parent, _call_hides(node))
+                    out.add(const.value, "flag", const.lineno, parent, _call_hides(node),
+                            *_call_facts(node))
     return local
 
 
@@ -291,21 +344,40 @@ def _schema_params(schema: ast.expr | None, tool: str, out: _File,
         schema = dicts.get(schema.id)
     if not isinstance(schema, ast.Dict):
         return
-    for key, value in zip(schema.keys, schema.values, strict=True):
+    items = list(zip(schema.keys, schema.values, strict=True))
+    required: list[str] | None = None
+    for key, value in items:
+        const = _str(key)
+        if const is not None and const.value == "required":
+            required = _const_list(value)
+    for key, value in items:
         const = _str(key)
         if const is None or const.value != "properties":
             continue
         if isinstance(value, ast.Name):
             value = dicts.get(value.id, value)
         if isinstance(value, ast.Dict):
-            for prop in filter(None, map(_str, value.keys)):
-                out.add(prop.value, "param", prop.lineno, tool)
+            for pkey, spec in zip(value.keys, value.values, strict=True):
+                prop = _str(pkey)
+                if prop is None:
+                    continue
+                default: str | None = None
+                choices: list[str] | None = None
+                if isinstance(spec, ast.Dict):
+                    for k, v in zip(spec.keys, spec.values, strict=True):
+                        name = _str(k)
+                        if name and name.value == "default":
+                            default = _const_text(v)
+                        elif name and name.value == "enum":
+                            choices = _const_list(v)
+                out.add(prop.value, "param", prop.lineno, tool, False, default, choices,
+                        None if required is None else prop.value in required)
 
 
 def _decorated(fn: ast.FunctionDef | ast.AsyncFunctionDef, out: _File,
                dicts: dict[str, ast.Dict]) -> None:
     command: str | None = None
-    flags: list[tuple[_Lit, bool]] = []
+    flags: list[tuple[_Lit, bool, _Facts]] = []
     for dec in fn.decorator_list:
         call = dec if isinstance(dec, ast.Call) else None
         method = _attr(dec)
@@ -317,7 +389,7 @@ def _decorated(fn: ast.FunctionDef | ast.AsyncFunctionDef, out: _File,
             hides = hides or (named is None and _underscored(fn.name))
             out.add(command, "command", named.lineno if named else fn.lineno, hidden=hides)
         elif method in FLAG_DECORATORS and call is not None:
-            flags.extend((c, hides) for c in map(_str, call.args)
+            flags.extend((c, hides, _call_facts(call)) for c in map(_str, call.args)
                          if c and c.value.startswith("-"))
         elif method in ROUTE_METHODS | {"route"} and call is not None and call.args:
             path = _str(call.args[0])
@@ -335,8 +407,8 @@ def _decorated(fn: ast.FunctionDef | ast.AsyncFunctionDef, out: _File,
             if call is not None:
                 for keyword in SCHEMA_KEYWORDS:
                     _schema_params(_keyword(call, keyword), tool, out, dicts)
-    for const, hides in flags:
-        out.add(const.value, "flag", const.lineno, command, hides)
+    for const, hides, facts in flags:
+        out.add(const.value, "flag", const.lineno, command, hides, *facts)
 
 
 def _is_environ(node: ast.expr) -> bool:
@@ -350,7 +422,8 @@ def _python_call(call: ast.Call, out: _File, dicts: dict[str, ast.Dict]) -> None
     environ_get = isinstance(func, ast.Attribute) and func.attr == "get" and _is_environ(
         func.value)
     if first and (getenv or environ_get):
-        out.env(first.value, first.lineno)
+        fallback = _const_text(call.args[1]) if len(call.args) > 1 else None
+        out.env(first.value, first.lineno, fallback)
     if (_dotted(func) or "").rsplit(".", 1)[-1] == "Tool":
         name = _str(_keyword(call, "name"))
         if name:
@@ -482,8 +555,14 @@ def scan_files(files: Iterable[str], read: Reader,
         for value, line in f.literals:
             if any(value.startswith(p) and value != p for p in family):
                 f.add(value, "env", line)
-    unique = {(n["file"], n["line"], n["kind"], n["name"], n["parent"] or ""): n
-              for f in scanned for n in f.names}
+    unique: dict[tuple[str, int, str, str, str], Name] = {}
+    for f in scanned:
+        for n in f.names:
+            key = (n["file"], n["line"], n["kind"], n["name"], n["parent"] or "")
+            held = unique.get(key)
+            # a family literal re-finds a direct read: keep the record that has the facts
+            if held is None or not (held["default"] or held["choices"]) or n["default"]:
+                unique[key] = n
     names = [unique[key] for key in sorted(unique)]
     return ScanResult(names=names, skipped=sorted(skipped, key=lambda s: s["file"]),
                       prefixes=family)
