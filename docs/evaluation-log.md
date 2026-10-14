@@ -271,6 +271,8 @@ rejected edits reached the human-decision list, so neither doc line was changed 
 | 2026-10-14 | py-cli-nodocs (state 1) | bdaa430 | first | 0 | 0 | 0 | 1 (0/0/0) | 1 | 0/0/0/0 | 1 | - | 3 | 0 | 8/0 | 9/9 | 0/3 | 0/0/8/4/1 | 2m33s | 734840 | 1.59 | 1 retried; canned-only: p9; areas 4; sheets 4/0; statements 41/38/3/0/0; readme 93 lines |
 | 2026-10-14 | claude-skills | 8b4decb | first | 26 | 26 | 16 | 23 (18/3/2) | 18 | 13/3/0/0 | 14 | - | 15 | 2 | 18/0 | - | - | 16/2/9 | 8m42s | 13077972 | 7.72 | 2 retried |
 | 2026-10-14 | py-cli-nodocs (state 1) | bdaa430 | first | 0 | 0 | 0 | 1 (0/0/0) | 1 | 0/0/0/0 | 1 | - | 5 | 0 | 8/0 | 9/9 | 0/3 | 0/0/7/4/1 | 2m05s | 645298 | 0.83 | models overridden: sonnet; 1 retried; canned-only: p9; areas 4; sheets 4/0; statements 43/38/5/0/0; readme 74 lines |
+| 2026-10-14 | better-memory | 9d5be26 | full | 38 | 38 | 5 | 94 (92/2/0) | 58 | 51/7/0/0 | 51 | - | 51 | 0 | 13/13 | - | - | 5/5/15 | 11m44s | 9720085 | 8.89 | 2 retried |
+| 2026-10-14 | better-memory | 9d5be26 | full | 38 | 38 | 5 | 97 (83/4/5) | 65 | 53/4/0/0 | 61 | - | 54 | 3 | 13/13 | - | - | 5/5/15 | 10m02s | 7999117 | 8.06 | 2 retried; cite 4/78; facts 1/73; opened 8 |
 
 **The `2026-10-14` `py-cli-nodocs (state 1)` row was re-scored** from the run's kept workdir
 (same files, no new agent call): first logged as `1/3` decoys touched (`touched d2`), it is
@@ -286,3 +288,60 @@ an unverified block per code block there. 270 claims checked, 2 `correct` edits,
 `CLAUDE.md`) as 0 code claims. A12 stays unvalidated (one Sonnet call, 1,442,094 tokens,
 $0.76; a first attempt with the workdir under `~/.claude` cost $1.10 and wrote nothing, since
 the agent refuses to write there).
+
+**Phase C measurement (2026-10-14, better-memory `9d5be26`, `--full`, same `.document-drift.yaml`):** the two rows
+above are the before run (the `main` code, phases A and B) and the after run (the phase C branch).
+
+| | before | after |
+|---|---|---|
+| total | $8.89, 9.72M tokens, 11m44s | $8.06, 8.00M tokens, 10m02s |
+| review | 5 calls, $4.64, 7.31M tokens, 1.46M per call, 191 s per call | 5 calls, $4.69, 5.84M tokens, 1.17M per call, 184 s per call |
+| gap | 5 calls, $0.60, 0.49M | 5 calls, $0.50, 0.42M |
+| verify | 15 calls, $3.65, 1.92M | 15 calls, $2.86, 1.74M |
+| edits proposed | 92 review, 2 gap | 83 review, 4 gap, 5 script (4 cite, 1 fact) |
+| verdicts | 51 accept, 7 reject | 53 accept, 4 reject |
+| applied | 51 | 61, including the 5 script edits |
+
+Review tokens per call fell 20% (1,462,013 to 1,167,157), against the acceptance target of a
+halving: **the target was not met.** Cost per review call did not move ($4.64 to $4.69 over five
+calls), the total fell 9% mostly in verify (15 calls, $3.65 to $2.86), and wall time per review call
+fell 4%. Per spec section 10 the figure is recorded here and the decision (keep the inline blocks
+for a 20% cut, or remove them and fall back to the prompt rule alone) is the owner's.
+
+The after run's agents opened 8 files over the 5 review calls (`opened` in `review/u00N.json`),
+all by the `opened` rule and none refused: `ui/app.py` three times (u001, u002, u004: route and
+`create_app` bodies the inline ranges did not cover, for claims that the UI never builds a backend
+and which routes use it), `mcp/tools.py` once (u003: the `required` list of the `memory.retrieve`
+schema, to settle a scan row against a doc that marks `query` optional), `storage/agentcore.py`
+once (u005: which backend methods exist, for new-method names in a spec), `storage/session.py`,
+`ui/queries.py` and `setup/manifest.py` once each (u001, u002: a function the claim names but the
+changed ranges did not include). So three classes: a body outside the inlined ranges (6), a
+schema the scan row contradicted (1), existence of a named method (1).
+
+The script made 5 edits, committed as `docs(drift): correct citations and facts` on
+`docs/drift-2026-10-14` (citations 78 checked, 6 current, 4 moved, 7 ambiguous, 16 use sites, 45
+unresolved; fact rows 73 checked, 1 corrected, 4 not in scan; 2 agent edits dropped as
+`overlap-script`):
+`docs/agentcore-ui/data-sources.md:139` `SemanticMemoryService.list_for_project`
+`services/semantic.py:220` to `:239`; `docs/agentcore-ui/write-spec.md:63` `list_session_exposures`
+`protocol.py:262` to `:380`; `chore-agentcore-backend-error-path-tests` `PBI.md:23` `observe`
+`agentcore.py:89` to `:238`; `chore-ui-app-factory-god-module` `PBI.md:23` `create_app`
+`app.py:22` to `:45`; `website/mcp-tools.md:60` fact `outcome` Required `yes` to `no`
+(`mcp/tools.py:257`). Each of the four rewrites targets the first line of the subject's current
+span in `defindex.json` (`semantic.py:239-358`, `protocol.py:380-397`, `agentcore.py:238-301`,
+`app.py:45-817`): 4 rewrites, 0 wrong.
+
+Against the before run: its agents proposed 50 edits whose `old` held a `path:line` citation
+(`edits.json`, source review or gap). Compared by document and line in the after run, 2 became
+script edits (`write-spec.md:63`, which the before agent also moved `262` to `380`, and
+`data-sources.md:139`, which the before verifier had dropped), 23 were again made by a review
+agent (11 kept, 12 left to a human as in the before run), 5 were again
+dropped by the checks, and **20 got no edit at all**: `agentcore-mapping.md:33-53` (11 lines),
+`:69`, `:73` and `data-sources.md:127-132`, whose citations the script lists as
+`cite-unresolved` (subject-less table cells and a bare `agentcore.py:N` the nearest-name rule
+cannot place) while the agents, told which lines are settled by script, did not take them over.
+So the spec's expectation that every citation the agent fixed before is a `cite` edit after, or a
+listed hint, holds only for the hint half: 20 of 50 were hints and unfixed. The 2 `overlap-script`
+drops are the agent's two whole-line `notice` edits on the two PBI.md lines the script rewrote
+(`agentcore.py:89` and `app.py:22`): the agent did not leave those lines alone, and the script edit
+won, which is the net C5 relies on.
