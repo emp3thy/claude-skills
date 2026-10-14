@@ -266,6 +266,7 @@ rejected edits reached the human-decision list, so neither doc line was changed 
 | 2026-10-13 | better-memory | 9d5be26 | full | 38 | 38 | 4 | 91 (87/3/1) | 64 | 53/10/0/0 | 54 | - | 45 | 1 | 13/13 | - | - | 4/5/18 | 4m58s | 11420625 | 8.96 | second run, same head, with the fixed unit packer (3 units within budget); the first pass crashed in retry_units (fixed) and was resumed at verify with 8 earlier calls; wall time from the resume; 1 retried |
 | 2026-10-14 | py-cli-nodocs (state 1) | bdaa430 | first | 0 | 0 | 0 | 1 (0/0/0) | 1 | 0/0/0/0 | 1 | - | 3 | 0 | 8/0 | 9/9 | 0/3 | 0/0/8/4/1 | 2m33s | 734840 | 1.59 | 1 retried; canned-only: p9; areas 4; sheets 4/0; statements 41/38/3/0/0; readme 93 lines |
 | 2026-10-14 | claude-skills | 8b4decb | first | 26 | 26 | 16 | 23 (18/3/2) | 18 | 13/3/0/0 | 14 | - | 15 | 2 | 18/0 | - | - | 16/2/9 | 8m42s | 13077972 | 7.72 | 2 retried |
+| 2026-10-14 | py-cli-nodocs (state 1) | bdaa430 | first | 0 | 0 | 0 | 1 (0/0/0) | 1 | 0/0/0/0 | 1 | - | 5 | 0 | 8/0 | 9/9 | 0/3 | 0/0/7/4/1 | 2m05s | 645298 | 0.83 | models overridden: sonnet; 1 retried; canned-only: p9; areas 4; sheets 4/0; statements 43/38/5/0/0; readme 74 lines |
 
 **The `2026-10-14` `py-cli-nodocs (state 1)` row was re-scored** from the run's kept workdir
 (same files, no new agent call): first logged as `1/3` decoys touched (`touched d2`), it is
