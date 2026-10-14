@@ -17,6 +17,7 @@ from dd_corpus import (
     DATES,
     FIXTURES,
     Workdir,
+    _expect_readme,
     evaluate,
     fixture_states,
     git,
@@ -141,3 +142,18 @@ def test_no_agent_dispatched_when_nothing_changed(name: str, tmp_path: Path) -> 
     assert (changes["mode"], changes["changed_files"], changes["affected"]) == ("later", [], {})
     assert read_json(run.path / "plan-docs.json") == []
     assert main([str(run.repo), "--stage", "finish"]) == 0
+
+
+def test_readme_judges_match_whole_spans(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import dd_corpus
+
+    text = "Call `Store.migrate` then `KV_TOKEN`; see `kv.cli.main`.\n"
+    monkeypatch.setattr(dd_corpus, "_drift_readme", lambda _w: text)
+    item: dict[str, Any] = {}
+    assert _expect_readme(item, tmp_path, "absent:migrate") is None
+    assert _expect_readme(item, tmp_path, "names:migrate") is None  # dotted span, last segment
+    assert _expect_readme(item, tmp_path, "names:KV_TOKEN") is None
+    assert _expect_readme(item, tmp_path, "names:Store") is not None
+    assert _expect_readme(item, tmp_path, "names:cli.main") is not None  # dotted name, no suffix
+    monkeypatch.setattr(dd_corpus, "_drift_readme", lambda _w: "Run `migrate` now.\n")
+    assert _expect_readme(item, tmp_path, "absent:migrate") is not None

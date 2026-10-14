@@ -56,8 +56,9 @@ the live harness (``dd_live_run``) skips it and names it in its row's notes. The
   ``notices.json`` decision (``escalate``, ``remove``, ``clear-<reason>``) on the block starting
   on the doc line, with its notice edit applied;
 - ``readme:names:<name>``: ``README.md`` on the run's drift branch (README mode, phase B)
-  holds ``<name>`` in an inline-code span; ``readme:absent:<name>``: it names ``<name>``
-  nowhere, or there is none. A README statement the verifier rejected is
+  has an inline-code span naming ``<name>`` (whole span, or a dotted span's last segment);
+  ``readme:absent:<name>``: no inline-code span is exactly ``<name>`` (``Store.migrate`` is
+  not ``migrate``), or there is none. A README statement the verifier rejected is
   ``human:readme-rejected`` on the statement's start line in the proposed README.
 """
 from __future__ import annotations
@@ -76,6 +77,7 @@ import dd_run
 import yaml
 from dd_commit import collect_human
 from dd_common import read_json
+from dd_defindex import norm
 from dd_make_history import CORPUS_ROOT, continue_fixture, replay_fixture
 
 # the phase A fixtures, then phase B's README-mode fixture
@@ -452,18 +454,30 @@ def _drift_readme(workdir: Path) -> str | None:
         return None
 
 
+def span_names(span: str, name: str) -> bool:
+    """Whether one inline-code span names ``name``: its whole text equals the name by
+    ``dd_defindex.norm``, or it is dotted (``Store.migrate``) and its last segment equals the
+    name, the name itself holding no dot."""
+    if norm(span.strip()) == norm(name):
+        return True
+    return "." in span and "." not in name and norm(span.strip().rsplit(".", 1)[-1]) == norm(name)
+
+
 def _expect_readme(item: dict[str, Any], workdir: Path, arg: str) -> str | None:
+    """``readme:names:<name>``: some inline-code span of the drift README names ``<name>`` (see
+    ``span_names``). ``readme:absent:<name>``: no span's whole text equals ``<name>`` by norm,
+    so ``Store.migrate`` does not trip the decoy ``migrate``."""
     how, _, name = arg.partition(":")
     text = _drift_readme(workdir)
-    token = re.compile(rf"(?<![\w-]){re.escape(name)}(?![\w-])")
     if how == "names":
         if text is None:
             return "the drift branch has no README.md"
-        if any(token.search(span) for span in _SPAN.findall(text)):
+        if any(span_names(span, name) for span in _SPAN.findall(text)):
             return None
         return f"README.md has no inline-code span holding {name}"
     if how == "absent":
-        found = [n for n, line in enumerate((text or "").splitlines(), 1) if token.search(line)]
+        found = [n for n, line in enumerate((text or "").splitlines(), 1)
+                 if any(norm(span.strip()) == norm(name) for span in _SPAN.findall(line))]
         return f"README.md names {name} on lines {found}" if found else None
     return f"unknown readme expectation {how!r}"
 
