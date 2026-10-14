@@ -44,7 +44,7 @@ def _setup(tmp_path: Path, docs: Mapping[str, str], defs: Iterable[dict[str, Any
            names: Iterable[dict[str, Any]] = (), files: Mapping[str, int] | None = None,
            never: str = NEVER.pattern) -> tuple[Path, Path]:
     root, workdir = tmp_path / "repo", tmp_path / "work"
-    root.mkdir()
+    root.mkdir(parents=True)
     for doc, text in docs.items():
         (root / doc).parent.mkdir(parents=True, exist_ok=True)
         (root / doc).write_bytes(text.encode("utf-8"))
@@ -359,3 +359,34 @@ def test_prose_citation_with_no_path_token_is_checked(tmp_path: Path) -> None:
     assert edit["new"] == "The write happens at agentcore.py:1838 in promote_reflection()."
     assert result["counts"]["citations"] == {"checked": 3, "current": 2, "moved": 1,
                                              "ambiguous": 0, "use_site": 0, "unresolved": 0}
+
+
+def test_bare_path_matching_two_files_is_ambiguous_unless_the_subject_picks_one(
+        tmp_path: Path) -> None:
+    defs = [_d("foo", "a/app.py", 10, 12)]
+    files = {"a/app.py": 50, "b/app.py": 50}
+    line = "`foo()` is called at `app.py:40`"
+    # the path names two files: the subject never picks one of them
+    root, workdir = _setup(tmp_path / "far", {"docs/x.md": line + "\n"}, defs, [], files)
+    result = run(root, workdir)
+    assert result["edits"] == []
+    assert result["hints"] == {"docs/x.md": [
+        {"line": 1, "kind": "cite-ambiguous", "text": "cite ambiguous: foo app.py:40"}]}
+    assert result["counts"]["citations"]["ambiguous"] == 1
+    # a doc beside a/app.py resolves the path to that one file: moved
+    root, workdir = _setup(tmp_path / "near", {"a/README.md": line + "\n"}, defs, [], files)
+    [edit] = run(root, workdir)["edits"]
+    assert (edit["old_cite"], edit["new_cite"]) == ("app.py:40", "app.py:10")
+    assert edit["evidence"] == ["a/app.py:10-12"]
+
+
+def test_heading_citations_are_never_rewritten(tmp_path: Path) -> None:
+    defs = [_d("foo", "a.py", 20, 25)]
+    doc = "# `foo` at `a.py:3`\n\n`foo` at `a.py:4`\n"
+    root, workdir = _setup(tmp_path, {"docs/a.md": doc}, defs, [], {"a.py": 40})
+    result = run(root, workdir)
+    assert [(e["start_line"], e["new_cite"]) for e in result["edits"]] == [(3, "a.py:20")]
+    assert result["hints"] == {"docs/a.md": [
+        {"line": 1, "kind": "cite-unresolved", "text": "cite unresolved: a.py:3 (heading)"}]}
+    assert result["counts"]["citations"] == {"checked": 2, "current": 0, "moved": 1,
+                                             "ambiguous": 0, "use_site": 0, "unresolved": 1}

@@ -24,7 +24,10 @@ never resolves: a citation naming its own file says nothing about the line. A de
 **in the cited file** when its file is the cited path or ends with ``/`` and the cited path.
 
 ``check`` gives spec 2.2's case: ``current``, ``moved`` (with the rewritten citation text),
-``several definitions, one covers``, ``ambiguous``, ``use site`` or ``unresolved``. A moved
+``several definitions, one covers``, ``ambiguous``, ``use site`` or ``unresolved``. A citation
+on a heading line is never rewritten (``unresolved``, hinted ``(heading)``), and a path that
+names several tracked files (not resolved to one relative to the doc or the root) is
+``ambiguous``: the subject never picks the file. A moved
 ``N`` becomes the definition's start; ``N-M`` (or ``#LN-LM``) its start and end, written once
 when they are equal.
 
@@ -87,9 +90,10 @@ def _clean(path: str) -> str:
     return path
 
 
-def in_cited(file: str, cited: str) -> bool:
-    """True when ``file`` is the cited path or ends with ``/`` and it (segments aligned)."""
-    return file == cited or file.endswith("/" + cited)
+def in_cited(file: str, cited: str, exact: bool = False) -> bool:
+    """True when ``file`` is the cited path or (unless ``exact``: the path resolved to one
+    file relative to the doc or the root) ends with ``/`` and it (segments aligned)."""
+    return file == cited or (not exact and file.endswith("/" + cited))
 
 
 def parse_cite(text: str) -> Cite | None:
@@ -127,7 +131,7 @@ def index_names(names: Iterable[Mapping[str, Any]]) -> dict[str, list[dict[str, 
 
 
 def resolve_name(text: str, defs: Mapping[str, list[Definition]], names: Names,
-                 cited: str) -> tuple[str, list[Span]] | None:
+                 cited: str, exact: bool = False) -> tuple[str, list[Span]] | None:
     """``(kind, spans)`` a candidate name resolves to, or None (module docstring).
 
     Rank-0 definitions match by the whole name, else ``Owner.member`` by the member with the
@@ -140,7 +144,8 @@ def resolve_name(text: str, defs: Mapping[str, list[Definition]], names: Names,
         owner_norm = norm(owner.rsplit(".", 1)[-1])
         found = [d for d in defs.get(norm(member), [])
                  if RANK.get(d["kind"]) == 0 and owner_norm in d["owners"]]
-    found = [d for d in found if not (d["kind"] in SELF_KINDS and in_cited(d["file"], cited))]
+    found = [d for d in found
+             if not (d["kind"] in SELF_KINDS and in_cited(d["file"], cited, exact))]
     scanned = [r for r in names.get(norm(text), []) if r["kind"] != "route"]
     route = norm(_METHOD.sub("", text, count=1), routes=True)
     scanned += [r for r in names.get(route, []) if r["kind"] == "route"]
@@ -149,7 +154,7 @@ def resolve_name(text: str, defs: Mapping[str, list[Definition]], names: Names,
     for kind, spans, here in (("definition", def_spans, True), ("scanned", name_spans, True),
                               ("definition", def_spans, False),
                               ("scanned", name_spans, False)):
-        chosen = [s for s in spans if in_cited(s[0], cited)] if here else spans
+        chosen = [s for s in spans if in_cited(s[0], cited, exact)] if here else spans
         if chosen:
             return kind, chosen
     return None
@@ -216,12 +221,13 @@ def _covers(span: Span, start: int, end: int) -> bool:
 def subject_of(line: str, col: int, end_col: int, defs: Mapping[str, list[Definition]],
                names: Names, *, cite: Cite | None = None,
                others: Sequence[tuple[int, int]] = (),
-               table: bool | None = None) -> Subject | None:
+               table: bool | None = None, exact: bool = False) -> Subject | None:
     """The subject of the citation at ``line[col:end_col]``, or None when no candidate
     resolves (module docstring). ``cite`` overrides ``(path, start, end)`` parsed from the
     citation text (the caller's repository form of the path); ``others`` are the line's other
     citation spans, masked like this one; ``table`` says the line is a table row (by default,
-    when it starts with ``|``).
+    when it starts with ``|``); ``exact`` that the path resolved to one file relative to the
+    doc or the root, so only that file is the cited file (``in_cited``).
 
     The first candidate with a span in the cited file covering the citation wins, with that
     span; else the first candidate with spans in the cited file, with its first span; else
@@ -237,11 +243,11 @@ def subject_of(line: str, col: int, end_col: int, defs: Mapping[str, list[Defini
     nearest: Subject | None = None
     elsewhere: Subject | None = None
     for text in _candidates(masked, col, end_col, table):
-        resolved = resolve_name(text, defs, names, path)
+        resolved = resolve_name(text, defs, names, path, exact)
         if resolved is None:
             continue
         kind, spans = resolved
-        if not in_cited(spans[0][0], path):
+        if not in_cited(spans[0][0], path, exact):
             elsewhere = elsewhere or Subject(text=text, file=spans[0][0], start=spans[0][1],
                                              end=spans[0][2], kind=kind, count=0, spans=[])
             continue
@@ -255,24 +261,35 @@ def subject_of(line: str, col: int, end_col: int, defs: Mapping[str, list[Defini
     return nearest or elsewhere
 
 
-def cited_files(path: str, files: Iterable[str]) -> list[str]:
+def cited_files(path: str, files: Iterable[str], exact: bool = False) -> list[str]:
     """The tracked files a cited path names."""
-    return [f for f in files if in_cited(f, path)]
+    return [f for f in files if in_cited(f, path, exact)]
+
+
+def _heading(token: Mapping[str, Any]) -> bool:
+    return bool((token.get("block") or {}).get("kind") == "heading")
 
 
 def check(token: Mapping[str, Any], subject: Subject | None, files: Collection[str],
-          file_lengths: Mapping[str, int]) -> tuple[str, dict[str, str] | None]:
+          file_lengths: Mapping[str, int], *,
+          exact: bool = False) -> tuple[str, dict[str, str] | None]:
     """Spec 2.2's case of a citation token and, for ``moved``, ``{"old_cite", "new_cite"}``.
-    ``files`` are the tracked paths, ``file_lengths`` the line counts of the cited ones. A
-    subject span covering the citation makes it current (``several definitions, one covers``
-    when exactly one of several does); otherwise one span is ``moved``, several
-    ``ambiguous``."""
+    ``files`` are the tracked paths, ``file_lengths`` the line counts of the cited ones,
+    ``exact`` as for ``subject_of``.
+
+    A citation on a heading line is ``unresolved`` (a rewrite would change the heading's
+    slug), and so is one with no subject. A path naming several tracked files is
+    ``ambiguous``: the subject never picks the file. Otherwise a subject span covering the
+    citation makes it current (``several definitions, one covers`` when exactly one of
+    several does); else one span is ``moved``, several ``ambiguous``."""
     path, start, end = _clean(str(token["path"])), int(token["start"]), int(token["end"])
-    if start < 1 or end < start:
+    if _heading(token) or start < 1 or end < start:
         return UNRESOLVED, None
-    tracked = cited_files(path, files)
+    tracked = cited_files(path, files, exact)
     if not tracked or all(end > file_lengths.get(f, 0) for f in tracked) or subject is None:
         return UNRESOLVED, None
+    if len(tracked) > 1:
+        return AMBIGUOUS, None
     if subject["count"] == 0:
         return USE_SITE, None
     covering = [s for s in subject["spans"] if _covers(s, start, end)]
@@ -297,7 +314,7 @@ def _hint(case: str, token: Mapping[str, Any], subject: Subject | None) -> dict[
         text = (f"cite use-site: {subject['text']} is defined in "
                 f"{subject['file']}:{subject['start']}-{subject['end']}")
     else:
-        text = f"cite unresolved: {cited}"
+        text = f"cite unresolved: {cited}" + (" (heading)" if _heading(token) else "")
     return {"line": int(token["line"]), "kind": _HINT_KIND[case], "text": text}
 
 
@@ -308,11 +325,14 @@ def _skipped(token: Mapping[str, Any], line: str, protected: Mapping[int, str]) 
                 or line[col:end_col] != token["text"])
 
 
-def _repo_path(path: str, doc: str, files: frozenset[str]) -> str:
-    """The cited path in repository form when it names a file relative to the doc or the
-    root, else as written without a leading ``./``."""
+def _repo_path(path: str, doc: str, files: frozenset[str]) -> tuple[str, bool]:
+    """``(path, exact)``: the cited path in repository form and True when it names one file
+    relative to the doc or the root, else the path as written without a leading ``./`` and
+    False (it then names every tracked file it is a suffix of)."""
     match = path_matches(path, doc, files, frozenset(), loose=False)
-    return match[1][0] if match is not None and len(match[1]) == 1 else _clean(path)
+    if match is not None and len(match[1]) == 1:
+        return match[1][0], True
+    return _clean(path), False
 
 
 def _edit(doc: str, number: int, line: str,
@@ -375,8 +395,8 @@ def run(root: Path, workdir: Path) -> dict[str, Any]:
             for i, token in enumerate(row):
                 if _skipped(token, line, protected):
                     continue
-                path = _repo_path(str(token["path"]), doc, files)
-                for file in cited_files(path, files):
+                path, exact = _repo_path(str(token["path"]), doc, files)
+                for file in cited_files(path, files, exact):
                     if file not in lengths:
                         source = _read(root, file)
                         lengths[file] = 0 if source is None else len(_split(source))
@@ -384,8 +404,9 @@ def run(root: Path, workdir: Path) -> dict[str, Any]:
                                      cite=(path, int(token["start"]), int(token["end"])),
                                      others=spans[:i] + spans[i + 1:],
                                      table=(token.get("block") or {}).get("kind")
-                                     in TABLE_BLOCKS)
-                case, rewritten = check({**token, "path": path}, subject, files, lengths)
+                                     in TABLE_BLOCKS, exact=exact)
+                case, rewritten = check({**token, "path": path}, subject, files, lengths,
+                                        exact=exact)
                 counts["checked"] += 1
                 counts[_COUNT_KEY[case]] += 1
                 if case == MOVED and subject is not None and rewritten is not None:
