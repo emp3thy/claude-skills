@@ -1,0 +1,227 @@
+{
+ "candidates": [
+  {
+   "file": "kv/cli.py",
+   "hidden": false,
+   "kind": "command",
+   "line": 15,
+   "name": "init",
+   "parent": null
+  },
+  {
+   "file": "kv/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 16,
+   "name": "--force",
+   "parent": "init"
+  },
+  {
+   "file": "kv/cli.py",
+   "hidden": false,
+   "kind": "command",
+   "line": 19,
+   "name": "sync",
+   "parent": null
+  },
+  {
+   "file": "kv/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 20,
+   "name": "--dry-run",
+   "parent": "sync"
+  },
+  {
+   "file": "kv/config.py",
+   "hidden": false,
+   "kind": "env",
+   "line": 18,
+   "name": "KV_HOME",
+   "parent": null
+  },
+  {
+   "file": "kv/config.py",
+   "hidden": false,
+   "kind": "env",
+   "line": 23,
+   "name": "KV_TOKEN",
+   "parent": null
+  },
+  {
+   "file": "kv/server.py",
+   "hidden": false,
+   "kind": "route",
+   "line": 12,
+   "name": "/items/<key>",
+   "parent": null
+  },
+  {
+   "file": "pyproject.toml",
+   "hidden": false,
+   "kind": "script",
+   "line": 9,
+   "name": "kv",
+   "parent": null
+  }
+ ],
+ "gaps": [
+  {
+   "file": "kv/cli.py",
+   "gap_kind": "undocumented",
+   "kind": "command",
+   "line": 15,
+   "name": "init",
+   "parent": null,
+   "reason": "no-home",
+   "target_doc": null,
+   "target_line": null
+  },
+  {
+   "file": "kv/cli.py",
+   "gap_kind": "undocumented",
+   "kind": "flag",
+   "line": 16,
+   "name": "--force",
+   "parent": "init",
+   "reason": "no-home",
+   "target_doc": null,
+   "target_line": null
+  },
+  {
+   "file": "kv/cli.py",
+   "gap_kind": "undocumented",
+   "kind": "command",
+   "line": 19,
+   "name": "sync",
+   "parent": null,
+   "reason": "no-home",
+   "target_doc": null,
+   "target_line": null
+  },
+  {
+   "file": "kv/cli.py",
+   "gap_kind": "undocumented",
+   "kind": "flag",
+   "line": 20,
+   "name": "--dry-run",
+   "parent": "sync",
+   "reason": "no-home",
+   "target_doc": null,
+   "target_line": null
+  },
+  {
+   "file": "kv/config.py",
+   "gap_kind": "undocumented",
+   "kind": "env",
+   "line": 18,
+   "name": "KV_HOME",
+   "parent": null,
+   "reason": "no-home",
+   "target_doc": null,
+   "target_line": null
+  },
+  {
+   "file": "kv/config.py",
+   "gap_kind": "undocumented",
+   "kind": "env",
+   "line": 23,
+   "name": "KV_TOKEN",
+   "parent": null,
+   "reason": "no-home",
+   "target_doc": null,
+   "target_line": null
+  },
+  {
+   "file": "kv/server.py",
+   "gap_kind": "undocumented",
+   "kind": "route",
+   "line": 12,
+   "name": "/items/<key>",
+   "parent": null,
+   "reason": "no-home",
+   "target_doc": null,
+   "target_line": null
+  },
+  {
+   "file": "pyproject.toml",
+   "gap_kind": "undocumented",
+   "kind": "script",
+   "line": 9,
+   "name": "kv",
+   "parent": null,
+   "reason": "no-home",
+   "target_doc": null,
+   "target_line": null
+  }
+ ],
+ "lists": [],
+ "no_home": [
+  {
+   "file": "kv/cli.py",
+   "hidden": false,
+   "kind": "command",
+   "line": 15,
+   "name": "init",
+   "parent": null
+  },
+  {
+   "file": "kv/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 16,
+   "name": "--force",
+   "parent": "init"
+  },
+  {
+   "file": "kv/cli.py",
+   "hidden": false,
+   "kind": "command",
+   "line": 19,
+   "name": "sync",
+   "parent": null
+  },
+  {
+   "file": "kv/cli.py",
+   "hidden": false,
+   "kind": "flag",
+   "line": 20,
+   "name": "--dry-run",
+   "parent": "sync"
+  },
+  {
+   "file": "kv/config.py",
+   "hidden": false,
+   "kind": "env",
+   "line": 18,
+   "name": "KV_HOME",
+   "parent": null
+  },
+  {
+   "file": "kv/config.py",
+   "hidden": false,
+   "kind": "env",
+   "line": 23,
+   "name": "KV_TOKEN",
+   "parent": null
+  },
+  {
+   "file": "kv/server.py",
+   "hidden": false,
+   "kind": "route",
+   "line": 12,
+   "name": "/items/<key>",
+   "parent": null
+  },
+  {
+   "file": "pyproject.toml",
+   "hidden": false,
+   "kind": "script",
+   "line": 9,
+   "name": "kv",
+   "parent": null
+  }
+ ],
+ "targets": {},
+ "unchecked": []
+}

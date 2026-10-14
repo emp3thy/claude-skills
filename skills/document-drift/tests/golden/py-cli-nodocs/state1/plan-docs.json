@@ -1,0 +1,30 @@
+[
+ {
+  "id": "a01",
+  "model": "sonnet",
+  "output": "<workdir>/sheets/a01.json",
+  "prompt": "<workdir>/prompts/sheet-a01.md",
+  "role": "sheet"
+ },
+ {
+  "id": "a02",
+  "model": "sonnet",
+  "output": "<workdir>/sheets/a02.json",
+  "prompt": "<workdir>/prompts/sheet-a02.md",
+  "role": "sheet"
+ },
+ {
+  "id": "a03",
+  "model": "sonnet",
+  "output": "<workdir>/sheets/a03.json",
+  "prompt": "<workdir>/prompts/sheet-a03.md",
+  "role": "sheet"
+ },
+ {
+  "id": "a04",
+  "model": "sonnet",
+  "output": "<workdir>/sheets/a04.json",
+  "prompt": "<workdir>/prompts/sheet-a04.md",
+  "role": "sheet"
+ }
+]

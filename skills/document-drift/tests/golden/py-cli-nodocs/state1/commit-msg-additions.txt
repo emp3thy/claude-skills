@@ -1,0 +1,11 @@
+docs(drift): document missing surface
+
+Drift-Run: 2026-01-02-ef49
+Drift-Base: bdaa4301fe88bb4631b3536af9ca3f59a30dfec8
+Drift-Scope: first
+Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
+
+- README.md:1 create readme (14 statements from 4 sheets, 1 removed)
+
+Needs a human decision:
+- README.md:24 readme-rejected: `--dry-run` is on by default, so `sync` writes nothing unless it is turned off. (--dry-run is store_true at kv/cli.py:20, so it

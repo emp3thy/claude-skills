@@ -1,0 +1,9 @@
+[project]
+name = "kv"
+version = "0.3.0"
+description = "A small key-value store with a command line and an HTTP view"
+requires-python = ">=3.11"
+dependencies = ["flask>=3"]
+
+[project.scripts]
+kv = "kv.cli:main"

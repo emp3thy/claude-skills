@@ -1,0 +1,70 @@
+[
+ {
+  "id": "v01",
+  "model": "opus",
+  "output": "<workdir>/verdicts/v01.json",
+  "prompt": "<workdir>/prompts/verify-v01.md",
+  "role": "verify",
+  "statements": [
+   "r-s001"
+  ]
+ },
+ {
+  "id": "v02",
+  "model": "opus",
+  "output": "<workdir>/verdicts/v02.json",
+  "prompt": "<workdir>/prompts/verify-v02.md",
+  "role": "verify",
+  "statements": [
+   "r-s002"
+  ]
+ },
+ {
+  "id": "v03",
+  "model": "opus",
+  "output": "<workdir>/verdicts/v03.json",
+  "prompt": "<workdir>/prompts/verify-v03.md",
+  "role": "verify",
+  "statements": [
+   "r-s003",
+   "r-s004",
+   "r-s005",
+   "r-s006",
+   "r-s007",
+   "r-s008"
+  ]
+ },
+ {
+  "id": "v04",
+  "model": "opus",
+  "output": "<workdir>/verdicts/v04.json",
+  "prompt": "<workdir>/prompts/verify-v04.md",
+  "role": "verify",
+  "statements": [
+   "r-s009",
+   "r-s010"
+  ]
+ },
+ {
+  "id": "v05",
+  "model": "opus",
+  "output": "<workdir>/verdicts/v05.json",
+  "prompt": "<workdir>/prompts/verify-v05.md",
+  "role": "verify",
+  "statements": [
+   "r-s011",
+   "r-s012"
+  ]
+ },
+ {
+  "id": "v06",
+  "model": "opus",
+  "output": "<workdir>/verdicts/v06.json",
+  "prompt": "<workdir>/prompts/verify-v06.md",
+  "role": "verify",
+  "statements": [
+   "r-s013",
+   "r-s014"
+  ]
+ }
+]

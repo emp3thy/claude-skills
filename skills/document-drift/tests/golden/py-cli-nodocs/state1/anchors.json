@@ -1,0 +1,14 @@
+{
+ "anchors": [],
+ "checkability": {},
+ "counts": {
+  "ambiguous": 0,
+  "anchored": 0,
+  "paths": 0,
+  "references": 0,
+  "unknown": 0
+ },
+ "references": [],
+ "skipped": [],
+ "unanchored": []
+}

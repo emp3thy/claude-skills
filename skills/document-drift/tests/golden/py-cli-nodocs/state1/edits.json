@@ -1,0 +1,31 @@
+{
+ "code_claims": {},
+ "edits": [
+  {
+   "check": null,
+   "claim": "readme from 4 sheets",
+   "doc": "README.md",
+   "end_line": 1,
+   "evidence": [],
+   "human_kind": null,
+   "id": "r001",
+   "new": "",
+   "old": "",
+   "reason": null,
+   "source": "readme",
+   "start_line": 1,
+   "statements": 14,
+   "status": "kept",
+   "subject": null,
+   "type": "create"
+  }
+ ],
+ "human": [],
+ "not_reviewed": [],
+ "questions": [],
+ "refusals": [],
+ "unchecked_gap_docs": [],
+ "unchecked_units": [],
+ "unverified_batches": [],
+ "unverified_blocks": []
+}

@@ -1,0 +1,225 @@
+{
+ "filled": 0,
+ "hidden_corrected": 0,
+ "sheets": {
+  "a01": {
+   "area": "a01",
+   "behaviours": [
+    {
+     "evidence": [
+      "pyproject.toml:2",
+      "pyproject.toml:4"
+     ],
+     "id": "a01-b01",
+     "statement": "the project `kv` is a small key-value store with a command line and an HTTP view"
+    }
+   ],
+   "dismissed": [
+    {
+     "hint": "script kv",
+     "why": "the same entry point as kv.cli:main, which carries it"
+    }
+   ],
+   "surface": [
+    {
+     "default": null,
+     "defined_at": "pyproject.toml:9",
+     "hidden": false,
+     "id": "a01-s01",
+     "kind": "entry",
+     "name": "kv.cli:main",
+     "parent": null,
+     "summary": "the entry point of the `kv` command",
+     "user_facing": true
+    }
+   ]
+  },
+  "a02": {
+   "area": "a02",
+   "behaviours": [
+    {
+     "evidence": [
+      "kv/cli.py:35",
+      "kv/cli.py:38"
+     ],
+     "id": "a02-b01",
+     "statement": "`sync` prints each stored key and, without `--dry-run`, appends it to the sync log through `Store.push`"
+    }
+   ],
+   "dismissed": [
+    {
+     "hint": "flag --legacy",
+     "why": "help=argparse.SUPPRESS"
+    },
+    {
+     "hint": "command migrate",
+     "why": "marked deprecated at kv/cli.py:25"
+    }
+   ],
+   "surface": [
+    {
+     "default": null,
+     "defined_at": "kv/cli.py:15",
+     "hidden": false,
+     "id": "a02-s01",
+     "kind": "command",
+     "name": "init",
+     "parent": null,
+     "summary": "creates the store directory",
+     "user_facing": true
+    },
+    {
+     "default": "false",
+     "defined_at": "kv/cli.py:16",
+     "hidden": false,
+     "id": "a02-s02",
+     "kind": "flag",
+     "name": "--force",
+     "parent": "init",
+     "summary": "deletes an existing store first",
+     "user_facing": true
+    },
+    {
+     "default": null,
+     "defined_at": "kv/cli.py:19",
+     "hidden": false,
+     "id": "a02-s03",
+     "kind": "command",
+     "name": "sync",
+     "parent": null,
+     "summary": "writes every stored key to the sync log",
+     "user_facing": true
+    },
+    {
+     "default": "false",
+     "defined_at": "kv/cli.py:20",
+     "hidden": false,
+     "id": "a02-s04",
+     "kind": "flag",
+     "name": "--dry-run",
+     "parent": "sync",
+     "summary": "prints each key and writes nothing",
+     "user_facing": true
+    },
+    {
+     "default": null,
+     "defined_at": "kv/cli.py:30",
+     "hidden": false,
+     "id": "a02-s05",
+     "kind": "function",
+     "name": "main",
+     "parent": null,
+     "summary": "parses the arguments and runs the command",
+     "user_facing": true
+    }
+   ]
+  },
+  "a03": {
+   "area": "a03",
+   "behaviours": [
+    {
+     "evidence": [
+      "kv/config.py:28",
+      "kv/config.py:29"
+     ],
+     "id": "a03-b01",
+     "statement": "`load_settings` reads `settings.toml` from the store directory and returns no keys when the file is missing"
+    }
+   ],
+   "dismissed": [],
+   "surface": [
+    {
+     "default": "~/.kv",
+     "defined_at": "kv/config.py:18",
+     "hidden": false,
+     "id": "a03-s01",
+     "kind": "env",
+     "name": "KV_HOME",
+     "parent": null,
+     "summary": "the store directory",
+     "user_facing": true
+    },
+    {
+     "default": "",
+     "defined_at": "kv/config.py:23",
+     "hidden": false,
+     "id": "a03-s02",
+     "kind": "env",
+     "name": "KV_TOKEN",
+     "parent": null,
+     "summary": "the token `sync` writes to the sync log",
+     "user_facing": true
+    },
+    {
+     "default": null,
+     "defined_at": "kv/server.py:12",
+     "hidden": false,
+     "id": "a03-s03",
+     "kind": "route",
+     "name": "/items/<key>",
+     "parent": null,
+     "summary": "returns the value stored under the key, or 404",
+     "user_facing": true
+    },
+    {
+     "default": null,
+     "defined_at": "kv/config.py:16",
+     "hidden": false,
+     "id": "a03-s04",
+     "kind": "function",
+     "name": "home",
+     "parent": null,
+     "summary": "the store directory: `KV_HOME`, else `~/.kv`",
+     "user_facing": false
+    },
+    {
+     "default": null,
+     "defined_at": "kv/config.py:26",
+     "hidden": false,
+     "id": "a03-s05",
+     "kind": "function",
+     "name": "load_settings",
+     "parent": null,
+     "summary": "reads `settings.toml` from the store directory",
+     "user_facing": false
+    }
+   ]
+  },
+  "a04": {
+   "area": "a04",
+   "behaviours": [
+    {
+     "evidence": [
+      "kv/store.py:10",
+      "kv/store.py:28"
+     ],
+     "id": "a04-b01",
+     "statement": "`Store` keeps each item as one file under `items/` in the store directory"
+    },
+    {
+     "evidence": [
+      "kv/store.py:31",
+      "kv/store.py:33"
+     ],
+     "id": "a04-b02",
+     "statement": "`Store.push` appends the key and the token's first four characters to `log/sync.log`"
+    }
+   ],
+   "dismissed": [],
+   "surface": [
+    {
+     "default": null,
+     "defined_at": "kv/store.py:10",
+     "hidden": false,
+     "id": "a04-s01",
+     "kind": "class",
+     "name": "Store",
+     "parent": null,
+     "summary": "items keyed by string, kept as files under one directory",
+     "user_facing": true
+    }
+   ]
+  }
+ },
+ "unchecked": []
+}

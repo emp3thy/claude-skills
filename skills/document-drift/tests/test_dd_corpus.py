@@ -30,10 +30,16 @@ from dd_run import main
 XFAIL: dict[tuple[str, str], str] = {}
 
 CASES = [(name, item) for name in FIXTURES for item in planted_items(name)]
-# the later-run tests need a second state; the retry test needs an invalid canned output, which
-# one fixture carries (the retry path does not depend on the fixture)
+# the later-run tests need a second state; the retry tests need an invalid canned output, which
+# one fixture carries per role (the retry path does not depend on the fixture): review outputs
+# directly under state1-invalid/ (verify's retry, the unit unchecked), sheet outputs under
+# state1-invalid/sheets/ (compose's retry; a sheet short only of hints is filled, not unchecked,
+# so it has a test of its own)
 TWO_STATES = tuple(name for name in FIXTURES if 2 in fixture_states(name))
-WITH_INVALID = tuple(name for name in FIXTURES if (CANNED_ROOT / name / "state1-invalid").is_dir())
+WITH_INVALID = tuple(name for name in FIXTURES
+                     if any((CANNED_ROOT / name / "state1-invalid").glob("*.json")))
+WITH_INVALID_SHEETS = tuple(name for name in FIXTURES
+                            if (CANNED_ROOT / name / "state1-invalid" / "sheets").is_dir())
 
 
 def _id(name: str) -> str:
@@ -76,7 +82,8 @@ def test_every_item_has_an_expectation() -> None:
 
 
 def test_the_retry_path_is_exercised() -> None:
-    assert WITH_INVALID, "no fixture carries an invalid canned output"
+    assert WITH_INVALID, "no fixture carries an invalid canned review output"
+    assert WITH_INVALID_SHEETS, "no fixture carries an invalid canned sheet output"
 
 
 @pytest.mark.parametrize("name", TWO_STATES, ids=[_id(n) for n in TWO_STATES])
@@ -100,6 +107,25 @@ def test_invalid_output_exits_3_then_retried_marks_unchecked(name: str,
     edits = read_json(run.path / "edits.json")
     assert [u for u in edits["unchecked_units"] if u in invalid] == invalid
     assert not [e for e in edits["edits"] if e["id"].split("-")[0] in invalid]
+
+
+@pytest.mark.parametrize("name", WITH_INVALID_SHEETS, ids=[_id(n) for n in WITH_INVALID_SHEETS])
+def test_sheet_short_of_a_hint_exits_3_then_retried_fills_it(name: str, tmp_path: Path) -> None:
+    # phase B spec 5.4: the retry returns the same sheet, still short only of hints; the
+    # --retried compose accepts it and fills the missing hints from the pattern scan
+    invalid = sorted(p.stem for p in (CANNED_ROOT / name / "state1-invalid" / "sheets").glob(
+        "*.json"))
+    assert invalid, f"{name} has no invalid canned sheet"
+    run = run_fixture(name, 1, tmp_path, canned_invalid=True)
+    assert run.exits == [("start", 0), ("compose", 3), ("compose --retried", 0), ("verify", 0),
+                         ("finish", 0)]
+    assert [e["id"] for e in read_json(run.path / "retry.json")] == invalid
+    sheets = read_json(run.path / "sheets.json")
+    assert (sheets["unchecked"], sorted(sheets["sheets"])) == ([], sorted(
+        e["id"] for e in read_json(run.path / "plan-docs.json") if e["role"] == "sheet"))
+    filled = [e for area in invalid for e in sheets["sheets"][area]["surface"] if e.get("filled")]
+    assert len(filled) == sheets["filled"] > 0
+    assert all(e["summary"] == "from the pattern scan" for e in filled)
 
 
 @pytest.mark.parametrize("name", TWO_STATES, ids=[_id(n) for n in TWO_STATES])

@@ -1,0 +1,25 @@
+{
+ "area": "a03",
+ "surface": [
+  {"kind": "env", "name": "KV_HOME", "parent": null,
+   "summary": "the store directory", "default": "~/.kv",
+   "defined_at": "kv/config.py:18", "user_facing": true, "hidden": false},
+  {"kind": "env", "name": "KV_TOKEN", "parent": null,
+   "summary": "the token `sync` writes to the sync log", "default": "",
+   "defined_at": "kv/config.py:23", "user_facing": true, "hidden": false},
+  {"kind": "route", "name": "/items/<key>", "parent": null,
+   "summary": "returns the value stored under the key, or 404", "default": null,
+   "defined_at": "kv/server.py:12", "user_facing": true, "hidden": false},
+  {"kind": "function", "name": "home", "parent": null,
+   "summary": "the store directory: `KV_HOME`, else `~/.kv`", "default": null,
+   "defined_at": "kv/config.py:16", "user_facing": false, "hidden": false},
+  {"kind": "function", "name": "load_settings", "parent": null,
+   "summary": "reads `settings.toml` from the store directory", "default": null,
+   "defined_at": "kv/config.py:26", "user_facing": false, "hidden": false}
+ ],
+ "behaviours": [
+  {"statement": "`load_settings` reads `settings.toml` from the store directory and returns no keys when the file is missing",
+   "evidence": ["kv/config.py:28", "kv/config.py:29"]}
+ ],
+ "dismissed": []
+}
