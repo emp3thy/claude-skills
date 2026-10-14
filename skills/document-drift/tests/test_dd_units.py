@@ -92,7 +92,7 @@ def test_later_run_size_counts_hunks() -> None:
 
 
 def test_later_run_size_counts_touched_reading_ranges_merged_per_file() -> None:
-    # the prompt inlines the touched anchors' reading ranges (dd_dispatch._code_value), merged
+    # the prompt lists the touched anchors' reading ranges (dd_dispatch._shown_anchors), merged
     # per file: 1-7 and 5-12 of src/a.py are 12 lines, not 15; src/b.py's anchor is untouched
     anchors = [anchor("a.md", 1, start=5, reading=(1, 7)),
                anchor("a.md", 2, start=20, reading=(5, 12)),

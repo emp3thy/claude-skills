@@ -10,27 +10,29 @@ Check these docs, and only the line ranges given (line numbers are 1-based, coun
 
 {{docs}}
 
-The docs name these definitions in the code. Each line gives the reference, where the doc names it, and its code range, shown below; for a user-facing name the scan found, it ends with the facts the code sets (its default, its choices, and whether it is required or optional):
+The docs name these definitions in the code. Each line gives the reference, where the doc names it, and the code range to read first; for a user-facing name the scan found, it ends with the facts the code sets (its default, its choices, and whether it is required or optional):
 
 {{anchors}}
 
-## The code
-
-This is the code the anchored claims rest on, as it is now, each line numbered:
-
-{{code}}
-
 ## Already settled by script
 
-Scripts have already checked these lines of the docs. A line with `->` is one a script corrected (a citation's line number or a fact table's cell), shown as `<doc>:<line>: <old> -> <new>`; the other lines are hints:
+Scripts have already corrected these lines of the docs (a citation's line number or a fact table's cell), each shown as `<doc>:<line>: <old> -> <new>`:
 
 {{settled}}
 
-No edit may touch a settled line (a line listed above with `->`): the script's correction stands. The hints name what the scripts could not settle (a citation that is ambiguous, cites a use rather than the definition, or resolves to nothing; a table row whose name is not in the scan); check those statements yourself.
+Do not edit these lines: the script's correction stands.
+
+## Not settled by script: these need you
+
+The scripts checked these citations and table rows but could not settle them (a citation that is ambiguous, cites a use rather than the definition, or resolves to nothing; a table row whose name is not in the scan), each shown as `<doc>:<line>: <what the script found>`:
+
+{{unsettled}}
+
+These are your work: check and correct them like any claim. A citation whose definition you can find gets a `correct` edit with the right line.
 
 ## What to check
 
-Check every factual statement the docs make about this repository's code: names, paths, commands, flags, environment variables, config keys, defaults, counts and lists ("the six tools"), described behaviour, code examples (imports, call shapes, CLI invocations, field names in sample output) and directory trees. The code the anchored claims rest on is under The code above: open a file only when a claim in your ranges depends on code that is not there, and list every file you opened in `opened` with one reason each.
+Check every factual statement the docs make about this repository's code: names, paths, commands, flags, environment variables, config keys, defaults, counts and lists ("the six tools"), described behaviour, code examples (imports, call shapes, CLI invocations, field names in sample output) and directory trees. Read the code ranges listed above with Read; open another file only when a claim in your ranges depends on code outside them, and list every such file in `opened` with one reason each.
 
 Do not check statements about other software, plans, intent or opinion, or historical sentences ("X was removed in 2.0"), which are true as history.
 
@@ -60,7 +62,7 @@ A doc marked `no anchors in these lines` above is one no later run can check at 
 - `code_claims` counts, for every doc in this unit, the statements about this repository's code you found in the ranges you checked, including the ones that name nothing. 0 means the doc is not about the code.
 - `unverified_blocks` lists whole blocks (a paragraph, a list, a table, by line range) that describe this repository's code, hold no reference that anchors, and that you could not tie to one definition (so no `anchor` edit was possible), each with a one-line `why`. Preamble, a pitch for the project, process, plans, history and statements about other software are never unverified blocks: they are not claims about the code. A block that already carries a `drift-unverified` notice (an HTML comment on the line directly above it), or that overlaps one of your edits, is not listed.
 - `not_reviewed` lists the line ranges of these docs you did not check against the code (for instance when the unit was too large to finish), each with a one-line `why`; another agent gets them. A range you did not check is never an unverified block and is not counted in `code_claims`. Checked everything: `[]`.
-- `opened` lists every file you opened beyond the code shown above, each as `{"path", "why"}`: the path relative to the repository root, with forward slashes, and the claim that needed it, in one line. A file counts as opened when you Read it; Grep and Glob searches do not count. Opened nothing: `[]`.
+- `opened` lists every file you opened beyond the code ranges listed above (reading outside a listed range counts), each as `{"path", "why"}`: the path relative to the repository root, with forward slashes, and the claim that needed it, in one line. A file counts as opened when you Read it; Grep and Glob searches do not count. Opened nothing: `[]`.
 - Do not edit or move an existing `drift-unverified` notice.
 
 ## Output

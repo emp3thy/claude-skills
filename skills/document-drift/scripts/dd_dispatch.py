@@ -8,9 +8,10 @@ and ``output`` are absolute POSIX-style paths inside the workdir. Gap entries al
   unit id, prompt ``prompts/review-uNNN.md`` from template ``review-first`` or ``review-later``
   by ``changes.json``'s mode, output ``review/uNNN.json``) and one gap entry per target doc of
   ``gaps.json`` (ids ``g001``... in path order, prompt ``prompts/gap-gNNN.md``, output
-  ``gaps/gNNN.json``). Both inputs are already within their caps. A review prompt inlines the
-  code its anchors' reading ranges cover (on a later run only the touched anchors') and lists
-  the lines ``script-edits.json`` settled; anchor, gap and verifier edit lines carry the
+  ``gaps/gNNN.json``). Both inputs are already within their caps. A review prompt lists its
+  anchors' reading ranges for the agent to read (on a later run only the touched anchors'),
+  the lines ``script-edits.json`` settled (its ``cite`` and ``fact`` edits) and the ones it
+  could not (its hints, the agent's work); anchor, gap and verifier edit lines carry the
   facts ``patterns.json`` scanned. Both files are optional: absent, nothing is settled and no
   name has facts.
 - ``plan_verify`` writes ``plan-verify.json``: one entry per batch within ``caps.verify``
@@ -69,6 +70,7 @@ _SPAN = re.compile(r"(`+)(.+?)\1")
 _WORD = re.compile(r"(?<![\w-])-{0,2}[A-Za-z_][\w.-]*")
 _NEWLINE = re.compile(r"\r\n|\r|\n")
 SETTLED_CUT = 160
+SCRIPT_TYPES = ("cite", "fact")  # the edit types script-edits.json settles
 
 
 class PlanEntry(TypedDict):
@@ -117,20 +119,6 @@ def _doc_lines(root: Path, doc: str) -> list[str] | None:
         return None
 
 
-def _code_lines(root: Path, file: str) -> list[str] | None:
-    """A code file's lines split on ``\\r\\n``, ``\\r`` and ``\\n`` only, as the definition index
-    (``ast``) numbers them; ``str.splitlines`` also splits on form feeds, U+2028 and the like.
-    None when the file cannot be read."""
-    try:
-        text = (root / file).read_bytes().decode("utf-8", "replace")
-    except OSError:
-        return None
-    lines = _NEWLINE.split(text)
-    if lines[-1] == "":
-        lines.pop()
-    return lines
-
-
 NO_ANCHORS = "no anchors in these lines"
 
 
@@ -165,8 +153,9 @@ def _reading(anchor: Mapping[str, Any]) -> list[int]:
 
 def _shown_anchors(unit: Mapping[str, Any], affected: Mapping[str, Any],
                    later: bool) -> list[Mapping[str, Any]]:
-    """The unit's anchors the prompt shows with their code: all of them on a first run, on a
-    later run only those ``anchor_reasons`` names (the anchors the changes touched)."""
+    """The unit's anchors the prompt lists with their reading ranges: all of them on a first
+    run, on a later run only those ``anchor_reasons`` names (the anchors the changes
+    touched)."""
     anchors: list[Mapping[str, Any]] = list(unit["anchors"])
     if later:
         touched = {(doc, r["line"], r["ref"]) for doc, entry in affected.items()
@@ -226,14 +215,14 @@ def _facts_note(names: Sequence[Mapping[str, Any]]) -> str:
 def _anchor_line(anchor: Mapping[str, Any], index: FactIndex) -> str:
     span = _reading(anchor)
     line = (f"- `{anchor['ref']}` ({anchor['doc']} line {anchor['line']}) -> "
-            f"{anchor['file']}:{span[0]}-{span[1]}, below")
+            f"{anchor['file']}:{span[0]}-{span[1]}")
     note = _facts_note(_named(str(anchor["ref"]), index))
     return f"{line} ({note})" if note else line
 
 
 def _anchors_value(unit: Mapping[str, Any], affected: Mapping[str, Any], later: bool,
                    last_run: str, names: Iterable[Mapping[str, Any]] = ()) -> str:
-    """One line per anchor with its reading range (shown under The code) and the facts the
+    """One line per anchor with its reading range (the agent reads it) and the facts the
     scan has for the name; on a later run only the anchors the changes touched, then the names
     that no longer resolve (with the definition they had)."""
     index = _fact_index(names)
@@ -248,71 +237,49 @@ def _anchors_value(unit: Mapping[str, Any], affected: Mapping[str, Any], later: 
     return "\n".join(out) if out else "(none)"
 
 
-def _merge(ranges: Iterable[Sequence[int]]) -> list[list[int]]:
-    """``ranges`` sorted, overlapping or adjacent ones joined."""
-    out: list[list[int]] = []
-    for r in sorted([int(r[0]), int(r[1])] for r in ranges):
-        if out and r[0] <= out[-1][1] + 1:
-            out[-1][1] = max(out[-1][1], r[1])
-        else:
-            out.append(r)
-    return out
-
-
-def _code_value(root: Path, unit: Mapping[str, Any], affected: Mapping[str, Any],
-                later: bool) -> str:
-    """The code the shown anchors (``_shown_anchors``) rest on: their reading ranges merged
-    per file, read from the working tree, each as ``### <file>:<start>-<end>`` and a fenced
-    block of ``n: text`` lines (``_code_lines``), files in path order; ``(none)`` without an
-    anchor. A range past the file's end, or a file that cannot be read, gets a one-line note
-    in its block instead."""
-    by_file: dict[str, list[list[int]]] = {}
-    for anchor in _shown_anchors(unit, affected, later):
-        by_file.setdefault(str(anchor["file"]), []).append(_reading(anchor))
-    blocks = []
-    for file in sorted(by_file):
-        lines = _code_lines(root, file)
-        for start, end in _merge(by_file[file]):
-            if lines is None:
-                body = f"(could not read {file})"
-            elif max(start, 1) > len(lines):
-                body = f"(lines {start}-{end} are past the end of {file})"
-            else:
-                start, end = max(start, 1), min(end, len(lines))
-                body = "\n".join(f"{n}: {lines[n - 1]}" for n in range(start, end + 1))
-            blocks.append(f"### {file}:{start}-{end}\n{_fence(body)}")
-    return "\n\n".join(blocks) or "(none)"
-
-
 def _cut(text: str) -> str:
     """``text`` on one line (newlines become spaces), cut to ``SETTLED_CUT`` characters."""
     return _NEWLINE.sub(" ", text)[:SETTLED_CUT]
 
 
-def _settled_value(unit: Mapping[str, Any], script: Mapping[str, Any] | None) -> str:
-    """The lines of the unit's doc ranges the scripts settled (``script-edits.json``): each
-    ``cite`` or ``fact`` edit as ``- <doc>:<line>: <old> -> <new>`` (each cut to
-    ``SETTLED_CUT`` characters) and each hint as ``- <doc>:<line>: <text>`` (cut the same way),
-    by doc and line;
+def _script_lines(unit: Mapping[str, Any], script: Mapping[str, Any] | None,
+                  hints: bool) -> str:
+    """The lines of the unit's doc ranges in ``script-edits.json``, by doc and line: its
+    ``cite`` and ``fact`` edits as ``- <doc>:<line>: <old> -> <new>`` or, with ``hints``, its
+    hints as ``- <doc>:<line>: <text>``, each text cut to ``SETTLED_CUT`` characters;
     ``(none)`` when there is none."""
     if not script:
         return "(none)"
-    edits, hints = script.get("edits") or [], script.get("hints") or {}
     out: list[str] = []
     for entry in unit["docs"]:
         doc, ranges = entry["doc"], entry["ranges"]
-        found: list[tuple[int, int, str]] = []
-        for edit in edits:
-            line = int(edit["start_line"])
-            if edit["doc"] == doc and _in_ranges(line, ranges):
-                found.append((line, 0, f"- {doc}:{line}: {_cut(str(edit['old']))} -> "
-                                       f"{_cut(str(edit['new']))}"))
-        for hint in hints.get(doc, []):
-            line = int(hint["line"])
-            if _in_ranges(line, ranges):
-                found.append((line, 1, f"- {doc}:{line}: {_cut(str(hint['text']))}"))
-        out += [text for _, _, text in sorted(found)]
+        found: list[tuple[int, str]] = []
+        if hints:
+            for hint in (script.get("hints") or {}).get(doc, []):
+                line = int(hint["line"])
+                if _in_ranges(line, ranges):
+                    found.append((line, f"- {doc}:{line}: {_cut(str(hint['text']))}"))
+        else:
+            for edit in script.get("edits") or []:
+                line = int(edit["start_line"])
+                if (edit.get("type") in SCRIPT_TYPES and edit["doc"] == doc
+                        and _in_ranges(line, ranges)):
+                    found.append((line, f"- {doc}:{line}: {_cut(str(edit['old']))} -> "
+                                        f"{_cut(str(edit['new']))}"))
+        out += [text for _, text in sorted(found)]
     return "\n".join(out) or "(none)"
+
+
+def _settled_value(unit: Mapping[str, Any], script: Mapping[str, Any] | None) -> str:
+    """The lines of the unit's doc ranges the scripts settled: the ``cite`` and ``fact`` edits
+    of ``script-edits.json`` (``_script_lines``). No agent edit may touch them."""
+    return _script_lines(unit, script, hints=False)
+
+
+def _unsettled_value(unit: Mapping[str, Any], script: Mapping[str, Any] | None) -> str:
+    """The citations and table rows of the unit's doc ranges the scripts could not settle:
+    the hints of ``script-edits.json`` (``_script_lines``), which are the agent's work."""
+    return _script_lines(unit, script, hints=True)
 
 
 def _diff_value(hunks: Sequence[Mapping[str, Any]]) -> str:
@@ -462,8 +429,8 @@ def _review_entry(root: Path, workdir: Path, config: Mapping[str, Any],
     values = {"repo": repo, "unit": str(unit["id"]), "output": entry["output"],
               "docs": _docs_value(root, unit, affected, later),
               "anchors": _anchors_value(unit, affected, later, last_run, names),
-              "code": _code_value(root, unit, affected, later),
-              "settled": _settled_value(unit, script)}
+              "settled": _settled_value(unit, script),
+              "unsettled": _unsettled_value(unit, script)}
     if later:
         values.update(diff=_diff_value(unit["hunks"]), last_run=last_run)
     _write_prompt(entry, render("review-later" if later else "review-first", values))

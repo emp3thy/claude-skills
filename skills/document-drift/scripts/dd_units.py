@@ -78,7 +78,7 @@ def _size(docs: Sequence[UnitDoc], anchors: Sequence[Anchor], hunks: Mapping[str
           mode: str, affected: Mapping[str, Any]) -> int:
     """Reviewed lines plus, on a first run, each anchored definition's reading range once, or,
     on a later run, the touching hunk lines, the reading ranges of the touched anchors (the
-    code the prompt inlines after the diff, phase C spec 4), merged per file so an overlap
+    code the prompt lists after the diff for the agent to read), merged per file so an overlap
     counts once, and the reading ranges of missing definitions."""
     total = sum(_lines(d["ranges"]) for d in docs)
     reading: dict[_Key, list[int]] = {}
