@@ -373,13 +373,31 @@ def test_script_edits_pass_three_checks_only(ctx: Context) -> None:
     agent = _edit("u001-e01", start=line, new=new, evidence=("missing.py:3",))
     assert _result(agent, ctx) == ("dropped", "evidence", None)
     assert _result(_script("c001", line, new), ctx) == ("kept", None, None)
-    # two script edits on one line are both kept (settled at apply)
-    assert _result(_script("f001", line, "Values are strings.", kind="fact"), ctx) == (
-        "kept", None, None)
     assert _result(_script("c002", line + 1, "y", old="Not the line."), ctx) == (
         "dropped", "old-mismatch", None)
     protected = _line("README.md", "Protected paragraph text.")
     assert _result(_script("c003", protected, "y"), ctx) == ("human", "protected", "protected")
+
+
+def test_second_script_edit_on_a_line_is_dropped_as_overlap(tmp_path: Path,
+                                                            repo: tuple[Path, Path]) -> None:
+    # ruling: apply never sees two script edits on one line; the first by id is kept
+    root, _ = repo
+    line = _line("README.md", "Call `put` to save.")
+    cite = _script("c001", line, "Call `put` (src/store.py:6) to save.")
+    fact = _script("f001", line, "Call `put` to keep.", kind="fact")
+    other = _script("f002", line - 1, "Values must be text.", kind="fact")
+    work = _setup(tmp_path, repo, {}, {}, [])
+    write_json(work / "script-edits.json", {"edits": [fact, other, cite], "hints": {},
+                                            "counts": {}})
+    result = run(root, work, _config())
+    assert [(e["id"], e["status"], e["check"], e["human_kind"]) for e in result["edits"]] == [
+        ("c001", "kept", None, None), ("f001", "dropped", "overlap", None),
+        ("f002", "kept", None, None)]
+    assert result["edits"][1]["reason"] == (
+        f"lines {line}-{line} overlap a kept edit on lines {line}-{line}")
+    assert result["human"] == []
+    assert result["overlap_script"] == 0
 
 
 # ---------------------------------------------------------------- batches

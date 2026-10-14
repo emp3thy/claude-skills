@@ -41,8 +41,9 @@
   file. Notice-loop edits skip this check: their ``new`` is a notice line.
 - ``overlap-script`` (dropped, phase C spec 5): the range of an edit that is not a script edit
   overlaps a kept script edit (``Context.script``): the script settled that line already.
-- ``overlap`` (human): the range overlaps an edit already kept for the same doc; a script edit
-  never fails it on another script edit (two on one line are both kept and settled at apply).
+- ``overlap`` (human): the range overlaps an edit already kept for the same doc. A script edit
+  can only overlap another script edit (they are checked first): the first by id is kept and
+  the later one is dropped (no human kind), so apply never sees two script edits on one line.
   ``check`` records each kept range in ``Context.kept``, so the call order is the keep order.
 
 The checks an edit runs depend on its ``source`` (``CHECKS_BY_SOURCE``): a ``script`` edit
@@ -473,9 +474,8 @@ def _overlap_script(edit: dict[str, Any], ctx: Context) -> str | None:
 
 def _overlap(edit: dict[str, Any], ctx: Context) -> str | None:
     start, end = int(edit["start_line"]), int(edit["end_line"])
-    script = ctx.script.get(edit["doc"], []) if edit.get("source") == "script" else []
     for a, b in ctx.kept.get(edit["doc"], []):
-        if start <= b and a <= end and (a, b) not in script:
+        if start <= b and a <= end:
             return f"lines {start}-{end} overlap a kept edit on lines {a}-{b}"
     return None
 
@@ -501,7 +501,9 @@ def _check(edit: dict[str, Any], ctx: Context) -> tuple[str, str | None, str | N
     for name, fn in CHECKS_BY_SOURCE.get(str(edit.get("source")), CHECKS):
         reason = fn(edit, ctx)
         if reason is not None:
-            kind = HUMAN_KINDS.get(name)
+            # a script edit on a line another script edit settled needs no human decision
+            script_overlap = name == "overlap" and edit.get("source") == "script"
+            kind = None if script_overlap else HUMAN_KINDS.get(name)
             return ("human" if kind else "dropped"), name, kind, reason
     span = (int(edit["start_line"]), int(edit["end_line"]))
     ctx.kept.setdefault(edit["doc"], []).append(span)
