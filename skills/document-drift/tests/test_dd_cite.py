@@ -149,6 +149,12 @@ def test_table_row_candidates_come_from_the_own_cell(tmp_path: Path) -> None:
     row = "| `episodes_banner` | `episodes` | `app.py:240` |"
     subject = subject_of(row, *_cite_at(row, "app.py:240"), _defs(*defs), names)
     assert subject is not None and subject["text"] == "episodes_banner"
+    # the own cell is also held to 120 characters before the citation; the name cell is not
+    row = "| R4 | `episodes_banner` " + "x " * 70 + "at `app.py:240` |"
+    assert subject_of(row, *_cite_at(row, "app.py:240"), _defs(*defs), names) is None
+    row = "| `episodes_banner` | " + "x " * 70 + "at `app.py:240` |"
+    subject = subject_of(row, *_cite_at(row, "app.py:240"), _defs(*defs), names)
+    assert subject is not None and subject["text"] == "episodes_banner"
     # prose: before the citation only within 120 characters
     line = "`episodes_banner` " + "x " * 70 + "at `app.py:240`"
     assert subject_of(line, *_cite_at(line, "app.py:240"), _defs(*defs), names) is None
@@ -340,3 +346,16 @@ def test_missing_inputs_raise(tmp_path: Path, name: str, step: str) -> None:
         run(root, workdir)
     assert info.value.code == EXIT_MISSING and step in str(info.value)
     assert main([str(root), "--workdir", str(workdir)]) == EXIT_MISSING
+
+
+def test_prose_citation_with_no_path_token_is_checked(tmp_path: Path) -> None:
+    defs = [_d("promote_reflection", AGENT, 1838, 1843), _d("Store", "src/store.py", 1, 9, "class")]
+    doc = ("The write happens at agentcore.py:1578 in promote_reflection().\n\n"
+           "- `Store` is at src/store.py:4, 7 and agentcore.py:1840-1841 (promote_reflection)\n")
+    root, workdir = _setup(tmp_path, {"docs/a.md": doc}, defs, [],
+                           {AGENT: 2000, "src/store.py": 9})
+    result = run(root, workdir)
+    [edit] = result["edits"]
+    assert edit["new"] == "The write happens at agentcore.py:1838 in promote_reflection()."
+    assert result["counts"]["citations"] == {"checked": 3, "current": 2, "moved": 1,
+                                             "ambiguous": 0, "use_site": 0, "unresolved": 0}

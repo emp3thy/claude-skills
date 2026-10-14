@@ -7,9 +7,9 @@ line (``subject_of``): the candidates are the contents of inline code spans, wit
 are specific (``dd_defindex.is_specific``: ``EpisodeService``, ``store.save``) or written as a
 call (``observe()``), so a plain word such as ``line`` never claims a citation. The line's
 citations are masked out first, so no citation text is ever a candidate. The candidates are
-those before the citation, nearest first (in a table row only those in the citation's own cell
-and in the row's name cell, its first; elsewhere those ending within ``BEFORE_WINDOW``
-characters of it), then those starting within ``AFTER_WINDOW`` characters after it, nearest
+those before the citation ending within ``BEFORE_WINDOW`` characters of it, nearest first (in
+a table row only those in the citation's own cell, plus the row's name cell, its first cell, at
+any distance), then those starting within ``AFTER_WINDOW`` characters after it, nearest
 first. A candidate whose span in the cited file covers the citation wins (the doc cites that
 definition, whatever name is nearer); otherwise the first candidate resolving in the cited
 file is the subject; failing that, the first resolving elsewhere (a use site).
@@ -171,8 +171,9 @@ def _cells(line: str) -> list[tuple[int, int]]:
 
 def _candidates(line: str, col: int, end_col: int, table: bool) -> list[str]:
     """The candidate names of a masked line in trial order (module docstring): before the
-    citation nearest first (in a table row only its own cell and the row's name cell, else
-    within ``BEFORE_WINDOW`` characters), then within ``AFTER_WINDOW`` after it."""
+    citation within ``BEFORE_WINDOW`` characters, nearest first (in a table row only in its
+    own cell, plus the row's name cell at any distance), then within ``AFTER_WINDOW`` after
+    it."""
     found: list[tuple[int, int, str]] = []
     code: list[tuple[int, int]] = []
     for m in _CODE.finditer(line):
@@ -187,16 +188,14 @@ def _candidates(line: str, col: int, end_col: int, table: bool) -> list[str]:
         called = text == m.group(0) and line.startswith("(", m.end())
         if text and (called or is_specific(text)):
             found.append((m.start(), m.end(), text))
-    if table:
-        cells = _cells(line)
-        own = [c for c in cells if c[0] <= col < c[1]]
-        allowed = [*own[:1], *cells[:1]]
+    cells = _cells(line) if table else []
+    own = [c for c in cells if c[0] <= col < c[1]][:1]
 
-        def near(c: tuple[int, int, str]) -> bool:
-            return any(a <= c[0] and c[1] <= b for a, b in allowed)
-    else:
-        def near(c: tuple[int, int, str]) -> bool:
-            return col - c[1] <= BEFORE_WINDOW
+    def near(c: tuple[int, int, str]) -> bool:
+        if any(a <= c[0] and c[1] <= b for a, b in cells[:1]) and cells[:1] != own:
+            return True  # the row's name cell, at any distance
+        in_own = any(a <= c[0] and c[1] <= b for a, b in own) if table else True
+        return in_own and col - c[1] <= BEFORE_WINDOW
     before = sorted((c for c in found if c[1] <= col and near(c)), key=lambda c: (-c[1], c[0]))
     after = sorted((c for c in found if c[0] >= end_col and c[0] - end_col <= AFTER_WINDOW),
                    key=lambda c: (c[0], -c[1]))

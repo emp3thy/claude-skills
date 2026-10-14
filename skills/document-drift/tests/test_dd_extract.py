@@ -626,3 +626,37 @@ def test_no_cite_token_without_a_line():
     assert _toks(text, "cite") == []
     fence = "```bash\npython tools/run.py:3\n```\n"
     assert _toks(fence, "cite") == []
+
+
+def test_bare_prose_citation_is_a_cite_token():
+    text = (
+        "# Store\n"
+        "\n"
+        "The write happens at agentcore.py:1578 (see storage/agentcore.py:1040-1053, 1526).\n"
+        "\n"
+        "- run_all lives at src/run.sh:3.\n"
+        "\n"
+        "| what | where |\n"
+        "|---|---|\n"
+        "| entry | app/main.ts:42 |\n"
+        "\n"
+        "Docs are not code: docs/guide.md:12, nor images: logo.png:3, nor www.x.com/a.py:4.\n"
+        "Inline `src/app.py:9` stays as it was; so does app.py:12:5 with a column.\n"
+        "\n"
+        "```text\n"
+        "fenced.py:7\n"
+        "```\n"
+    )
+    cites = [t for t in _toks(text, "cite") if t["context"] == "prose"]
+    assert [(t["line"], t["text"], _span(text, t), t["path"], t["start"], t["end"],
+             t["block"]["kind"]) for t in cites] == [
+        (3, "agentcore.py:1578", "agentcore.py:1578", "agentcore.py", 1578, 1578, "paragraph"),
+        (3, "storage/agentcore.py:1040-1053", "storage/agentcore.py:1040-1053",
+         "storage/agentcore.py", 1040, 1053, "paragraph"),
+        (5, "src/run.sh:3", "src/run.sh:3", "src/run.sh", 3, 3, "list_item"),
+        (9, "app/main.ts:42", "app/main.ts:42", "app/main.ts", 42, 42, "table_row"),
+    ]
+    assert all(t["editable"] and t["link"] is None for t in cites)
+    # the inline one keeps its single cite token, and a prose citation has no path token
+    assert [t["text"] for t in _toks(text, "cite") if t["context"] != "prose"] == ["src/app.py:9"]
+    assert {t["text"] for t in _toks(text, "path") if t["context"] == "prose"} == set()

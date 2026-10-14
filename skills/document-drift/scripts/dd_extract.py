@@ -32,9 +32,8 @@ from typing import Any
 from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json, write_json
 from dd_md_scan import Inline, Scan, scan
 
-KNOWN_EXTS = frozenset(
+CODE_EXTS = frozenset(
     {
-        # code
         ".py", ".pyi", ".pyx", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts",
         ".go", ".rs", ".java", ".kt", ".kts", ".scala", ".groovy", ".gradle", ".rb", ".php",
         ".cs", ".fs", ".vb", ".swift", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".ino",
@@ -42,17 +41,26 @@ KNOWN_EXTS = frozenset(
         ".elm", ".hs", ".ml", ".mli", ".nim", ".zig", ".sol", ".vue", ".svelte", ".sql",
         ".graphql", ".gql", ".proto", ".tf", ".tfvars", ".hcl", ".nix", ".cmake", ".mk",
         ".feature", ".ipynb",
-        # config and data
+    }
+)
+CONFIG_EXTS = frozenset(
+    {
         ".json", ".jsonc", ".json5", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".env",
         ".properties", ".xml", ".plist", ".lock", ".csv", ".tsv",
-        # docs and assets
+    }
+)
+DOC_EXTS = frozenset(
+    {
         ".md", ".markdown", ".mdx", ".rst", ".txt", ".adoc", ".html", ".htm", ".css", ".scss",
         ".sass", ".less", ".tex", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
         ".ico",
-        # scripts
-        ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".psd1", ".bat", ".cmd",
     }
 )
+SCRIPT_EXTS = frozenset({
+    ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".psd1", ".bat", ".cmd",
+})
+KNOWN_EXTS = CODE_EXTS | CONFIG_EXTS | DOC_EXTS | SCRIPT_EXTS
+CITE_EXTS = CODE_EXTS | SCRIPT_EXTS  # a bare prose citation names a code or script file
 SHELL_INFOS = frozenset({"", "bash", "sh", "shell", "console", "zsh", "powershell", "ps1", "pwsh",
                          "cmd"})
 TREE_INFOS = frozenset({"", "text", "txt"})
@@ -67,6 +75,10 @@ _LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
 _LINE_FRAGMENT = re.compile(r"L\d+")
 _CITE_FRAGMENT = re.compile(r"L(\d+)(?:-L?(\d+))?")
 _CITE_SUFFIX = re.compile(r":(\d+)(?:-(\d+))?$")
+# A bare prose citation word: path:N or path:N-M, not inside a longer word or path, and not a
+# path:N:col position. A comma-continued number (", 1526") is not part of it.
+_PROSE_CITE = re.compile(
+    r"(?<![\w./\\-])((?:[\w.-]+/)*[\w.-]+\.[A-Za-z0-9]+):(\d+)(?:-(\d+))?(?![\w-]|:\d)")
 _PLACEHOLDER = re.compile(r"(?i)\b(your|my)[-_]|\bexample\b|\b(foo|bar|baz|xxx|todo)\b")
 _PLACEHOLDER_PARTS = ("<", ">", "{{", "${", "*")
 _RATIO = re.compile(r"\d+/\d+|[A-Za-z]/[A-Za-z]")  # ruling R14: 3/5, X/Y
@@ -473,6 +485,36 @@ class _Extractor:
                     best[no] = idx
         return best
 
+    def inline_cover(self) -> dict[int, list[tuple[int, int]]]:
+        """Per line, the column ranges any inline covers (code spans with their backticks,
+        links and images with their labels, autolinks)."""
+        cover: dict[int, list[tuple[int, int]]] = {}
+        for inl in self.sc.inlines:
+            a = inl.outer_col if inl.outer_col is not None else inl.col
+            b = inl.outer_end_col if inl.outer_end_col is not None else inl.end_col
+            for no in range(inl.line, inl.end_line + 1):
+                start = a if no == inl.line else 0
+                end = b if no == inl.end_line else len(self.line(no))
+                cover.setdefault(no, []).append((start, end))
+        return cover
+
+    def prose_cites(self) -> None:
+        """Bare ``path:N`` and ``path:N-M`` words naming a code or script file (``CITE_EXTS``)
+        on the prose lines the version scan reads, outside any inline: ``cite`` tokens with
+        context ``prose`` and no path token beside them."""
+        cover = self.inline_cover()
+        for no, idx in sorted(self.innermost().items()):
+            if self.sc.blocks[idx].kind not in VERSION_PROSE_BLOCKS:
+                continue
+            for m in _PROSE_CITE.finditer(self.line(no)):
+                path = m[1]
+                if (_ext(path) not in CITE_EXTS or _URL.search(path)
+                        or any(a <= m.start() < b for a, b in cover.get(no, []))):
+                    continue
+                first = int(m[2])
+                self.add("cite", no, m.start(), m.end(), m[0], "prose", self.block_of(idx),
+                         path=path, start=first, end=int(m[3]) if m[3] else first)
+
     def versions(self) -> None:
         codes = [i for i in self.sc.inlines if i.kind == "code" and i.line == i.end_line]
         for no, idx in sorted(self.innermost().items()):
@@ -619,6 +661,7 @@ class _Extractor:
         self.inlines()
         self.fences()
         self.versions()
+        self.prose_cites()
         self.subjects()
         markers = self.markers()
         honoured = [m for m in markers if m["reason"] and m["target_line_start"] is not None]
