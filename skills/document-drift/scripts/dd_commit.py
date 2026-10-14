@@ -48,7 +48,8 @@ def render_bullet(edit: dict[str, Any], line: int | None = None) -> str:
     ``subject`` (the gap agent's ``subject`` is the name added), since the gap edit does not
     carry the gap's kind. A ``create`` edit (the README, phase B spec 8) reads its counts from
     ``edit["statements"]``, ``edit["sheets"]`` (the valid sheets of ``sheets.json``) and
-    ``edit["removed"]`` (``applied.json`` ``readme``), which ``run`` fills in."""
+    ``edit["removed"]`` (``applied.json`` ``readme``), which ``run`` fills in. A ``cite`` or
+    ``fact`` edit (phase C spec 6) reads the fields ``dd_cite`` and ``dd_facts`` write."""
     where = f"{edit['doc']}:{line if line is not None else edit['start_line']}"
     kind = edit["type"]
     claim = str(edit.get("claim") or "")
@@ -73,6 +74,11 @@ def render_bullet(edit: dict[str, Any], line: int | None = None) -> str:
     elif kind == "add":
         text = (f"add {edit.get('gap_kind') or 'name'} {subject.strip().strip('`').strip()} "
                 f"({evidence[0] if evidence else ''})")
+    elif kind == "cite":  # phase C spec 6, from the fields dd_cite writes
+        text = f"cite {subject} {edit.get('old_cite')} -> {edit.get('new_cite')}"
+    elif kind == "fact":  # from the fields dd_facts writes
+        text = (f"fact {subject} {edit.get('column')} {edit.get('old_cell')} -> "
+                f"{edit.get('new_cell')} ({evidence[0] if evidence else ''})")
     elif kind == "create":
         text = (f"create readme ({int(edit.get('statements') or 0)} statements from "
                 f"{int(edit.get('sheets') or 0)} sheets, {int(edit.get('removed') or 0)} removed)")
@@ -247,8 +253,9 @@ def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: s
     """Make the corrections and additions commits on ``branch``; write ``commits.json``
     ``{"branch", "commits": [{"sha", "kind"}]}`` and ``commit-msg-<kind>.txt``.
 
-    Corrections hold the applied review and notice edits and their link updates, additions the
-    applied gap edits and the README's ``create`` edit (``README.md`` staged by path, so the
+    Corrections hold the applied review, notice and script edits (the script edits until
+    phase C's third commit) and their link updates, additions the applied gap edits and the
+    README's ``create`` edit (``README.md`` staged by path, so the
     additions commit is made for it even when it is the only edit; its bullet's counts come
     from ``sheets.json`` and ``applied.json`` ``readme``). The edits are already in the working
     tree, so a doc cannot be split: it is staged in the first commit that touches it, and a doc

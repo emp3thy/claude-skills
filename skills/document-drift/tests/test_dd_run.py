@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import dd_cite
 import dd_commit
 import dd_run
 import dd_summary
@@ -392,6 +393,43 @@ def test_second_run_is_later_run_from_drift_base(tmp_path: Path) -> None:
     plan = _plan(repo, "plan-docs.json")
     assert [e["role"] for e in plan] == ["review"]  # the changed sections; no new names
     assert "Since commit" in Path(plan[0]["prompt"]).read_text(encoding="utf-8")
+
+
+# a citation of `connect` at line 9, where `main` now starts (connect is at lines 4-6), and a
+# fact table whose one row agrees with the scan
+MOVED = "The retry loop lives in `connect` (`src/app.py:9`).\n"
+TABLE = "\n| Variable | Default |\n|---|---|\n| `APP_HOST` | - |\n"
+
+
+def test_start_runs_cite_and_facts_and_clears_their_output(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path, {**FILES, "README.md": f"{README}\n{MOVED}",
+                            "docs/config.md": CONFIG + TABLE})
+    workdir = repo / ".document-drift"
+    assert _run(repo, "start") == 0
+    script = read_json(workdir / "script-edits.json")
+    assert [(e["id"], e["type"], e["doc"], e["start_line"]) for e in script["edits"]] == [
+        ("c001", "cite", "README.md", 9)]
+    assert "(`src/app.py:4`)" in script["edits"][0]["new"]
+    assert script["counts"]["citations"]["moved"] == 1
+    assert script["counts"]["facts"]["rows_checked"] == 1  # dd_facts ran after dd_cite
+    (workdir / "script-edits.json").write_text("stale", encoding="utf-8")
+    assert _run(repo, "start") == 0  # a later start rewrites it
+    assert read_json(workdir / "script-edits.json") == script
+    monkeypatch.setattr(dd_cite, "run", lambda *_args: None)
+    capsys.readouterr()
+    assert _run(repo, "start") == 5  # start cleared it, and cite did not write it again
+    assert "step cite did not write" in capsys.readouterr().err
+    monkeypatch.undo()
+    _through_verify(repo)
+    edits = {e["id"]: e for e in read_json(workdir / "edits.json")["edits"]}
+    assert (edits["c001"]["source"], edits["c001"]["status"]) == ("script", "kept")
+    assert all("c001" not in p["edits"] for p in _plan(repo, "plan-verify.json"))
+    assert _run(repo, "finish") == 0
+    on_branch = _git(repo, "show", f"{BRANCH}:README.md")
+    assert "The retry loop lives in `connect` (`src/app.py:4`)." in on_branch
+    assert "It retries 3 times by default." in on_branch
 
 
 def test_crashed_step_exits_5(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,

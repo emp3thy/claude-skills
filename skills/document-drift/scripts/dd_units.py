@@ -66,10 +66,20 @@ def _hunks_for(anchors: Iterable[Anchor], hunks: Mapping[str, list[Hunk]]) -> li
     return [found[key] for key in sorted(found)]
 
 
+def _touched(anchors: Sequence[Anchor], affected: Mapping[str, Any]) -> list[Anchor]:
+    """The anchors a later run's prompt shows with their code: those ``anchor_reasons`` names
+    (``dd_dispatch._shown_anchors``)."""
+    named = {(doc, r["line"], r["ref"]) for doc, entry in affected.items()
+             for r in entry.get("anchor_reasons", [])}
+    return [a for a in anchors if (a["doc"], a["line"], a["ref"]) in named]
+
+
 def _size(docs: Sequence[UnitDoc], anchors: Sequence[Anchor], hunks: Mapping[str, list[Hunk]],
           mode: str, affected: Mapping[str, Any]) -> int:
     """Reviewed lines plus, on a first run, each anchored definition's reading range once, or,
-    on a later run, the touching hunk lines plus the reading ranges of missing definitions."""
+    on a later run, the touching hunk lines, the reading ranges of the touched anchors (the
+    code the prompt inlines after the diff, phase C spec 4), merged per file so an overlap
+    counts once, and the reading ranges of missing definitions."""
     total = sum(_lines(d["ranges"]) for d in docs)
     reading: dict[_Key, list[int]] = {}
     if mode == "first":
@@ -77,6 +87,10 @@ def _size(docs: Sequence[UnitDoc], anchors: Sequence[Anchor], hunks: Mapping[str
     else:
         total += sum(max(1, h["new_end"] - h["new_start"] + 1)
                      for h in _hunks_for(anchors, hunks))
+        by_file: dict[str, list[list[int]]] = {}
+        for a in _touched(anchors, affected):
+            by_file.setdefault(a["file"], []).append(a["reading"])
+        total += sum(_lines(_merged(ranges)) for ranges in by_file.values())
         for d in docs:
             for miss in affected.get(d["doc"], {}).get("missing", []):
                 reading[(miss["file"], miss["start"])] = miss["reading"]

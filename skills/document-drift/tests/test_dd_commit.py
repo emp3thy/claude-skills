@@ -53,6 +53,17 @@ def test_bullet_grammar_for_every_edit_type() -> None:
     assert render_bullet(add, 7) == "- d.md:7 add env APP_X (src/c.py:2)"
 
 
+def test_bullet_grammar_for_script_edits() -> None:
+    # phase C spec 6: a finish with an applied script edit must not fail on its bullet
+    cite = _e("c001", "d.md", 9, "cite", "connect is at src/app.py:4-6", ["src/app.py:4-6"],
+              "connect", "script", old_cite="src/app.py:9", new_cite="src/app.py:4")
+    assert render_bullet(cite, 9) == "- d.md:9 cite connect src/app.py:9 -> src/app.py:4"
+    fact = _e("f001", "d.md", 12, "fact", "--port default is 8080", ["src/cli.py:7"],
+              "--port", "script", column="default", old_cell="`80`", new_cell="`8080`")
+    assert render_bullet(fact, 12) == \
+        "- d.md:12 fact --port default `80` -> `8080` (src/cli.py:7)"
+
+
 def test_message_grammar_corrections_and_additions() -> None:
     kw: dict[str, Any] = {"run_id": "2026-10-12-a3f1", "base": BASE, "scope": "since abc1234",
                           "unchecked": (2, 1, 3), "trailers": ["Signed-off-by: T <t@e.com>"]}

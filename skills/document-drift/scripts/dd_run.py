@@ -25,9 +25,11 @@ tracked or not, and prints ``readme: yes`` or ``readme: no`` before anything els
   and, once it passes, deletes every other pinned output (files and the ``review/``,
   ``gaps/``, ``verdicts/``, ``prompts/``, ``sheets/`` and ``readme/`` directories;
   ``last-run.json`` is kept), so a refused start keeps the previous run's files. Then it
-  runs inventory, extract, resolve, defindex, anchors, changes, units, patterns, gaps, the
-  notice decisions and the dispatch plan, in README mode the areas (``areas.json``) and the
-  sheet entries appended to the plan, and prints ``plan-docs.json <path> with <n> entries``.
+  runs inventory, extract, resolve, defindex, anchors, changes, units, patterns, the script
+  checks (cite, then facts: ``script-edits.json``, phase C spec 5; cite reads the scan, so
+  both follow patterns), gaps, the notice decisions and the dispatch plan, in README mode the
+  areas (``areas.json``) and the sheet entries appended to the plan, and prints
+  ``plan-docs.json <path> with <n> entries``.
   Outside README mode, with no in-scope doc it stops after the inventory, writes an empty
   ``plan-docs.json`` and prints the phase B message.
 - ``compose`` (README mode only; otherwise it refuses with exit 2) validates the sheet
@@ -91,10 +93,12 @@ import dd_apply
 import dd_areas
 import dd_changes
 import dd_checks
+import dd_cite
 import dd_commit
 import dd_defindex
 import dd_dispatch
 import dd_extract
+import dd_facts
 import dd_gaps
 import dd_inventory
 import dd_patterns
@@ -126,6 +130,7 @@ OUTPUTS = (
     "plan-docs.json", "retry.json", "edits.json", "plan-verify.json", "verdicts.json",
     "applied.json", "commits.json", "commit-msg-corrections.txt", "commit-msg-additions.txt",
     "summary.md", "areas.json", "sheets.json", "plan-readme.json", "readme.json",
+    "script-edits.json",
 )
 OUTPUT_DIRS = ("review", "gaps", "verdicts", "prompts", "sheets", "readme")
 NO_DOCS = "no markdown docs in scope; no-docs mode arrives in phase B"
@@ -262,6 +267,10 @@ def stage_start(root: Path, workdir: Path, *, base: str | None, full: bool,
     _record(workdir, run_id=run_id, scope=scope)
     _step("units", workdir, ("units.json",), lambda: dd_units.run(root, workdir, config))
     _step("patterns", workdir, ("patterns.json",), lambda: dd_patterns.run(root, workdir))
+    # phase C spec 5, on every run (2.3): cite needs the scan's names, facts cite's file
+    _step("cite", workdir, ("script-edits.json",), lambda: dd_cite.run(root, workdir))
+    _step("facts", workdir, ("script-edits.json",),
+          lambda: dd_facts.run(root, workdir, config))
     _step("gaps", workdir, ("gaps.json",), lambda: dd_gaps.run(root, workdir, config))
     _step("notices", workdir, ("notices.json",),
           lambda: dd_unverified.run_start(root, workdir, run_id))
