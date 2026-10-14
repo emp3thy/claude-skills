@@ -400,6 +400,28 @@ def test_second_script_edit_on_a_line_is_dropped_as_overlap(tmp_path: Path,
     assert result["overlap_script"] == 0
 
 
+def test_overlap_script_wins_over_human_checks(ctx: Context, repo: tuple[Path, Path]) -> None:
+    # Task 6 ruling: the script settled the line, so an agent edit on it is dropped as
+    # overlap-script before guarantee, large-deletion or large-section can send it to a human
+    line = _line("README.md", "Values must be strings.")
+    assert _result(_script("c001", line, "Values must be text."), ctx) == ("kept", None, None)
+    weakened = _edit("u001-e01", start=line, new="Values are strings.")
+    assert _result(weakened, ctx) == ("dropped", "overlap-script", None)
+    first = _line("docs/guide.md", "guide line 1")
+    guide = {**_script("c002", first + 3, "guide line four"), "doc": "docs/guide.md",
+             "old": _text("docs/guide.md", first + 3, first + 3)}
+    assert _result(guide, ctx) == ("kept", None, None)
+    long = _edit("u001-e02", doc="docs/guide.md", start=first, end=first + 15, new="",
+                 kind="remove", evidence=())
+    assert _result(long, ctx) == ("dropped", "overlap-script", None)
+    grows = _edit("g001-e01", doc="docs/guide.md", start=first + 3, kind="add",
+                  new="\n".join(f"line {n}" for n in range(60)), subject="put")
+    assert _result({**grows, "source": "gap"}, ctx) == ("dropped", "overlap-script", None)
+    fresh = context(*repo, _config())  # without the script edits each goes to a human
+    assert [_result(e, fresh)[1] for e in (weakened, long, {**grows, "source": "gap"})] == [
+        "guarantee", "large-deletion", "large-section"]
+
+
 # ---------------------------------------------------------------- batches
 
 def test_batches_group_by_evidence_file_max_10() -> None:

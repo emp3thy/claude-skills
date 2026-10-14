@@ -14,8 +14,9 @@ HEAD = "b" * 40
 # ---- phase A ----------------------------------------------------------------------------
 
 HEADINGS = ["Run", "Docs", "References and anchors", "Checkability", "Notice loop",
-            "Change set", "Review units", "Claims checked", "Edits proposed", "Script checks",
-            "Verdicts", "Applied", "Gaps", "Needs a human decision", "Markers", "Result"]
+            "Change set", "Review units", "Claims checked", "Edits proposed", "Script edits",
+            "Script checks", "Verdicts", "Applied", "Gaps", "Needs a human decision", "Markers",
+            "Result"]
 LATER = "A later run cannot see code changes behind these docs until they name code."
 
 
@@ -445,11 +446,88 @@ def test_check_mode_plans_the_readme_create_bullet(tmp_path: Path) -> None:
 
 def test_edits_proposed_counts_the_readme_in_readme_mode_only(tmp_path: Path) -> None:
     wd = _readme_wd(tmp_path)
-    assert _section(render(wd), "Edits proposed")[-1] == "readme: 0"
+    assert _section(render(wd), "Edits proposed")[-2] == "readme: 0"
     create = {**_edit("r001", "README.md", 1, "create", "readme"), "statements": 8}
     edits = read_json(wd / "edits.json")
     write_json(wd / "edits.json", {**edits, "edits": [*edits["edits"], create]})
     body = _section(render(wd), "Edits proposed")
-    assert body[-1] == "readme: 1" and body[0].startswith("review: ")
+    assert body[-2:] == ["readme: 1", "script: 0"] and body[0].startswith("review: ")
     assert all(not line.startswith("readme") for line in
                _section(render(_wd(tmp_path / "a")), "Edits proposed"))
+
+
+# ---- phase C (script edits) ---------------------------------------------------------------
+
+SCRIPT_COUNTS = {"citations": {"checked": 140, "current": 8, "moved": 60, "ambiguous": 16,
+                               "use_site": 5, "unresolved": 51},
+                 "facts": {"rows_checked": 23, "corrected": 2, "not_in_scan": 1}}
+
+
+def _script_wd(tmp_path: Path, *, check: bool = False) -> Path:
+    """``_wd`` plus a kept cite edit and a kept fact edit, ``script-edits.json`` counts and 3
+    agent edits dropped as overlap-script; the cite and fact edits applied and committed in a
+    third commit (without ``--check``)."""
+    wd = _wd(tmp_path, check=check)
+    cite = _edit("c001", "docs/b.md", 2, "cite", "script", subject="connect",
+                 old_cite="src/app.py:9", new_cite="src/app.py:4")
+    fact = _edit("f001", "README.md", 7, "fact", "script", subject="--port", column="default",
+                 old_cell="`80`", new_cell="`8080`")
+    edits = read_json(wd / "edits.json")
+    write_json(wd / "edits.json", {**edits, "edits": [*edits["edits"], cite, fact],
+                                   "overlap_script": 3})
+    write_json(wd / "script-edits.json", {"edits": [cite, fact], "hints": {},
+                                          "counts": SCRIPT_COUNTS})
+    if not check:
+        applied = read_json(wd / "applied.json")
+        write_json(wd / "applied.json", {**applied,
+                                         "applied": [*applied["applied"], "c001", "f001"],
+                                         "docs": ["README.md", "docs/a.md", "docs/b.md"]})
+        commits = read_json(wd / "commits.json")
+        write_json(wd / "commits.json", {**commits, "commits": [
+            *commits["commits"], {"sha": "e" * 40, "kind": "citations"}]})
+    return wd
+
+
+def test_script_section_counts(tmp_path: Path) -> None:
+    text = render(_script_wd(tmp_path))
+    lines = text.split("\n")
+    assert lines.index("Edits proposed") < lines.index("Script edits") < lines.index(
+        "Script checks")
+    assert _section(text, "Edits proposed") == ["review: 4", "gap: 1", "notice: 5",
+                                                "script: 2"]
+    assert _section(text, "Script edits") == [
+        "citations: 140 checked, 8 current, 60 moved, 16 ambiguous, 5 use sites, "
+        "51 unresolved",
+        "fact rows: 23 checked, 2 corrected, 1 not in scan",
+        "agent edits dropped as overlap-script: 3"]
+    assert "- docs/b.md" in _section(text, "Applied")
+    assert _section(text, "Result")[-1] == f"Commits: {'e' * 40} (citations)"
+    # no script-edits.json and no overlap_script: zeros, and the section still renders
+    plain = render(_wd(tmp_path / "a"))
+    assert _section(plain, "Script edits") == [
+        "citations: 0 checked, 0 current, 0 moved, 0 ambiguous, 0 use sites, 0 unresolved",
+        "fact rows: 0 checked, 0 corrected, 0 not in scan",
+        "agent edits dropped as overlap-script: 0"]
+    assert _section(plain, "Edits proposed")[-1] == "script: 0"
+
+
+def test_planned_list_includes_script_edits_under_check(tmp_path: Path) -> None:
+    body = _section(render(_script_wd(tmp_path, check=True)), "Result")
+    planned = body[body.index("Planned edits:") + 1:]
+    assert "- docs/b.md:2 cite connect src/app.py:9 -> src/app.py:4" in planned
+    assert "- README.md:7 fact --port default `80` -> `8080` (src/a.py:1)" in planned
+    assert planned.index("- README.md:7 fact --port default `80` -> `8080` (src/a.py:1)") == 1
+    assert planned[-1] == "Exit: 1 (accepted edits exist)"
+    # a script edit alone, with no verdict, still plans an edit and exits 1
+    wd = _script_wd(tmp_path / "s", check=True)
+    edits = read_json(wd / "edits.json")
+    write_json(wd / "edits.json", {**edits, "edits": [
+        e for e in edits["edits"] if e["source"] == "script"]})
+    write_json(wd / "verdicts.json", {"verdicts": {}, "unverified": []})
+    write_json(wd / "notices.json", {"decisions": [], "edits": [], "stale": [],
+                                     "nominations": []})
+    body = _section(render(wd), "Result")
+    assert body[body.index("Planned edits:") + 1:] == [
+        "- README.md:7 fact --port default `80` -> `8080` (src/a.py:1)",
+        "- docs/b.md:2 cite connect src/app.py:9 -> src/app.py:4",
+        "Exit: 1 (accepted edits exist)"]

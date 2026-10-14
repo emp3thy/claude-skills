@@ -11,6 +11,10 @@
   then carries ``repaired: true``. No repair when ``old`` is exactly the text of another range
   of the doc: the range is then misplaced (an off-by-one onto an indentation twin), not
   mis-indented.
+- ``overlap-script`` (dropped, phase C spec 5): the range of an edit that is not a script edit
+  overlaps a kept script edit (``Context.script``): the script settled that line already, so
+  the edit is dropped here, before any human check (``protected``, ``guarantee``,
+  ``large-deletion``, ``large-section``) could send it to the owner.
 - ``protected`` (human): a line of the range is in an honoured ``drift-ignore`` target, a
   generated region or a never-edit section. ``clear`` edits are exempt: they remove the
   skill's own notice line, and a ``drift-ignore`` over a notice is the reason to clear it.
@@ -39,8 +43,6 @@
   ``file`` definition), or a code-span name of ``new`` (``dd_anchors.references``) that ``old``
   lacks is neither in the definition index nor a whole word of a tracked source or project
   file. Notice-loop edits skip this check: their ``new`` is a notice line.
-- ``overlap-script`` (dropped, phase C spec 5): the range of an edit that is not a script edit
-  overlaps a kept script edit (``Context.script``): the script settled that line already.
 - ``overlap`` (human): the range overlaps an edit already kept for the same doc. A script edit
   can only overlap another script edit (they are checked first): the first by id is kept and
   the later one is dropped (no human kind), so apply never sees two script edits on one line.
@@ -482,6 +484,7 @@ def _overlap(edit: dict[str, Any], ctx: Context) -> str | None:
 
 CHECKS: tuple[tuple[str, Callable[[dict[str, Any], Context], str | None]], ...] = (
     ("old-mismatch", _old_mismatch),
+    ("overlap-script", _overlap_script),  # before the human checks: the script settled it
     ("protected", _protected_check),
     ("evidence", _evidence),
     ("still-in-source", _still_in_source),
@@ -490,7 +493,6 @@ CHECKS: tuple[tuple[str, Callable[[dict[str, Any], Context], str | None]], ...] 
     ("large-deletion", _large_deletion),
     ("large-section", _large_section),
     ("new-reference", _new_reference),
-    ("overlap-script", _overlap_script),
     ("overlap", _overlap),
 )
 CHECKS_BY_SOURCE = {source: tuple(c for c in CHECKS if source != "script"

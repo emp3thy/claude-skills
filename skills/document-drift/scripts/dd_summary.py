@@ -198,7 +198,8 @@ def _claims_section(workdir: Path) -> list[str]:
 
 def _edits_section(edits: dict[str, Any] | None, readme: bool) -> list[str]:
     """The proposed edits by source; in README mode ``readme`` too (the ``create`` edit, 1 or
-    0), so the count matches ``Script checks`` and ``Applied``."""
+    0), so the count matches ``Script checks`` and ``Applied``; then ``script`` (the
+    ``dd_cite`` and ``dd_facts`` edits, phase C spec 7)."""
     if edits is None:
         return ["Edits proposed", NOT_RUN]
     sources = Counter(str(e.get("source")) for e in edits["edits"])
@@ -206,7 +207,27 @@ def _edits_section(edits: dict[str, Any] | None, readme: bool) -> list[str]:
     lines += [f"{name}: {sources.get(name, 0)}" for name in ("review", "gap", "notice")]
     if readme:
         lines.append(f"readme: {sum(1 for e in edits['edits'] if e.get('type') == 'create')}")
+    lines.append(f"script: {sources.get('script', 0)}")
     return lines
+
+
+def _script_section(script: dict[str, Any] | None, edits: dict[str, Any] | None) -> list[str]:
+    """Phase C spec 7: ``script-edits.json``'s citation and fact-row counts and
+    ``edits.json``'s ``overlap_script``; an absent file counts zeros."""
+    counts = (script or {}).get("counts") or {}
+    cite, facts = counts.get("citations") or {}, counts.get("facts") or {}
+    overlap = int((edits or {}).get("overlap_script") or 0)
+
+    def n(group: dict[str, Any], key: str) -> int:
+        return int(group.get(key) or 0)
+
+    return ["Script edits",
+            f"citations: {n(cite, 'checked')} checked, {n(cite, 'current')} current, "
+            f"{n(cite, 'moved')} moved, {n(cite, 'ambiguous')} ambiguous, "
+            f"{n(cite, 'use_site')} use sites, {n(cite, 'unresolved')} unresolved",
+            f"fact rows: {n(facts, 'rows_checked')} checked, {n(facts, 'corrected')} corrected, "
+            f"{n(facts, 'not_in_scan')} not in scan",
+            f"agent edits dropped as overlap-script: {overlap}"]
 
 
 def _checks_section(edits: dict[str, Any] | None) -> list[str]:
@@ -385,7 +406,8 @@ def render(workdir: Path, root: Path | None = None) -> str:
 
     Plain text: a heading line per section, in the spec's order (``Run``, ``Docs``,
     ``References and anchors``, ``Checkability``, ``Notice loop``, ``Change set`` on a later
-    run, ``Review units``, ``Claims checked``, ``Edits proposed``, ``Script checks``,
+    run, ``Review units``, ``Claims checked``, ``Edits proposed``, ``Script edits`` (phase C
+    spec 7), ``Script checks``,
     ``Verdicts``, ``Applied``, ``Gaps``, ``README`` (README mode only),
     ``Needs a human decision``, ``Markers``, ``Result``),
     each followed by ``key: value`` lines and ``- item`` lists. Only ``preflight.json`` and
@@ -424,7 +446,9 @@ def render(workdir: Path, root: Path | None = None) -> str:
         sections.append(_change_set(changes))
     units = _opt(workdir, "units.json")
     sections += [_units_section(units, edits, changes, gaps, first), _claims_section(workdir),
-                 _edits_section(edits, bool(pre.get("readme"))), _checks_section(edits),
+                 _edits_section(edits, bool(pre.get("readme"))),
+                 _script_section(_opt(workdir, "script-edits.json"), edits),
+                 _checks_section(edits),
                  _verdicts_section(verdicts), _applied_section(applied_doc, check),
                  _gaps_section(gaps, edits)]
     if pre.get("readme"):

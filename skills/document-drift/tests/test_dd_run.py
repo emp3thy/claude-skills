@@ -430,6 +430,15 @@ def test_start_runs_cite_and_facts_and_clears_their_output(
     on_branch = _git(repo, "show", f"{BRANCH}:README.md")
     assert "The retry loop lives in `connect` (`src/app.py:4`)." in on_branch
     assert "It retries 3 times by default." in on_branch
+    commits = read_json(workdir / "commits.json")["commits"]
+    assert [c["kind"] for c in commits] == ["corrections", "additions", "citations"]
+    message = _git(repo, "show", "-s", "--format=%B", commits[2]["sha"])
+    assert message.startswith("docs(drift): correct citations and facts\n")
+    assert "\n- README.md:9 cite connect src/app.py:9 -> src/app.py:4\n" in message
+    assert "cite" not in _git(repo, "show", "-s", "--format=%B", commits[0]["sha"])
+    # README.md carries a review edit too, so it rode in the corrections commit
+    assert "README.md" in _git(repo, "show", "--name-only", "--format=", commits[0]["sha"])
+    assert _git(repo, "show", "--name-only", "--format=", commits[2]["sha"]).strip() == ""
 
 
 def test_crashed_step_exits_5(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,

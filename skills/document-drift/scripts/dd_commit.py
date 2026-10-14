@@ -1,8 +1,8 @@
 """Commit the applied edits on a new branch with the owner-parsed message grammar (spec 9.4).
 
-``run``, ``render_message``, ``render_bullet`` and ``collect_human`` make the corrections and
-additions commits (see ``run``). Every repository-derived string of a message passes through
-``dd_redaction.redact`` and every line is cut to ``LINE_MAX`` characters.
+``run``, ``render_message``, ``render_bullet`` and ``collect_human`` make the corrections,
+additions and citations commits (see ``run``). Every repository-derived string of a message
+passes through ``dd_redaction.redact`` and every line is cut to ``LINE_MAX`` characters.
 """
 from __future__ import annotations
 
@@ -27,9 +27,11 @@ from dd_redaction import redact
 
 LINE_MAX = 160
 SUBJECTS = {"corrections": "docs(drift): correct stale docs",
-            "additions": "docs(drift): document missing surface"}
-KIND_ORDER = ("corrections", "additions")
+            "additions": "docs(drift): document missing surface",
+            "citations": "docs(drift): correct citations and facts"}
+KIND_ORDER = ("corrections", "additions", "citations")
 ADDITION_SOURCES = ("gap", "readme")  # the README's create edit is an addition (spec B 8)
+SCRIPT_SOURCE = "script"  # dd_cite and dd_facts edits: the citations commit (phase C spec 6)
 README = "README.md"
 PROPOSED = " (proposed line)"  # a readme-rejected line is the proposed README's, not the file's
 _SPAN = re.compile(r"`([^`\n]+)`")
@@ -250,21 +252,22 @@ def gap_kind(edit: dict[str, Any], gaps: list[dict[str, Any]]) -> str:
 
 def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: str,
         trailers: list[str]) -> dict[str, Any]:
-    """Make the corrections and additions commits on ``branch``; write ``commits.json``
+    """Make the corrections, additions and citations commits on ``branch``, in that order and
+    each only when it has an applied edit; write ``commits.json``
     ``{"branch", "commits": [{"sha", "kind"}]}`` and ``commit-msg-<kind>.txt``.
 
-    Corrections hold the applied review, notice and script edits (the script edits until
-    phase C's third commit) and their link updates, additions the applied gap edits and the
-    README's ``create`` edit (``README.md`` staged by path, so the
+    Corrections hold the applied review and notice edits and their link updates, additions the
+    applied gap edits and the README's ``create`` edit (``README.md`` staged by path, so the
     additions commit is made for it even when it is the only edit; its bullet's counts come
-    from ``sheets.json`` and ``applied.json`` ``readme``). The edits are already in the working
-    tree, so a doc cannot be split: it is staged in the first commit that touches it, and a doc
-    with both kinds of edits lands in the corrections commit, so a doc carrying both kinds has
-    its additions in the corrections commit (the additions commit is then made with
-    ``--allow-empty`` when no doc is left to stage, to keep its bullets). If the second commit
-    fails, ``commits.json`` already lists the first. Bullets are ordered by ``(doc,
-    start_line, id)`` with a link update as an indented sub-bullet under its edit. With no
-    applied edit there is no branch. The human list goes on the last commit made."""
+    from ``sheets.json`` and ``applied.json`` ``readme``), citations the applied script edits
+    (``source == "script"``: ``dd_cite`` and ``dd_facts``, phase C spec 6). The edits are
+    already in the working tree, so a doc cannot be split: it is staged in the first commit
+    that touches it, so a doc carrying edits of two kinds has the later kind's edits in the
+    earlier commit (a later commit is then made with ``--allow-empty`` when no doc is left to
+    stage, to keep its bullets). If a later commit fails, ``commits.json`` already lists the
+    earlier ones. Bullets are ordered by ``(doc, start_line, id)`` with a link update as an
+    indented sub-bullet under its edit. With no applied edit there is no branch. The human
+    list goes on the last commit made."""
     edits_doc = _need(workdir, "edits.json")
     applied = _need(workdir, "applied.json")
     done = set(applied.get("applied", []))
@@ -276,7 +279,9 @@ def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: s
     groups: dict[str, list[dict[str, Any]]] = {k: [] for k in KIND_ORDER}
     for edit in edits_doc["edits"]:
         if edit["id"] in done:
-            groups["additions" if edit.get("source") in ADDITION_SOURCES
+            source = edit.get("source")
+            groups["citations" if source == SCRIPT_SOURCE
+                   else "additions" if source in ADDITION_SOURCES
                    else "corrections"].append(edit)
     kinds = [k for k in KIND_ORDER if groups[k]]
     if not kinds:
@@ -320,7 +325,7 @@ def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: s
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(message.encode("utf-8"))
         todo = sorted(docs - staged)
-        empty = ["--allow-empty"] if kind == "additions" and not todo else []
+        empty = ["--allow-empty"] if n and not todo else []
         failure = ""
         if todo and run_git(root, ["--literal-pathspecs", "add", "--", *todo]) is None:
             failure = f"git add failed; {here} with the edits unstaged"
