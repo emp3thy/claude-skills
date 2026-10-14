@@ -69,10 +69,11 @@ value is refused).
 
    with the entry's `prompt` and `output` paths filled in. Dispatch all entries in one message
    so they run in parallel. Never paste the prompt file's content, and never write an output
-   file yourself: each agent writes its own and replies with a receipt. A review agent's prompt carries its code ranges inline, and the agent lists the
-   files it opened beyond them. When `start` printed `readme: yes`, the entries include the sheet agents, one per area of the code. When the
-   file holds `[]` there is nothing to dispatch: go to step 3 after `readme: yes`, otherwise
-   to step 6.
+   file yourself: each agent writes its own and replies with a receipt. A review agent reads
+   the code ranges its prompt lists and reports the files it opened beyond them. When `start`
+   printed `readme: yes`, the entries include the sheet agents, one per area of the code. When
+   the file holds `[]` there is nothing to dispatch: go to step 3 after `readme: yes`,
+   otherwise to step 6.
 
 3. Only when `start` printed `readme: yes`: compose the README. Skip this step after
    `readme: no`.
@@ -176,12 +177,12 @@ the workdir changed during the run (naming them).
   Each body has the lines `Drift-Run: <run id>`, `Drift-Base: <starting HEAD sha>`,
   `Drift-Scope: first | since <sha> | base <ref> | full` and
   `Drift-Unchecked: <n> doc units, <n> gap docs, <n> verify batches`, then one bullet per
-  edit (`- <doc>:<line> correct|remove|anchor|add ...` and the notice bullets). The last
-  commit made ends with a `Needs a human decision:` list when there is one: guarantees the
-  code does not keep, unsure claims, blocks with a 2nd notice, edits too large or in a
-  protected region, overlapping edits, names with no home, refused targets, edits a verifier
-  rejected and edits reverted by the re-check. Only in-scope markdown files change. The
-  `Drift-Base` line is how the next run finds where to start.
+  edit (`- <doc>:<line> correct|remove|anchor|add|cite|fact ...` and the notice bullets).
+  The last commit made ends with a `Needs a human decision:` list when there is one:
+  guarantees the code does not keep, unsure claims, blocks with a 2nd notice, edits too large
+  or in a protected region, overlapping edits, names with no home, refused targets, edits a
+  verifier rejected and edits reverted by the re-check. Only in-scope markdown files change.
+  The `Drift-Base` line is how the next run finds where to start.
 - The third commit holds what scripts settle without an agent: a `path:line` citation whose
   definition moved, and a default, choices or required cell of a doc table that the code
   contradicts. Its bullets are

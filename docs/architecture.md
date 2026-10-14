@@ -945,36 +945,44 @@ its scope) lacks it. Each gap gets one target doc, or `no-home`. One gap agent p
 `dd_cite` checks every `path:line` citation token of `tokens.json` against the definition index:
 the citation's subject is a name on the same doc line (a definition, or a name the pattern scan
 found), and when that definition lies in the cited file but no longer covers the cited line, a
-`cite` edit rewrites the numbers to its current span. Citations whose subject is defined only
-elsewhere (use sites), is ambiguous or is missing become hints, not edits. `dd_facts` checks the
-default, choices and required cells of doc tables against the pattern scan's `default`,
-`choices` and `required` fields and writes a `fact` edit per wrong row; a row whose name the scan
-lacks is a hint. Both write `script-edits.json` (edits, hints per doc, counts). The edits carry
-`source: "script"` and go through `dd_checks` as a third source: `old-mismatch`, `protected` and
-`overlap` apply, an agent edit on a line a script edit changes is dropped as `overlap-script`,
-and no script edit goes to a verifier. `dd_apply` applies them without a verdict and `dd_commit`
-puts them in the third commit, `docs(drift): correct citations and facts`, with `cite` and `fact`
-bullets. The summary has a `Script edits` section and `Edits proposed` a `script:` line.
+`cite` edit rewrites the numbers to its current span. A scanned name's citation is current when
+it contains the name's line or lies inside the definition enclosing it (a route's decorated
+handler). Citations whose subject is defined only elsewhere, or whose cited line in the same
+file names the subject without defining it (use sites), is ambiguous or is missing become
+hints, not edits. `dd_facts` checks the default, choices and required cells of doc tables
+against the pattern scan's `default`, `choices` and `required` fields and writes a `fact` edit
+per wrong row (an empty-string default is no fact); a row whose name the scan lacks is a hint.
+Both write `script-edits.json` (edits, hints per doc, counts). The edits carry
+`source: "script"` and go through `dd_checks` as a fourth source beside review, gap and notice
+edits, checked first so their lines are kept before any agent edit's: `old-mismatch`,
+`protected` and `overlap` apply, an agent edit on a line a script edit changes is dropped as
+`overlap-script`, and no script edit goes to a verifier. `dd_apply`
+applies them without a verdict and `dd_commit` puts them in the third commit,
+`docs(drift): correct citations and facts`, with `cite` and `fact` bullets. The summary has a
+`Script edits` section and `Edits proposed` a `script:` line.
 
-The review prompt (`dd_dispatch`) inlines the code: the unit's reading ranges are merged per file
-and rendered as numbered blocks, with the changed hunks first on a later run. Anchor lines carry
-the scan's facts (default, choices, required), and `## Already settled by script` lists the
-`cite` and `fact` edits and the hints on the unit's lines, which the agent must not edit. The
-reading rule asks the agent to open a file only when a claim depends on code not shown, and to
-list each opened file in the output's `opened` key.
+The review prompt (`dd_dispatch`) lists each anchor with its reading range, as phase A did, and
+the agent reads the ranges itself: the inline code blocks phase C tried came out under the
+phase C spec's section 10 rule after the measurement. Anchor lines carry the scan's facts
+(default, choices, required). `## Already settled by script` lists the `cite` and `fact` edits
+on the unit's lines, which the agent must not edit; `## Not settled by script: these need you`
+lists the hints on those lines, which are the agent's work: it checks and corrects them like
+any claim. The reading rule asks the agent to open another file only when a claim depends on
+code outside the listed ranges, and to list each such file in the output's `opened` key.
 
 ### Checks, verification, apply
 
-`dd_checks` (spec 9.1) runs on every edit, first failure decides: `old-mismatch`, `protected`,
-`evidence`, `still-in-source`, `anchor-adds-name`, `guarantee`, `large-deletion`,
-`large-section`, `new-reference`, `overlap`. Dropped edits are counted; `protected`,
-`guarantee`, `large-deletion`, `large-section` and `overlap` become human-decision entries.
-Edits that pass are batched by the file of their first evidence path, at most 10 per batch and
-`caps.verify` batches; a verifier (`verify.md`) accepts, rejects or is unsure, and only accepted
-edits (plus kept notice edits) apply. `dd_apply` applies them per doc bottom-up by exact match
-of `old`, re-scans the edited doc with `dd_extract` and `dd_resolve`, reverts an edit after
-which a path or anchor reference no longer resolves (`recheck-failed`), and rewrites links to a
-renamed heading in the same commit.
+`dd_checks` (spec 9.1) runs on every edit, first failure decides: `old-mismatch`,
+`overlap-script` (phase C; agent edits only), `protected`, `evidence`, `still-in-source`,
+`anchor-adds-name`, `guarantee`, `large-deletion`, `large-section`, `new-reference`,
+`overlap`. Dropped edits are counted; `protected`, `guarantee`, `large-deletion`,
+`large-section` and `overlap` become human-decision entries. Edits that pass are batched by the
+file of their first evidence path, at most 10 per batch and `caps.verify` batches; a verifier
+(`verify.md`) accepts, rejects or is unsure, and only accepted edits (plus kept notice and
+script edits) apply. `dd_apply` applies them per doc bottom-up by exact match of `old`,
+re-scans the edited doc with `dd_extract` and `dd_resolve`, reverts an edit after which a path
+or anchor reference no longer resolves (`recheck-failed`), and rewrites links to a renamed
+heading in the same commit.
 
 ### Commit grammar
 
@@ -1000,14 +1008,16 @@ The indented `link` sub-bullet follows an edit whose heading change rewrote link
 heading slug, one per rewritten link.
 
 The second commit, `docs(drift): document missing surface`, has the same `Drift-` lines and
-`- <doc>:<line> add <kind> <name> (<path:line>)` bullets. The third commit, `docs(drift): correct citations and facts`, has the same `Drift-` lines and `- <doc>:<line> cite <subject> <old> -> <new>` and
-`- <doc>:<line> fact <name> <column> <old> -> <new> (<file>:<line>)` bullets. A commit with no edits is not made.
-The last commit made ends with `Needs a human decision:` and one
+`- <doc>:<line> add <kind> <name> (<path:line>)` bullets. The third commit,
+`docs(drift): correct citations and facts`, has the same `Drift-` lines and
+`- <doc>:<line> cite <subject> <old> -> <new>` and
+`- <doc>:<line> fact <name> <column> <old> -> <new> (<file>:<line>)` bullets. A commit with no
+edits is not made. The last commit made ends with `Needs a human decision:` and one
 `- <doc>:<line> <kind>: <claim or item> (<evidence or reason>)` line per entry, the kinds being
 `guarantee-mismatch`, `unsure`, `unverified`, `large-deletion`, `large-section`, `protected`,
 `overlap`, `no-home`, `target-refused`, `verify-rejected`, `recheck-failed` and
-`readme-rejected`. Config
-`commit_trailers` are appended at the end of the message, after the human-decision block.
+`readme-rejected`. Config `commit_trailers` are appended at the end of the message, after the
+human-decision block.
 `<line>` is the line at the starting HEAD; every repository-derived string passes through the
 redactor copied from tech-debt-scan and is cut to one line of at most 160 characters. `finish`
 creates the branch with `git switch -c` after checking HEAD still equals the preflight HEAD,

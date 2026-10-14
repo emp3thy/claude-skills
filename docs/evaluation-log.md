@@ -216,13 +216,15 @@ row is never edited, with one exception: the owner fills in its `judged acceptab
   passed as `--base`) or `full`, from `changes.json` `scope`. `docs` counts the docs in scope;
   `affected` the docs reviewed (every doc on a first or full run, the affected docs on a later
   one); `units` the review units.
-- `edits proposed` is the total, then review / gap / notice; `kept` the edits that passed the
+- `edits proposed` is the total, then review / gap / notice; from phase C the total also counts
+  the script edits (`cite`, `fact`), which have no figure of their own in the brackets (so
+  `97 (83/4/5)` is 83 review, 4 gap, 5 notice and 5 script edits); `kept` the edits that passed the
   script checks; `verdicts` accept / reject / unsure / unverified; `applied` the edits applied
   (`0` under `--check`); `judged acceptable` the applied edits the repository's owner judged
   acceptable after reading the drift commits, as `n/m` of `applied` (spec 11.3): the harness
-  writes `-`, and the owner replaces it after judging, the one permitted edit to a row;
-  `human` the "Needs a human decision" entries; `notices placed` the
-  applied 1st and 2nd notices; `gaps` undocumented / missing-from-list.
+  writes `-`, and the owner replaces it after judging, the one permitted edit to a row; `human`
+  the "Needs a human decision" entries; `notices placed` the applied 1st and 2nd notices; `gaps`
+  undocumented / missing-from-list.
 - `planted caught` and `decoys touched` (fixtures only): an item of the state's `planted.json`
   is caught when every expectation holds (`dd_corpus.evaluate`); a decoy (`kind` `decoy` or
   `excluded`) is touched when one does not. An item marked `canned_only` (it encodes a
@@ -298,15 +300,22 @@ above are the before run (the `main` code, phases A and B) and the after run (th
 | review | 5 calls, $4.64, 7.31M tokens, 1.46M per call, 191 s per call | 5 calls, $4.69, 5.84M tokens, 1.17M per call, 184 s per call |
 | gap | 5 calls, $0.60, 0.49M | 5 calls, $0.50, 0.42M |
 | verify | 15 calls, $3.65, 1.92M | 15 calls, $2.86, 1.74M |
-| edits proposed | 92 review, 2 gap | 83 review, 4 gap, 5 script (4 cite, 1 fact) |
+| edits proposed | 94: 92 review, 2 gap, 0 notice | 97: 83 review, 4 gap, 5 notice, 5 script (4 cite, 1 fact) |
 | verdicts | 51 accept, 7 reject | 53 accept, 4 reject |
-| applied | 51 | 61, including the 5 script edits |
+| notices placed | 0 | 3 (5 notice edits: 3 kept, 2 dropped as `overlap-script`) |
+| applied | 51 | 61, including the 5 script edits and the 3 notice edits |
 
 Review tokens per call fell 20% (1,462,013 to 1,167,157), against the acceptance target of a
 halving: **the target was not met.** Cost per review call did not move ($4.64 to $4.69 over five
 calls), the total fell 9% mostly in verify (15 calls, $3.65 to $2.86), and wall time per review call
 fell 4%. Per spec section 10 the figure is recorded here and the decision (keep the inline blocks
-for a 20% cut, or remove them and fall back to the prompt rule alone) is the owner's.
+for a 20% cut, or remove them and fall back to the prompt rule alone) is the owner's. The 20% is
+confounded: the after run's review agents proposed 9 fewer edits (83 against 92) and left the 20
+citation lines below untouched, both of which cut tokens on their own. Each figure is one run per
+side with no repeat, so run-to-run variance of the agents is not separated from the change;
+read the comparison as indicative.
+**Ruling (2026-10-14):** the halving target was not met, so under section 10's rule the inline
+code blocks were removed from the review prompts; the reading rule and `opened` stay.
 
 The after run's agents opened 8 files over the 5 review calls (`opened` in `review/u00N.json`),
 all by the `opened` rule and none refused: `ui/app.py` three times (u001, u002, u004: route and
@@ -332,16 +341,25 @@ span in `defindex.json` (`semantic.py:239-358`, `protocol.py:380-397`, `agentcor
 `app.py:45-817`): 4 rewrites, 0 wrong.
 
 Against the before run: its agents proposed 50 edits whose `old` held a `path:line` citation
-(`edits.json`, source review or gap). Compared by document and line in the after run, 2 became
-script edits (`write-spec.md:63`, which the before agent also moved `262` to `380`, and
-`data-sources.md:139`, which the before verifier had dropped), 23 were again made by a review
-agent (11 kept, 12 left to a human as in the before run), 5 were again
-dropped by the checks, and **20 got no edit at all**: `agentcore-mapping.md:33-53` (11 lines),
-`:69`, `:73` and `data-sources.md:127-132`, whose citations the script lists as
-`cite-unresolved` (subject-less table cells and a bare `agentcore.py:N` the nearest-name rule
-cannot place) while the agents, told which lines are settled by script, did not take them over.
-So the spec's expectation that every citation the agent fixed before is a `cite` edit after, or a
-listed hint, holds only for the hint half: 20 of 50 were hints and unfixed. The 2 `overlap-script`
-drops are the agent's two whole-line `notice` edits on the two PBI.md lines the script rewrote
-(`agentcore.py:89` and `app.py:22`): the agent did not leave those lines alone, and the script edit
-won, which is the net C5 relies on.
+(`edits.json`, source review or gap); 28 of them were kept by the checks and 25 were accepted
+and applied (3 rejected; of the other 22, 16 went to a human, 14 of them as `protected`, and 6
+were dropped as `new-reference`). Compared by document and line in the after run, 2 became script
+edits (`write-spec.md:63`, which the before agent also moved `262` to `380`, and
+`data-sources.md:139`, which the before checks had dropped as `new-reference`), 23 were again
+made by a review agent (11 kept and applied, 12 left to a human as in the before run), 5 were
+again dropped by the checks, and **20 got no edit at all**: `agentcore-mapping.md` lines 33,
+35-37, 39-44 and 53 (11 lines), 69 and 73, and `data-sources.md` lines 127-132 and 167
+(recounted from `live-bm-before/edits.json` against `live-bm-after/`). 14 of the 20 had been
+applied in the before run. Of the 20, the script listed 12 as `cite-unresolved` (subject-less
+table cells and a bare `agentcore.py:N` the nearest-name rule cannot place) and 5 as
+`cite-use-site`; 3 carry no hint (`agentcore-mapping.md:69` and `:73` sit in protected lines,
+which the before run had sent to a human, and `data-sources.md:167` was a guarantee the before
+run had sent to a human too). The agents saw the 17 hints under "Already settled by script" and
+treated those lines as off limits. So the spec's expectation that every citation the agent fixed
+before is a `cite` edit after, or a listed hint, holds only for the hint half: 17 of 50 were hints
+and unfixed. Fixed after the measurement: the review prompt now lists the hints under their own
+heading, `## Not settled by script: these need you`, as the agent's work, and only the `cite` and
+`fact` edits as settled. The 2 `overlap-script` drops were two whole-line `notice` placements
+(`notices.json`, for blocks an agent nominated as unverified), not agent corrections, on the two
+PBI.md lines the script rewrote (`agentcore.py:89` and `app.py:22`): the script edit won, which
+is the net C5 relies on.
