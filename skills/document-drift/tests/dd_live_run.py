@@ -84,6 +84,7 @@ from dd_corpus import (  # noqa: E402
     run_fixture,
 )
 from dd_make_history import continue_fixture  # noqa: E402
+from dd_readme import accepted as readme_accepted  # noqa: E402
 
 LOG_PATH = SKILL_DIR.parents[1] / "docs" / "evaluation-log.md"
 SECTION = "## document-drift"
@@ -331,6 +332,28 @@ def _ratio(pair: tuple[int, int] | None) -> str:
     return "-" if pair is None else f"{pair[0]}/{pair[1]}"
 
 
+def _readme_notes(workdir: Path) -> str:
+    """The phase B figures of a README-mode run for the ``notes`` cell: ``areas <n>; sheets
+    <valid>/<unchecked>; statements <proposed>/<accepted>/<rejected>/<unsure>/<unverified>;
+    readme <n> lines`` (rejected counts the pre-rejected; 0 lines when none was written), as
+    the summary's ``README`` section counts them."""
+    areas = (_json(workdir, "areas.json") or {}).get("areas", [])
+    sheets = _json(workdir, "sheets.json") or {}
+    readme = _json(workdir, "readme.json") or {}
+    verdicts = _json(workdir, "verdicts.json") or {}
+    statements = readme.get("statements", [])
+    found = verdicts.get("readme") or {}
+    kinds = {s["id"]: str((found.get(s["id"]) or {}).get("verdict")) for s in statements}
+    rejected = sum(bool(s.get("prereject")) or kinds[s["id"]] == "reject" for s in statements)
+    unsure = sum(kind == "unsure" for kind in kinds.values())
+    record = (_json(workdir, "applied.json") or {}).get("readme") or {}
+    return (f"areas {len(areas)}; sheets {len(sheets.get('sheets', {}))}/"
+            f"{len(sheets.get('unchecked', []))}; statements {len(statements)}/"
+            f"{len(readme_accepted(readme, verdicts))}/{rejected}/{unsure}/"
+            f"{len(verdicts.get('readme_unverified') or [])}; "
+            f"readme {int(record.get('lines') or 0)} lines")
+
+
 def render_row(workdir: Path, *, date: str, repository: str, calls: Sequence[Call],
                wall_seconds: float, planted: tuple[int, int] | None,
                decoys: tuple[int, int] | None, notes: str) -> str:
@@ -382,9 +405,8 @@ def render_row(workdir: Path, *, date: str, repository: str, calls: Sequence[Cal
     agents = f"{roles['review']}/{roles['gap']}/{roles['verify']}"
     if roles["sheet"] or roles["readme"]:
         agents += f"/{roles['sheet']}/{roles['readme']}"
-    readme_applied = (applied_doc or {}).get("readme")
-    if readme_applied:
-        notes = "; ".join(n for n in (notes, f"readme: {readme_applied['lines']} lines") if n)
+    if pre.get("readme"):
+        notes = "; ".join(n for n in (notes, _readme_notes(workdir)) if n)
     tokens = [c.tokens for c in calls if c.tokens is not None]
     head = str(pre.get("head") or "")[:7] or "-"
     cells = [

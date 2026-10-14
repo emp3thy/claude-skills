@@ -157,3 +157,14 @@ def test_readme_judges_match_whole_spans(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert _expect_readme(item, tmp_path, "names:cli.main") is not None  # dotted name, no suffix
     monkeypatch.setattr(dd_corpus, "_drift_readme", lambda _w: "Run `migrate` now.\n")
     assert _expect_readme(item, tmp_path, "absent:migrate") is not None
+    # a span or a fence line whose whitespace-split words include the name trips it too
+    monkeypatch.setattr(dd_corpus, "_drift_readme", lambda _w: "Run `kv migrate --all`.\n")
+    assert _expect_readme(item, tmp_path, "absent:migrate") == (
+        "README.md names migrate on lines [1]")
+    fenced = "# kv\n\n```sh\nkv migrate\n```\n\nThen `Store.migrate` runs.\n"
+    monkeypatch.setattr(dd_corpus, "_drift_readme", lambda _w: fenced)
+    assert _expect_readme(item, tmp_path, "absent:migrate") == (
+        "README.md names migrate on lines [4]")
+    clean = "# kv\n\n```sh\nkv Store.migrate\n```\n\nmigrate is prose, `kv sync` a span.\n"
+    monkeypatch.setattr(dd_corpus, "_drift_readme", lambda _w: clean)
+    assert _expect_readme(item, tmp_path, "absent:migrate") is None

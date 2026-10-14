@@ -463,10 +463,41 @@ def span_names(span: str, name: str) -> bool:
     return "." in span and "." not in name and norm(span.strip().rsplit(".", 1)[-1]) == norm(name)
 
 
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def _absent_hits(lines: list[str], name: str) -> list[tuple[int, str]]:
+    """The numbered lines that name ``name`` for ``readme:absent``: an inline-code span whose
+    whole text, or one of whose whitespace-split words, equals it by norm (`` `kv migrate` ``),
+    or a line inside a fence one of whose words does. A dotted word (``Store.migrate``) is one
+    word, so it does not trip ``migrate``."""
+    want = norm(name)
+    hits: list[tuple[int, str]] = []
+    fence = ""
+    for n, line in enumerate(lines, 1):
+        marker = _FENCE.match(line)
+        if fence:
+            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence):
+                fence = ""
+            elif any(norm(word) == want for word in line.split()):
+                hits.append((n, line))
+            continue
+        if marker:
+            fence = marker.group(1)
+            continue
+        spans = _SPAN.findall(line)
+        if any(norm(span.strip()) == want or any(norm(w) == want for w in span.split())
+               for span in spans):
+            hits.append((n, line))
+    return hits
+
+
 def _expect_readme(item: dict[str, Any], workdir: Path, arg: str) -> str | None:
     """``readme:names:<name>``: some inline-code span of the drift README names ``<name>`` (see
-    ``span_names``). ``readme:absent:<name>``: no span's whole text equals ``<name>`` by norm,
-    so ``Store.migrate`` does not trip the decoy ``migrate``."""
+    ``span_names``). ``readme:absent:<name>``: no span's whole text nor any of its
+    whitespace-split words, nor a word of a fenced line, equals ``<name>`` by norm
+    (``_absent_hits``), so `` `kv migrate` `` trips the decoy ``migrate`` and
+    ``Store.migrate`` does not."""
     how, _, name = arg.partition(":")
     text = _drift_readme(workdir)
     if how == "names":
@@ -476,8 +507,7 @@ def _expect_readme(item: dict[str, Any], workdir: Path, arg: str) -> str | None:
             return None
         return f"README.md has no inline-code span holding {name}"
     if how == "absent":
-        found = [n for n, line in enumerate((text or "").splitlines(), 1)
-                 if any(norm(span.strip()) == norm(name) for span in _SPAN.findall(line))]
+        found = [n for n, line in _absent_hits((text or "").splitlines(), name)]
         return f"README.md names {name} on lines {found}" if found else None
     return f"unknown readme expectation {how!r}"
 

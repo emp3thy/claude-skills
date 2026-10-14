@@ -328,9 +328,25 @@ def test_row_counts_sheet_and_readme_calls(workdir: Path) -> None:
     more = [*base, Call("sheet", "a01", "sonnet", 1.0, 1, 0.0, "ok"),
             Call("sheet", "a02", "sonnet", 1.0, 1, 0.0, "ok"),
             Call("readme", "r01", "opus", 1.0, 1, 0.0, "ok")]
-    got = cells(more)
-    assert got["agents"] == "1/0/1/2/1"
-    assert got["notes"] == "x; readme: 42 lines"
+    assert cells(more)["agents"] == "1/0/1/2/1"
+    assert cells(more)["notes"] == "x"  # not a README-mode run: no README figures
+    pre = json.loads((workdir / "preflight.json").read_text(encoding="utf-8"))
+    _write(workdir, "preflight.json", {**pre, "readme": True})
+    _write(workdir, "areas.json", {"areas": [{"id": "a01"}, {"id": "a02"}, {"id": "a03"}]})
+    _write(workdir, "sheets.json", {"sheets": {"a01": {}, "a02": {}},
+                                    "unchecked": [{"area": "a03", "why": "no output"}]})
+    statements = [{"id": f"r-s00{n}", "start_line": n, "end_line": n, "text": f"t{n}",
+                   "prereject": "guarantee word" if n == 5 else None} for n in range(1, 7)]
+    _write(workdir, "readme.json", {"text": "", "statements": statements, "attempts": 1})
+    _write(workdir, "verdicts.json", {"verdicts": {}, "unverified": [], "readme_unverified":
+                                      ["r-s004"], "readme": {
+                                          "r-s001": {"verdict": "accept"},
+                                          "r-s002": {"verdict": "reject"},
+                                          "r-s003": {"verdict": "unsure"}}})
+    assert cells(more)["notes"] == (
+        "x; areas 3; sheets 2/1; statements 6/1/2/1/1; readme 42 lines")
+    _write(workdir, "applied.json", {"applied": [], "reverted": [], "readme": None})
+    assert cells(more)["notes"].endswith("; readme 0 lines")
 
 
 def test_drive_runs_compose_even_with_an_empty_docs_plan_in_readme_mode(
