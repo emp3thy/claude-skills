@@ -294,6 +294,32 @@ def test_add_subject_in_backticks_matches_the_normalised_gap_name(tmp_path: Path
     assert "- b.md:1 add env app-x (src/x.py:2)" in _show(root, out["commits"][1]["sha"], "%B")
 
 
+def test_add_subject_listing_several_gap_names_takes_the_first_kind(tmp_path: Path) -> None:
+    # live run: a gap agent put three flags that go together in one edit, its subject
+    # "--tested, --passing, --failing"; the kind is the first listed name's gap
+    root, work, head = _phase_a(tmp_path)
+    edits = read_json(work / "edits.json")
+    edits["edits"][1]["subject"] = "--tested, --passing, --failing"
+    write_json(work / "edits.json", edits)
+    write_json(work / "gaps.json", {"no_home": [], "gaps": [
+        {"name": "--passing", "kind": "env", "target_doc": "b.md"},
+        {"name": "--tested", "kind": "flag", "target_doc": "b.md"},
+        {"name": "--failing", "kind": "flag", "target_doc": "b.md"}]})
+    out = run(root, work, "drift/r", "r", head, "first", [])
+    message = _show(root, out["commits"][1]["sha"], "%B")
+    assert "- b.md:1 add flag --tested, --passing, --failing (src/x.py:2)" in message
+
+
+def test_add_subject_listing_only_unknown_names_is_an_error(tmp_path: Path) -> None:
+    root, work, head = _phase_a(tmp_path)
+    edits = read_json(work / "edits.json")
+    edits["edits"][1]["subject"] = "--nope, --nor"
+    write_json(work / "edits.json", edits)
+    with pytest.raises(StepError) as exc:
+        run(root, work, "drift/r", "r", head, "first", [])
+    assert "matches no gap" in str(exc.value)
+
+
 def test_failed_second_commit_keeps_the_first_in_commits_json(tmp_path: Path) -> None:
     root, work, head = _phase_a(tmp_path)
     hook = root / ".git" / "hooks" / "commit-msg"

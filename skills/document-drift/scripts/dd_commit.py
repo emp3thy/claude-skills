@@ -239,14 +239,18 @@ def _count(value: Any) -> int:
 def gap_kind(edit: dict[str, Any], gaps: list[dict[str, Any]]) -> str:
     """Kind of the gap an ``add`` edit documents: the ``gaps.json`` gap whose name equals the
     edit's ``subject`` (backticks and spaces stripped, both sides ``dd_defindex.norm``ed),
-    preferring the one targeting the edit's doc. No match raises ``StepError``."""
-    want = norm(str(edit.get("subject") or "").strip().strip("`").strip())
-    same = [g for g in gaps if norm(str(g.get("name") or "")) == want]
-    same.sort(key=lambda g: g.get("target_doc") != edit["doc"])
-    if not same:
-        raise StepError(f"add edit {edit['id']} names {edit.get('subject')!r}, which matches no "
-                        "gap in gaps.json", EXIT_MISSING)
-    return str(same[0]["kind"])
+    preferring the one targeting the edit's doc. A subject listing several names, comma
+    separated (the gap prompt asks for entries that go together in one edit), takes the
+    first listed name that is a gap. No match raises ``StepError``."""
+    names = [norm(part.strip().strip("`").strip())
+             for part in str(edit.get("subject") or "").split(",")]
+    for want in (n for n in names if n):
+        same = [g for g in gaps if norm(str(g.get("name") or "")) == want]
+        same.sort(key=lambda g: g.get("target_doc") != edit["doc"])
+        if same:
+            return str(same[0]["kind"])
+    raise StepError(f"add edit {edit['id']} names {edit.get('subject')!r}, which matches no "
+                    "gap in gaps.json", EXIT_MISSING)
 
 
 
