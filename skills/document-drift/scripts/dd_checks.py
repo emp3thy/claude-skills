@@ -11,6 +11,10 @@
   then carries ``repaired: true``. No repair when ``old`` is exactly the text of another range
   of the doc: the range is then misplaced (an off-by-one onto an indentation twin), not
   mis-indented.
+- ``overlap-script`` (dropped, phase C spec 5): the range of an edit that is not a script edit
+  overlaps a kept script edit (``Context.script``): the script settled that line already, so
+  the edit is dropped here, before any human check (``protected``, ``guarantee``,
+  ``large-deletion``, ``large-section``) could send it to the owner.
 - ``protected`` (human): a line of the range is in an honoured ``drift-ignore`` target, a
   generated region or a never-edit section. ``clear`` edits are exempt: they remove the
   skill's own notice line, and a ``drift-ignore`` over a notice is the reason to clear it.
@@ -39,8 +43,14 @@
   ``file`` definition), or a code-span name of ``new`` (``dd_anchors.references``) that ``old``
   lacks is neither in the definition index nor a whole word of a tracked source or project
   file. Notice-loop edits skip this check: their ``new`` is a notice line.
-- ``overlap`` (human): the range overlaps an edit already kept for the same doc. ``check``
-  records each kept range in ``Context.kept``, so the call order is the keep order.
+- ``overlap`` (human): the range overlaps an edit already kept for the same doc. A script edit
+  can only overlap another script edit (they are checked first): the first by id is kept and
+  the later one is dropped (no human kind), so apply never sees two script edits on one line.
+  ``check`` records each kept range in ``Context.kept``, so the call order is the keep order.
+
+The checks an edit runs depend on its ``source`` (``CHECKS_BY_SOURCE``): a ``script`` edit
+(``dd_cite``, ``dd_facts``) runs only ``old-mismatch``, ``protected`` and ``overlap``, since
+it changes digits or one table cell; every other edit runs the whole table.
 
 Protected lines are recomputed per doc rather than read from tokens, since only lines that
 carry a token have token flags: the ``drift-ignore`` targets are ``tokens.json``'s honoured
@@ -48,18 +58,22 @@ markers (``dd_unverified.ignore_regions``); generated regions and heading paths 
 ``dd_extract``'s extractor over the doc text with ``inventory.json``'s ``never_edit_re``, a
 line being never-edit when a heading of its heading path matches.
 
-``run`` checks the review edits, then the gap edits, then ``notices.json``'s edits, each by id,
-writes ``edits.json`` and plans the verifier batches with ``dd_dispatch.plan_verify``:
-``{"edits", "questions", "refusals", "human", "unverified_blocks", "code_claims",
-"unchecked_units", "unchecked_gap_docs", "not_reviewed", "unverified_batches"}``.
+``run`` checks the script edits of ``script-edits.json`` (optional: absent means none) first,
+so their ranges are kept before any agent edit's, then the review edits, then the gap edits,
+then ``notices.json``'s edits, each by id, writes ``edits.json`` and plans the verifier batches
+with ``dd_dispatch.plan_verify``: ``{"edits", "questions", "refusals", "human",
+"unverified_blocks", "code_claims", "unchecked_units", "unchecked_gap_docs", "not_reviewed",
+"unverified_batches", "overlap_script"}``, ``overlap_script`` counting the edits dropped by
+that check.
 ``not_reviewed`` holds the ranges review outputs report as not reviewed, except those of a
 unit that a retry unit (``retry_of``) re-dispatched. Every edit gains ``source``
-(``review``, ``gap``, ``notice``), ``status`` (``kept``, ``dropped``, ``human``), ``check``,
+(``script``, ``review``, ``gap``, ``notice``: the file it came from, whatever the edit says),
+``status`` (``kept``, ``dropped``, ``human``), ``check``,
 ``human_kind`` and ``reason``; a check failure's human entry has the text ``<claim> (<reason>)``
 and the edit's evidence. ``human`` holds a Human-decision entry for each question, each
 check failure with a human kind and each ``target-refused`` gap refusal, sorted by doc and
-line; ``refusals`` holds the other gap refusals with their target doc. Notice edits are checked
-but never batched: they are not sent to a verifier (spec 7.3).
+line; ``refusals`` holds the other gap refusals with their target doc. Notice and script edits
+are checked but never batched: they are not sent to a verifier (spec 7.3, phase C spec 5).
 """
 from __future__ import annotations
 
@@ -88,7 +102,8 @@ MAX_SECTION_LINES = 40
 BATCH_SIZE = 10
 ANCHOR_EXTRA_WORDS = 3
 
-SOURCES = ("review", "gap", "notice")
+SOURCES = ("script", "review", "gap", "notice")  # script first: its ranges are kept first
+SCRIPT_CHECKS = ("old-mismatch", "protected", "overlap")
 NOTICE_TYPES = frozenset({"notice", "escalate", "clear", "unverified"})
 EVIDENCE_REQUIRED = frozenset({"correct", "add", "anchor"})
 DELETION_TYPES = frozenset({"remove", "unverified"})
@@ -117,7 +132,8 @@ Range = tuple[int, int]
 class Context:
     """What the checks read: per doc its lines and protected lines (line -> region kind), the
     definition index by norm, HEAD's files and dirs, the tracked source and project files'
-    normalised words and texts, and the config. ``kept`` collects the kept ranges per doc."""
+    normalised words and texts, and the config. ``kept`` collects the kept ranges per doc,
+    ``script`` the kept script edits' ranges among them."""
     root: Path
     texts: dict[str, list[str]]
     protected: dict[str, dict[int, str]]
@@ -129,6 +145,7 @@ class Context:
     source_texts: list[str]
     config: Mapping[str, Any]
     kept: dict[str, list[Range]] = field(default_factory=dict)
+    script: dict[str, list[Range]] = field(default_factory=dict)
     line_counts: dict[str, int] = field(default_factory=dict)
 
 
@@ -152,7 +169,7 @@ def _protected(doc: str, text: str, markers: Sequence[Mapping[str, Any]],
     extractor = _Extractor(doc, text, never)
     lines: dict[int, str] = {}
     starts, paths = extractor.heading_paths()
-    bounds = [*starts[1:], extractor.count + 1]
+    bounds = [*starts[1:], extractor.count + 1] if starts else []
     for start, end, path in zip(starts, bounds, paths, strict=True):
         if any(never.search(h) for h in path):
             lines.update(dict.fromkeys(range(start, end), "never-edit section"))
@@ -447,6 +464,16 @@ def _new_reference(edit: dict[str, Any], ctx: Context) -> str | None:
     return None
 
 
+def _overlap_script(edit: dict[str, Any], ctx: Context) -> str | None:
+    if edit.get("source") == "script":
+        return None
+    start, end = int(edit["start_line"]), int(edit["end_line"])
+    for a, b in ctx.script.get(edit["doc"], []):
+        if start <= b and a <= end:
+            return f"lines {start}-{end} overlap a script edit on lines {a}-{b}"
+    return None
+
+
 def _overlap(edit: dict[str, Any], ctx: Context) -> str | None:
     start, end = int(edit["start_line"]), int(edit["end_line"])
     for a, b in ctx.kept.get(edit["doc"], []):
@@ -457,6 +484,7 @@ def _overlap(edit: dict[str, Any], ctx: Context) -> str | None:
 
 CHECKS: tuple[tuple[str, Callable[[dict[str, Any], Context], str | None]], ...] = (
     ("old-mismatch", _old_mismatch),
+    ("overlap-script", _overlap_script),  # before the human checks: the script settled it
     ("protected", _protected_check),
     ("evidence", _evidence),
     ("still-in-source", _still_in_source),
@@ -467,21 +495,28 @@ CHECKS: tuple[tuple[str, Callable[[dict[str, Any], Context], str | None]], ...] 
     ("new-reference", _new_reference),
     ("overlap", _overlap),
 )
+CHECKS_BY_SOURCE = {source: tuple(c for c in CHECKS if source != "script"
+                                  or c[0] in SCRIPT_CHECKS) for source in SOURCES}
 
 
 def _check(edit: dict[str, Any], ctx: Context) -> tuple[str, str | None, str | None, str | None]:
-    for name, fn in CHECKS:
+    for name, fn in CHECKS_BY_SOURCE.get(str(edit.get("source")), CHECKS):
         reason = fn(edit, ctx)
         if reason is not None:
-            kind = HUMAN_KINDS.get(name)
+            # a script edit on a line another script edit settled needs no human decision
+            script_overlap = name == "overlap" and edit.get("source") == "script"
+            kind = None if script_overlap else HUMAN_KINDS.get(name)
             return ("human" if kind else "dropped"), name, kind, reason
-    ctx.kept.setdefault(edit["doc"], []).append(
-        (int(edit["start_line"]), int(edit["end_line"])))
+    span = (int(edit["start_line"]), int(edit["end_line"]))
+    ctx.kept.setdefault(edit["doc"], []).append(span)
+    if edit.get("source") == "script":
+        ctx.script.setdefault(edit["doc"], []).append(span)
     return "kept", None, None, None
 
 
 def check(edit: dict[str, Any], ctx: Context) -> tuple[str, str | None, str | None]:
-    """``(status, failing check, human kind)`` of ``edit`` (spec 9.1, first failure decides).
+    """``(status, failing check, human kind)`` of ``edit`` (spec 9.1, first failure decides),
+    running the checks of its ``source`` (``CHECKS_BY_SOURCE``; the whole table for any other).
     The whitespace repair rewrites ``edit`` in place; a kept edit's range joins ``ctx.kept``."""
     status, name, kind, _ = _check(edit, ctx)
     return status, name, kind
@@ -492,7 +527,8 @@ def check(edit: dict[str, Any], ctx: Context) -> tuple[str, str | None, str | No
 def batches(kept_edits: Iterable[Mapping[str, Any]],
             size: int = BATCH_SIZE) -> list[list[Mapping[str, Any]]]:
     """Kept review and gap edits grouped by the file of their first evidence entry (an edit
-    with no evidence by its doc), groups by key, edits by id, at most ``size`` per batch."""
+    with no evidence by its doc), groups by key, edits by id, at most ``size`` per batch. Notice
+    and script edits are never batched."""
     groups: dict[str, list[Mapping[str, Any]]] = {}
     for edit in kept_edits:
         if edit.get("status") != "kept" or edit.get("source") not in ("review", "gap"):
@@ -538,8 +574,9 @@ def _outputs(plan: Sequence[Mapping[str, Any]], failed: frozenset[str] | set[str
 
 def run(root: Path, workdir: Path, config: Mapping[str, Any],
         failed: frozenset[str] | set[str] = frozenset()) -> dict[str, Any]:
-    """Check every review, gap and notice edit; write ``edits.json`` and ``plan-verify.json``.
-    ``failed`` holds the ids of plan entries whose output failed validation after retry."""
+    """Check every script, review, gap and notice edit; write ``edits.json`` and
+    ``plan-verify.json``. ``failed`` holds the ids of plan entries whose output failed
+    validation after retry."""
     plan = _load(workdir, "plan-docs.json", "dd_dispatch")
     units = _load(workdir, "units.json", "dd_units")
     gaps = _load(workdir, "gaps.json", "dd_gaps")
@@ -574,6 +611,9 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any],
                 human.append(_human(doc, _target_line(gaps, doc, refusal["name"]),
                                     "target-refused", refusal["name"], [refusal["reason"]]))
     found["notice"] = [dict(e) for e in notices.get("edits", [])]
+    script_path = workdir / "script-edits.json"
+    if script_path.is_file():
+        found["script"] = [dict(e) for e in read_json(script_path).get("edits", [])]
     for q in questions:
         extra = q.get("code") or q.get("question") or ""
         human.append(_human(q["doc"], int(q["line"]), q["kind"], q["claim"],
@@ -583,9 +623,9 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any],
     checked: list[dict[str, Any]] = []
     for source in SOURCES:
         for edit in sorted(found[source], key=lambda e: str(e["id"])):
+            edit["source"] = source  # the checks follow the file, never the edit's own claim
             status, name, kind, reason = _check(edit, ctx)
-            edit.update(source=source, status=status, check=name, human_kind=kind,
-                        reason=reason)
+            edit.update(status=status, check=name, human_kind=kind, reason=reason)
             checked.append(edit)
             if kind is not None and reason is not None:
                 human.append(_human(edit["doc"], int(edit["start_line"]), kind,
@@ -611,6 +651,7 @@ def run(root: Path, workdir: Path, config: Mapping[str, Any],
         "unchecked_gap_docs": unchecked_gap_docs,
         "not_reviewed": not_reviewed,
         "unverified_batches": [[str(e["id"]) for e in b] for b in planned[cap:]],
+        "overlap_script": sum(e["check"] == "overlap-script" for e in checked),
     }
     write_json(workdir / "edits.json", result)
     plan_verify(root, workdir, planned, config)

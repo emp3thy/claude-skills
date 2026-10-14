@@ -12,7 +12,7 @@ The docs in scope, the only files that count as documentation:
 
 ## The gaps
 
-Each line gives the name's kind, the name, its parent (the command or tool a flag or parameter belongs to), the `path:line` where the code defines it, the gap kind, the target line in this doc and the reason that target was chosen:
+Each line gives the name's kind, the name, its parent (the command or tool a flag or parameter belongs to), the `path:line` where the code defines it, the gap kind, the target line in this doc and the reason that target was chosen, then, when the scan found them, the facts the code sets for the name (its default, its choices, and whether it is required or optional), which an added entry states as they are:
 
 {{gaps}}
 

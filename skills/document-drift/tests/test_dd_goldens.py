@@ -5,8 +5,10 @@ outputs; state 1 runs on 2026-01-02 and state 2 on the harness's pinned later da
 ``docs/drift-golden``. Compared byte for byte against ``golden/<fixture>/state<N>/``: the
 stage outputs, the commit messages and every doc the run edited (under ``docs/<doc path>``);
 a README-mode run (phase B) adds its own outputs, the summary and the README it wrote
-(``docs/README.md``). Absolute paths in the outputs are rewritten to ``<workdir>``. A file a
-run does not produce is recorded by its absence from the golden directory.
+(``docs/README.md``), and a run that made the citations commit (phase C) adds
+``script-edits.json``, that commit's message and the summary. Absolute paths in the outputs
+are rewritten to ``<workdir>``. A file a run does not produce is recorded by its absence from
+the golden directory.
 ``UPDATE_GOLDENS=1`` rewrites the golden directories instead of comparing; read every
 regenerated commit message and doc before committing them.
 """
@@ -29,6 +31,8 @@ OUTPUTS = (
 )
 # compared only in README mode, so the phase A goldens stay as they were
 README_OUTPUTS = ("areas.json", "sheets.json", "plan-readme.json", "readme.json", "summary.md")
+# compared only when the run made the citations commit (phase C), so the earlier goldens stay
+SCRIPT_OUTPUTS = ("script-edits.json", "commit-msg-citations.txt", "summary.md")
 PAIRS = [(name, state) for name in FIXTURES for state in fixture_states(name)]
 
 
@@ -38,7 +42,9 @@ def _actual(repo: Path, workdir: Path) -> dict[str, bytes]:
     posix = workdir.as_posix()
     out: dict[str, bytes] = {}
     readme = bool(read_json(workdir / "preflight.json").get("readme"))
-    for name in OUTPUTS + (README_OUTPUTS if readme else ()):
+    script = (workdir / "commit-msg-citations.txt").is_file()
+    names = OUTPUTS + (README_OUTPUTS if readme else ()) + (SCRIPT_OUTPUTS if script else ())
+    for name in dict.fromkeys(names):
         path = workdir / name
         if not path.is_file():
             continue

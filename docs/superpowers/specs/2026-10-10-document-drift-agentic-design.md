@@ -275,6 +275,7 @@ The agent writes `review/<unit>.json`:
 - `code_claims` counts, per doc in the unit, the statements about this repository's code, including the ones that name nothing; 0 means the doc is not about the code.
 - `unverified_blocks` lists whole blocks (a paragraph, a list, a table, by line range) for the notice loop of section 7.3. A block that already carries a notice, or that overlaps an edit in the same output, is not listed.
 - `not_reviewed` (optional, added 2026-10-13) lists the ranges of the unit the agent did not check against the code, each with a `why`. The `verify` stage packs those ranges into retry units (fresh unit ids, `retry_of` naming the source unit, appended to `units.json` and `plan-docs.json`) and lists them in `retry.json` with the invalid outputs, so the session dispatches them once with the ordinary exit-3 rule. Ranges still reported as not reviewed on the `--retried` pass are listed in `edits.json` and the summary as not reviewed and are not retried again. A range the agent did not check is never an unverified block.
+- `opened` (optional, added 2026-10-14 by phase C) lists every file the agent opened beyond the code its prompt shows, each as `{"path", "why"}`; absent means none.
 
 ### 7.3 Blocks nothing can be tied to: the notice loop
 
@@ -416,7 +417,7 @@ Drift-Unchecked: ...
 - <doc>:<line> add <kind> <name> (<path:line>)
 ```
 
-The first commit holds the applied review edits (`correct`, `remove` and `anchor`), the notice-loop edits of section 7.3 and their heading link updates; the second holds the applied gap edits. When one of them has no edits it is not made. The last commit made ends with:
+The first commit holds the applied review edits (`correct`, `remove` and `anchor`), the notice-loop edits of section 7.3 and their heading link updates; the second holds the applied gap edits. When one of them has no edits it is not made. Phase C adds a third commit for script edits, `docs(drift): correct citations and facts` (phase C spec, section 6). The last commit made ends with:
 
 ```
 

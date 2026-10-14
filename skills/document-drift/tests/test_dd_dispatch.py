@@ -751,3 +751,206 @@ def test_collect_verdicts_routes_statement_batches(tmp_path: Path) -> None:
                    "r-s002": {"verdict": "reject", "reason": "no such default"}},
         "readme_unverified": ["r-s004"]}
     assert read_json(workdir / "verdicts.json") == result
+
+
+# ---------------------------------------------------------------- phase C: facts, settled
+
+def _scanned(name: str, kind: str = "env", parent: str | None = None, *,
+             default: str | None = None, choices: list[str] | None = None,
+             required: bool | None = None) -> dict[str, Any]:
+    return {"name": name, "kind": kind, "file": "src/app.py", "line": 7, "parent": parent,
+            "hidden": False, "default": default, "choices": choices, "required": required}
+
+
+def _section(text: str, heading: str) -> str:
+    """The body of ``## heading`` in a prompt, up to the next ``## `` heading."""
+    body = text.split(f"\n## {heading}\n", 1)[1]
+    return body.split("\n## ", 1)[0]
+
+
+def test_unsettled_hints_are_cut_and_flattened_and_empty_defaults_shown() -> None:
+    unit = {"docs": [{"doc": "README.md", "ranges": [[1, 5]]}], "anchors": []}
+    script = {"edits": [], "hints": {"README.md": [
+        {"line": 2, "kind": "cite-unresolved", "text": "a\nb" + "h" * 300}]}}
+    assert dd_dispatch._unsettled_value(unit, script) == f"- README.md:2: a b{'h' * 157}"
+    assert dd_dispatch._settled_value(unit, script) == "(none)"
+    assert dd_dispatch._facts(_scanned("APP_X", default="")) == 'default ""'
+    assert dd_dispatch._facts(_scanned("APP_X", default="", required=True)) == (
+        'default ""; required')
+
+
+def test_later_run_lists_only_touched_ranges_within_budget(tmp_path: Path) -> None:
+    # Review Focus 5: a later-run unit of two anchors whose change touched one of them
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "a.py").write_text("".join(f"a{n}\n" for n in range(1, 41)),
+                                       encoding="utf-8")
+    (root / "src" / "b.py").write_text("".join(f"b{n}\n" for n in range(1, 41)),
+                                       encoding="utf-8")
+    doc = "".join(f"doc line {n}\n" for n in range(1, 21))
+    (root / "README.md").write_text(doc, encoding="utf-8")
+    touched = _anchor("README.md", 3, "alpha", "src/a.py", 5, 12)
+    untouched = _anchor("README.md", 9, "beta", "src/b.py", 20, 35)
+    hunks = {"src/a.py": [_hunk("src/a.py", 7, 7, "-old\n+a7\n")]}
+    affected = {"README.md": {"anchor_reasons": [{"ref": "alpha", "line": 3,
+                                                  "file": "src/a.py", "hunk": [7, 7]}],
+                              "missing": [], "doc_changed": False, "sections": []}}
+    units = dd_units.build({"README.md": [[1, 20]]}, [touched, untouched],
+                           hunks, "later", {"README.md": doc}, 6000, affected)
+    assert len(units) == 1 and len(units[0]["anchors"]) == 2
+    workdir = root / ".document-drift"
+    write_json(workdir / "units.json", {"units": units, "unchecked": []})
+    write_json(workdir / "gaps.json", {"targets": {}})
+    write_json(workdir / "changes.json", {"mode": "later", "last_run": SHA, "affected": affected,
+                                          "hunks": hunks, "review": {}})
+    write_json(workdir / "inventory.json", {"docs": ["README.md"]})
+    plan = dd_dispatch.plan_docs(root, workdir, _config())
+    text = Path(plan[0]["prompt"]).read_text(encoding="utf-8")
+    # the code is not inlined (spec 10's fallback): the touched anchor's range is listed
+    assert "## The code" not in text
+    assert "- `alpha` (README.md line 3) -> src/a.py:5-12\n" in text
+    assert "src/b.py" not in text and "a6" not in text
+    assert units[0]["size"] >= 12 - 5 + 1  # the listed range counts in the size
+
+
+def test_settled_section_lists_script_edits_and_hints_in_range(tmp_path: Path) -> None:
+    root, workdir = _tree(tmp_path)
+    script = {
+        "edits": [
+            {"id": "s-c001", "doc": "docs/guide.md", "start_line": 5, "end_line": 5,
+             "old": "see `src/app.py:9`", "new": "see `src/app.py:1`", "type": "cite"},
+            {"id": "s-f001", "doc": "docs/guide.md", "start_line": 22, "end_line": 22,
+             "old": "x" * 200, "new": "y", "type": "fact"},
+            # outside u002's ranges (1-10, 20-30), and in another doc
+            {"id": "s-c002", "doc": "docs/guide.md", "start_line": 15, "end_line": 15,
+             "old": "o", "new": "n", "type": "cite"},
+            {"id": "s-c003", "doc": "README.md", "start_line": 3, "end_line": 3,
+             "old": "Run `start`.", "new": "Run `begin`.", "type": "cite"}],
+        "hints": {"docs/guide.md": [
+            {"line": 7, "kind": "cite-ambiguous", "text": "`app.py:3` matches 2 files"},
+            {"line": 12, "kind": "not-in-scan", "text": "`APP_X` is not in the scan"}]},
+        "counts": {}}
+    write_json(workdir / "script-edits.json", script)
+    unit = read_json(workdir / "units.json")["units"][1]
+    settled = dd_dispatch._settled_value(unit, script)
+    assert settled == "\n".join([
+        "- docs/guide.md:5: see `src/app.py:9` -> see `src/app.py:1`",
+        f"- docs/guide.md:22: {'x' * 160} -> y"])
+    unsettled = dd_dispatch._unsettled_value(unit, script)
+    assert unsettled == "- docs/guide.md:7: `app.py:3` matches 2 files"
+    for value in (dd_dispatch._settled_value, dd_dispatch._unsettled_value):
+        assert value(unit, None) == "(none)"
+        assert value(unit, {"edits": [], "hints": {}}) == "(none)"
+    plan = dd_dispatch.plan_docs(root, workdir, _config())
+    by_id = {e["id"]: Path(e["prompt"]).read_text(encoding="utf-8") for e in plan}
+    settled_section = _section(by_id["u002"], "Already settled by script")
+    unsettled_section = _section(by_id["u002"], "Not settled by script: these need you")
+    # the hints are the agent's work: never listed as settled
+    assert settled in settled_section and "docs/guide.md:7" not in settled_section
+    assert unsettled in unsettled_section and "->" not in unsettled_section.split("\n\n")[1]
+    assert "docs/guide.md:15" not in by_id["u002"] and "docs/guide.md:12" not in by_id["u002"]
+    assert "- README.md:3: Run `start`. -> Run `begin`.\n" in by_id["u001"]
+    # without script-edits.json nothing is settled and nothing is left unsettled
+    (workdir / "script-edits.json").unlink()
+    plan = dd_dispatch.plan_docs(root, workdir, _config())
+    text = Path(plan[1]["prompt"]).read_text(encoding="utf-8")
+    assert "\n(none)\n" in _section(text, "Already settled by script")
+    assert "\n(none)\n" in _section(text, "Not settled by script: these need you")
+
+
+def test_anchor_lines_carry_facts(tmp_path: Path) -> None:
+    names = [_scanned("start", "command", default="8080", choices=["a", "b"], required=True),
+             _scanned("app_port", "param", "serve", default="80", required=False)]
+    for mode in ("first", "later"):
+        root, workdir = _tree(tmp_path / mode, mode=mode)
+        write_json(workdir / "patterns.json", {"names": names, "names_then": None,
+                                               "skipped": []})
+        plan = dd_dispatch.plan_docs(root, workdir, _config())
+        text = Path(plan[0]["prompt"]).read_text(encoding="utf-8")
+        assert ("- `start` (README.md line 3) -> src/app.py:1-2 "
+                "(default 8080; choices a, b; required)\n") in text
+    unit = {"anchors": [_anchor("README.md", 1, "app.port", "src/app.py", 1, 2),
+                        _anchor("README.md", 2, "other", "src/app.py", 1, 2)],
+            "docs": [{"doc": "README.md", "ranges": [[1, 3]]}]}
+    value = dd_dispatch._anchors_value(unit, {}, False, "", names)
+    assert value.splitlines() == [
+        "- `app.port` (README.md line 1) -> src/app.py:1-2 (default 80; optional)",
+        "- `other` (README.md line 2) -> src/app.py:1-2"]
+
+
+def test_verify_and_gap_prompts_carry_facts(tmp_path: Path) -> None:
+    root, workdir = _tree(tmp_path)
+    names = [_scanned("APP_PORT", default="8080", required=True),
+             _scanned("--mode", "flag", "serve", choices=["fast", "slow"]),
+             _scanned("APP_HOST"),  # no facts: nothing to say
+             _scanned("APP_MODE", default="fast")]
+    write_json(workdir / "patterns.json", {"names": names, "names_then": None, "skipped": []})
+    edit = _edit("u002-e01", old="Set `APP_PORT` to choose the APP_HOST port.",
+                 new="Set APP_PORT or pass --mode.")
+    plan = dd_dispatch.plan_verify(root, workdir, [[edit, _edit("u002-e02")]], _config())
+    text = Path(plan[0]["prompt"]).read_text(encoding="utf-8")
+    assert ("- Evidence: src/app.py:1\n- Facts: APP_PORT: default 8080; required\n"
+            "- Facts: --mode: choices fast, slow\n") in text
+    assert text.count("- Facts:") == 2
+    gaps = dd_dispatch.plan_docs(root, workdir, _config())
+    gap_text = Path(gaps[2]["prompt"]).read_text(encoding="utf-8")
+    assert "reason most-names; default 8080; required\n" in gap_text
+    assert ("`APP_HOST`, parent none, src/app.py:7, undocumented, target line 1, "
+            "reason most-names\n") in gap_text
+    guide_gap = Path(gaps[3]["prompt"]).read_text(encoding="utf-8")
+    assert "reason most-names; default fast\n" in guide_gap
+    # the lookup is by kind and parent: a flag of another command has no facts here
+    flag_gap = {**_gap("--mode", "README.md", 1), "kind": "flag", "parent": "run"}
+    assert dd_dispatch._gaps_value([flag_gap], names).endswith("reason most-names")
+    flag_gap["parent"] = "serve"
+    assert dd_dispatch._gaps_value([flag_gap], names).endswith(
+        "reason most-names; choices fast, slow")
+
+
+def test_validate_review_accepts_opened() -> None:
+    assert dd_dispatch.validate_review(_review()) == []
+    ok = _review(opened=[{"path": "src/app.py", "why": "the claim names its default"}])
+    assert dd_dispatch.validate_review(ok) == []
+    assert dd_dispatch.validate_review(_review(opened=[])) == []
+    assert dd_dispatch.validate_review(_review(opened="src/app.py")) == ["opened is not a list"]
+    problems = dd_dispatch.validate_review(_review(opened=[{"path": "src/app.py"},
+                                                           {"path": 3, "why": "x"}, "x"]))
+    assert problems == ["opened[0] has no why", "opened[1]: path is not a string",
+                        "opened[2] is not a JSON object"]
+
+
+def test_prompts_have_the_reading_rule_and_no_placeholder_left(tmp_path: Path) -> None:
+    for mode in ("first", "later"):
+        root, workdir = _tree(tmp_path / mode, mode=mode)
+        plan = dd_dispatch.plan_docs(root, workdir, _config())
+        text = Path(plan[0]["prompt"]).read_text(encoding="utf-8")
+        assert "{{" not in text
+        assert "open whatever else you need" not in text
+        assert "Open the current source whenever" not in text
+        # spec 10's fallback: no inline code; the agent reads the listed ranges
+        assert "## The code" not in text and "This is the code" not in text
+        assert "- `start` (README.md line 3) -> src/app.py:1-2\n" in text
+        assert "def start():" not in text
+        assert "Read the code ranges listed above with Read; open another file only when" in text
+        assert "list every such file in `opened` with one reason each" in text
+        assert '"opened": []' in text and "`opened` lists" in text
+        assert ("A file counts as opened when you Read it; Grep and Glob searches do not "
+                "count.") in text
+        settled = _section(text, "Already settled by script")
+        assert "Do not edit these lines: the script's correction stands." in settled
+        unsettled = _section(text, "Not settled by script: these need you")
+        assert "check and correct them like any claim" in unsettled
+        assert ("A citation whose definition you can find gets a `correct` edit with the "
+                "right line.") in unsettled
+        assert "No edit may touch a settled line" not in text
+        # the settled and unsettled lines come before the checking instructions
+        scope = "## What to check" if mode == "first" else "## Your scope"
+        assert (text.index("## Already settled by script")
+                < text.index("## Not settled by script: these need you") < text.index(scope))
+    for template in ("review-first", "review-later"):
+        source = (dd_dispatch.PROMPTS_DIR / f"{template}.md").read_text(encoding="utf-8")
+        assert "{{code}}" not in source
+        assert "{{settled}}" in source and "{{unsettled}}" in source
+    for template in ("verify", "gap"):
+        source = (dd_dispatch.PROMPTS_DIR / f"{template}.md").read_text(encoding="utf-8")
+        assert "{{code}}" not in source and "settled}}" not in source

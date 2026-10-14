@@ -1,204 +1,279 @@
 {
  "candidates": [
   {
+   "choices": null,
+   "default": null,
    "file": "pyproject.toml",
    "hidden": false,
    "kind": "script",
    "line": 8,
    "name": "svc",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "command",
    "line": 15,
    "name": "serve",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": "127.0.0.1",
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "flag",
    "line": 16,
    "name": "--host",
-   "parent": "serve"
+   "parent": "serve",
+   "required": null
   },
   {
+   "choices": null,
+   "default": "8080",
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "flag",
    "line": 17,
    "name": "--port",
-   "parent": "serve"
+   "parent": "serve",
+   "required": null
   },
   {
+   "choices": null,
+   "default": "2",
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "flag",
    "line": 18,
    "name": "--workers",
-   "parent": "serve"
+   "parent": "serve",
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "command",
    "line": 21,
    "name": "check",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": "svc.db",
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "flag",
    "line": 22,
    "name": "--db",
-   "parent": "check"
+   "parent": "check",
+   "required": null
   },
   {
+   "choices": null,
+   "default": "false",
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "flag",
    "line": 23,
    "name": "--repair",
-   "parent": "check"
+   "parent": "check",
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "command",
    "line": 25,
    "name": "export",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": "-",
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "flag",
    "line": 26,
    "name": "--output",
-   "parent": "export"
+   "parent": "export",
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "command",
    "line": 28,
    "name": "init",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": "svc.db",
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "flag",
    "line": 29,
    "name": "--db",
-   "parent": "init"
+   "parent": "init",
+   "required": null
   },
   {
+   "choices": null,
+   "default": "false",
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "flag",
    "line": 30,
    "name": "--force",
-   "parent": "init"
+   "parent": "init",
+   "required": null
   },
   {
+   "choices": null,
+   "default": "~/.svc",
    "file": "src/svc/config.py",
    "hidden": false,
    "kind": "env",
    "line": 26,
    "name": "SVC_HOME",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": "0",
    "file": "src/svc/config.py",
    "hidden": false,
    "kind": "env",
    "line": 27,
    "name": "SVC_PORT",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": "0",
    "file": "src/svc/config.py",
    "hidden": false,
    "kind": "env",
    "line": 28,
    "name": "SVC_WORKERS",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/config.py",
    "hidden": false,
    "kind": "env",
    "line": 29,
    "name": "SVC_LOG_LEVEL",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/routes.py",
    "hidden": false,
    "kind": "route",
    "line": 12,
    "name": "/health",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/routes.py",
    "hidden": false,
    "kind": "route",
    "line": 18,
    "name": "/items/<key>",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/routes.py",
    "hidden": false,
    "kind": "route",
    "line": 27,
    "name": "/stats",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/tools.py",
    "hidden": false,
    "kind": "tool",
    "line": 8,
    "name": "store.put",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/tools.py",
    "hidden": false,
    "kind": "param",
    "line": 11,
    "name": "key",
-   "parent": "store.put"
+   "parent": "store.put",
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/tools.py",
    "hidden": false,
    "kind": "param",
    "line": 11,
    "name": "value",
-   "parent": "store.put"
+   "parent": "store.put",
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/tools.py",
    "hidden": false,
    "kind": "tool",
    "line": 14,
    "name": "store.get",
-   "parent": null
+   "parent": null,
+   "required": null
   },
   {
+   "choices": null,
+   "default": null,
    "file": "src/svc/tools.py",
    "hidden": false,
    "kind": "param",
    "line": 16,
    "name": "key",
-   "parent": "store.get"
+   "parent": "store.get",
+   "required": null
   }
  ],
  "gaps": [

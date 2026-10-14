@@ -1,8 +1,8 @@
 """Commit the applied edits on a new branch with the owner-parsed message grammar (spec 9.4).
 
-``run``, ``render_message``, ``render_bullet`` and ``collect_human`` make the corrections and
-additions commits (see ``run``). Every repository-derived string of a message passes through
-``dd_redaction.redact`` and every line is cut to ``LINE_MAX`` characters.
+``run``, ``render_message``, ``render_bullet`` and ``collect_human`` make the corrections,
+additions and citations commits (see ``run``). Every repository-derived string of a message
+passes through ``dd_redaction.redact`` and every line is cut to ``LINE_MAX`` characters.
 """
 from __future__ import annotations
 
@@ -27,9 +27,11 @@ from dd_redaction import redact
 
 LINE_MAX = 160
 SUBJECTS = {"corrections": "docs(drift): correct stale docs",
-            "additions": "docs(drift): document missing surface"}
-KIND_ORDER = ("corrections", "additions")
+            "additions": "docs(drift): document missing surface",
+            "citations": "docs(drift): correct citations and facts"}
+KIND_ORDER = ("corrections", "additions", "citations")
 ADDITION_SOURCES = ("gap", "readme")  # the README's create edit is an addition (spec B 8)
+SCRIPT_SOURCE = "script"  # dd_cite and dd_facts edits: the citations commit (phase C spec 6)
 README = "README.md"
 PROPOSED = " (proposed line)"  # a readme-rejected line is the proposed README's, not the file's
 _SPAN = re.compile(r"`([^`\n]+)`")
@@ -48,7 +50,8 @@ def render_bullet(edit: dict[str, Any], line: int | None = None) -> str:
     ``subject`` (the gap agent's ``subject`` is the name added), since the gap edit does not
     carry the gap's kind. A ``create`` edit (the README, phase B spec 8) reads its counts from
     ``edit["statements"]``, ``edit["sheets"]`` (the valid sheets of ``sheets.json``) and
-    ``edit["removed"]`` (``applied.json`` ``readme``), which ``run`` fills in."""
+    ``edit["removed"]`` (``applied.json`` ``readme``), which ``run`` fills in. A ``cite`` or
+    ``fact`` edit (phase C spec 6) reads the fields ``dd_cite`` and ``dd_facts`` write."""
     where = f"{edit['doc']}:{line if line is not None else edit['start_line']}"
     kind = edit["type"]
     claim = str(edit.get("claim") or "")
@@ -73,6 +76,11 @@ def render_bullet(edit: dict[str, Any], line: int | None = None) -> str:
     elif kind == "add":
         text = (f"add {edit.get('gap_kind') or 'name'} {subject.strip().strip('`').strip()} "
                 f"({evidence[0] if evidence else ''})")
+    elif kind == "cite":  # phase C spec 6, from the fields dd_cite writes
+        text = f"cite {subject} {edit.get('old_cite')} -> {edit.get('new_cite')}"
+    elif kind == "fact":  # from the fields dd_facts writes
+        text = (f"fact {subject} {edit.get('column')} {edit.get('old_cell')} -> "
+                f"{edit.get('new_cell')} ({evidence[0] if evidence else ''})")
     elif kind == "create":
         text = (f"create readme ({int(edit.get('statements') or 0)} statements from "
                 f"{int(edit.get('sheets') or 0)} sheets, {int(edit.get('removed') or 0)} removed)")
@@ -231,33 +239,39 @@ def _count(value: Any) -> int:
 def gap_kind(edit: dict[str, Any], gaps: list[dict[str, Any]]) -> str:
     """Kind of the gap an ``add`` edit documents: the ``gaps.json`` gap whose name equals the
     edit's ``subject`` (backticks and spaces stripped, both sides ``dd_defindex.norm``ed),
-    preferring the one targeting the edit's doc. No match raises ``StepError``."""
-    want = norm(str(edit.get("subject") or "").strip().strip("`").strip())
-    same = [g for g in gaps if norm(str(g.get("name") or "")) == want]
-    same.sort(key=lambda g: g.get("target_doc") != edit["doc"])
-    if not same:
-        raise StepError(f"add edit {edit['id']} names {edit.get('subject')!r}, which matches no "
-                        "gap in gaps.json", EXIT_MISSING)
-    return str(same[0]["kind"])
+    preferring the one targeting the edit's doc. A subject listing several names, comma
+    separated (the gap prompt asks for entries that go together in one edit), takes the
+    first listed name that is a gap. No match raises ``StepError``."""
+    names = [norm(part.strip().strip("`").strip())
+             for part in str(edit.get("subject") or "").split(",")]
+    for want in (n for n in names if n):
+        same = [g for g in gaps if norm(str(g.get("name") or "")) == want]
+        same.sort(key=lambda g: g.get("target_doc") != edit["doc"])
+        if same:
+            return str(same[0]["kind"])
+    raise StepError(f"add edit {edit['id']} names {edit.get('subject')!r}, which matches no "
+                    "gap in gaps.json", EXIT_MISSING)
 
 
 
 def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: str,
         trailers: list[str]) -> dict[str, Any]:
-    """Make the corrections and additions commits on ``branch``; write ``commits.json``
+    """Make the corrections, additions and citations commits on ``branch``, in that order and
+    each only when it has an applied edit; write ``commits.json``
     ``{"branch", "commits": [{"sha", "kind"}]}`` and ``commit-msg-<kind>.txt``.
 
     Corrections hold the applied review and notice edits and their link updates, additions the
     applied gap edits and the README's ``create`` edit (``README.md`` staged by path, so the
     additions commit is made for it even when it is the only edit; its bullet's counts come
-    from ``sheets.json`` and ``applied.json`` ``readme``). The edits are already in the working
-    tree, so a doc cannot be split: it is staged in the first commit that touches it, and a doc
-    with both kinds of edits lands in the corrections commit, so a doc carrying both kinds has
-    its additions in the corrections commit (the additions commit is then made with
-    ``--allow-empty`` when no doc is left to stage, to keep its bullets). If the second commit
-    fails, ``commits.json`` already lists the first. Bullets are ordered by ``(doc,
-    start_line, id)`` with a link update as an indented sub-bullet under its edit. With no
-    applied edit there is no branch. The human list goes on the last commit made."""
+    from ``sheets.json`` and ``applied.json`` ``readme``), citations the applied script edits
+    (``source == "script"``: ``dd_cite`` and ``dd_facts``, phase C spec 6). The edits are
+    already in the working tree, so a doc cannot be split: it is staged in the first commit
+    that touches it, so a doc carrying edits of two kinds has the later kind's edits in the
+    earlier commit (a later commit is then made with ``--allow-empty`` when no doc is left to
+    stage, to keep its bullets). If a later commit fails, ``commits.json`` already lists the
+    earlier ones. Bullets are ordered by ``(doc, start_line, id)`` with a link update as an
+    indented sub-bullet under its edit. With no applied edit there is no branch. The human
+    list goes on the last commit made."""
     edits_doc = _need(workdir, "edits.json")
     applied = _need(workdir, "applied.json")
     done = set(applied.get("applied", []))
@@ -269,7 +283,9 @@ def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: s
     groups: dict[str, list[dict[str, Any]]] = {k: [] for k in KIND_ORDER}
     for edit in edits_doc["edits"]:
         if edit["id"] in done:
-            groups["additions" if edit.get("source") in ADDITION_SOURCES
+            source = edit.get("source")
+            groups["citations" if source == SCRIPT_SOURCE
+                   else "additions" if source in ADDITION_SOURCES
                    else "corrections"].append(edit)
     kinds = [k for k in KIND_ORDER if groups[k]]
     if not kinds:
@@ -313,7 +329,7 @@ def run(root: Path, workdir: Path, branch: str, run_id: str, base: str, scope: s
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(message.encode("utf-8"))
         todo = sorted(docs - staged)
-        empty = ["--allow-empty"] if kind == "additions" and not todo else []
+        empty = ["--allow-empty"] if n and not todo else []
         failure = ""
         if todo and run_git(root, ["--literal-pathspecs", "add", "--", *todo]) is None:
             failure = f"git add failed; {here} with the edits unstaged"

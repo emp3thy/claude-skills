@@ -216,13 +216,15 @@ row is never edited, with one exception: the owner fills in its `judged acceptab
   passed as `--base`) or `full`, from `changes.json` `scope`. `docs` counts the docs in scope;
   `affected` the docs reviewed (every doc on a first or full run, the affected docs on a later
   one); `units` the review units.
-- `edits proposed` is the total, then review / gap / notice; `kept` the edits that passed the
+- `edits proposed` is the total, then review / gap / notice; from phase C the total also counts
+  the script edits (`cite`, `fact`), which have no figure of their own in the brackets (so
+  `97 (83/4/5)` is 83 review, 4 gap, 5 notice and 5 script edits); `kept` the edits that passed the
   script checks; `verdicts` accept / reject / unsure / unverified; `applied` the edits applied
   (`0` under `--check`); `judged acceptable` the applied edits the repository's owner judged
   acceptable after reading the drift commits, as `n/m` of `applied` (spec 11.3): the harness
-  writes `-`, and the owner replaces it after judging, the one permitted edit to a row;
-  `human` the "Needs a human decision" entries; `notices placed` the
-  applied 1st and 2nd notices; `gaps` undocumented / missing-from-list.
+  writes `-`, and the owner replaces it after judging, the one permitted edit to a row; `human`
+  the "Needs a human decision" entries; `notices placed` the applied 1st and 2nd notices; `gaps`
+  undocumented / missing-from-list.
 - `planted caught` and `decoys touched` (fixtures only): an item of the state's `planted.json`
   is caught when every expectation holds (`dd_corpus.evaluate`); a decoy (`kind` `decoy` or
   `excluded`) is touched when one does not. An item marked `canned_only` (it encodes a
@@ -240,6 +242,10 @@ row is never edited, with one exception: the owner fills in its `judged acceptab
   <valid>/<unchecked>; statements <proposed>/<accepted>/<rejected>/<unsure>/<unverified>;
   readme <n> lines` (rejected counts the statements the citation check pre-rejected; `readme`
   is the length of the README written, 0 when none was). The table header is unchanged.
+- Phase C adds `cite <moved>/<checked>; facts <corrected>/<checked>; opened <n>` to the `notes`
+  cell of every row the harness writes: citations rewritten of citations checked, fact rows
+  corrected of rows checked (both from `script-edits.json`), and `n`, the `opened` entries
+  summed over the review outputs, so the reading rule is measurable.
 
 The phase 1 rows (`2026-10-09`, ralph and better-memory, from phase 1's deterministic
 `dd_run.py`) were removed with that section's columns: phase A replaced the pipeline they
@@ -267,6 +273,11 @@ rejected edits reached the human-decision list, so neither doc line was changed 
 | 2026-10-14 | py-cli-nodocs (state 1) | bdaa430 | first | 0 | 0 | 0 | 1 (0/0/0) | 1 | 0/0/0/0 | 1 | - | 3 | 0 | 8/0 | 9/9 | 0/3 | 0/0/8/4/1 | 2m33s | 734840 | 1.59 | 1 retried; canned-only: p9; areas 4; sheets 4/0; statements 41/38/3/0/0; readme 93 lines |
 | 2026-10-14 | claude-skills | 8b4decb | first | 26 | 26 | 16 | 23 (18/3/2) | 18 | 13/3/0/0 | 14 | - | 15 | 2 | 18/0 | - | - | 16/2/9 | 8m42s | 13077972 | 7.72 | 2 retried |
 | 2026-10-14 | py-cli-nodocs (state 1) | bdaa430 | first | 0 | 0 | 0 | 1 (0/0/0) | 1 | 0/0/0/0 | 1 | - | 5 | 0 | 8/0 | 9/9 | 0/3 | 0/0/7/4/1 | 2m05s | 645298 | 0.83 | models overridden: sonnet; 1 retried; canned-only: p9; areas 4; sheets 4/0; statements 43/38/5/0/0; readme 74 lines |
+| 2026-10-14 | better-memory | 9d5be26 | full | 38 | 38 | 5 | 94 (92/2/0) | 58 | 51/7/0/0 | 51 | - | 51 | 0 | 13/13 | - | - | 5/5/15 | 11m44s | 9720085 | 8.89 | 2 retried |
+| 2026-10-14 | better-memory | 9d5be26 | full | 38 | 38 | 5 | 97 (83/4/5) | 65 | 53/4/0/0 | 61 | - | 54 | 3 | 13/13 | - | - | 5/5/15 | 10m02s | 7999117 | 8.06 | 2 retried; cite 4/78; facts 1/73; opened 8 |
+| 2026-10-14 | better-memory | 9d5be26 | full | 38 | 38 | 4 | 93 (81/3/4) | 69 | 50/11/0/0 | 58 | - | 52 | 3 | 13/13 | - | - | 4/5/15 | 8m24s | 8805028 | 7.37 | 1 retried; cite 4/78; facts 1/73; opened 29; final phase C code (inline blocks removed, hints split) |
+| 2026-10-14 | claude-skills | 6600ae5 | full | 26 | 26 | 18 | 9 (5/4/0) | 5 | 4/1/0/0 | 4 | - | 14 | 0 | 18/0 | - | - | 18/2/5 | 6m43s | 10515272 | 6.85 | stopped: finish exited 5 (an add edit naming three flags matched no gap; fixed in fd3e69e); 4 retried; cite 0/26; facts 0/0; opened 64 |
+| 2026-10-14 | claude-skills | fd3e69e | full | 26 | 26 | 17 | 9 (6/3/0) | 7 | 6/1/0/0 | 6 | - | 10 | 0 | 18/0 | - | - | 17/2/6 | 6m31s | 9059930 | 6.48 | 3 retried; cite 0/26; facts 0/0 (23 rows not in scan); opened 52; 2 commits on docs/drift-2026-10-14 |
 
 **The `2026-10-14` `py-cli-nodocs (state 1)` row was re-scored** from the run's kept workdir
 (same files, no new agent call): first logged as `1/3` decoys touched (`touched d2`), it is
@@ -282,3 +293,116 @@ an unverified block per code block there. 270 claims checked, 2 `correct` edits,
 `CLAUDE.md`) as 0 code claims. A12 stays unvalidated (one Sonnet call, 1,442,094 tokens,
 $0.76; a first attempt with the workdir under `~/.claude` cost $1.10 and wrote nothing, since
 the agent refuses to write there).
+
+**Phase C measurement (2026-10-14, better-memory `9d5be26`, `--full`, same `.document-drift.yaml`):** the three
+better-memory rows above are the before run (the `main` code, phases A and B), the first after run
+(the phase C branch with the reading ranges inlined in the review prompt) and the final after run
+(the branch as merged: inline blocks removed under section 10's rule, the hints split into their own
+prompt section). The columns below follow that order.
+
+| | before | after (inline blocks) | after (final) |
+|---|---|---|---|
+| total | $8.89, 9.72M tokens, 11m44s | $8.06, 8.00M tokens, 10m02s | $7.37, 8.81M tokens, 8m24s |
+| review | 5 calls (2 retries), $4.64, 7.31M tokens, 1.46M per call, 191 s per call | 5 calls (2 retries), $4.69, 5.84M tokens, 1.17M per call, 184 s per call | 4 calls (1 retry), $3.93, 6.56M tokens, 1.64M per call (2.15M per full call), 206 s per call |
+| gap | 5 calls, $0.60, 0.49M | 5 calls, $0.50, 0.42M | 5 calls, $0.48, 0.44M |
+| verify | 15 calls, $3.65, 1.92M | 15 calls, $2.86, 1.74M | 15 calls, $2.96, 1.81M |
+| edits proposed | 94: 92 review, 2 gap, 0 notice | 97: 83 review, 4 gap, 5 notice, 5 script (4 cite, 1 fact) | 93: 81 review, 3 gap, 4 notice, 5 script (4 cite, 1 fact) |
+| verdicts | 51 accept, 7 reject | 53 accept, 4 reject | 50 accept, 11 reject |
+| notices placed | 0 | 3 (5 notice edits: 3 kept, 2 dropped as `overlap-script`) | 3 (4 notice edits: 3 kept, 1 dropped as `overlap-script`) |
+| applied | 51 | 61, including the 5 script edits and the 3 notice edits | 58, including the 5 script edits and the 3 notice edits |
+
+Review tokens per call fell 20% (1,462,013 to 1,167,157), against the acceptance target of a
+halving: **the target was not met.** Cost per review call did not move ($4.64 to $4.69 over five
+calls), the total fell 9% mostly in verify (15 calls, $3.65 to $2.86), and wall time per review call
+fell 4%. Per spec section 10 the figure is recorded here and the decision (keep the inline blocks
+for a 20% cut, or remove them and fall back to the prompt rule alone) is the owner's. The 20% is
+confounded: the after run's review agents proposed 9 fewer edits (83 against 92) and left the 20
+citation lines below untouched, both of which cut tokens on their own. Each figure is one run per
+side with no repeat, so run-to-run variance of the agents is not separated from the change;
+read the comparison as indicative.
+**Ruling (2026-10-14):** the halving target was not met, so under section 10's rule the inline
+code blocks were removed from the review prompts; the reading rule and `opened` stay.
+
+**The final after run** (inline blocks removed, hints under their own heading) had the same three
+large review units as the other two runs (5,836, 5,793 and 4,877 lines) and one small one (598
+lines) where they had two. Per large unit the review tokens were 2.02M before, 1.69M with the inline
+blocks and 2.15M in the final run: removing the blocks gave the 16% back and the wider reading
+added 7% on top. Total review tokens were 6.56M against 7.31M before and 5.84M with the blocks,
+the difference being the small units; the total cost fell 17% against the before run ($8.89 to
+$7.37), mostly in the verify and small-unit calls, and the verifier rejected 11 of 61 (the before
+run 7 of 58). Of the 20 citation lines
+the inline-block run left untouched, **16 got a review agent's `correct` edit again** (13 applied,
+3 rejected by the verifier: `agentcore-mapping.md` lines 39, 40 and 42) and 4 did not:
+`agentcore-mapping.md:53` (a subject-less table cell, listed as `cite-unresolved`), lines 69 and 73
+(protected lines the before run had sent to a human too) and `data-sources.md:167` (a guarantee,
+also a human item before). So the split of the hints recovered the regression except for one line,
+and the script's own 5 edits (4 `cite`, 1 `fact`) were the same five. The agents opened 29 files
+(22 distinct) over 3 full calls, against 8 in the inline-block run: `ui/app.py` and
+`setup/manifest.py` three times each, `mcp/tools.py`, `config.py` and
+`mcp/handlers/reflections.py` twice, the rest once, every entry with a one-line `why`; with no
+inlined ranges the reading rule is what limits the reading, and the agents read more files than
+the inlined ranges had covered at a 7% token cost per large unit over the before run.
+
+**The run on this repository** (phase C code at `fd3e69e`, `--full`, the two `claude-skills` rows
+above): the first attempt stopped in the commit step after the corrections commit, because the gap
+agent had put three flags that belong together in one `add` edit, as its prompt asks, and the
+commit step matched the whole subject (`--tested, --passing, --failing`) against one gap name;
+`gap_kind` now takes the first listed name that is a gap. The repeated run made two commits on
+`docs/drift-2026-10-14`: 6 corrections in `docs/architecture.md` (tech-debt-scan tiers, caps, the
+category and debt-type lists, where `findings.json` is written) and the three-flag addition in
+`skills/karate-bootstrap/SKILL.md`, with 10 human items (5 `no-home` names in test fixtures and
+scripts, 3 `unsure`, 1 `verify-rejected`, 1 `target-refused`). The script found nothing to rewrite:
+all 26 citations are unresolved (23 of them in this log, citing better-memory files that are not
+in this repository; the other 3 in the agent prompts, illustrative), and the 23 table rows the
+fact checker read are a YAML-key table in `skills/document-drift/SKILL.md` and an agent-count table
+in `skills/tech-debt-scan/SKILL.md`, neither of which the scan knows: 23 `not in scan` hints, no
+edit, as designed. Against the phase A run of the same docs ($7.72, 23 edits proposed, 14 applied,
+8m42s), this run cost $6.48 for 9 proposed and 6 applied in 6m31s; the docs had been corrected
+by that run already, so the two are not a like-for-like measure.
+
+The after run's agents opened 8 files over the 5 review calls (`opened` in `review/u00N.json`),
+all by the `opened` rule and none refused: `ui/app.py` three times (u001, u002, u004: route and
+`create_app` bodies the inline ranges did not cover, for claims that the UI never builds a backend
+and which routes use it), `mcp/tools.py` once (u003: the `required` list of the `memory.retrieve`
+schema, to settle a scan row against a doc that marks `query` optional), `storage/agentcore.py`
+once (u005: which backend methods exist, for new-method names in a spec), `storage/session.py`,
+`ui/queries.py` and `setup/manifest.py` once each (u001, u002: a function the claim names but the
+changed ranges did not include). So three classes: a body outside the inlined ranges (6), a
+schema the scan row contradicted (1), existence of a named method (1).
+
+The script made 5 edits, committed as `docs(drift): correct citations and facts` on
+`docs/drift-2026-10-14` (citations 78 checked, 6 current, 4 moved, 7 ambiguous, 16 use sites, 45
+unresolved; fact rows 73 checked, 1 corrected, 4 not in scan; 2 agent edits dropped as
+`overlap-script`):
+`docs/agentcore-ui/data-sources.md:139` `SemanticMemoryService.list_for_project`
+`services/semantic.py:220` to `:239`; `docs/agentcore-ui/write-spec.md:63` `list_session_exposures`
+`protocol.py:262` to `:380`; `chore-agentcore-backend-error-path-tests` `PBI.md:23` `observe`
+`agentcore.py:89` to `:238`; `chore-ui-app-factory-god-module` `PBI.md:23` `create_app`
+`app.py:22` to `:45`; `website/mcp-tools.md:60` fact `outcome` Required `yes` to `no`
+(`mcp/tools.py:257`). Each of the four rewrites targets the first line of the subject's current
+span in `defindex.json` (`semantic.py:239-358`, `protocol.py:380-397`, `agentcore.py:238-301`,
+`app.py:45-817`): 4 rewrites, 0 wrong.
+
+Against the before run: its agents proposed 50 edits whose `old` held a `path:line` citation
+(`edits.json`, source review or gap); 28 of them were kept by the checks and 25 were accepted
+and applied (3 rejected; of the other 22, 16 went to a human, 14 of them as `protected`, and 6
+were dropped as `new-reference`). Compared by document and line in the after run, 2 became script
+edits (`write-spec.md:63`, which the before agent also moved `262` to `380`, and
+`data-sources.md:139`, which the before checks had dropped as `new-reference`), 23 were again
+made by a review agent (11 kept and applied, 12 left to a human as in the before run), 5 were
+again dropped by the checks, and **20 got no edit at all**: `agentcore-mapping.md` lines 33,
+35-37, 39-44 and 53 (11 lines), 69 and 73, and `data-sources.md` lines 127-132 and 167
+(recounted from `live-bm-before/edits.json` against `live-bm-after/`). 14 of the 20 had been
+applied in the before run. Of the 20, the script listed 12 as `cite-unresolved` (subject-less
+table cells and a bare `agentcore.py:N` the nearest-name rule cannot place) and 5 as
+`cite-use-site`; 3 carry no hint (`agentcore-mapping.md:69` and `:73` sit in protected lines,
+which the before run had sent to a human, and `data-sources.md:167` was a guarantee the before
+run had sent to a human too). The agents saw the 17 hints under "Already settled by script" and
+treated those lines as off limits. So the spec's expectation that every citation the agent fixed
+before is a `cite` edit after, or a listed hint, holds only for the hint half: 17 of 50 were hints
+and unfixed. Fixed after the measurement: the review prompt now lists the hints under their own
+heading, `## Not settled by script: these need you`, as the agent's work, and only the `cite` and
+`fact` edits as settled. The 2 `overlap-script` drops were two whole-line `notice` placements
+(`notices.json`, for blocks an agent nominated as unverified), not agent corrections, on the two
+PBI.md lines the script rewrote (`agentcore.py:89` and `app.py:22`): the script edit won, which
+is the net C5 relies on.

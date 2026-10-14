@@ -69,7 +69,7 @@ def test_link_target_with_fragment_gives_path_and_anchor():
 
 def test_same_doc_anchor_target_doc_is_self():
     text = "# Title\n\nSee [below](#usage) and [code](src/app.py#L10).\n"
-    toks = _toks(text, doc="docs/a.md")
+    toks = [t for t in _toks(text, doc="docs/a.md") if t["kind"] != "cite"]
     assert [(t["kind"], t["text"], t["target_doc"]) for t in toks] == [
         ("anchor", "usage", "docs/a.md"),
         ("path", "src/app.py", None),
@@ -79,7 +79,7 @@ def test_same_doc_anchor_target_doc_is_self():
 def test_line_suffix_stripped_from_text_and_span():
     # ruling R13: the span covers exactly the text, never the stripped suffix
     text = "Edit `src/app.py:12`, `lib/x.go:3-9` and [code](src/app.py#L3-L9).\n"
-    toks = _toks(text)
+    toks = [t for t in _toks(text) if t["kind"] != "cite"]
     assert [(t["kind"], t["text"], _span(text, t)) for t in toks] == [
         ("path", "src/app.py", "src/app.py"),
         ("path", "lib/x.go", "lib/x.go"),
@@ -605,3 +605,58 @@ def test_crlf_and_lf_give_same_tokens():
     lf = "# T\n\n- `src/a.py`\n\n```bash\nmake x\n```\n"
     assert _toks(lf) == _toks(lf.replace("\n", "\r\n"))
 
+
+
+def test_cite_token_for_each_shape():
+    text = "See `src/app.py:12`, `src/app.py:12-20` and [code](src/app.py#L7).\n"
+    cites = _toks(text, "cite")
+    assert [(t["text"], _span(text, t), t["path"], t["start"], t["end"]) for t in cites] == [
+        ("src/app.py:12", "src/app.py:12", "src/app.py", 12, 12),
+        ("src/app.py:12-20", "src/app.py:12-20", "src/app.py", 12, 20),
+        ("src/app.py#L7", "src/app.py#L7", "src/app.py", 7, 7),
+    ]
+    paths = _toks(text, "path")
+    assert [t["text"] for t in paths] == ["src/app.py"] * 3
+    for cite, path in zip(cites, paths, strict=True):
+        assert (cite["line"], cite["col"]) == (path["line"], path["col"])
+
+
+def test_no_cite_token_without_a_line():
+    text = "See `src/app.py`, [code](src/app.py) and [x](src/app.py#top).\n"
+    assert _toks(text, "cite") == []
+    fence = "```bash\npython tools/run.py:3\n```\n"
+    assert _toks(fence, "cite") == []
+
+
+def test_bare_prose_citation_is_a_cite_token():
+    text = (
+        "# Store\n"
+        "\n"
+        "The write happens at agentcore.py:1578 (see storage/agentcore.py:1040-1053, 1526).\n"
+        "\n"
+        "- run_all lives at src/run.sh:3.\n"
+        "\n"
+        "| what | where |\n"
+        "|---|---|\n"
+        "| entry | app/main.ts:42 |\n"
+        "\n"
+        "Docs are not code: docs/guide.md:12, nor images: logo.png:3, nor www.x.com/a.py:4.\n"
+        "Inline `src/app.py:9` stays as it was; so does app.py:12:5 with a column.\n"
+        "\n"
+        "```text\n"
+        "fenced.py:7\n"
+        "```\n"
+    )
+    cites = [t for t in _toks(text, "cite") if t["context"] == "prose"]
+    assert [(t["line"], t["text"], _span(text, t), t["path"], t["start"], t["end"],
+             t["block"]["kind"]) for t in cites] == [
+        (3, "agentcore.py:1578", "agentcore.py:1578", "agentcore.py", 1578, 1578, "paragraph"),
+        (3, "storage/agentcore.py:1040-1053", "storage/agentcore.py:1040-1053",
+         "storage/agentcore.py", 1040, 1053, "paragraph"),
+        (5, "src/run.sh:3", "src/run.sh:3", "src/run.sh", 3, 3, "list_item"),
+        (9, "app/main.ts:42", "app/main.ts:42", "app/main.ts", 42, 42, "table_row"),
+    ]
+    assert all(t["editable"] and t["link"] is None for t in cites)
+    # the inline one keeps its single cite token, and a prose citation has no path token
+    assert [t["text"] for t in _toks(text, "cite") if t["context"] != "prose"] == ["src/app.py:9"]
+    assert {t["text"] for t in _toks(text, "path") if t["context"] == "prose"} == set()

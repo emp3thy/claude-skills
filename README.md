@@ -132,10 +132,12 @@ variable, MCP tool, route or script the code offers its users that no doc mentio
 missing from a doc's list of such things, is added. The docs are the record of what to check:
 the first run reviews every doc against the code it points at; later runs review only the
 statements whose code changed since the last drift run, and document only user-facing names
-added since then. A guarantee the code does not keep is listed for you, never edited, because
-the code may be the bug. A repository with no root `README.md` gets one written from the code,
-with every statement checked by a verifier agent. It never pushes, never opens a pull request,
-never runs the project's code, never creates a doc file other than that README and never edits changelogs, licences, ADRs, plans and specs,
+added since then. A moved `path:line` citation and stale defaults, choices or required flags in
+doc tables are fixed by script, in a commit of their own. A guarantee the code does not keep is
+listed for you, never edited, because the code may be the bug. A repository with no root
+`README.md` gets one written from the code, with every statement checked by a verifier agent. It
+never pushes, never opens a pull request, never runs the project's code, never creates a doc
+file other than that README and never edits changelogs, licences, ADRs, plans and specs,
 research or archive folders, vendored libraries, templates or generated files.
 
 Install it the same way:
@@ -169,13 +171,14 @@ output file; a missing or invalid output is re-dispatched once (exit 3, `--retri
 counted as unchecked.
 
 The output contract is a branch (default name `docs/drift-<YYYY-MM-DD>`) created from the
-starting HEAD with at most two commits, `docs(drift): correct stale docs` and
-`docs(drift): document missing surface`; the run leaves you on it. Each body carries the
-`Drift-Run`, `Drift-Base`, `Drift-Scope` and `Drift-Unchecked` lines and one bullet per edit,
-and the last commit ends with a `Needs a human decision:` list when there is one. Pushing the
-branch and opening the pull request are your own process. When no edit is applied, no branch is
-created and the summary is the whole output. `--check` runs through verification with no doc
-edit, no branch and no commit, and exits 1 when an edit would apply.
+starting HEAD with at most three commits, `docs(drift): correct stale docs`,
+`docs(drift): document missing surface` and `docs(drift): correct citations and facts`; the
+run leaves you on it. Each body carries the `Drift-Run`, `Drift-Base`, `Drift-Scope` and
+`Drift-Unchecked` lines and one bullet per edit, and the last commit ends with a
+`Needs a human decision:` list when there is one. Pushing the branch and opening the pull
+request are your own process. When no edit is applied, no branch is created and the summary is
+the whole output. `--check` runs through verification with no doc edit, no branch and no
+commit, and exits 1 when an edit would apply.
 
 A block that describes the code but names nothing the skill can tie to a definition gets a
 `drift-unverified` notice, an HTML comment on the line above it. Name what it describes, add a

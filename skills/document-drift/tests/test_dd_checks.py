@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import copy
+import re
 import shutil
 from pathlib import Path
 from typing import Any
 
 import pytest
-from dd_checks import Context, batches, check, context, main, run
+from dd_checks import Context, _protected, batches, check, context, main, run
 from dd_common import read_json, write_json
 from dd_config import DEFAULTS
 from dd_defindex import run as defindex_run
@@ -356,6 +357,71 @@ def test_overlap_goes_to_human(ctx: Context) -> None:
     assert _result(other, ctx) == ("kept", None, None)
 
 
+def _script(eid: str, start: int, new: str, *, kind: str = "cite",
+            old: str | None = None, evidence: tuple[str, ...] = ("missing.py:3",),
+            ) -> dict[str, Any]:
+    edit = _edit(eid, start=start, old=old, new=new, kind=kind, evidence=evidence,
+                 subject="put")
+    edit.update(source="script", status="kept", check=None, human_kind=None, reason=None)
+    return edit
+
+
+def test_script_edits_pass_three_checks_only(ctx: Context) -> None:
+    # spec 5: evidence, guarantee, new-reference and the rest do not apply to a script edit
+    line = _line("README.md", "Values must be strings.")
+    new = "Values are `ghost_name` strings, see [x](nowhere/file.py)."
+    agent = _edit("u001-e01", start=line, new=new, evidence=("missing.py:3",))
+    assert _result(agent, ctx) == ("dropped", "evidence", None)
+    assert _result(_script("c001", line, new), ctx) == ("kept", None, None)
+    assert _result(_script("c002", line + 1, "y", old="Not the line."), ctx) == (
+        "dropped", "old-mismatch", None)
+    protected = _line("README.md", "Protected paragraph text.")
+    assert _result(_script("c003", protected, "y"), ctx) == ("human", "protected", "protected")
+
+
+def test_second_script_edit_on_a_line_is_dropped_as_overlap(tmp_path: Path,
+                                                            repo: tuple[Path, Path]) -> None:
+    # ruling: apply never sees two script edits on one line; the first by id is kept
+    root, _ = repo
+    line = _line("README.md", "Call `put` to save.")
+    cite = _script("c001", line, "Call `put` (src/store.py:6) to save.")
+    fact = _script("f001", line, "Call `put` to keep.", kind="fact")
+    other = _script("f002", line - 1, "Values must be text.", kind="fact")
+    work = _setup(tmp_path, repo, {}, {}, [])
+    write_json(work / "script-edits.json", {"edits": [fact, other, cite], "hints": {},
+                                            "counts": {}})
+    result = run(root, work, _config())
+    assert [(e["id"], e["status"], e["check"], e["human_kind"]) for e in result["edits"]] == [
+        ("c001", "kept", None, None), ("f001", "dropped", "overlap", None),
+        ("f002", "kept", None, None)]
+    assert result["edits"][1]["reason"] == (
+        f"lines {line}-{line} overlap a kept edit on lines {line}-{line}")
+    assert result["human"] == []
+    assert result["overlap_script"] == 0
+
+
+def test_overlap_script_wins_over_human_checks(ctx: Context, repo: tuple[Path, Path]) -> None:
+    # Task 6 ruling: the script settled the line, so an agent edit on it is dropped as
+    # overlap-script before guarantee, large-deletion or large-section can send it to a human
+    line = _line("README.md", "Values must be strings.")
+    assert _result(_script("c001", line, "Values must be text."), ctx) == ("kept", None, None)
+    weakened = _edit("u001-e01", start=line, new="Values are strings.")
+    assert _result(weakened, ctx) == ("dropped", "overlap-script", None)
+    first = _line("docs/guide.md", "guide line 1")
+    guide = {**_script("c002", first + 3, "guide line four"), "doc": "docs/guide.md",
+             "old": _text("docs/guide.md", first + 3, first + 3)}
+    assert _result(guide, ctx) == ("kept", None, None)
+    long = _edit("u001-e02", doc="docs/guide.md", start=first, end=first + 15, new="",
+                 kind="remove", evidence=())
+    assert _result(long, ctx) == ("dropped", "overlap-script", None)
+    grows = _edit("g001-e01", doc="docs/guide.md", start=first + 3, kind="add",
+                  new="\n".join(f"line {n}" for n in range(60)), subject="put")
+    assert _result({**grows, "source": "gap"}, ctx) == ("dropped", "overlap-script", None)
+    fresh = context(*repo, _config())  # without the script edits each goes to a human
+    assert [_result(e, fresh)[1] for e in (weakened, long, {**grows, "source": "gap"})] == [
+        "guarantee", "large-deletion", "large-section"]
+
+
 # ---------------------------------------------------------------- batches
 
 def test_batches_group_by_evidence_file_max_10() -> None:
@@ -375,6 +441,15 @@ def test_batches_group_by_evidence_file_max_10() -> None:
         ["u001-e11", "u001-e12"],
         ["u002-e01"],
     ]
+
+
+def test_batches_skip_script_edits() -> None:
+    def edit(eid: str, source: str) -> dict[str, Any]:
+        return {"id": eid, "doc": "README.md", "evidence": ["src/a.py:1"], "source": source,
+                "status": "kept", "type": "cite" if source == "script" else "correct"}
+
+    groups = batches([edit("c001", "script"), edit("u001-e01", "review"), edit("f001", "script")])
+    assert [[e["id"] for e in b] for b in groups] == [["u001-e01"]]
 
 
 # ---------------------------------------------------------------- run
@@ -470,6 +545,45 @@ def test_order_review_gap_notice(tmp_path: Path, repo: tuple[Path, Path]) -> Non
     assert overlap[0]["text"].startswith("claim g001-e01 (lines ")
 
 
+def test_agent_edit_on_a_script_line_is_overlap_script(tmp_path: Path,
+                                                      repo: tuple[Path, Path]) -> None:
+    root, _ = repo
+    line = _line("README.md", "Call `put` to save.")
+    first = _line("docs/guide.md", "guide line 1")
+    script = _script("c001", line, "Call `put` (src/store.py:6) to save.")
+    on_script = _edit("u001-e01", start=line - 1, end=line,
+                      new="Values must be strings.\nCall `put` to store.")
+    agent_a = _edit("u001-e02", doc="docs/guide.md", start=first, new="guide line one")
+    agent_b = _edit("u002-e01", doc="docs/guide.md", start=first, new="guide line uno")
+    # an agent cannot claim the script source to skip the checks
+    claims_script = {**_edit("u002-e02", doc="docs/guide.md", start=first + 4,
+                             new="guide line five", evidence=("missing.py:1",)),
+                     "source": "script"}
+    work = _setup(tmp_path, repo,
+                  {"u001": _review("u001", [on_script, agent_a]),
+                   "u002": _review("u002", [agent_b, claims_script])}, {}, [])
+    write_json(work / "script-edits.json", {"edits": [script], "hints": {}, "counts": {}})
+    result = run(root, work, _config())
+    assert [(e["id"], e["source"], e["status"], e["check"]) for e in result["edits"]] == [
+        ("c001", "script", "kept", None),
+        ("u001-e01", "review", "dropped", "overlap-script"),
+        ("u001-e02", "review", "kept", None),
+        ("u002-e01", "review", "human", "overlap"),
+        ("u002-e02", "review", "dropped", "evidence")]
+    dropped = result["edits"][1]
+    assert dropped["human_kind"] is None
+    assert dropped["reason"] == (
+        f"lines {line - 1}-{line} overlap a script edit on lines {line}-{line}")
+    assert result["overlap_script"] == 1
+    assert [h["kind"] for h in result["human"]] == ["overlap"]
+    assert [p["edits"] for p in read_json(work / "plan-verify.json")] == [["u001-e02"]]
+    (work / "script-edits.json").unlink()  # absent: no script edit
+    result = run(root, work, _config())
+    assert [e["id"] for e in result["edits"]][:2] == ["u001-e01", "u001-e02"]
+    assert result["edits"][0]["status"] == "kept"
+    assert result["overlap_script"] == 0
+
+
 def test_gap_refusals_counted_or_human(tmp_path: Path, repo: tuple[Path, Path]) -> None:
     root, _ = repo
     refusals = [{"name": "APP_HOST", "kind": "target-refused", "reason": "not about hosts"},
@@ -527,3 +641,11 @@ def test_main_writes_edits_json(tmp_path: Path, repo: tuple[Path, Path],
     assert "edits.json" in capsys.readouterr().out
     (work / "notices.json").unlink()
     assert main([str(root), "--workdir", str(work)]) == 5
+
+
+def test_protected_lines_of_a_doc_without_headings() -> None:
+    text = "<!-- drift-ignore-next-line: pinned -->\nkept as is\n\nfree\n"
+    markers = [{"doc": "a.md", "reason": "pinned", "target_line_start": 2,
+                "target_line_end": 2}]
+    assert _protected("a.md", text, markers, re.compile(r"(?!)")) == (
+        {2: "drift-ignore region"}, set())

@@ -132,7 +132,8 @@ class _Doc:
         return bisect.bisect_left(self.newlines, offset) + 1
 
 
-def _prepare(texts: Mapping[str, str]) -> list[_Doc]:
+def prepare(texts: Mapping[str, str]) -> list[_Doc]:
+    """The docs, sorted by path, scanned and with their normalised headings."""
     docs: list[_Doc] = []
     for path in sorted(texts):
         text = texts[path]
@@ -179,7 +180,7 @@ def _documented(name: Name, docs: Sequence[_Doc]) -> bool:
 
 def documented(name: Name, texts: Mapping[str, str]) -> bool:
     """Whether any of the doc texts documents the name (spec 8.2)."""
-    return _documented(name, _prepare(texts))
+    return _documented(name, prepare(texts))
 
 
 # -- lists ----------------------------------------------------------------------------------
@@ -279,15 +280,20 @@ def _in_scope(name: Name, scope: Sequence[str | None] | None) -> bool:
     return scope is None or name["parent"] in scope
 
 
-def _heading_before(doc: _Doc, line: int) -> _Heading | None:
+def heading_before(doc: _Doc, line: int) -> _Heading | None:
+    """The nearest heading above ``line`` (any level), or None."""
     before = [h for h in doc.headings if h.line < line]
     return before[-1] if before else None
 
 
-def _named_parents(heading: _Heading | None, parents: Sequence[str]) -> list[str | None]:
+def named_parents(heading: _Heading | None, parents: Sequence[str]) -> list[str | None]:
+    """The ``parents`` (sorted) the heading names as a whole word; none without a heading."""
     if heading is None:
         return []
     return [p for p in sorted(parents) if _names_in(heading.text, norm(p), "tool")]
+
+
+_prepare, _heading_before, _named_parents = prepare, heading_before, named_parents
 
 
 def _build_lists(docs: Sequence[_Doc], names: Sequence[Name]) -> list[List]:
@@ -314,7 +320,7 @@ def _build_lists(docs: Sequence[_Doc], names: Sequence[Name]) -> list[List]:
             if kind in SCOPED_KINDS:
                 parents = sorted({n["parent"] for n in names
                                   if n["kind"] == kind and n["parent"]})
-                scope = _named_parents(_heading_before(doc, first), parents)
+                scope = named_parents(heading_before(doc, first), parents)
                 if not scope:
                     scope = sorted({n["parent"] for n in matched}, key=lambda p: (p is None, p))
             pool = [n for n in names if n["kind"] == kind and not n["hidden"]
@@ -328,7 +334,7 @@ def _build_lists(docs: Sequence[_Doc], names: Sequence[Name]) -> list[List]:
 
 def lists(texts: Mapping[str, str], names: Sequence[Name]) -> list[List]:
     """Lists in the docs that name at least ``LIST_MIN_SUBJECTS`` scanned names of one kind."""
-    return _build_lists(_prepare(texts), names)
+    return _build_lists(prepare(texts), names)
 
 
 # -- candidates and gaps -----------------------------------------------------------------------
@@ -421,7 +427,7 @@ def gaps(names: Sequence[Name], texts: Mapping[str, str], found: Sequence[List],
     """The gaps among the candidates, each with its target (spec 8.2, 8.3)."""
     if names_then is not None and changed_files is None:
         raise ValueError("changed_files is required when names_then is given")
-    docs = _prepare(texts)
+    docs = prepare(texts)
     result: list[Gap] = []
     for name in candidates(names, names_then, changed_files, ok):
         base: Gap = {"name": name["name"], "kind": name["kind"], "parent": name["parent"],

@@ -5,7 +5,8 @@ Definition record is the shared contract in the plan. Definitions are sorted by
 (file, start, end, kind, name).
 
 - **Python** (``ast``): a ``module`` per dotted suffix of each file's path, every
-  function, method and class with its exact ``lineno``..``end_lineno``, and every string literal
+  function, method and class from its first decorator's line (else ``lineno``) to
+  ``end_lineno``, and every string literal
   that looks like a name. A literal's range is its largest enclosing node within
   ``LITERAL_NODE_LINES`` lines (walking up while the parent still fits), so a registration
   call's whole argument list is the range of each name in it. A literal is a ``reg``
@@ -159,21 +160,28 @@ def _definition(name: str, file: str, start: int, end: int, kind: str,
 
 # --- Python -------------------------------------------------------------------------------
 
+def py_start(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> int:
+    """A function's or class's first line: its first decorator's when it has decorators,
+    so a citation of the decorated definition (a route, a dataclass) lies inside its span."""
+    return min([node.lineno, *(d.lineno for d in node.decorator_list)])
+
+
 def signature_ranges(
     node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef,
 ) -> tuple[list[tuple[int, int]], tuple[int, int]]:
     """``(change_ranges, reading)`` for a function or class (spec 5.4). Over
-    ``SIGNATURE_LINES`` lines: the definition line through the docstring (or the definition
-    line alone), plus each method's line for a class; otherwise the full range for both."""
-    start = node.lineno
-    end = node.end_lineno or start
+    ``SIGNATURE_LINES`` lines: the definition's first line (``py_start``) through the docstring
+    (or that line through the ``def`` line), plus each method's line for a class; otherwise
+    the full range for both."""
+    start = py_start(node)
+    end = node.end_lineno or node.lineno
     if end - start + 1 <= SIGNATURE_LINES:
         return [(start, end)], (start, end)
     first = node.body[0] if node.body else None
-    doc_end = start
+    doc_end = node.lineno
     if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
             and isinstance(first.value.value, str)):
-        doc_end = first.end_lineno or start
+        doc_end = first.end_lineno or node.lineno
     ranges = [(start, doc_end)]
     if isinstance(node, ast.ClassDef):
         ranges += [(m.lineno, m.lineno) for m in node.body
@@ -260,8 +268,9 @@ def _python(path: str, text: str) -> list[Definition] | None:
         if isinstance(node, _DEF_NODES):
             change, reading = signature_ranges(node)
             kind = "class" if isinstance(node, ast.ClassDef) else "function"
-            defs.append(_definition(node.name, path, node.lineno, node.end_lineno or node.lineno,
-                                    kind, _py_owners(node, parents), change, reading))
+            defs.append(_definition(node.name, path, py_start(node),
+                                    node.end_lineno or node.lineno, kind,
+                                    _py_owners(node, parents), change, reading))
         elif (isinstance(node, ast.Constant) and isinstance(node.value, str)
               and _looks_like_name(node.value)
               and not isinstance(parents.get(node), ast.JoinedStr)):

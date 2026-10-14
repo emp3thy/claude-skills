@@ -91,6 +91,18 @@ def test_later_run_size_counts_hunks() -> None:
     assert units[0]["hunks"] == [hunks["src/a.py"][0]]
 
 
+def test_later_run_size_counts_touched_reading_ranges_merged_per_file() -> None:
+    # the prompt lists the touched anchors' reading ranges (dd_dispatch._shown_anchors), merged
+    # per file: 1-7 and 5-12 of src/a.py are 12 lines, not 15; src/b.py's anchor is untouched
+    anchors = [anchor("a.md", 1, start=5, reading=(1, 7)),
+               anchor("a.md", 2, start=20, reading=(5, 12)),
+               anchor("a.md", 3, file="src/b.py", reading=(1, 3))]
+    reasons = [{"ref": "x", "line": n, "file": "src/a.py", "hunk": 0} for n in (1, 2)]
+    affected = {"a.md": {"anchor_reasons": reasons, "missing": []}}
+    units = dd_units.build(whole("a.md"), anchors, {}, "later", {}, 1000, affected)
+    assert units[0]["size"] == 10 + 12
+
+
 def make_unit(uid: str, doc: str, anchors: int) -> dd_units.Unit:
     return {"id": uid, "docs": [{"doc": doc, "ranges": [[1, 1]]}],
             "anchors": [anchor(doc, i) for i in range(anchors)], "hunks": [], "size": 1,

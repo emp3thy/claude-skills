@@ -418,3 +418,13 @@ def test_selected_edits_are_kept_and_accepted_or_kept_notices():
     verdicts = {"u001-e01": {"verdict": "accept"}, "u001-e02": {"verdict": "reject"},
                 "u001-e03": {"verdict": "accept"}, "u001-e04": {"verdict": "unsure"}}
     assert [e["id"] for e in selected_edits(edits, verdicts)] == ["u001-e01", "n001"]
+
+
+def test_selected_edits_takes_script_edits_without_verdict():
+    edits = [_agent_edit("c001", DOC, 3, source="script", kind="cite"),
+             _agent_edit("f001", DOC, 7, source="script", kind="fact", status="dropped"),
+             _agent_edit("c002", DOC, 8, source="script", kind="cite", status="human"),
+             _agent_edit("u001-e01", DOC, 10)]
+    assert [e["id"] for e in selected_edits(edits, {})] == ["c001"]
+    verdicts = {"c001": {"verdict": "reject"}, "u001-e01": {"verdict": "accept"}}
+    assert [e["id"] for e in selected_edits(edits, verdicts)] == ["c001", "u001-e01"]

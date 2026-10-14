@@ -1,12 +1,15 @@
 {
  "candidates": [
   {
+   "choices": null,
+   "default": "30.0",
    "file": "src/svc/cli.py",
    "hidden": false,
    "kind": "flag",
    "line": 19,
    "name": "--timeout",
-   "parent": "serve"
+   "parent": "serve",
+   "required": null
   }
  ],
  "gaps": [

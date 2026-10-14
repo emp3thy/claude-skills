@@ -53,6 +53,17 @@ def test_bullet_grammar_for_every_edit_type() -> None:
     assert render_bullet(add, 7) == "- d.md:7 add env APP_X (src/c.py:2)"
 
 
+def test_bullet_grammar_for_script_edits() -> None:
+    # phase C spec 6: a finish with an applied script edit must not fail on its bullet
+    cite = _e("c001", "d.md", 9, "cite", "connect is at src/app.py:4-6", ["src/app.py:4-6"],
+              "connect", "script", old_cite="src/app.py:9", new_cite="src/app.py:4")
+    assert render_bullet(cite, 9) == "- d.md:9 cite connect src/app.py:9 -> src/app.py:4"
+    fact = _e("f001", "d.md", 12, "fact", "--port default is 8080", ["src/cli.py:7"],
+              "--port", "script", column="default", old_cell="`80`", new_cell="`8080`")
+    assert render_bullet(fact, 12) == \
+        "- d.md:12 fact --port default `80` -> `8080` (src/cli.py:7)"
+
+
 def test_message_grammar_corrections_and_additions() -> None:
     kw: dict[str, Any] = {"run_id": "2026-10-12-a3f1", "base": BASE, "scope": "since abc1234",
                           "unchecked": (2, 1, 3), "trailers": ["Signed-off-by: T <t@e.com>"]}
@@ -283,6 +294,32 @@ def test_add_subject_in_backticks_matches_the_normalised_gap_name(tmp_path: Path
     assert "- b.md:1 add env app-x (src/x.py:2)" in _show(root, out["commits"][1]["sha"], "%B")
 
 
+def test_add_subject_listing_several_gap_names_takes_the_first_kind(tmp_path: Path) -> None:
+    # live run: a gap agent put three flags that go together in one edit, its subject
+    # "--tested, --passing, --failing"; the kind is the first listed name's gap
+    root, work, head = _phase_a(tmp_path)
+    edits = read_json(work / "edits.json")
+    edits["edits"][1]["subject"] = "--tested, --passing, --failing"
+    write_json(work / "edits.json", edits)
+    write_json(work / "gaps.json", {"no_home": [], "gaps": [
+        {"name": "--passing", "kind": "env", "target_doc": "b.md"},
+        {"name": "--tested", "kind": "flag", "target_doc": "b.md"},
+        {"name": "--failing", "kind": "flag", "target_doc": "b.md"}]})
+    out = run(root, work, "drift/r", "r", head, "first", [])
+    message = _show(root, out["commits"][1]["sha"], "%B")
+    assert "- b.md:1 add flag --tested, --passing, --failing (src/x.py:2)" in message
+
+
+def test_add_subject_listing_only_unknown_names_is_an_error(tmp_path: Path) -> None:
+    root, work, head = _phase_a(tmp_path)
+    edits = read_json(work / "edits.json")
+    edits["edits"][1]["subject"] = "--nope, --nor"
+    write_json(work / "edits.json", edits)
+    with pytest.raises(StepError) as exc:
+        run(root, work, "drift/r", "r", head, "first", [])
+    assert "matches no gap" in str(exc.value)
+
+
 def test_failed_second_commit_keeps_the_first_in_commits_json(tmp_path: Path) -> None:
     root, work, head = _phase_a(tmp_path)
     hook = root / ".git" / "hooks" / "commit-msg"
@@ -428,3 +465,78 @@ def test_readme_rejected_and_no_home_suppressed_in_human_list(tmp_path: Path) ->
     write_json(work / "applied.json", {**applied, "readme": None})
     assert [h["kind"] for h in collect_human(work, root)] == [
         "no-home", "no-home", "readme-rejected", "readme-rejected", "readme-rejected"]
+
+
+# ---------------------------------------------------------------- phase C (script edits)
+
+def _cite(eid: str, doc: str, line: int) -> dict[str, Any]:
+    return _e(eid, doc, line, "cite", "x is at src/x.py:4", ["src/x.py:4"], "x", "script",
+              old_cite="src/x.py:9", new_cite="src/x.py:4")
+
+
+def _fact(eid: str, doc: str, line: int) -> dict[str, Any]:
+    return _e(eid, doc, line, "fact", "--port default is 8080", ["src/cli.py:7"], "--port",
+              "script", column="default", old_cell="`80`", new_cell="`8080`")
+
+
+def _phase_c(tmp_path: Path, script: list[dict[str, Any]],
+             applied: list[str] | None = None) -> tuple[Path, Path, str]:
+    """``_phase_a`` plus the applied ``script`` edits (``c.md`` rewritten when one names it);
+    ``applied`` replaces the applied agent edits (default: both of ``_phase_a``)."""
+    root, work, head = _phase_a(tmp_path)
+    if any(e["doc"] == "c.md" for e in script):
+        (root / "c.md").write_text("keep (src/x.py:4)\n", encoding="utf-8")
+    edits = read_json(work / "edits.json")
+    write_json(work / "edits.json", {**edits, "edits": [*edits["edits"], *script]})
+    agent = ["g001-e01", "u001-e01"] if applied is None else applied
+    docs = sorted({"g001-e01": "b.md", "u001-e01": "a.md"}[a] for a in agent)
+    write_json(work / "applied.json", {
+        "applied": [*agent, *(e["id"] for e in script)], "reverted": [],
+        "docs": sorted({*docs, *(e["doc"] for e in script)}), "link_updates": []})
+    return root, work, head
+
+
+def test_citations_commit_after_additions_with_bullets(tmp_path: Path) -> None:
+    root, work, head = _phase_c(tmp_path, [_fact("f001", "c.md", 1), _cite("c001", "c.md", 1)])
+    out = run(root, work, "drift/r", "r", head, "first", [])
+    assert [c["kind"] for c in out["commits"]] == ["corrections", "additions", "citations"]
+    assert read_json(work / "commits.json") == out
+    first, second, third = (c["sha"] for c in out["commits"])
+    assert _files(root, first) == ["a.md"] and _files(root, second) == ["b.md"]
+    assert _files(root, third) == ["c.md"]
+    assert _show(root, third, "%P").strip() == second
+    msg = _show(root, third, "%B")
+    assert msg.startswith("docs(drift): correct citations and facts\n\nDrift-Run: r\n")
+    assert ("\n- c.md:1 cite x src/x.py:9 -> src/x.py:4\n"
+            "- c.md:1 fact --port default `80` -> `8080` (src/cli.py:7)\n") in msg
+    assert "cite" not in _show(root, first, "%B") and "fact" not in _show(root, first, "%B")
+    written = (work / "commit-msg-citations.txt").read_text(encoding="utf-8")
+    assert written.strip() == msg.strip()
+    assert _git(root, "status", "--porcelain", "--untracked-files=no") == ""
+
+
+def test_citations_commit_allow_empty_when_docs_already_staged(tmp_path: Path) -> None:
+    root, work, head = _phase_c(tmp_path, [_cite("c001", "a.md", 1), _fact("f001", "b.md", 1)])
+    out = run(root, work, "drift/r", "r", head, "first", [])
+    assert [c["kind"] for c in out["commits"]] == ["corrections", "additions", "citations"]
+    third = out["commits"][2]["sha"]
+    assert _files(root, third) == []  # a.md and b.md rode in the earlier commits
+    assert _show(root, third, "%P").strip() == out["commits"][1]["sha"]
+    msg = _show(root, third, "%B")
+    assert "\n- a.md:1 cite x src/x.py:9 -> src/x.py:4\n" in msg
+    assert "\n- b.md:1 fact --port default `80` -> `8080` (src/cli.py:7)\n" in msg
+
+
+def test_human_list_on_last_commit_made(tmp_path: Path) -> None:
+    root, work, head = _phase_c(tmp_path, [_cite("c001", "c.md", 1)], applied=["u001-e01"])
+    out = run(root, work, "drift/r", "r", head, "first", [])
+    assert [c["kind"] for c in out["commits"]] == ["corrections", "citations"]
+    first, last = (_show(root, c["sha"], "%B") for c in out["commits"])
+    assert "Needs a human decision" not in first
+    assert last.strip().endswith("Needs a human decision:\n- c.md:1 unsure: q")
+    assert not (work / "commit-msg-additions.txt").exists()
+    # with no script edit applied the human list stays on the last agent commit
+    root, work, head = _phase_c(tmp_path / "b", [])
+    out = run(root, work, "drift/r", "r", head, "first", [])
+    assert [c["kind"] for c in out["commits"]] == ["corrections", "additions"]
+    assert "Needs a human decision" in _show(root, out["commits"][1]["sha"], "%B")

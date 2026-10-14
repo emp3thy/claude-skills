@@ -203,4 +203,5 @@ commits:
     subject: "docs: operations notes"
     tag: state2
     files:
+      docs/internals.md: "@final"
       docs/operations.md: "@final"

@@ -95,6 +95,36 @@
     ]
    ]
   },
+  "docs/internals.md": {
+   "anchor_reasons": [
+    {
+     "file": "src/svc/storage.py",
+     "hunk": [
+      13,
+      13
+     ],
+     "line": 3,
+     "ref": "open_store"
+    },
+    {
+     "file": "src/svc/storage.py",
+     "hunk": [
+      18,
+      18
+     ],
+     "line": 3,
+     "ref": "open_store"
+    }
+   ],
+   "doc_changed": true,
+   "missing": [],
+   "sections": [
+    [
+     1,
+     9
+    ]
+   ]
+  },
   "docs/operations.md": {
    "anchor_reasons": [
     {
@@ -105,6 +135,33 @@
      ],
      "line": 3,
      "ref": "--timeout"
+    },
+    {
+     "file": "src/svc/storage.py",
+     "hunk": [
+      13,
+      13
+     ],
+     "line": 5,
+     "ref": "open_store"
+    },
+    {
+     "file": "src/svc/storage.py",
+     "hunk": [
+      18,
+      18
+     ],
+     "line": 5,
+     "ref": "open_store"
+    },
+    {
+     "file": "src/svc/cli.py",
+     "hunk": [
+      17,
+      17
+     ],
+     "line": 11,
+     "ref": "--port"
     }
    ],
    "doc_changed": true,
@@ -112,7 +169,11 @@
    "sections": [
     [
      1,
-     3
+     13
+    ],
+    [
+     7,
+     13
     ]
    ]
   },
@@ -133,6 +194,7 @@
   "docs/cli.md",
   "docs/configuration.md",
   "docs/design.md",
+  "docs/internals.md",
   "docs/operations.md",
   "docs/tools.md",
   "src/svc/cli.py",
@@ -193,16 +255,32 @@
   "src/svc/storage.py": [
    {
     "file": "src/svc/storage.py",
-    "new_end": 12,
-    "new_start": 12,
+    "new_end": 10,
+    "new_start": 10,
+    "old_end": 8,
+    "old_start": 9,
+    "text": "+BUSY_TIMEOUT = 5.0  # seconds a write waits on a locked database\n"
+   },
+   {
+    "file": "src/svc/storage.py",
+    "new_end": 13,
+    "new_start": 13,
     "old_end": 12,
     "old_start": 12,
     "text": "-def connect(path: str, create: bool = False, force: bool = False) -> sqlite3.Connection:\n+def open_store(path: str, create: bool = False, force: bool = False) -> sqlite3.Connection:\n"
    },
    {
     "file": "src/svc/storage.py",
-    "new_end": 48,
-    "new_start": 48,
+    "new_end": 18,
+    "new_start": 18,
+    "old_end": 17,
+    "old_start": 17,
+    "text": "-    conn = sqlite3.connect(target, check_same_thread=False)\n+    conn = sqlite3.connect(target, timeout=BUSY_TIMEOUT, check_same_thread=False)\n"
+   },
+   {
+    "file": "src/svc/storage.py",
+    "new_end": 49,
+    "new_start": 49,
     "old_end": 48,
     "old_start": 48,
     "text": "-        if expires is not None and expires < time.time():\n+        if expires is not None and expires <= time.time():\n"
@@ -241,10 +319,16 @@
     19
    ]
   ],
+  "docs/internals.md": [
+   [
+    1,
+    9
+   ]
+  ],
   "docs/operations.md": [
    [
     1,
-    3
+    13
    ]
   ],
   "docs/tools.md": [

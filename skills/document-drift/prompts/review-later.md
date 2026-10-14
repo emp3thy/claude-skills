@@ -10,7 +10,7 @@ These are the parts of the docs to check (line numbers are 1-based, counted in e
 
 {{docs}}
 
-Since commit {{last_run}}, the code below changed. The docs refer to these names, whose definitions the changes touched (each line gives the reference, where the doc names it, and the code range to read):
+Since commit {{last_run}}, the code below changed. The docs refer to these names, whose definitions the changes touched (each line gives the reference, where the doc names it, and the code range to read; for a user-facing name the scan found, it ends with the facts the code sets: its default, its choices, and whether it is required or optional):
 
 {{anchors}}
 
@@ -18,9 +18,25 @@ The changes, as a diff from commit {{last_run}} to now:
 
 {{diff}}
 
+## Already settled by script
+
+Scripts have already corrected these lines of the docs (a citation's line number or a fact table's cell), each shown as `<doc>:<line>: <old> -> <new>`:
+
+{{settled}}
+
+Do not edit these lines: the script's correction stands.
+
+## Not settled by script: these need you
+
+The scripts checked these citations and table rows but could not settle them (a citation that is ambiguous, cites a use rather than the definition, or resolves to nothing; a table row whose name is not in the scan), each shown as `<doc>:<line>: <what the script found>`:
+
+{{unsettled}}
+
+These are your work when they are in your scope: check and correct them like any claim. A citation whose definition you can find gets a `correct` edit with the right line.
+
 ## Your scope
 
-Check only the docs' statements about these names and the behaviour these changes affect (including statements that describe that behaviour without naming them), and the changed sections listed above. Open the current source whenever the diff alone does not settle a statement. Ignore everything else in the docs, even if it might be wrong: other runs cover it.
+Check only the docs' statements about these names and the behaviour these changes affect (including statements that describe that behaviour without naming them), and the changed sections listed above. Read the code ranges listed above with Read; open another file only when a claim in your scope depends on code outside them and the diff, and list every such file in `opened` with one reason each. Ignore everything else in the docs, even if it might be wrong: other runs cover it.
 
 Do not check statements about other software, plans, intent or opinion, or historical sentences ("X was removed in 2.0"), which are true as history.
 
@@ -50,6 +66,7 @@ A doc marked `no anchors in these lines` above is one this run could not tie to 
 - `code_claims` counts, for every doc in this unit, the statements about this repository's code you found in the parts you checked, including the ones that name nothing. 0 means those parts are not about the code.
 - `unverified_blocks` lists, only within the changed sections, whole blocks (a paragraph, a list, a table, by line range) that describe this repository's code, hold no reference that anchors, and that you could not tie to one definition (so no `anchor` edit was possible), each with a one-line `why`. Preamble, a pitch for the project, process, plans, history and statements about other software are never unverified blocks: they are not claims about the code. A block that already carries a `drift-unverified` notice (an HTML comment on the line directly above it), or that overlaps one of your edits, is not listed.
 - `not_reviewed` lists the line ranges of these docs you did not check against the code (for instance when the unit was too large to finish), each with a one-line `why`; another agent gets them. A range you did not check is never an unverified block and is not counted in `code_claims`. Checked everything: `[]`.
+- `opened` lists every file you opened beyond the diff and the code ranges listed above (reading outside a listed range counts), each as `{"path", "why"}`: the path relative to the repository root, with forward slashes, and the claim that needed it, in one line. A file counts as opened when you Read it; Grep and Glob searches do not count. Opened nothing: `[]`.
 - Do not edit or move an existing `drift-unverified` notice.
 
 ## Output
@@ -63,6 +80,7 @@ Write exactly one file, `{{output}}`, with the Write tool. It holds one JSON obj
   "code_claims": {"docs/configuration.md": 9, "README.md": 3},
   "unverified_blocks": [{"doc": "README.md", "start_line": 131, "end_line": 134, "why": "describes retrieval ordering; no function clearly owns it"}],
   "not_reviewed": [],
+  "opened": [],
   "edits": [
     {"id": "{{unit}}-e01", "doc": "docs/configuration.md", "start_line": 54, "end_line": 54,
      "old": "| `APP_TOP_N` | `3` | ... |", "new": "| `APP_TOP_N` | `5` | ... |",
@@ -86,4 +104,4 @@ Write exactly one file, `{{output}}`, with the Write tool. It holds one JSON obj
 
 ## Reply
 
-When the file is written, reply with only the receipt: the output path, its size in bytes, and the counts of edits, questions, unverified blocks and not-reviewed ranges. No other text.
+When the file is written, reply with only the receipt: the output path, its size in bytes, and the counts of edits, questions, unverified blocks, not-reviewed ranges and opened files. No other text.

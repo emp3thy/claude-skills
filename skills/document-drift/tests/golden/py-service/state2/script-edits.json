@@ -1,0 +1,104 @@
+{
+ "counts": {
+  "citations": {
+   "ambiguous": 0,
+   "checked": 4,
+   "current": 0,
+   "moved": 2,
+   "unresolved": 1,
+   "use_site": 1
+  },
+  "facts": {
+   "corrected": 1,
+   "not_in_scan": 1,
+   "rows_checked": 2
+  }
+ },
+ "edits": [
+  {
+   "check": null,
+   "claim": "open_store is at src/svc/storage.py:13-21",
+   "doc": "docs/internals.md",
+   "end_line": 3,
+   "evidence": [
+    "src/svc/storage.py:13-21"
+   ],
+   "human_kind": null,
+   "id": "c001",
+   "new": "Commands open the database with `open_store` at `src/svc/storage.py:13`, which applies the schema on first use.",
+   "new_cite": "src/svc/storage.py:13",
+   "old": "Commands open the database with `open_store` at `src/svc/storage.py:12`, which applies the schema on first use.",
+   "old_cite": "src/svc/storage.py:12",
+   "reason": null,
+   "source": "script",
+   "start_line": 3,
+   "status": "kept",
+   "subject": "open_store",
+   "type": "cite"
+  },
+  {
+   "check": null,
+   "claim": "open_store is at src/svc/storage.py:13-21",
+   "doc": "docs/operations.md",
+   "end_line": 5,
+   "evidence": [
+    "src/svc/storage.py:13-21"
+   ],
+   "human_kind": null,
+   "id": "c002",
+   "new": "On first start the service opens its database through `src/svc/storage.py:13-21` (`open_store`), so the home directory must be writable.",
+   "new_cite": "src/svc/storage.py:13-21",
+   "old": "On first start the service opens its database through `src/svc/storage.py:12-20` (`open_store`), so the home directory must be writable.",
+   "old_cite": "src/svc/storage.py:12-20",
+   "reason": null,
+   "source": "script",
+   "start_line": 5,
+   "status": "kept",
+   "subject": "open_store",
+   "type": "cite"
+  },
+  {
+   "check": null,
+   "claim": "--port Default is 9090",
+   "column": "Default",
+   "doc": "docs/operations.md",
+   "end_line": 11,
+   "evidence": [
+    "src/svc/cli.py:17"
+   ],
+   "human_kind": null,
+   "id": "f001",
+   "new": "| `--port` | `9090` | The port to listen on. |",
+   "new_cell": "`9090`",
+   "old": "| `--port` | `8080` | The port to listen on. |",
+   "old_cell": "`8080`",
+   "reason": null,
+   "source": "script",
+   "start_line": 11,
+   "status": "kept",
+   "subject": "--port",
+   "type": "fact"
+  }
+ ],
+ "hints": {
+  "docs/internals.md": [
+   {
+    "kind": "cite-use-site",
+    "line": 5,
+    "text": "cite use-site: Store is defined in src/svc/storage.py:24-85"
+   },
+   {
+    "kind": "cite-unresolved",
+    "line": 9,
+    "text": "cite unresolved: src/svc/cli.py:42-47"
+   }
+  ],
+  "docs/operations.md": [
+   {
+    "kind": "not-in-scan",
+    "line": 13,
+    "text": "not in scan: --worker; nearest --workers"
+   }
+  ]
+ }
+}

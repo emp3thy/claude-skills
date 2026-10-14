@@ -1,8 +1,9 @@
 {
  "unit": "u001",
- "claims_checked": 27,
+ "claims_checked": 34,
  "code_claims": {"README.md": 5, "docs/cli.md": 10, "docs/configuration.md": 4,
-                 "docs/design.md": 3, "docs/operations.md": 1, "docs/tools.md": 4},
+                 "docs/design.md": 3, "docs/internals.md": 3, "docs/operations.md": 5,
+                 "docs/tools.md": 4},
  "unverified_blocks": [],
  "edits": [
   {"id": "u001-e01", "doc": "README.md", "start_line": 9, "end_line": 9,
@@ -14,7 +15,7 @@
    "old": "Every command opens the database through `storage.connect`, which creates the file on first use.",
    "new": "Every command opens the database through `storage.open_store`, which creates the file on first use.",
    "type": "correct", "claim": "commands open the database through storage.connect",
-   "evidence": ["src/svc/storage.py:12"], "subject": null}
+   "evidence": ["src/svc/storage.py:13"], "subject": null}
  ],
  "questions": []
 }

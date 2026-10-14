@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 SCHEMA = Path(__file__).with_name("schema.sql")
+BUSY_TIMEOUT = 5.0  # seconds a write waits on a locked database
 
 
 def open_store(path: str, create: bool = False, force: bool = False) -> sqlite3.Connection:
@@ -14,7 +15,7 @@ def open_store(path: str, create: bool = False, force: bool = False) -> sqlite3.
     target = Path(path)
     if force and target.exists():
         target.unlink()
-    conn = sqlite3.connect(target, check_same_thread=False)
+    conn = sqlite3.connect(target, timeout=BUSY_TIMEOUT, check_same_thread=False)
     if create:
         conn.executescript(SCHEMA.read_text(encoding="utf-8"))
     return conn

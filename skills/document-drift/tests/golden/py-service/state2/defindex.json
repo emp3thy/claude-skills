@@ -122,6 +122,25 @@
     ]
    ],
    "end": 1,
+   "file": "docs/internals.md",
+   "kind": "file",
+   "name": "internals.md",
+   "norm": "internals_md",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
    "file": "docs/operations.md",
    "kind": "file",
    "name": "operations.md",
@@ -1138,7 +1157,7 @@
   {
    "change_ranges": [
     [
-     16,
+     15,
      20
     ]
    ],
@@ -1149,10 +1168,10 @@
    "norm": "Settings",
    "owners": [],
    "reading": [
-    16,
+    15,
     20
    ],
-   "start": 16
+   "start": 15
   },
   {
    "change_ranges": [
@@ -1376,7 +1395,7 @@
   {
    "change_ranges": [
     [
-     13,
+     12,
      15
     ]
    ],
@@ -1387,15 +1406,15 @@
    "norm": "health",
    "owners": [],
    "reading": [
-    13,
+    12,
     15
    ],
-   "start": 13
+   "start": 12
   },
   {
    "change_ranges": [
     [
-     19,
+     18,
      24
     ]
    ],
@@ -1406,15 +1425,15 @@
    "norm": "get_item",
    "owners": [],
    "reading": [
-    19,
+    18,
     24
    ],
-   "start": 19
+   "start": 18
   },
   {
    "change_ranges": [
     [
-     28,
+     27,
      30
     ]
    ],
@@ -1425,10 +1444,10 @@
    "norm": "stats",
    "owners": [],
    "reading": [
-    28,
+    27,
     30
    ],
-   "start": 28
+   "start": 27
   },
   {
    "change_ranges": [
@@ -1533,10 +1552,10 @@
    "change_ranges": [
     [
      1,
-     84
+     85
     ]
    ],
-   "end": 84,
+   "end": 85,
    "file": "src/svc/storage.py",
    "kind": "module",
    "name": "src.svc.storage",
@@ -1544,7 +1563,7 @@
    "owners": [],
    "reading": [
     1,
-    84
+    85
    ],
    "start": 1
   },
@@ -1552,10 +1571,10 @@
    "change_ranges": [
     [
      1,
-     84
+     85
     ]
    ],
-   "end": 84,
+   "end": 85,
    "file": "src/svc/storage.py",
    "kind": "module",
    "name": "storage",
@@ -1563,7 +1582,7 @@
    "owners": [],
    "reading": [
     1,
-    84
+    85
    ],
    "start": 1
   },
@@ -1571,10 +1590,10 @@
    "change_ranges": [
     [
      1,
-     84
+     85
     ]
    ],
-   "end": 84,
+   "end": 85,
    "file": "src/svc/storage.py",
    "kind": "module",
    "name": "svc.storage",
@@ -1582,7 +1601,7 @@
    "owners": [],
    "reading": [
     1,
-    84
+    85
    ],
    "start": 1
   },
@@ -1608,30 +1627,30 @@
   {
    "change_ranges": [
     [
-     12,
-     20
+     13,
+     21
     ]
    ],
-   "end": 20,
+   "end": 21,
    "file": "src/svc/storage.py",
    "kind": "function",
    "name": "open_store",
    "norm": "open_store",
    "owners": [],
    "reading": [
-    12,
-    20
+    13,
+    21
    ],
-   "start": 12
+   "start": 13
   },
   {
    "change_ranges": [
     [
-     12,
-     20
+     13,
+     21
     ]
    ],
-   "end": 20,
+   "end": 21,
    "file": "src/svc/storage.py",
    "kind": "literal",
    "name": "utf-8",
@@ -1640,74 +1659,74 @@
     "open_store"
    ],
    "reading": [
-    12,
-    20
+    13,
+    21
    ],
-   "start": 12
+   "start": 13
   },
   {
    "change_ranges": [
     [
-     23,
-     24
+     24,
+     25
     ],
     [
-     26,
-     26
+     27,
+     27
     ],
     [
-     30,
-     30
+     31,
+     31
     ],
     [
-     40,
-     40
+     41,
+     41
     ],
     [
-     52,
-     52
+     53,
+     53
     ],
     [
-     57,
-     57
+     58,
+     58
     ],
     [
-     62,
-     62
+     63,
+     63
     ],
     [
-     69,
-     69
+     70,
+     70
     ],
     [
-     72,
-     72
+     73,
+     73
     ],
     [
-     82,
-     82
+     83,
+     83
     ]
    ],
-   "end": 84,
+   "end": 85,
    "file": "src/svc/storage.py",
    "kind": "class",
    "name": "Store",
    "norm": "Store",
    "owners": [],
    "reading": [
-    23,
-    24
+    24,
+    25
    ],
-   "start": 23
+   "start": 24
   },
   {
    "change_ranges": [
     [
-     26,
-     28
+     27,
+     29
     ]
    ],
-   "end": 28,
+   "end": 29,
    "file": "src/svc/storage.py",
    "kind": "function",
    "name": "__init__",
@@ -1716,19 +1735,19 @@
     "Store"
    ],
    "reading": [
-    26,
-    28
+    27,
+    29
    ],
-   "start": 26
+   "start": 27
   },
   {
    "change_ranges": [
     [
-     30,
-     38
+     31,
+     39
     ]
    ],
-   "end": 38,
+   "end": 39,
    "file": "src/svc/storage.py",
    "kind": "function",
    "name": "put",
@@ -1737,19 +1756,19 @@
     "Store"
    ],
    "reading": [
-    30,
-    38
+    31,
+    39
    ],
-   "start": 30
+   "start": 31
   },
   {
    "change_ranges": [
     [
-     40,
-     50
+     41,
+     51
     ]
    ],
-   "end": 50,
+   "end": 51,
    "file": "src/svc/storage.py",
    "kind": "function",
    "name": "get",
@@ -1758,19 +1777,19 @@
     "Store"
    ],
    "reading": [
-    40,
-    50
+    41,
+    51
    ],
-   "start": 40
+   "start": 41
   },
   {
    "change_ranges": [
     [
-     52,
-     55
+     53,
+     56
     ]
    ],
-   "end": 55,
+   "end": 56,
    "file": "src/svc/storage.py",
    "kind": "function",
    "name": "keys",
@@ -1779,19 +1798,19 @@
     "Store"
    ],
    "reading": [
-    52,
-    55
+    53,
+    56
    ],
-   "start": 52
+   "start": 53
   },
   {
    "change_ranges": [
     [
-     57,
-     60
+     58,
+     61
     ]
    ],
-   "end": 60,
+   "end": 61,
    "file": "src/svc/storage.py",
    "kind": "function",
    "name": "count",
@@ -1800,19 +1819,19 @@
     "Store"
    ],
    "reading": [
-    57,
-    60
+    58,
+    61
    ],
-   "start": 57
+   "start": 58
   },
   {
    "change_ranges": [
     [
-     62,
-     67
+     63,
+     68
     ]
    ],
-   "end": 67,
+   "end": 68,
    "file": "src/svc/storage.py",
    "kind": "function",
    "name": "expires_at",
@@ -1821,19 +1840,19 @@
     "Store"
    ],
    "reading": [
-    62,
-    67
+    63,
+    68
    ],
-   "start": 62
+   "start": 63
   },
   {
    "change_ranges": [
     [
-     69,
-     70
+     70,
+     71
     ]
    ],
-   "end": 70,
+   "end": 71,
    "file": "src/svc/storage.py",
    "kind": "function",
    "name": "__contains__",
@@ -1842,19 +1861,19 @@
     "Store"
    ],
    "reading": [
-    69,
-    70
+    70,
+    71
    ],
-   "start": 69
+   "start": 70
   },
   {
    "change_ranges": [
     [
-     72,
-     80
+     73,
+     81
     ]
    ],
-   "end": 80,
+   "end": 81,
    "file": "src/svc/storage.py",
    "kind": "function",
    "name": "purge",
@@ -1863,19 +1882,19 @@
     "Store"
    ],
    "reading": [
-    72,
-    80
+    73,
+    81
    ],
-   "start": 72
+   "start": 73
   },
   {
    "change_ranges": [
     [
-     82,
-     84
+     83,
+     85
     ]
    ],
-   "end": 84,
+   "end": 85,
    "file": "src/svc/storage.py",
    "kind": "function",
    "name": "close",
@@ -1884,10 +1903,10 @@
     "Store"
    ],
    "reading": [
-    82,
-    84
+    83,
+    85
    ],
-   "start": 82
+   "start": 83
   },
   {
    "change_ranges": [

@@ -457,7 +457,7 @@
   {
    "change_ranges": [
     [
-     19,
+     18,
      24
     ]
    ],
@@ -467,11 +467,11 @@
    "kind": "function",
    "line": 6,
    "reading": [
-    19,
+    18,
     24
    ],
    "ref": "get_item",
-   "start": 19
+   "start": 18
   }
  ],
  "checkability": {

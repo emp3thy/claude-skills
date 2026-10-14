@@ -1,0 +1,13 @@
+docs(drift): correct citations and facts
+
+Drift-Run: 2026-01-09-e8e9
+Drift-Base: 1e5a17fbc453844532790cdbda8f7599c53bbbf6
+Drift-Scope: since e60469bbdd91ad996e42509f04d7c699b8f4c52a
+Drift-Unchecked: 0 doc units, 0 gap docs, 0 verify batches
+
+- docs/internals.md:3 cite open_store src/svc/storage.py:12 -> src/svc/storage.py:13
+- docs/operations.md:5 cite open_store src/svc/storage.py:12-20 -> src/svc/storage.py:13-21
+- docs/operations.md:11 fact --port Default `8080` -> `9090` (src/svc/cli.py:17)
+
+Needs a human decision:
+- docs/design.md:13 unverified: Writes go to disk before the reply returns, so a crash loses no acknowledged write.

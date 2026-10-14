@@ -33,6 +33,12 @@ review: 0
 gap: 0
 notice: 0
 readme: 1
+script: 0
+
+Script edits
+citations: 0 checked, 0 current, 0 moved, 0 ambiguous, 0 use sites, 0 unresolved
+fact rows: 0 checked, 0 corrected, 0 not in scan
+agent edits dropped as overlap-script: 0
 
 Script checks
 kept 1

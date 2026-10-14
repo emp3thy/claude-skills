@@ -32,9 +32,8 @@ from typing import Any
 from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json, write_json
 from dd_md_scan import Inline, Scan, scan
 
-KNOWN_EXTS = frozenset(
+CODE_EXTS = frozenset(
     {
-        # code
         ".py", ".pyi", ".pyx", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts",
         ".go", ".rs", ".java", ".kt", ".kts", ".scala", ".groovy", ".gradle", ".rb", ".php",
         ".cs", ".fs", ".vb", ".swift", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".ino",
@@ -42,17 +41,26 @@ KNOWN_EXTS = frozenset(
         ".elm", ".hs", ".ml", ".mli", ".nim", ".zig", ".sol", ".vue", ".svelte", ".sql",
         ".graphql", ".gql", ".proto", ".tf", ".tfvars", ".hcl", ".nix", ".cmake", ".mk",
         ".feature", ".ipynb",
-        # config and data
+    }
+)
+CONFIG_EXTS = frozenset(
+    {
         ".json", ".jsonc", ".json5", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".env",
         ".properties", ".xml", ".plist", ".lock", ".csv", ".tsv",
-        # docs and assets
+    }
+)
+DOC_EXTS = frozenset(
+    {
         ".md", ".markdown", ".mdx", ".rst", ".txt", ".adoc", ".html", ".htm", ".css", ".scss",
         ".sass", ".less", ".tex", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
         ".ico",
-        # scripts
-        ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".psd1", ".bat", ".cmd",
     }
 )
+SCRIPT_EXTS = frozenset({
+    ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".psd1", ".bat", ".cmd",
+})
+KNOWN_EXTS = CODE_EXTS | CONFIG_EXTS | DOC_EXTS | SCRIPT_EXTS
+CITE_EXTS = CODE_EXTS | SCRIPT_EXTS  # a bare prose citation names a code or script file
 SHELL_INFOS = frozenset({"", "bash", "sh", "shell", "console", "zsh", "powershell", "ps1", "pwsh",
                          "cmd"})
 TREE_INFOS = frozenset({"", "text", "txt"})
@@ -65,6 +73,12 @@ _TABLE_KINDS = frozenset({"table_row", "table_delim"})
 _URL = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*:(?!\d)|//|www\.")
 _LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
 _LINE_FRAGMENT = re.compile(r"L\d+")
+_CITE_FRAGMENT = re.compile(r"L(\d+)(?:-L?(\d+))?")
+_CITE_SUFFIX = re.compile(r":(\d+)(?:-(\d+))?$")
+# A bare prose citation word: path:N or path:N-M, not inside a longer word or path, and not a
+# path:N:col position. A comma-continued number (", 1526") is not part of it.
+_PROSE_CITE = re.compile(
+    r"(?<![\w./\\-])((?:[\w.-]+/)*[\w.-]+\.[A-Za-z0-9]+):(\d+)(?:-(\d+))?(?![\w-]|:\d)")
 _PLACEHOLDER = re.compile(r"(?i)\b(your|my)[-_]|\bexample\b|\b(foo|bar|baz|xxx|todo)\b")
 _PLACEHOLDER_PARTS = ("<", ">", "{{", "${", "*")
 _RATIO = re.compile(r"\d+/\d+|[A-Za-z]/[A-Za-z]")  # ruling R14: 3/5, X/Y
@@ -170,6 +184,27 @@ def _split_target(raw: str) -> tuple[str, str | None, int]:
     if m := _LINE_SUFFIX.search(path):
         path = path[: m.start()]
     return path, frag, frag_start
+
+
+def _cite_of(raw: str) -> tuple[str, int, int] | None:
+    """(text as written, start, end) of a ``path:N``, ``path:N-M`` or ``path#LN`` reference.
+
+    The text runs from the start of ``raw`` to the end of the line suffix or fragment; None when
+    ``raw`` carries no line (``start == end`` for a single line).
+    """
+    hash_at = raw.find("#")
+    if hash_at >= 0:
+        m = _CITE_FRAGMENT.match(raw, hash_at + 1)
+        if m is None or hash_at == 0:
+            return None
+        first = int(m[1])
+        return raw[: m.end()], first, int(m[2]) if m[2] else first
+    path = raw[: raw.find("?")] if "?" in raw else raw
+    m = _CITE_SUFFIX.search(path)
+    if m is None or m.start() == 0:
+        return None
+    first = int(m[1])
+    return path, first, int(m[2]) if m[2] else first
 
 
 def _command_starts(s: str) -> list[int]:
@@ -324,6 +359,10 @@ class _Extractor:
             line, col, end_col = self.code_span(inl, lead, lead + len(path))
             self.add("path", line, col, end_col, path, "inline-code", block, idx,
                      editable=editable)
+            if cite := _cite_of(text.strip()):
+                line, col, end_col = self.code_span(inl, lead, lead + len(cite[0]))
+                self.add("cite", line, col, end_col, cite[0], "inline-code", block, idx,
+                         editable=editable, path=path, start=cite[1], end=cite[2])
         for tool, name, a, b in _scripts(text):
             line, col, end_col = self.code_span(inl, a, b)
             self.add("script", line, col, end_col, name, "inline-code", block, idx,
@@ -343,6 +382,10 @@ class _Extractor:
         if has_path:
             self.add("path", inl.line, inl.col, inl.col + len(path), path, inl.kind, block, idx,
                      link=link, editable=editable)
+            if cite := _cite_of(raw):
+                self.add("cite", inl.line, inl.col, inl.col + len(cite[0]), cite[0], inl.kind,
+                         block, idx, link=link, editable=editable, path=path, start=cite[1],
+                         end=cite[2])
         markdown_target = not path or path.lower().endswith((".md", ".markdown"))
         if (frag and markdown_target and (has_path or not path)
                 and not any(p in frag for p in ("<", ">", "{", "$", "*", "#"))):
@@ -441,6 +484,36 @@ class _Extractor:
                 if b.line_end - b.line_start <= c.line_end - c.line_start:
                     best[no] = idx
         return best
+
+    def inline_cover(self) -> dict[int, list[tuple[int, int]]]:
+        """Per line, the column ranges any inline covers (code spans with their backticks,
+        links and images with their labels, autolinks)."""
+        cover: dict[int, list[tuple[int, int]]] = {}
+        for inl in self.sc.inlines:
+            a = inl.outer_col if inl.outer_col is not None else inl.col
+            b = inl.outer_end_col if inl.outer_end_col is not None else inl.end_col
+            for no in range(inl.line, inl.end_line + 1):
+                start = a if no == inl.line else 0
+                end = b if no == inl.end_line else len(self.line(no))
+                cover.setdefault(no, []).append((start, end))
+        return cover
+
+    def prose_cites(self) -> None:
+        """Bare ``path:N`` and ``path:N-M`` words naming a code or script file (``CITE_EXTS``)
+        on the prose lines the version scan reads, outside any inline: ``cite`` tokens with
+        context ``prose`` and no path token beside them."""
+        cover = self.inline_cover()
+        for no, idx in sorted(self.innermost().items()):
+            if self.sc.blocks[idx].kind not in VERSION_PROSE_BLOCKS:
+                continue
+            for m in _PROSE_CITE.finditer(self.line(no)):
+                path = m[1]
+                if (_ext(path) not in CITE_EXTS or _URL.search(path)
+                        or any(a <= m.start() < b for a, b in cover.get(no, []))):
+                    continue
+                first = int(m[2])
+                self.add("cite", no, m.start(), m.end(), m[0], "prose", self.block_of(idx),
+                         path=path, start=first, end=int(m[3]) if m[3] else first)
 
     def versions(self) -> None:
         codes = [i for i in self.sc.inlines if i.kind == "code" and i.line == i.end_line]
@@ -588,6 +661,7 @@ class _Extractor:
         self.inlines()
         self.fences()
         self.versions()
+        self.prose_cites()
         self.subjects()
         markers = self.markers()
         honoured = [m for m in markers if m["reason"] and m["target_line_start"] is not None]

@@ -2,7 +2,8 @@
 
 ``apply_edits`` applies every ``edits.json`` edit whose status is ``kept`` and whose
 ``verdicts.json`` verdict is ``accept``, plus every kept notice-loop edit (``source ==
-"notice"``, no verdict needed); a missing ``verdicts.json`` means no verdicts. The README's
+"notice"``) and every kept script edit (``source == "script"``, phase C spec 5), neither
+needing a verdict; a missing ``verdicts.json`` means no verdicts. The README's
 ``create`` edit is never applied here: ``dd_readme.apply`` writes the README.
 
 Per doc (spec 7.3): the doc is read with ``newline=""`` and split on ``\\r\\n`` or ``\\n`` like
@@ -51,6 +52,7 @@ WRITE_FAILED = "write-failed"
 OLD_MISMATCH = "old-mismatch"
 RECHECK_FAILED = "recheck-failed"
 RECHECKED_KINDS = frozenset({"path", "anchor"})
+NO_VERDICT_SOURCES = frozenset({"notice", "script"})
 _SPLIT = re.compile(r"(\r?\n)")
 
 Line = tuple[str, str]  # (content, ending); ending is "" only on a last line without newline
@@ -356,15 +358,18 @@ def update_heading_links(root: Path, workdir: Path, applied_edits: Iterable[str]
 
 def selected_edits(edits: Iterable[Mapping[str, Any]],
                    verdicts: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """The edits a run applies: kept and accepted by their verdict, or kept notice-loop edits
-    (no verdict needed). ``verdicts`` is ``verdicts.json``'s ``verdicts`` mapping."""
+    """The edits a run applies: kept and accepted by their verdict, or kept notice-loop and
+    script edits (no verdict needed: neither goes to a verifier). ``verdicts`` is
+    ``verdicts.json``'s ``verdicts`` mapping."""
     accepted = {eid for eid, v in verdicts.items() if v.get("verdict") == "accept"}
     return [dict(e) for e in edits
-            if e.get("status") == "kept" and (e.get("source") == "notice" or e["id"] in accepted)]
+            if e.get("status") == "kept"
+            and (e.get("source") in NO_VERDICT_SOURCES or e["id"] in accepted)]
 
 
 def apply_edits(root: Path, workdir: Path) -> dict[str, Any]:
-    """Apply the accepted agent edits and the kept notice edits; write ``applied.json``."""
+    """Apply the accepted agent edits and the kept notice and script edits; write
+    ``applied.json``."""
     for name in ("inventory.json", "tokens.json", "edits.json"):
         if not (workdir / name).is_file():
             raise StepError(f"missing {workdir / name}; run the earlier steps first", EXIT_MISSING)
