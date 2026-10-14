@@ -1138,7 +1138,7 @@
   {
    "change_ranges": [
     [
-     16,
+     15,
      20
     ]
    ],
@@ -1149,10 +1149,10 @@
    "norm": "Settings",
    "owners": [],
    "reading": [
-    16,
+    15,
     20
    ],
-   "start": 16
+   "start": 15
   },
   {
    "change_ranges": [
@@ -1376,7 +1376,7 @@
   {
    "change_ranges": [
     [
-     13,
+     12,
      15
     ]
    ],
@@ -1387,15 +1387,15 @@
    "norm": "health",
    "owners": [],
    "reading": [
-    13,
+    12,
     15
    ],
-   "start": 13
+   "start": 12
   },
   {
    "change_ranges": [
     [
-     19,
+     18,
      24
     ]
    ],
@@ -1406,15 +1406,15 @@
    "norm": "get_item",
    "owners": [],
    "reading": [
-    19,
+    18,
     24
    ],
-   "start": 19
+   "start": 18
   },
   {
    "change_ranges": [
     [
-     28,
+     27,
      30
     ]
    ],
@@ -1425,10 +1425,10 @@
    "norm": "stats",
    "owners": [],
    "reading": [
-    28,
+    27,
     30
    ],
-   "start": 28
+   "start": 27
   },
   {
    "change_ranges": [

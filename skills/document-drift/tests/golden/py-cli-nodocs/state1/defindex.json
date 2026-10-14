@@ -677,7 +677,7 @@
   {
    "change_ranges": [
     [
-     13,
+     12,
      18
     ]
    ],
@@ -688,10 +688,10 @@
    "norm": "get_item",
    "owners": [],
    "reading": [
-    13,
+    12,
     18
    ],
-   "start": 13
+   "start": 12
   },
   {
    "change_ranges": [

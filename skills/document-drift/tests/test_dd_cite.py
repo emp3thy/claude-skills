@@ -116,6 +116,50 @@ def test_plain_bare_words_are_not_subjects() -> None:
     assert subject is not None and subject["text"] == "line"
 
 
+def test_a_covering_candidate_wins_over_a_nearer_one(tmp_path: Path) -> None:
+    defs = [_d("episodes", "ui/app.py", 222, 227), _d("episodes_banner", "ui/app.py", 251, 262),
+            _d("episodes", "db/schema.sql", 5, 20, "sql")]
+    line = "`episodes_banner` reads the `episodes` table (`app.py:251-262`)"
+    subject = subject_of(line, *_cite_at(line, "app.py:251-262"), _defs(*defs),
+                         index_names([]))
+    assert subject is not None
+    assert (subject["text"], subject["start"], subject["end"]) == ("episodes_banner", 251, 262)
+    assert check(_token("app.py", 251, 262, "app.py:251-262"), subject,
+                 frozenset({"ui/app.py", "db/schema.sql"}),
+                 {"ui/app.py": 300, "db/schema.sql": 30}) == ("current", None)
+    root, workdir = _setup(tmp_path, {"docs/a.md": line + "\n"}, defs, [],
+                           {"ui/app.py": 300, "db/schema.sql": 30})
+    result = run(root, workdir)
+    assert result["edits"] == [] and result["hints"] == {}
+    assert result["counts"]["citations"]["current"] == 1
+
+
+def test_table_row_candidates_come_from_the_own_cell(tmp_path: Path) -> None:
+    defs = [_d("episodes", "ui/app.py", 222, 227), _d("episodes_banner", "ui/app.py", 251, 262)]
+    names = index_names([])
+    # `episodes` sits in another cell than the citation and the row's name cell: no subject
+    row = ("| Unclosed-episode banner | read | `episodes` | No | `app.py:251-262` calls "
+           "`queries.unclosed_episode_count(conn)`. |")
+    assert subject_of(row, *_cite_at(row, "app.py:251-262"), _defs(*defs), names) is None
+    # a name in the citation's own cell is the subject
+    row = "| Banner | `episodes` | `episodes_banner` at `app.py:240` |"
+    subject = subject_of(row, *_cite_at(row, "app.py:240"), _defs(*defs), names)
+    assert subject is not None and subject["text"] == "episodes_banner"
+    # the row's name cell counts like the own cell (spec 2.1)
+    row = "| `episodes_banner` | `episodes` | `app.py:240` |"
+    subject = subject_of(row, *_cite_at(row, "app.py:240"), _defs(*defs), names)
+    assert subject is not None and subject["text"] == "episodes_banner"
+    # prose: before the citation only within 120 characters
+    line = "`episodes_banner` " + "x " * 70 + "at `app.py:240`"
+    assert subject_of(line, *_cite_at(line, "app.py:240"), _defs(*defs), names) is None
+    doc = ("| what | tables | where |\n|---|---|---|\n"
+           "| Banner | `episodes` | `app.py:240` |\n")
+    root, workdir = _setup(tmp_path, {"docs/a.md": doc}, defs, [], {"ui/app.py": 300})
+    result = run(root, workdir)
+    assert result["edits"] == []
+    assert result["counts"]["citations"]["unresolved"] == 1
+
+
 def test_scanned_names_are_subjects(tmp_path: Path) -> None:
     app = "better_memory/ui/app.py"
     doc = "| route | at |\n|---|---|\n| `GET /semantic` | `app.py:487` |\n"

@@ -6,17 +6,22 @@ line (``subject_of``): the candidates are the contents of inline code spans, wit
 ``()``, and the bare words (``[A-Za-z_][\\w.]*``, a trailing ``.`` dropped) outside them that
 are specific (``dd_defindex.is_specific``: ``EpisodeService``, ``store.save``) or written as a
 call (``observe()``), so a plain word such as ``line`` never claims a citation. The line's
-citations are masked out first, so no citation text is ever a candidate. The
-candidates before the citation are tried from nearest to farthest, then those starting within
-``AFTER_WINDOW`` characters after it, nearest first; the first that resolves is the subject.
+citations are masked out first, so no citation text is ever a candidate. The candidates are
+those before the citation, nearest first (in a table row only those in the citation's own cell
+and in the row's name cell, its first; elsewhere those ending within ``BEFORE_WINDOW``
+characters of it), then those starting within ``AFTER_WINDOW`` characters after it, nearest
+first. A candidate whose span in the cited file covers the citation wins (the doc cites that
+definition, whatever name is nearer); otherwise the first candidate resolving in the cited
+file is the subject; failing that, the first resolving elsewhere (a use site).
 
 A candidate resolves (``resolve_name``) to definitions of rank 0 (``module``, ``function``,
 ``class``, ``sql``, ``file``) by its whole normalised name or, for ``Owner.member``, by the member
-with the owner among the definition's owners; failing that, to the scan's names by ``norm``
-(the route form for routes, with a leading HTTP method dropped), each a one-line span at its
-``file:line``. A ``file`` or ``module`` definition of the cited file itself never resolves: a
-citation naming its own file says nothing about the line. A definition is **in the cited file**
-when its file is the cited path or ends with ``/`` and the cited path.
+with the owner among the definition's owners, and to the scan's names by ``norm`` (the route
+form for routes, with a leading HTTP method dropped), each a one-line span at its
+``file:line``; definitions in the cited file win, then scanned names there, then definitions
+and scanned names elsewhere. A ``file`` or ``module`` definition of the cited file itself
+never resolves: a citation naming its own file says nothing about the line. A definition is
+**in the cited file** when its file is the cited path or ends with ``/`` and the cited path.
 
 ``check`` gives spec 2.2's case: ``current``, ``moved`` (with the rewritten citation text),
 ``several definitions, one covers``, ``ambiguous``, ``use site`` or ``unresolved``. A moved
@@ -44,6 +49,8 @@ from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json, write_json
 from dd_defindex import RANK, Definition, by_norm, is_specific, norm
 from dd_resolve import path_matches
 
+BEFORE_WINDOW = 120
+TABLE_BLOCKS = frozenset({"table_row", "table_header"})
 AFTER_WINDOW = 60
 SELF_KINDS = frozenset({"file", "module"})
 CURRENT, MOVED, ONE_COVERS = "current", "moved", "several definitions, one covers"
@@ -121,9 +128,12 @@ def index_names(names: Iterable[Mapping[str, Any]]) -> dict[str, list[dict[str, 
 
 def resolve_name(text: str, defs: Mapping[str, list[Definition]], names: Names,
                  cited: str) -> tuple[str, list[Span]] | None:
-    """``(kind, spans)`` a candidate name resolves to, or None (module docstring): rank-0
-    definitions by the whole name, else ``Owner.member`` by the member with the owner among
-    the definition's owners; failing both, the scan's names. Spans are sorted and distinct."""
+    """``(kind, spans)`` a candidate name resolves to, or None (module docstring).
+
+    Rank-0 definitions match by the whole name, else ``Owner.member`` by the member with the
+    owner among the definition's owners; the scan's names by ``norm``. The first non-empty of
+    these wins: definitions in the cited file, scanned names in the cited file, definitions
+    elsewhere, scanned names elsewhere. Spans are sorted and distinct."""
     found = [d for d in defs.get(norm(text), []) if RANK.get(d["kind"]) == 0]
     if not found and "." in text:
         owner, member = text.rsplit(".", 1)
@@ -131,14 +141,17 @@ def resolve_name(text: str, defs: Mapping[str, list[Definition]], names: Names,
         found = [d for d in defs.get(norm(member), [])
                  if RANK.get(d["kind"]) == 0 and owner_norm in d["owners"]]
     found = [d for d in found if not (d["kind"] in SELF_KINDS and in_cited(d["file"], cited))]
-    if found:
-        return "definition", sorted({(d["file"], d["start"], d["end"]) for d in found})
     scanned = [r for r in names.get(norm(text), []) if r["kind"] != "route"]
     route = norm(_METHOD.sub("", text, count=1), routes=True)
     scanned += [r for r in names.get(route, []) if r["kind"] == "route"]
-    if scanned:
-        return "scanned", sorted({(str(r["file"]), int(r["line"]), int(r["line"]))
-                                  for r in scanned})
+    def_spans = sorted({(str(d["file"]), int(d["start"]), int(d["end"])) for d in found})
+    name_spans = sorted({(str(r["file"]), int(r["line"]), int(r["line"])) for r in scanned})
+    for kind, spans, here in (("definition", def_spans, True), ("scanned", name_spans, True),
+                              ("definition", def_spans, False),
+                              ("scanned", name_spans, False)):
+        chosen = [s for s in spans if in_cited(s[0], cited)] if here else spans
+        if chosen:
+            return kind, chosen
     return None
 
 
@@ -146,8 +159,20 @@ def _strip_call(text: str) -> str:
     return text[:-2] if text.endswith("()") else text
 
 
-def _candidates(line: str, col: int, end_col: int) -> list[str]:
-    """The candidate names of a masked line in trial order (module docstring)."""
+def _cells(line: str) -> list[tuple[int, int]]:
+    """The column ranges of a table row's cells, between unescaped ``|`` (an empty edge
+    segment outside the outer pipes is no cell)."""
+    pipes = [i for i, ch in enumerate(line) if ch == "|" and (i == 0 or line[i - 1] != "\\")]
+    bounds = [-1, *pipes, len(line)]
+    cells = [(bounds[i] + 1, bounds[i + 1]) for i in range(len(bounds) - 1)]
+    return [c for n, c in enumerate(cells)
+            if line[c[0]:c[1]].strip() or n not in (0, len(cells) - 1)]
+
+
+def _candidates(line: str, col: int, end_col: int, table: bool) -> list[str]:
+    """The candidate names of a masked line in trial order (module docstring): before the
+    citation nearest first (in a table row only its own cell and the row's name cell, else
+    within ``BEFORE_WINDOW`` characters), then within ``AFTER_WINDOW`` after it."""
     found: list[tuple[int, int, str]] = []
     code: list[tuple[int, int]] = []
     for m in _CODE.finditer(line):
@@ -162,7 +187,17 @@ def _candidates(line: str, col: int, end_col: int) -> list[str]:
         called = text == m.group(0) and line.startswith("(", m.end())
         if text and (called or is_specific(text)):
             found.append((m.start(), m.end(), text))
-    before = sorted((c for c in found if c[1] <= col), key=lambda c: (-c[1], c[0]))
+    if table:
+        cells = _cells(line)
+        own = [c for c in cells if c[0] <= col < c[1]]
+        allowed = [*own[:1], *cells[:1]]
+
+        def near(c: tuple[int, int, str]) -> bool:
+            return any(a <= c[0] and c[1] <= b for a, b in allowed)
+    else:
+        def near(c: tuple[int, int, str]) -> bool:
+            return col - c[1] <= BEFORE_WINDOW
+    before = sorted((c for c in found if c[1] <= col and near(c)), key=lambda c: (-c[1], c[0]))
     after = sorted((c for c in found if c[0] >= end_col and c[0] - end_col <= AFTER_WINDOW),
                    key=lambda c: (c[0], -c[1]))
     return [c[2] for c in before + after]
@@ -175,31 +210,50 @@ def _mask(line: str, spans: Iterable[tuple[int, int]]) -> str:
     return "".join(chars)
 
 
+def _covers(span: Span, start: int, end: int) -> bool:
+    return span[1] <= start and end <= span[2]
+
+
 def subject_of(line: str, col: int, end_col: int, defs: Mapping[str, list[Definition]],
                names: Names, *, cite: Cite | None = None,
-               others: Sequence[tuple[int, int]] = ()) -> Subject | None:
-    """The subject of the citation at ``line[col:end_col]``, or None when no name on the line
-    resolves. ``cite`` overrides ``(path, start, end)`` parsed from the citation text (the
-    caller's repository form of the path); ``others`` are the line's other citation spans,
-    masked like this one. ``count`` is how many spans the name has in the cited file; ``file``,
-    ``start`` and ``end`` are the one covering the citation when exactly one does, else the
-    first in the cited file, else (a use site) the first elsewhere."""
+               others: Sequence[tuple[int, int]] = (),
+               table: bool | None = None) -> Subject | None:
+    """The subject of the citation at ``line[col:end_col]``, or None when no candidate
+    resolves (module docstring). ``cite`` overrides ``(path, start, end)`` parsed from the
+    citation text (the caller's repository form of the path); ``others`` are the line's other
+    citation spans, masked like this one; ``table`` says the line is a table row (by default,
+    when it starts with ``|``).
+
+    The first candidate with a span in the cited file covering the citation wins, with that
+    span; else the first candidate with spans in the cited file, with its first span; else
+    (a use site) the first candidate resolving elsewhere. ``count`` is the winner's number of
+    spans in the cited file, ``spans`` those spans."""
     parsed = cite or parse_cite(line[col:end_col])
     if parsed is None:
         return None
     path, start, end = parsed
+    if table is None:
+        table = line.lstrip().startswith("|")
     masked = _mask(line, [(col, end_col), *others])
-    for text in _candidates(masked, col, end_col):
+    nearest: Subject | None = None
+    elsewhere: Subject | None = None
+    for text in _candidates(masked, col, end_col, table):
         resolved = resolve_name(text, defs, names, path)
         if resolved is None:
             continue
         kind, spans = resolved
-        in_file = [s for s in spans if in_cited(s[0], path)]
-        covering = [s for s in in_file if s[1] <= start and end <= s[2]]
-        pick = covering[0] if len(covering) == 1 else (in_file or spans)[0]
-        return Subject(text=text, file=pick[0], start=pick[1], end=pick[2], kind=kind,
-                       count=len(in_file), spans=in_file)
-    return None
+        if not in_cited(spans[0][0], path):
+            elsewhere = elsewhere or Subject(text=text, file=spans[0][0], start=spans[0][1],
+                                             end=spans[0][2], kind=kind, count=0, spans=[])
+            continue
+        covering = [s for s in spans if _covers(s, start, end)]
+        pick = (covering or spans)[0]
+        subject = Subject(text=text, file=pick[0], start=pick[1], end=pick[2], kind=kind,
+                          count=len(spans), spans=spans)
+        if covering:
+            return subject
+        nearest = nearest or subject
+    return nearest or elsewhere
 
 
 def cited_files(path: str, files: Iterable[str]) -> list[str]:
@@ -210,7 +264,10 @@ def cited_files(path: str, files: Iterable[str]) -> list[str]:
 def check(token: Mapping[str, Any], subject: Subject | None, files: Collection[str],
           file_lengths: Mapping[str, int]) -> tuple[str, dict[str, str] | None]:
     """Spec 2.2's case of a citation token and, for ``moved``, ``{"old_cite", "new_cite"}``.
-    ``files`` are the tracked paths, ``file_lengths`` the line counts of the cited ones."""
+    ``files`` are the tracked paths, ``file_lengths`` the line counts of the cited ones. A
+    subject span covering the citation makes it current (``several definitions, one covers``
+    when exactly one of several does); otherwise one span is ``moved``, several
+    ``ambiguous``."""
     path, start, end = _clean(str(token["path"])), int(token["start"]), int(token["end"])
     if start < 1 or end < start:
         return UNRESOLVED, None
@@ -219,14 +276,14 @@ def check(token: Mapping[str, Any], subject: Subject | None, files: Collection[s
         return UNRESOLVED, None
     if subject["count"] == 0:
         return USE_SITE, None
-    covering = [s for s in subject["spans"] if s[1] <= start and end <= s[2]]
+    covering = [s for s in subject["spans"] if _covers(s, start, end)]
+    if covering:
+        return (ONE_COVERS if subject["count"] > 1 and len(covering) == 1 else CURRENT), None
     if subject["count"] == 1:
-        if covering:
-            return CURRENT, None
         old = str(token["text"])
         return MOVED, {"old_cite": old, "new_cite": rewrite(
             old, subject["start"], subject["end"], single=start == end)}
-    return (ONE_COVERS, None) if len(covering) == 1 else (AMBIGUOUS, None)
+    return AMBIGUOUS, None
 
 
 def _numbers(start: int, end: int) -> str:
@@ -326,7 +383,9 @@ def run(root: Path, workdir: Path) -> dict[str, Any]:
                         lengths[file] = 0 if source is None else len(_split(source))
                 subject = subject_of(line, *spans[i], defs, names,
                                      cite=(path, int(token["start"]), int(token["end"])),
-                                     others=spans[:i] + spans[i + 1:])
+                                     others=spans[:i] + spans[i + 1:],
+                                     table=(token.get("block") or {}).get("kind")
+                                     in TABLE_BLOCKS)
                 case, rewritten = check({**token, "path": path}, subject, files, lengths)
                 counts["checked"] += 1
                 counts[_COUNT_KEY[case]] += 1

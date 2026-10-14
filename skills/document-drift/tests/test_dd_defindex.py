@@ -48,14 +48,40 @@ class Store:
 def test_python_function_and_class_ranges():
     defs = _build({"pkg/store.py": PY_FUNCS})
     top = _find(defs, "top", "function")
-    assert _span(top) == (5, 7)
+    assert _span(top) == (4, 7)  # from the decorator
     assert top["norm"] == "top" and top["file"] == "pkg/store.py"
-    assert top["change_ranges"] == [[5, 7]] and top["reading"] == [5, 7]
+    assert top["change_ranges"] == [[4, 7]] and top["reading"] == [4, 7]
     assert _span(_find(defs, "Store", "class")) == (10, 15)
     put = _find(defs, "put", "function")
     assert _span(put) == (11, 12)
     assert put["owners"] == ["Store"]
     assert _span(_find(defs, "fetch", "function")) == (14, 15)
+
+
+def test_python_definition_span_starts_at_the_first_decorator():
+    text = "\n".join([
+        "import functools",      # 1
+        "",                      # 2
+        "@app.get('/health')",   # 3
+        "@functools.cache",      # 4
+        "def health():",         # 5
+        "    return 'ok'",       # 6
+        "",                      # 7
+        "@dataclass(",           # 8
+        "    frozen=True,",      # 9
+        ")",                     # 10
+        "class Config:",         # 11
+        "    port: int = 8080",  # 12
+        "",                      # 13
+        "def plain():",          # 14
+        "    pass",              # 15
+    ]) + "\n"
+    defs = _build({"src/app.py": text})
+    health = _find(defs, "health", "function")
+    assert _span(health) == (3, 6)
+    assert health["change_ranges"] == [[3, 6]] and health["reading"] == [3, 6]
+    assert _span(_find(defs, "Config", "class")) == (8, 12)
+    assert _span(_find(defs, "plain", "function")) == (14, 15)
 
 
 def test_module_indexed_by_dotted_path_and_last_segment():
