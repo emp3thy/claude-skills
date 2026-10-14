@@ -111,7 +111,8 @@ def validate(sheet: Any, area: Mapping[str, Any], root: Path | None,
         if name is None or _names_its_file(name, path):
             return
         window = "\n".join(text[max(0, number - 1 - _WINDOW):number + _WINDOW])
-        if not any(token in window for token in _tokens(name)):
+        wanted = _tokens(name) or [name.replace("`", "").strip().removeprefix("$")]
+        if not any(token in window for token in wanted):
             problems.append(f"{what}: {name!r} is not within {_WINDOW} lines of {path}:{number}")
 
     seen: set[Key] = set()

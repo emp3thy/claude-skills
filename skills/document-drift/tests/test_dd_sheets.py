@@ -197,3 +197,19 @@ def test_check_outputs_runs_the_content_rules_only_with_a_root(tmp_path: Path) -
     assert dd_dispatch.check_outputs(workdir, plan, "sheet") == (["a01"], [])
     valid, failed = dd_dispatch.check_outputs(workdir, plan, "sheet", root=root)
     assert valid == [] and [e["id"] for e in failed] == ["a01"]
+
+
+def test_short_name_is_matched_whole(tmp_path: Path) -> None:
+    lines = ["[project]", 'name = "kv"', "[project.scripts]", 'kv = "kv.cli:main"',
+             *[f"# pad {n}" for n in range(12)]]
+    root = make_repo(tmp_path, [{"date": "2026-01-01T00:00:00Z", "subject": "init",
+                                 "files": {"pyproject.toml": "\n".join(lines) + "\n"}}])
+    area = _area("a01", ["pyproject.toml"], [])
+
+    def check(line: int) -> list[str]:
+        sheet = _sheet(surface=[_surface("script", "kv", f"pyproject.toml:{line}")],
+                       behaviours=[])
+        return dd_sheets.validate(sheet, area, root, {"pyproject.toml"})
+
+    assert check(4) == []
+    assert any("'kv' is not within" in p for p in check(15))
