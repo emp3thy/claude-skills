@@ -67,6 +67,7 @@ _PLACEHOLDER = re.compile(r"\{\{([A-Za-z_]+)\}\}")
 _TICKS = re.compile(r"`+")
 _SPAN = re.compile(r"(`+)(.+?)\1")
 _WORD = re.compile(r"(?<![\w-])-{0,2}[A-Za-z_][\w.-]*")
+_NEWLINE = re.compile(r"\r\n|\r|\n")
 SETTLED_CUT = 160
 
 
@@ -114,6 +115,20 @@ def _doc_lines(root: Path, doc: str) -> list[str] | None:
         return (root / doc).read_bytes().decode("utf-8", "replace").splitlines()
     except OSError:
         return None
+
+
+def _code_lines(root: Path, file: str) -> list[str] | None:
+    """A code file's lines split on ``\\r\\n``, ``\\r`` and ``\\n`` only, as the definition index
+    (``ast``) numbers them; ``str.splitlines`` also splits on form feeds, U+2028 and the like.
+    None when the file cannot be read."""
+    try:
+        text = (root / file).read_bytes().decode("utf-8", "replace")
+    except OSError:
+        return None
+    lines = _NEWLINE.split(text)
+    if lines[-1] == "":
+        lines.pop()
+    return lines
 
 
 NO_ANCHORS = "no anchors in these lines"
@@ -164,10 +179,12 @@ def _shown_anchors(unit: Mapping[str, Any], affected: Mapping[str, Any],
 
 def _facts(name: Mapping[str, Any]) -> str:
     """A scanned name's facts as ``default 8080; choices a, b; required`` (``optional`` when
-    ``required`` is false), the null ones left out; empty when it has none."""
+    ``required`` is false, ``default ""`` for an empty default), the null ones left out;
+    empty when it has none."""
     parts = []
-    if name.get("default") is not None:
-        parts.append(f"default {name['default']}")
+    default = name.get("default")
+    if default is not None:
+        parts.append(f"default {default}" if default != "" else 'default ""')
     if name.get("choices"):
         parts.append(f"choices {', '.join(str(c) for c in name['choices'])}")
     if name.get("required") is not None:
@@ -246,34 +263,37 @@ def _code_value(root: Path, unit: Mapping[str, Any], affected: Mapping[str, Any]
                 later: bool) -> str:
     """The code the shown anchors (``_shown_anchors``) rest on: their reading ranges merged
     per file, read from the working tree, each as ``### <file>:<start>-<end>`` and a fenced
-    block of ``n: text`` lines, files in path order; ``(none)`` without an anchor."""
+    block of ``n: text`` lines (``_code_lines``), files in path order; ``(none)`` without an
+    anchor. A range past the file's end, or a file that cannot be read, gets a one-line note
+    in its block instead."""
     by_file: dict[str, list[list[int]]] = {}
     for anchor in _shown_anchors(unit, affected, later):
         by_file.setdefault(str(anchor["file"]), []).append(_reading(anchor))
     blocks = []
     for file in sorted(by_file):
-        lines = _doc_lines(root, file)
+        lines = _code_lines(root, file)
         for start, end in _merge(by_file[file]):
             if lines is None:
-                blocks.append(f"### {file}:{start}-{end}\n"
-                              f"{_fence(f'(could not read {file})')}")
-                continue
-            start, end = max(start, 1), min(end, len(lines))
-            if start > end:
-                continue
-            numbered = "\n".join(f"{n}: {lines[n - 1]}" for n in range(start, end + 1))
-            blocks.append(f"### {file}:{start}-{end}\n{_fence(numbered)}")
+                body = f"(could not read {file})"
+            elif max(start, 1) > len(lines):
+                body = f"(lines {start}-{end} are past the end of {file})"
+            else:
+                start, end = max(start, 1), min(end, len(lines))
+                body = "\n".join(f"{n}: {lines[n - 1]}" for n in range(start, end + 1))
+            blocks.append(f"### {file}:{start}-{end}\n{_fence(body)}")
     return "\n\n".join(blocks) or "(none)"
 
 
 def _cut(text: str) -> str:
-    return text.replace("\n", " ")[:SETTLED_CUT]
+    """``text`` on one line (newlines become spaces), cut to ``SETTLED_CUT`` characters."""
+    return _NEWLINE.sub(" ", text)[:SETTLED_CUT]
 
 
 def _settled_value(unit: Mapping[str, Any], script: Mapping[str, Any] | None) -> str:
     """The lines of the unit's doc ranges the scripts settled (``script-edits.json``): each
     ``cite`` or ``fact`` edit as ``- <doc>:<line>: <old> -> <new>`` (each cut to
-    ``SETTLED_CUT`` characters) and each hint as ``- <doc>:<line>: <text>``, by doc and line;
+    ``SETTLED_CUT`` characters) and each hint as ``- <doc>:<line>: <text>`` (cut the same way),
+    by doc and line;
     ``(none)`` when there is none."""
     if not script:
         return "(none)"
@@ -290,7 +310,7 @@ def _settled_value(unit: Mapping[str, Any], script: Mapping[str, Any] | None) ->
         for hint in hints.get(doc, []):
             line = int(hint["line"])
             if _in_ranges(line, ranges):
-                found.append((line, 1, f"- {doc}:{line}: {hint['text']}"))
+                found.append((line, 1, f"- {doc}:{line}: {_cut(str(hint['text']))}"))
         out += [text for _, _, text in sorted(found)]
     return "\n".join(out) or "(none)"
 

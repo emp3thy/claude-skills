@@ -796,6 +796,47 @@ def test_code_blocks_merge_ranges_and_number_lines(tmp_path: Path) -> None:
     assert dd_dispatch._code_value(root, {**unit, "anchors": []}, {}, False) == "(none)"
 
 
+def test_code_lines_are_numbered_by_newline_as_ast_numbers_them(tmp_path: Path) -> None:
+    import ast
+
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    # str.splitlines() would also split on the form feed, U+2028, U+0085 and \x1c
+    source = "x = 1\n\f\ny = 2  # a b\x85c\x1cd\nz = 3\r\nw = 4\rv = 5\n"
+    (root / "src" / "f.py").write_bytes(source.encode("utf-8"))
+    lines = {node.targets[0].id: node.lineno
+             for node in ast.parse(source).body}
+    assert lines == {"x": 1, "y": 3, "z": 4, "w": 5, "v": 6}
+    unit = {"anchors": [_anchor("README.md", 1, "z", "src/f.py", 1, 6)],
+            "docs": [{"doc": "README.md", "ranges": [[1, 1]]}]}
+    value = dd_dispatch._code_value(root, unit, {}, False)
+    for name, number in lines.items():
+        assert f"\n{number}: {name} = " in value
+    assert value.startswith("### src/f.py:1-6\n")
+
+
+def test_code_range_past_the_end_of_the_file_is_noted(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "b.py").write_text("b1\nb2\n", encoding="utf-8")
+    unit = {"anchors": [_anchor("README.md", 1, "x", "src/b.py", 1, 1),
+                        _anchor("README.md", 2, "y", "src/b.py", 5, 9)],
+            "docs": [{"doc": "README.md", "ranges": [[1, 2]]}]}
+    assert dd_dispatch._code_value(root, unit, {}, False) == "\n\n".join([
+        _block("src/b.py", 1, 1, "1: b1"),
+        _block("src/b.py", 5, 9, "(lines 5-9 are past the end of src/b.py)")])
+
+
+def test_settled_hints_are_cut_and_flattened_and_empty_defaults_shown() -> None:
+    unit = {"docs": [{"doc": "README.md", "ranges": [[1, 5]]}], "anchors": []}
+    script = {"edits": [], "hints": {"README.md": [
+        {"line": 2, "kind": "cite-unresolved", "text": "a\nb" + "h" * 300}]}}
+    assert dd_dispatch._settled_value(unit, script) == f"- README.md:2: a b{'h' * 157}"
+    assert dd_dispatch._facts(_scanned("APP_X", default="")) == 'default ""'
+    assert dd_dispatch._facts(_scanned("APP_X", default="", required=True)) == (
+        'default ""; required')
+
+
 def test_later_run_inlines_only_touched_ranges_within_budget(tmp_path: Path) -> None:
     # Review Focus 5: a later-run unit of two anchors whose change touched one of them
     root = tmp_path / "repo"
@@ -946,6 +987,8 @@ def test_prompts_have_the_reading_rule_and_no_placeholder_left(tmp_path: Path) -
         assert "No edit may touch a settled line" in text
         assert "the hints name what the scripts could not settle" in text.lower()
         assert '"opened": []' in text and "`opened` lists" in text
+        assert ("A file counts as opened when you Read it; Grep and Glob searches do not "
+                "count.") in text
         code = _section(text, "The code")
         assert _block("src/app.py", 1, 2, "1: def start():\n2:     return 1") in code
         assert text.index("## The code") < text.index("## Already settled by script")
