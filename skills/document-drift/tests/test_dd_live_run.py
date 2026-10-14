@@ -257,14 +257,15 @@ def test_refuses_without_claude(monkeypatch: pytest.MonkeyPatch,
 
 
 def _fake_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, readme: bool,
-              ) -> tuple[Any, list[str], list[list[str]]]:
+              docs: int = 1) -> tuple[Any, list[str], list[list[str]]]:
     """A Run whose stages and waves are faked: the stage order and the ids dispatched."""
     workdir = tmp_path / "wd"
-    workdir.mkdir(exist_ok=True)
+    workdir.mkdir(parents=True, exist_ok=True)
     _write(workdir, "preflight.json", {"readme": readme})
     for name in ("docs", "readme", "verify"):
         _write(workdir, f"plan-{name}.json",
-               [{"id": f"{name}-1", "role": name, "model": "m", "prompt": "p", "output": "o"}])
+               [{"id": f"{name}-1", "role": name, "model": "m", "prompt": "p", "output": "o"}]
+               if name != "docs" or docs else [])
     stages: list[str] = []
     waves: list[list[str]] = []
 
@@ -272,7 +273,7 @@ def _fake_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, readme: bool,
         name = args[args.index("--stage") + 1]
         stages.append(name)
         lines = {"start": f"readme: {'yes' if readme else 'no'}\n"
-                          f"plan-docs.json {workdir / 'plan-docs.json'} with 1 entries\n",
+                          f"plan-docs.json {workdir / 'plan-docs.json'} with {docs} entries\n",
                  "compose": f"plan-readme.json {workdir / 'plan-readme.json'} with 1 entries\n",
                  "verify": f"plan-verify.json {workdir / 'plan-verify.json'} with 1 entries\n",
                  "finish": ""}
@@ -330,3 +331,14 @@ def test_row_counts_sheet_and_readme_calls(workdir: Path) -> None:
     got = cells(more)
     assert got["agents"] == "1/0/1/2/1"
     assert got["notes"] == "x; readme: 42 lines"
+
+
+def test_drive_runs_compose_even_with_an_empty_docs_plan_in_readme_mode(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    run, stages, waves = _fake_run(monkeypatch, tmp_path, True, docs=0)
+    dd_live_run.drive(run, False)
+    assert stages == ["start", "compose", "verify", "finish"]
+    assert waves == [["readme-1"], ["verify-1"]]
+    run, stages, waves = _fake_run(monkeypatch, tmp_path / "b", False, docs=0)
+    dd_live_run.drive(run, False)
+    assert stages == ["start", "finish"] and waves == []

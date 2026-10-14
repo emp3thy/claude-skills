@@ -292,10 +292,11 @@ def drive(run: Run, check: bool, resume: str | None = None) -> None:
         print(f"start: {run.repo}", flush=True)
         _, out = _stage(run, ["--stage", "start", *run.flags], (0,))
         docs_plan = _plan(out, run.workdir, "plan-docs")
-        if not docs_plan:
-            resume = "finish"
-        else:
+        readme_mode = bool((_json(run.workdir, "preflight.json") or {}).get("readme"))
+        if docs_plan:
             _wave(run, docs_plan)
+        elif not readme_mode:
+            resume = "finish"  # compose, verify and finish all need the README mode's compose
     if resume in (None, "compose") and (_json(run.workdir, "preflight.json") or {}).get("readme"):
         print(f"compose: {run.repo}", flush=True)
         _, out = _stage_with_retry(run, "compose", (0,))
