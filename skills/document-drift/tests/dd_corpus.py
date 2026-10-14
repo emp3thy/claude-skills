@@ -39,6 +39,9 @@ the live harness (``dd_live_run``) skips it and names it in its row's notes. The
 - ``gap:<gap_kind>:<target doc>``: a ``gaps.json`` gap for the item's ``name`` of that kind
   aimed at that doc;
 - ``dropped:<check>``: an edit on the doc line dropped by that check;
+- ``hint:<kind>``: ``script-edits.json`` has a hint of that kind (``cite-ambiguous``,
+  ``cite-use-site``, ``cite-unresolved``, ``not-in-scan``) on the doc line (phase C); a script
+  edit is ``edit:cite`` or ``edit:fact`` like any other applied edit;
 - ``none``: no applied edit covering the doc line, no human entry on it or naming the item's
   ``name``, no gap for the ``name`` or aimed at the doc line;
 - ``excluded``: the doc is in ``inventory.json`` ``excluded``;
@@ -340,6 +343,14 @@ def _expect_dropped(item: dict[str, Any], workdir: Path, check: str) -> str | No
     return f"no edit at {item.get('doc')}:{item.get('line')} dropped by {check}"
 
 
+def _expect_hint(item: dict[str, Any], workdir: Path, kind: str) -> str | None:
+    hints = _json(workdir, "script-edits.json").get("hints", {}).get(item.get("doc"), [])
+    if any(h["kind"] == kind and h["line"] == item.get("line") for h in hints):
+        return None
+    return (f"no {kind} hint at {item.get('doc')}:{item.get('line')}; found "
+            f"{[(h['line'], h['kind']) for h in hints]}")
+
+
 def _expect_none(item: dict[str, Any], workdir: Path, _arg: str) -> str | None:
     problems = []
     line = item.get("line")
@@ -518,6 +529,7 @@ JUDGES: dict[str, Judge] = {
     "human": _expect_human,
     "gap": _expect_gap,
     "dropped": _expect_dropped,
+    "hint": _expect_hint,
     "none": _expect_none,
     "excluded": _expect_excluded,
     "affected": _expect_affected,

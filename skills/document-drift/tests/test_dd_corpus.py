@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from dd_common import read_json
+from dd_common import read_json, write_json
 from dd_corpus import (
     CANNED_ROOT,
     DATES,
@@ -168,3 +168,19 @@ def test_readme_judges_match_whole_spans(monkeypatch: pytest.MonkeyPatch, tmp_pa
     clean = "# kv\n\n```sh\nkv Store.migrate\n```\n\nmigrate is prose, `kv sync` a span.\n"
     monkeypatch.setattr(dd_corpus, "_drift_readme", lambda _w: clean)
     assert _expect_readme(item, tmp_path, "absent:migrate") is None
+
+
+def test_hint_judge_matches_kind_and_doc_line(tmp_path: Path) -> None:
+    item: dict[str, Any] = {"id": "h1", "state": 2, "doc": "docs/ops.md", "line": 13,
+                            "what": "a row the scan lacks", "expect": ["hint:not-in-scan"]}
+    assert evaluate(item, tmp_path, 2) == [
+        "hint:not-in-scan: no not-in-scan hint at docs/ops.md:13; found []"]
+    write_json(tmp_path / "script-edits.json", {"edits": [], "counts": {}, "hints": {
+        "docs/ops.md": [{"line": 12, "kind": "not-in-scan", "text": "not in scan: --x"},
+                        {"line": 13, "kind": "cite-unresolved", "text": "cite unresolved"}],
+        "docs/other.md": [{"line": 13, "kind": "not-in-scan", "text": "not in scan: --y"}]}})
+    assert evaluate(item, tmp_path, 2) == [
+        "hint:not-in-scan: no not-in-scan hint at docs/ops.md:13; found "
+        "[(12, 'not-in-scan'), (13, 'cite-unresolved')]"]
+    assert evaluate({**item, "expect": ["hint:cite-unresolved"]}, tmp_path, 2) == []
+    assert evaluate({**item, "line": 12}, tmp_path, 2) == []

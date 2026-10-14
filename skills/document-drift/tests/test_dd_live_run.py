@@ -25,6 +25,8 @@ from dd_live_run import (
     score,
 )
 
+NO_SCRIPT = "cite 0/0; facts 0/0; opened 0"  # the notes' phase C figures with nothing to count
+
 
 def _write(workdir: Path, name: str, data: Any) -> None:
     path = workdir / name
@@ -92,7 +94,7 @@ def test_row_format(workdir: Path) -> None:
         "judged acceptable": "-", "human": "2", "notices placed": "1", "gaps": "2/1",
         "planted caught": "9/11", "decoys touched": "1/8", "agents": "2/1/1",
         "wall time": "12m34s", "tokens": "3500", "cost usd": "1.85",
-        "notes": "missed p3 \\| p14",
+        "notes": f"missed p3 \\| p14; {NO_SCRIPT}",
     }
 
 
@@ -104,13 +106,30 @@ def test_row_format_without_scoring_or_tokens(workdir: Path) -> None:
                               wall_seconds=5, planted=None, decoys=None, notes=""))
     assert (cells["mode"], cells["docs"], cells["affected"]) == ("later", "3", "1")
     assert cells["planted caught"] == cells["decoys touched"] == "-"
-    assert cells["tokens"] == cells["notes"] == cells["judged acceptable"] == "-"
+    assert cells["tokens"] == cells["judged acceptable"] == "-"
+    assert cells["notes"] == NO_SCRIPT  # the phase C figures are on every run
 
 
 def test_row_format_missing_files(tmp_path: Path) -> None:
     cells = _cells(render_row(tmp_path, date="2026-10-13", repository="repo", calls=[],
                               wall_seconds=0, planted=None, decoys=None, notes="stopped"))
-    assert cells["head"] == cells["edits proposed"] == "-" and cells["notes"] == "stopped"
+    assert cells["head"] == cells["edits proposed"] == "-"
+    assert cells["notes"] == f"stopped; {NO_SCRIPT}"
+
+
+def test_row_notes_carry_citations_facts_and_opened(workdir: Path) -> None:
+    _write(workdir, "script-edits.json", {"edits": [], "hints": {}, "counts": {
+        "citations": {"checked": 4, "current": 0, "moved": 2, "ambiguous": 0, "use_site": 1,
+                      "unresolved": 1},
+        "facts": {"rows_checked": 3, "corrected": 1, "not_in_scan": 1}}})
+    opened = [{"path": "src/a.py", "why": "x"}, {"path": "src/b.py", "why": "y"}]
+    _write(workdir, "review/u001.json", {"unit": "u001", "edits": [], "opened": opened})
+    _write(workdir, "review/u002.json", {"unit": "u002", "edits": [], "opened": opened[:1]})
+    _write(workdir, "review/u003.json", {"unit": "u003", "edits": []})  # absent: none
+    _write(workdir, "gaps/g001.json", {"doc": "g001", "edits": [], "opened": opened})  # no review
+    cells = _cells(render_row(workdir, date="2026-10-14", repository="r", calls=[],
+                              wall_seconds=1, planted=None, decoys=None, notes="missed p3"))
+    assert cells["notes"] == "missed p3; cite 2/4; facts 1/3; opened 3"
 
 
 def _log_text(after_header: str) -> str:
@@ -322,14 +341,14 @@ def test_row_counts_sheet_and_readme_calls(workdir: Path) -> None:
                                  wall_seconds=1, planted=None, decoys=None, notes="x"))
 
     assert cells(base)["agents"] == "1/0/1"
-    assert cells(base)["notes"] == "x"
+    assert cells(base)["notes"] == f"x; {NO_SCRIPT}"
     _write(workdir, "applied.json", {"applied": [], "reverted": [],
                                      "readme": {"lines": 42, "statements": 5, "removed": 0}})
     more = [*base, Call("sheet", "a01", "sonnet", 1.0, 1, 0.0, "ok"),
             Call("sheet", "a02", "sonnet", 1.0, 1, 0.0, "ok"),
             Call("readme", "r01", "opus", 1.0, 1, 0.0, "ok")]
     assert cells(more)["agents"] == "1/0/1/2/1"
-    assert cells(more)["notes"] == "x"  # not a README-mode run: no README figures
+    assert cells(more)["notes"] == f"x; {NO_SCRIPT}"  # not README mode: no README figures
     pre = json.loads((workdir / "preflight.json").read_text(encoding="utf-8"))
     _write(workdir, "preflight.json", {**pre, "readme": True})
     _write(workdir, "areas.json", {"areas": [{"id": "a01"}, {"id": "a02"}, {"id": "a03"}]})
@@ -344,9 +363,9 @@ def test_row_counts_sheet_and_readme_calls(workdir: Path) -> None:
                                           "r-s002": {"verdict": "reject"},
                                           "r-s003": {"verdict": "unsure"}}})
     assert cells(more)["notes"] == (
-        "x; areas 3; sheets 2/1; statements 6/1/2/1/1; readme 42 lines")
+        f"x; areas 3; sheets 2/1; statements 6/1/2/1/1; readme 42 lines; {NO_SCRIPT}")
     _write(workdir, "applied.json", {"applied": [], "reverted": [], "readme": None})
-    assert cells(more)["notes"].endswith("; readme 0 lines")
+    assert cells(more)["notes"].endswith(f"; readme 0 lines; {NO_SCRIPT}")
 
 
 def test_drive_runs_compose_even_with_an_empty_docs_plan_in_readme_mode(

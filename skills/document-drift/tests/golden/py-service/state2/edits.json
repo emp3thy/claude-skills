@@ -4,10 +4,75 @@
   "docs/cli.md": 10,
   "docs/configuration.md": 4,
   "docs/design.md": 3,
-  "docs/operations.md": 1,
+  "docs/internals.md": 3,
+  "docs/operations.md": 5,
   "docs/tools.md": 4
  },
  "edits": [
+  {
+   "check": null,
+   "claim": "open_store is at src/svc/storage.py:13-21",
+   "doc": "docs/internals.md",
+   "end_line": 3,
+   "evidence": [
+    "src/svc/storage.py:13-21"
+   ],
+   "human_kind": null,
+   "id": "c001",
+   "new": "Commands open the database with `open_store` at `src/svc/storage.py:13`, which applies the schema on first use.",
+   "new_cite": "src/svc/storage.py:13",
+   "old": "Commands open the database with `open_store` at `src/svc/storage.py:12`, which applies the schema on first use.",
+   "old_cite": "src/svc/storage.py:12",
+   "reason": null,
+   "source": "script",
+   "start_line": 3,
+   "status": "kept",
+   "subject": "open_store",
+   "type": "cite"
+  },
+  {
+   "check": null,
+   "claim": "open_store is at src/svc/storage.py:13-21",
+   "doc": "docs/operations.md",
+   "end_line": 5,
+   "evidence": [
+    "src/svc/storage.py:13-21"
+   ],
+   "human_kind": null,
+   "id": "c002",
+   "new": "On first start the service opens its database through `src/svc/storage.py:13-21` (`open_store`), so the home directory must be writable.",
+   "new_cite": "src/svc/storage.py:13-21",
+   "old": "On first start the service opens its database through `src/svc/storage.py:12-20` (`open_store`), so the home directory must be writable.",
+   "old_cite": "src/svc/storage.py:12-20",
+   "reason": null,
+   "source": "script",
+   "start_line": 5,
+   "status": "kept",
+   "subject": "open_store",
+   "type": "cite"
+  },
+  {
+   "check": null,
+   "claim": "--port Default is 9090",
+   "column": "Default",
+   "doc": "docs/operations.md",
+   "end_line": 11,
+   "evidence": [
+    "src/svc/cli.py:17"
+   ],
+   "human_kind": null,
+   "id": "f001",
+   "new": "| `--port` | `9090` | The port to listen on. |",
+   "new_cell": "`9090`",
+   "old": "| `--port` | `8080` | The port to listen on. |",
+   "old_cell": "`8080`",
+   "reason": null,
+   "source": "script",
+   "start_line": 11,
+   "status": "kept",
+   "subject": "--port",
+   "type": "fact"
+  },
   {
    "check": null,
    "claim": "the default port is 8080",
@@ -33,7 +98,7 @@
    "doc": "docs/design.md",
    "end_line": 5,
    "evidence": [
-    "src/svc/storage.py:12"
+    "src/svc/storage.py:13"
    ],
    "human_kind": null,
    "id": "u001-e02",
@@ -73,7 +138,7 @@
    "evidence": [],
    "human_kind": null,
    "id": "n001",
-   "new": "<!-- drift-unverified: 2nd notice, run 2026-01-09-bf13, block 368ee08c. NEEDS A HUMAN DECISION: name what this describes, add drift-ignore: <reason>, or rewrite it. The next drift run removes this block otherwise. -->",
+   "new": "<!-- drift-unverified: 2nd notice, run 2026-01-09-e8e9, block 368ee08c. NEEDS A HUMAN DECISION: name what this describes, add drift-ignore: <reason>, or rewrite it. The next drift run removes this block otherwise. -->",
    "old": "<!-- drift-unverified: 1st notice, run 2026-01-02-561c, block 368ee08c. This describes the code but names nothing in it. Name what it describes, or add drift-ignore: <reason>. -->",
    "reason": null,
    "source": "notice",

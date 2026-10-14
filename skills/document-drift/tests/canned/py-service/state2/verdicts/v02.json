@@ -1,6 +1,6 @@
 {
  "batch": "v02",
  "verdicts": [
-  {"edit": "u001-e02", "verdict": "accept", "reason": "connect was renamed open_store at src/svc/storage.py:12"}
+  {"edit": "u001-e02", "verdict": "accept", "reason": "connect was renamed open_store at src/svc/storage.py:13"}
  ]
 }

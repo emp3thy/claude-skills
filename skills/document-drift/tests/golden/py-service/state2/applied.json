@@ -1,5 +1,8 @@
 {
  "applied": [
+  "c001",
+  "c002",
+  "f001",
   "g001-e01",
   "n001",
   "u001-e01",
@@ -8,7 +11,9 @@
  "docs": [
   "README.md",
   "docs/cli.md",
-  "docs/design.md"
+  "docs/design.md",
+  "docs/internals.md",
+  "docs/operations.md"
  ],
  "link_updates": [],
  "reverted": []

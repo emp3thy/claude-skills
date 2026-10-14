@@ -288,21 +288,95 @@
   {
    "change_ranges": [
     [
-     72,
-     80
+     73,
+     81
     ]
    ],
    "doc": "docs/design.md",
-   "end": 80,
+   "end": 81,
    "file": "src/svc/storage.py",
    "kind": "function",
    "line": 9,
    "reading": [
-    72,
-    80
+    73,
+    81
    ],
    "ref": "Store.purge",
-   "start": 72
+   "start": 73
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     21
+    ]
+   ],
+   "doc": "docs/internals.md",
+   "end": 21,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "line": 3,
+   "reading": [
+    13,
+    21
+   ],
+   "ref": "open_store",
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     24,
+     25
+    ],
+    [
+     27,
+     27
+    ],
+    [
+     31,
+     31
+    ],
+    [
+     41,
+     41
+    ],
+    [
+     53,
+     53
+    ],
+    [
+     58,
+     58
+    ],
+    [
+     63,
+     63
+    ],
+    [
+     70,
+     70
+    ],
+    [
+     73,
+     73
+    ],
+    [
+     83,
+     83
+    ]
+   ],
+   "doc": "docs/internals.md",
+   "end": 85,
+   "file": "src/svc/storage.py",
+   "kind": "class",
+   "line": 5,
+   "reading": [
+    24,
+    25
+   ],
+   "ref": "Store",
+   "start": 24
   },
   {
    "change_ranges": [
@@ -326,57 +400,114 @@
   {
    "change_ranges": [
     [
-     23,
-     24
+     13,
+     21
+    ]
+   ],
+   "doc": "docs/operations.md",
+   "end": 21,
+   "file": "src/svc/storage.py",
+   "kind": "function",
+   "line": 5,
+   "reading": [
+    13,
+    21
+   ],
+   "ref": "open_store",
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     17,
+     17
+    ]
+   ],
+   "doc": "docs/operations.md",
+   "end": 17,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "line": 11,
+   "reading": [
+    17,
+    17
+   ],
+   "ref": "--port",
+   "start": 17
+  },
+  {
+   "change_ranges": [
+    [
+     20,
+     20
+    ]
+   ],
+   "doc": "docs/operations.md",
+   "end": 20,
+   "file": "src/svc/cli.py",
+   "kind": "reg",
+   "line": 12,
+   "reading": [
+    20,
+    20
+   ],
+   "ref": "--debug",
+   "start": 20
+  },
+  {
+   "change_ranges": [
+    [
+     24,
+     25
     ],
     [
-     26,
-     26
+     27,
+     27
     ],
     [
-     30,
-     30
+     31,
+     31
     ],
     [
-     40,
-     40
+     41,
+     41
     ],
     [
-     52,
-     52
+     53,
+     53
     ],
     [
-     57,
-     57
+     58,
+     58
     ],
     [
-     62,
-     62
+     63,
+     63
     ],
     [
-     69,
-     69
+     70,
+     70
     ],
     [
-     72,
-     72
+     73,
+     73
     ],
     [
-     82,
-     82
+     83,
+     83
     ]
    ],
    "doc": "docs/storage.md",
-   "end": 84,
+   "end": 85,
    "file": "src/svc/storage.py",
    "kind": "class",
    "line": 3,
    "reading": [
-    23,
-    24
+    24,
+    25
    ],
    "ref": "Store",
-   "start": 23
+   "start": 24
   },
   {
    "change_ranges": [
@@ -583,13 +714,21 @@
    "references": 3,
    "status": "weak"
   },
-  "docs/operations.md": {
-   "anchored": 1,
-   "blocks": 1,
-   "blocks_noref": 0,
-   "rate": 0.5,
-   "references": 2,
+  "docs/internals.md": {
+   "anchored": 2,
+   "blocks": 4,
+   "blocks_noref": 1,
+   "rate": 0.4,
+   "references": 5,
    "status": "weak"
+  },
+  "docs/operations.md": {
+   "anchored": 4,
+   "blocks": 6,
+   "blocks_noref": 1,
+   "rate": 0.5714,
+   "references": 7,
+   "status": "ok"
   },
   "docs/process.md": {
    "anchored": 0,
@@ -626,10 +765,10 @@
  },
  "counts": {
   "ambiguous": 14,
-  "anchored": 26,
+  "anchored": 31,
   "paths": 1,
-  "references": 50,
-  "unknown": 9
+  "references": 60,
+  "unknown": 14
  },
  "references": [
   {
@@ -1110,6 +1249,85 @@
     3
    ],
    "context": [
+    "src/svc/storage_py:12",
+    "Internals"
+   ],
+   "doc": "docs/internals.md",
+   "heading": "Internals",
+   "line": 3,
+   "norm": "open_store",
+   "specific": true,
+   "text": "open_store"
+  },
+  {
+   "block": [
+    3,
+    3
+   ],
+   "context": [
+    "open_store",
+    "Internals"
+   ],
+   "doc": "docs/internals.md",
+   "heading": "Internals",
+   "line": 3,
+   "norm": "src/svc/storage_py:12",
+   "specific": true,
+   "text": "src/svc/storage.py:12"
+  },
+  {
+   "block": [
+    5,
+    5
+   ],
+   "context": [
+    "src/svc/cli_py:45",
+    "Internals"
+   ],
+   "doc": "docs/internals.md",
+   "heading": "Internals",
+   "line": 5,
+   "norm": "Store",
+   "specific": true,
+   "text": "Store"
+  },
+  {
+   "block": [
+    5,
+    5
+   ],
+   "context": [
+    "Store",
+    "Internals"
+   ],
+   "doc": "docs/internals.md",
+   "heading": "Internals",
+   "line": 5,
+   "norm": "src/svc/cli_py:45",
+   "specific": true,
+   "text": "src/svc/cli.py:45"
+  },
+  {
+   "block": [
+    9,
+    9
+   ],
+   "context": [
+    "Internals"
+   ],
+   "doc": "docs/internals.md",
+   "heading": "Internals",
+   "line": 9,
+   "norm": "src/svc/cli_py:42_47",
+   "specific": true,
+   "text": "src/svc/cli.py:42-47"
+  },
+  {
+   "block": [
+    3,
+    3
+   ],
+   "context": [
     "Operations"
    ],
    "doc": "docs/operations.md",
@@ -1134,6 +1352,77 @@
    "norm": "svc",
    "specific": false,
    "text": "svc"
+  },
+  {
+   "block": [
+    5,
+    5
+   ],
+   "context": [
+    "open_store",
+    "Operations"
+   ],
+   "doc": "docs/operations.md",
+   "heading": "Operations",
+   "line": 5,
+   "norm": "src/svc/storage_py:12_20",
+   "specific": true,
+   "text": "src/svc/storage.py:12-20"
+  },
+  {
+   "block": [
+    5,
+    5
+   ],
+   "context": [
+    "src/svc/storage_py:12_20",
+    "Operations"
+   ],
+   "doc": "docs/operations.md",
+   "heading": "Operations",
+   "line": 5,
+   "norm": "open_store",
+   "specific": true,
+   "text": "open_store"
+  },
+  {
+   "block": [
+    11,
+    11
+   ],
+   "context": [],
+   "doc": "docs/operations.md",
+   "heading": "serve",
+   "line": 11,
+   "norm": "--port",
+   "specific": true,
+   "text": "--port"
+  },
+  {
+   "block": [
+    12,
+    12
+   ],
+   "context": [],
+   "doc": "docs/operations.md",
+   "heading": "serve",
+   "line": 12,
+   "norm": "--debug",
+   "specific": true,
+   "text": "--debug"
+  },
+  {
+   "block": [
+    13,
+    13
+   ],
+   "context": [],
+   "doc": "docs/operations.md",
+   "heading": "serve",
+   "line": 13,
+   "norm": "--worker",
+   "specific": true,
+   "text": "--worker"
   },
   {
    "block": [
@@ -1474,10 +1763,40 @@
    "ref": "items"
   },
   {
+   "doc": "docs/internals.md",
+   "line": 3,
+   "reason": "unknown",
+   "ref": "src/svc/storage.py:12"
+  },
+  {
+   "doc": "docs/internals.md",
+   "line": 5,
+   "reason": "unknown",
+   "ref": "src/svc/cli.py:45"
+  },
+  {
+   "doc": "docs/internals.md",
+   "line": 9,
+   "reason": "unknown",
+   "ref": "src/svc/cli.py:42-47"
+  },
+  {
    "doc": "docs/operations.md",
    "line": 3,
    "reason": "ambiguous",
    "ref": "svc"
+  },
+  {
+   "doc": "docs/operations.md",
+   "line": 5,
+   "reason": "unknown",
+   "ref": "src/svc/storage.py:12-20"
+  },
+  {
+   "doc": "docs/operations.md",
+   "line": 13,
+   "reason": "unknown",
+   "ref": "--worker"
   },
   {
    "doc": "docs/tools.md",

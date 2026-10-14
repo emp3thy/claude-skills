@@ -354,11 +354,33 @@ def _readme_notes(workdir: Path) -> str:
             f"readme {int(record.get('lines') or 0)} lines")
 
 
+def _script_notes(workdir: Path) -> str:
+    """The phase C figures for the ``notes`` cell, on every run: ``cite <moved>/<checked>;
+    facts <corrected>/<checked>; opened <n>``, the counts from ``script-edits.json`` and ``n``
+    the ``opened`` entries summed over the review outputs (``review/*.json``); 0 for what a
+    run did not write, so the reading rule is measurable on every row."""
+    counts = (_json(workdir, "script-edits.json") or {}).get("counts") or {}
+    cites = counts.get("citations") or {}
+    facts = counts.get("facts") or {}
+    opened = 0
+    for path in sorted((workdir / "review").glob("*.json")):
+        try:
+            output = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue  # an unreadable output opened nothing we can count
+        entries = output.get("opened") if isinstance(output, dict) else None
+        opened += len(entries) if isinstance(entries, list) else 0
+    return (f"cite {int(cites.get('moved') or 0)}/{int(cites.get('checked') or 0)}; "
+            f"facts {int(facts.get('corrected') or 0)}/{int(facts.get('rows_checked') or 0)}; "
+            f"opened {opened}")
+
+
 def render_row(workdir: Path, *, date: str, repository: str, calls: Sequence[Call],
                wall_seconds: float, planted: tuple[int, int] | None,
                decoys: tuple[int, int] | None, notes: str) -> str:
     """One evaluation-log row (``COLUMNS``) from a run's workdir files and its calls; a cell
-    whose file is missing is ``-``."""
+    whose file is missing is ``-``. ``notes`` gains the README figures in README mode
+    (``_readme_notes``), then the phase C figures on every run (``_script_notes``)."""
     pre = _json(workdir, "preflight.json") or {}
     inventory = _json(workdir, "inventory.json")
     changes = _json(workdir, "changes.json")
@@ -407,6 +429,7 @@ def render_row(workdir: Path, *, date: str, repository: str, calls: Sequence[Cal
         agents += f"/{roles['sheet']}/{roles['readme']}"
     if pre.get("readme"):
         notes = "; ".join(n for n in (notes, _readme_notes(workdir)) if n)
+    notes = "; ".join(n for n in (notes, _script_notes(workdir)) if n)
     tokens = [c.tokens for c in calls if c.tokens is not None]
     head = str(pre.get("head") or "")[:7] or "-"
     cells = [

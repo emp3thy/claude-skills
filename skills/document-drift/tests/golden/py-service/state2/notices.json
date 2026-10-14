@@ -20,7 +20,7 @@
    "end_line": 13,
    "evidence": [],
    "id": "n001",
-   "new": "<!-- drift-unverified: 2nd notice, run 2026-01-09-bf13, block 368ee08c. NEEDS A HUMAN DECISION: name what this describes, add drift-ignore: <reason>, or rewrite it. The next drift run removes this block otherwise. -->",
+   "new": "<!-- drift-unverified: 2nd notice, run 2026-01-09-e8e9, block 368ee08c. NEEDS A HUMAN DECISION: name what this describes, add drift-ignore: <reason>, or rewrite it. The next drift run removes this block otherwise. -->",
    "old": "<!-- drift-unverified: 1st notice, run 2026-01-02-561c, block 368ee08c. This describes the code but names nothing in it. Name what it describes, or add drift-ignore: <reason>. -->",
    "start_line": 13,
    "subject": "368ee08c",
