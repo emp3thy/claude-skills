@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import copy
+import re
 import shutil
 from pathlib import Path
 from typing import Any
 
 import pytest
-from dd_checks import Context, batches, check, context, main, run
+from dd_checks import Context, _protected, batches, check, context, main, run
 from dd_common import read_json, write_json
 from dd_config import DEFAULTS
 from dd_defindex import run as defindex_run
@@ -527,3 +528,11 @@ def test_main_writes_edits_json(tmp_path: Path, repo: tuple[Path, Path],
     assert "edits.json" in capsys.readouterr().out
     (work / "notices.json").unlink()
     assert main([str(root), "--workdir", str(work)]) == 5
+
+
+def test_protected_lines_of_a_doc_without_headings() -> None:
+    text = "<!-- drift-ignore-next-line: pinned -->\nkept as is\n\nfree\n"
+    markers = [{"doc": "a.md", "reason": "pinned", "target_line_start": 2,
+                "target_line_end": 2}]
+    assert _protected("a.md", text, markers, re.compile(r"(?!)")) == (
+        {2: "drift-ignore region"}, set())

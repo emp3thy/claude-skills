@@ -152,7 +152,7 @@ def _protected(doc: str, text: str, markers: Sequence[Mapping[str, Any]],
     extractor = _Extractor(doc, text, never)
     lines: dict[int, str] = {}
     starts, paths = extractor.heading_paths()
-    bounds = [*starts[1:], extractor.count + 1]
+    bounds = [*starts[1:], extractor.count + 1] if starts else []
     for start, end, path in zip(starts, bounds, paths, strict=True):
         if any(never.search(h) for h in path):
             lines.update(dict.fromkeys(range(start, end), "never-edit section"))
