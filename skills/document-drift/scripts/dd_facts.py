@@ -19,17 +19,18 @@ places). Several matches: the row is skipped. A row whose name matches no scanne
 any kind is a ``not-in-scan`` hint, naming the nearest scanned name of the same family
 (``flag``: ``-``-led; ``env``: upper case; other names) within edit distance 2 by ``norm``.
 
-Cells and facts are compared through ``normalise``: a scalar cell's value is its first code
-span's content (text around the span is kept on a rewrite), else the whole cell; a cell of
-several words and no code span is never rewritten. Boolean words count in a ``required``
-column, and in a ``default`` column only against a default of literally ``true`` or
-``false``. A null fact never makes an edit (the scan does not know), and neither does a
-boolean fact against a cell whose word the vocabulary does not know (``see notes``) or a
-no-value cell against ``false``: the row is checked and the reader's convention left alone.
-``\\|`` in a cell is a pipe; a written pipe is escaped. A mismatch rewrites only that value in
-the cell's own style (``_written``, ``_written_choices``), one
-``fact`` edit per row (ids ``f001``... in doc then line order). Rows on protected lines
-(``drift-ignore``, never-edit sections, generated regions) are skipped and not counted.
+Cells and facts are compared through ``normalise``: a scalar cell's value is the content of
+the code span that opens it (text after the span is kept on a rewrite), else the whole cell;
+a cell of several words not opened by a code span (``see `config.py```) is never rewritten.
+Boolean words count in a ``required`` column, and in a ``default`` column only against a
+default of literally ``true`` or ``false``. A null fact never makes an edit (the scan does
+not know), and neither does a boolean fact against a cell whose word the vocabulary does not
+know (``see notes``) or a no-value cell against ``false``: the row is checked and the
+reader's convention left alone. ``\\|`` in a cell is a pipe; a written pipe is escaped. A
+mismatch rewrites only that value in the cell's own style (``_written``,
+``_written_choices``), one ``fact`` edit per row (ids ``f001``... in doc then line order).
+Rows on protected lines (``drift-ignore``, never-edit sections, generated regions) are skipped
+and not counted.
 
 ``run`` reads ``script-edits.json`` (``dd_cite``), replaces the ``fact`` edits and
 ``not-in-scan`` hints of an earlier run with this run's, fills ``counts.facts``
@@ -192,11 +193,11 @@ class _Part(NamedTuple):
 
 
 def _part(cell: str) -> _Part | None:
-    """The value of a stripped scalar cell: its first code span's content (the text around
-    the span is kept), else the whole cell; None for a cell of several words and no code span,
-    which is never read nor rewritten."""
+    """The value of a stripped scalar cell: the content of the code span that opens it (the
+    text after the span is kept), else the whole cell; None for a cell of several words not
+    opened by a code span, which is never read nor rewritten."""
     cell = cell.strip()
-    match = _CODE.search(cell)
+    match = _CODE.match(cell)
     if match:
         raw = match.group(2)
         start = match.start(2) + len(raw) - len(raw.lstrip())
@@ -235,7 +236,7 @@ def is_boolean(value: str) -> bool:
 
 def normalise(cell: str, column: str, *, boolean: bool = True) -> str | None:
     """The comparison form of a cell (or a scanned value) under ``column``'s header: the
-    first code span's content when the cell has one (else the cell), surrounding quotes
+    content of the code span that opens the cell (else the cell), surrounding quotes
     stripped, ``\\|`` unescaped; an empty cell, ``-``, ``None``, ``null``, ``n/a`` and
     ``(none)`` (any case) are None. A ``required`` column's boolean words (``no``,
     ``false``, ``optional``, ``-`` / ``yes``, ``true``, ``required``) and, when ``boolean``

@@ -295,7 +295,7 @@ def test_missing_inputs_raise(tmp_path: Path, name: str, step: str) -> None:
 @pytest.mark.parametrize(("cell", "default", "new"), [
     ("`30` seconds", "30", None), ("`8080` (dev)", "8080", None),
     ("`8000` (dev)", "8080", "`8080` (dev)"), ("about 30 seconds", "60", None),
-    ("`None` (unset)", "5", "`5` (unset)")])
+    ("`None` (unset)", "5", "`5` (unset)"), ("see `config.py`", "5", None)])
 def test_cell_text_around_the_value_is_kept(cell: str, default: str, new: str | None) -> None:
     table = _one(f"| Flag | Default |\n|---|---|\n| `--timeout` | {cell} |\n")
     status, edit = check_row(table["rows"][0], table, [_n("--timeout", default=default)], [])
