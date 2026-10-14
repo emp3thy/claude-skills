@@ -8,7 +8,11 @@ and ``output`` are absolute POSIX-style paths inside the workdir. Gap entries al
   unit id, prompt ``prompts/review-uNNN.md`` from template ``review-first`` or ``review-later``
   by ``changes.json``'s mode, output ``review/uNNN.json``) and one gap entry per target doc of
   ``gaps.json`` (ids ``g001``... in path order, prompt ``prompts/gap-gNNN.md``, output
-  ``gaps/gNNN.json``). Both inputs are already within their caps.
+  ``gaps/gNNN.json``). Both inputs are already within their caps. A review prompt inlines the
+  code its anchors' reading ranges cover (on a later run only the touched anchors') and lists
+  the lines ``script-edits.json`` settled; anchor, gap and verifier edit lines carry the
+  facts ``patterns.json`` scanned. Both files are optional: absent, nothing is settled and no
+  name has facts.
 - ``plan_verify`` writes ``plan-verify.json``: one entry per batch within ``caps.verify``
   (ids ``v01``..., prompt ``prompts/verify-vNN.md``, output ``verdicts/vNN.json``).
 - ``plan_verify_readme`` appends the README's statement batches to ``plan-verify.json``
@@ -38,10 +42,11 @@ import sys
 import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict, TypeGuard
+from typing import Any, NamedTuple, NotRequired, TypedDict, TypeGuard
 
 from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json, write_json
 from dd_config import DEFAULTS
+from dd_defindex import norm
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 CONTEXT_LINES = 10
@@ -60,6 +65,9 @@ _DESCRIPTIONS: dict[str, tuple[str, ...] | None] = {
 
 _PLACEHOLDER = re.compile(r"\{\{([A-Za-z_]+)\}\}")
 _TICKS = re.compile(r"`+")
+_SPAN = re.compile(r"(`+)(.+?)\1")
+_WORD = re.compile(r"(?<![\w-])-{0,2}[A-Za-z_][\w.-]*")
+SETTLED_CUT = 160
 
 
 class PlanEntry(TypedDict):
@@ -135,21 +143,84 @@ def _in_ranges(line: int, ranges: Iterable[Sequence[int]]) -> bool:
     return any(r[0] <= line <= r[1] for r in ranges)
 
 
-def _anchor_line(ref: str, doc: str, line: int, file: str, span: Sequence[int]) -> str:
-    return f"- `{ref}` ({doc} line {line}) -> {file}:{span[0]}-{span[1]}"
+def _reading(anchor: Mapping[str, Any]) -> list[int]:
+    span = anchor.get("reading") or [anchor["start"], anchor["end"]]
+    return [int(span[0]), int(span[1])]
 
 
-def _anchors_value(unit: Mapping[str, Any], affected: Mapping[str, Any], later: bool,
-                   last_run: str) -> str:
-    """One line per anchor with its reading range; on a later run only the anchors the changes
-    touched, then the names that no longer resolve (with the definition they had)."""
-    anchors = unit["anchors"]
+def _shown_anchors(unit: Mapping[str, Any], affected: Mapping[str, Any],
+                   later: bool) -> list[Mapping[str, Any]]:
+    """The unit's anchors the prompt shows with their code: all of them on a first run, on a
+    later run only those ``anchor_reasons`` names (the anchors the changes touched)."""
+    anchors: list[Mapping[str, Any]] = list(unit["anchors"])
     if later:
         touched = {(doc, r["line"], r["ref"]) for doc, entry in affected.items()
                    for r in entry.get("anchor_reasons", [])}
         anchors = [a for a in anchors if (a["doc"], a["line"], a["ref"]) in touched]
-    out = [_anchor_line(a["ref"], a["doc"], a["line"], a["file"], a.get("reading")
-                        or [a["start"], a["end"]]) for a in anchors]
+    return anchors
+
+
+# ---------------------------------------------------------------- scanned facts
+
+def _facts(name: Mapping[str, Any]) -> str:
+    """A scanned name's facts as ``default 8080; choices a, b; required`` (``optional`` when
+    ``required`` is false), the null ones left out; empty when it has none."""
+    parts = []
+    if name.get("default") is not None:
+        parts.append(f"default {name['default']}")
+    if name.get("choices"):
+        parts.append(f"choices {', '.join(str(c) for c in name['choices'])}")
+    if name.get("required") is not None:
+        parts.append("required" if name["required"] else "optional")
+    return "; ".join(parts)
+
+
+FactIndex = dict[str, list[Mapping[str, Any]]]
+
+
+def _fact_index(names: Iterable[Mapping[str, Any]]) -> FactIndex:
+    """The scanned names that have facts, by ``norm`` (a route's in its route form), in scan
+    order."""
+    index: FactIndex = {}
+    for name in names:
+        if _facts(name):
+            key = norm(str(name["name"]), routes=name.get("kind") == "route")
+            index.setdefault(key, []).append(name)
+    return index
+
+
+def _named(text: str, index: FactIndex) -> list[Mapping[str, Any]]:
+    """The scanned names with facts that ``text`` names by ``norm``."""
+    found = [n for n in index.get(norm(text), []) if n.get("kind") != "route"]
+    return found + [n for n in index.get(norm(text, routes=True), [])
+                    if n.get("kind") == "route"]
+
+
+def _facts_note(names: Sequence[Mapping[str, Any]]) -> str:
+    """The facts of one name's scan records: one text when they agree, else each record's
+    facts, led by its parent when it has one, joined by `` | ``."""
+    distinct = list(dict.fromkeys(_facts(n) for n in names))
+    if len(distinct) <= 1:
+        return distinct[0] if distinct else ""
+    return " | ".join(dict.fromkeys(f"{n['parent']}: {_facts(n)}" if n.get("parent")
+                                    else _facts(n) for n in names))
+
+
+def _anchor_line(anchor: Mapping[str, Any], index: FactIndex) -> str:
+    span = _reading(anchor)
+    line = (f"- `{anchor['ref']}` ({anchor['doc']} line {anchor['line']}) -> "
+            f"{anchor['file']}:{span[0]}-{span[1]}, below")
+    note = _facts_note(_named(str(anchor["ref"]), index))
+    return f"{line} ({note})" if note else line
+
+
+def _anchors_value(unit: Mapping[str, Any], affected: Mapping[str, Any], later: bool,
+                   last_run: str, names: Iterable[Mapping[str, Any]] = ()) -> str:
+    """One line per anchor with its reading range (shown under The code) and the facts the
+    scan has for the name; on a later run only the anchors the changes touched, then the names
+    that no longer resolve (with the definition they had)."""
+    index = _fact_index(names)
+    out = [_anchor_line(a, index) for a in _shown_anchors(unit, affected, later)]
     if later:
         for entry in unit["docs"]:
             for miss in affected.get(entry["doc"], {}).get("missing", []):
@@ -158,6 +229,70 @@ def _anchors_value(unit: Mapping[str, Any], affected: Mapping[str, Any], later: 
                                f"no longer defined; was {miss['file']}:{miss['start']}-"
                                f"{miss['end']} at commit {last_run}")
     return "\n".join(out) if out else "(none)"
+
+
+def _merge(ranges: Iterable[Sequence[int]]) -> list[list[int]]:
+    """``ranges`` sorted, overlapping or adjacent ones joined."""
+    out: list[list[int]] = []
+    for r in sorted([int(r[0]), int(r[1])] for r in ranges):
+        if out and r[0] <= out[-1][1] + 1:
+            out[-1][1] = max(out[-1][1], r[1])
+        else:
+            out.append(r)
+    return out
+
+
+def _code_value(root: Path, unit: Mapping[str, Any], affected: Mapping[str, Any],
+                later: bool) -> str:
+    """The code the shown anchors (``_shown_anchors``) rest on: their reading ranges merged
+    per file, read from the working tree, each as ``### <file>:<start>-<end>`` and a fenced
+    block of ``n: text`` lines, files in path order; ``(none)`` without an anchor."""
+    by_file: dict[str, list[list[int]]] = {}
+    for anchor in _shown_anchors(unit, affected, later):
+        by_file.setdefault(str(anchor["file"]), []).append(_reading(anchor))
+    blocks = []
+    for file in sorted(by_file):
+        lines = _doc_lines(root, file)
+        for start, end in _merge(by_file[file]):
+            if lines is None:
+                blocks.append(f"### {file}:{start}-{end}\n"
+                              f"{_fence(f'(could not read {file})')}")
+                continue
+            start, end = max(start, 1), min(end, len(lines))
+            if start > end:
+                continue
+            numbered = "\n".join(f"{n}: {lines[n - 1]}" for n in range(start, end + 1))
+            blocks.append(f"### {file}:{start}-{end}\n{_fence(numbered)}")
+    return "\n\n".join(blocks) or "(none)"
+
+
+def _cut(text: str) -> str:
+    return text.replace("\n", " ")[:SETTLED_CUT]
+
+
+def _settled_value(unit: Mapping[str, Any], script: Mapping[str, Any] | None) -> str:
+    """The lines of the unit's doc ranges the scripts settled (``script-edits.json``): each
+    ``cite`` or ``fact`` edit as ``- <doc>:<line>: <old> -> <new>`` (each cut to
+    ``SETTLED_CUT`` characters) and each hint as ``- <doc>:<line>: <text>``, by doc and line;
+    ``(none)`` when there is none."""
+    if not script:
+        return "(none)"
+    edits, hints = script.get("edits") or [], script.get("hints") or {}
+    out: list[str] = []
+    for entry in unit["docs"]:
+        doc, ranges = entry["doc"], entry["ranges"]
+        found: list[tuple[int, int, str]] = []
+        for edit in edits:
+            line = int(edit["start_line"])
+            if edit["doc"] == doc and _in_ranges(line, ranges):
+                found.append((line, 0, f"- {doc}:{line}: {_cut(str(edit['old']))} -> "
+                                       f"{_cut(str(edit['new']))}"))
+        for hint in hints.get(doc, []):
+            line = int(hint["line"])
+            if _in_ranges(line, ranges):
+                found.append((line, 1, f"- {doc}:{line}: {hint['text']}"))
+        out += [text for _, _, text in sorted(found)]
+    return "\n".join(out) or "(none)"
 
 
 def _diff_value(hunks: Sequence[Mapping[str, Any]]) -> str:
@@ -175,23 +310,60 @@ def _diff_value(hunks: Sequence[Mapping[str, Any]]) -> str:
     return _fence("\n".join(out), "diff") if out else "(no hunks)"
 
 
-def _gaps_value(gaps: Sequence[Mapping[str, Any]]) -> str:
+def _gap_facts(gap: Mapping[str, Any], index: FactIndex) -> str:
+    """The facts of the gap's own scan record, found by ``(kind, norm(name), parent)``."""
+    key = norm(str(gap["name"]), routes=gap.get("kind") == "route")
+    found = [n for n in index.get(key, [])
+             if n.get("kind") == gap.get("kind") and n.get("parent") == gap.get("parent")]
+    return _facts(found[0]) if found else ""
+
+
+def _gaps_value(gaps: Sequence[Mapping[str, Any]],
+                names: Iterable[Mapping[str, Any]] = ()) -> str:
+    """One line per gap; the facts of its scan record follow the reason."""
+    index = _fact_index(names)
     out = []
     for gap in gaps:
         parent = f"`{gap['parent']}`" if gap.get("parent") else "none"
+        facts = _gap_facts(gap, index)
         out.append(f"- {gap['kind']} `{gap['name']}`, parent {parent}, "
                    f"{gap['file']}:{gap['line']}, {gap['gap_kind']}, "
-                   f"target line {gap['target_line']}, reason {gap['reason']}")
+                   f"target line {gap['target_line']}, reason {gap['reason']}"
+                   + (f"; {facts}" if facts else ""))
     return "\n".join(out)
 
 
-def _edit_value(edit: Mapping[str, Any], lines: list[str] | None) -> str:
+def _mentions(text: str) -> set[str]:
+    """The inline-code spans and whole words of ``text`` (a word's trailing ``.`` or ``-``
+    dropped): the candidates for scanned names."""
+    found = {m.group(2).strip() for m in _SPAN.finditer(text)}
+    found.update(w.rstrip(".-") for w in _WORD.findall(text))
+    return {w for w in found if w}
+
+
+def _edit_facts(edit: Mapping[str, Any], index: FactIndex) -> list[str]:
+    """``- Facts: <name>: <facts>`` for each scanned name with facts that the edit's ``old``
+    or ``new`` names, in scan order."""
+    mentioned = {id(n) for text in _mentions(f"{edit['old']}\n{edit['new']}")
+                 for n in _named(text, index)}
+    by_name: dict[str, list[Mapping[str, Any]]] = {}
+    for group in index.values():
+        for name in group:
+            if id(name) in mentioned:
+                by_name.setdefault(str(name["name"]), []).append(name)
+    return [f"- Facts: {name}: {_facts_note(group)}" for name, group in by_name.items()]
+
+
+def _edit_value(edit: Mapping[str, Any], lines: list[str] | None,
+                index: FactIndex | None = None) -> str:
+    """One edit of a verifier batch: what it changes, the facts of the scanned names it
+    mentions (``index`` is ``_fact_index`` of the scan), and the doc around it, numbered."""
     start, end = int(edit["start_line"]), int(edit["end_line"])
     evidence = ", ".join(edit.get("evidence") or []) or "none"
     out = [f"### Edit {edit['id']} ({edit['type']})", "",
            f"- Doc: {edit['doc']}, lines {start}-{end}",
            f"- Claim: {edit['claim']}",
-           f"- Evidence: {evidence}"]
+           f"- Evidence: {evidence}", *_edit_facts(edit, index or {})]
     if edit.get("subject"):
         out.append(f"- Subject: `{edit['subject']}`")
     out += ["", "Old text:", _fence(edit["old"]), ""]
@@ -233,17 +405,45 @@ def _require(workdir: Path, name: str, step: str) -> Any:
     return read_json(path)
 
 
+def _optional(workdir: Path, name: str) -> Any:
+    """``_require``'s counterpart for an input that may be absent: None when it is."""
+    path = workdir / name
+    return read_json(path) if path.is_file() else None
+
+
+class _Context(NamedTuple):
+    """What the review prompts read besides their unit: the script edits and hints
+    (``script-edits.json``; None when absent, so nothing is settled) and the scanned names
+    (``patterns.json``'s ``names``; none when absent)."""
+
+    script: Mapping[str, Any] | None
+    names: list[Mapping[str, Any]]
+
+
+def _scanned_names(workdir: Path) -> list[Mapping[str, Any]]:
+    patterns = _optional(workdir, "patterns.json")
+    return list(patterns.get("names") or []) if isinstance(patterns, dict) else []
+
+
+def _context(workdir: Path) -> _Context:
+    return _Context(_optional(workdir, "script-edits.json"), _scanned_names(workdir))
+
+
 def _review_entry(root: Path, workdir: Path, config: Mapping[str, Any],
-                  unit: Mapping[str, Any], changes: Mapping[str, Any]) -> PlanEntry:
+                  unit: Mapping[str, Any], changes: Mapping[str, Any],
+                  context: _Context | None = None) -> PlanEntry:
     """The plan entry of one review unit, its prompt written."""
     repo = root.resolve().as_posix()
     later = changes.get("mode") != "first"
     last_run = str(changes.get("last_run") or "")[:9]
     affected = changes.get("affected", {}) if later else {}
+    script, names = context or _context(workdir)
     entry = _entry(workdir, str(unit["id"]), "review", str(config["models"]["review"]))
     values = {"repo": repo, "unit": str(unit["id"]), "output": entry["output"],
               "docs": _docs_value(root, unit, affected, later),
-              "anchors": _anchors_value(unit, affected, later, last_run)}
+              "anchors": _anchors_value(unit, affected, later, last_run, names),
+              "code": _code_value(root, unit, affected, later),
+              "settled": _settled_value(unit, script)}
     if later:
         values.update(diff=_diff_value(unit["hunks"]), last_run=last_run)
     _write_prompt(entry, render("review-later" if later else "review-first", values))
@@ -262,14 +462,15 @@ def plan_docs(root: Path, workdir: Path, config: Mapping[str, Any]) -> list[Plan
         (workdir / ROLE_DIRS[role]).mkdir(parents=True, exist_ok=True)
     models = config["models"]
     repo = root.resolve().as_posix()
-    plan: list[PlanEntry] = [_review_entry(root, workdir, config, unit, changes)
+    context = _context(workdir)
+    plan: list[PlanEntry] = [_review_entry(root, workdir, config, unit, changes, context)
                              for unit in units["units"]]
     for number, doc in enumerate(sorted(gaps["targets"]), 1):
         entry = _entry(workdir, f"g{number:03d}", "gap", str(models["gap"]))
         entry["doc"] = doc
         _write_prompt(entry, render("gap", {
             "repo": repo, "doc": doc, "docs_in_scope": in_scope,
-            "gaps": _gaps_value(gaps["targets"][doc]),
+            "gaps": _gaps_value(gaps["targets"][doc], context.names),
             "output": entry["output"], "id": entry["id"]}))
         plan.append(entry)
     write_json(workdir / "plan-docs.json", plan)
@@ -399,7 +600,8 @@ def plan_retry(root: Path, workdir: Path, config: Mapping[str, Any],
     appended to ``plan-docs.json``."""
     changes = _require(workdir, "changes.json", "dd_changes")
     plan: list[PlanEntry] = _require(workdir, "plan-docs.json", "dd_dispatch")
-    entries = [_review_entry(root, workdir, config, unit, changes) for unit in units]
+    context = _context(workdir)
+    entries = [_review_entry(root, workdir, config, unit, changes, context) for unit in units]
     write_json(workdir / "plan-docs.json", [*plan, *entries])
     return entries
 
@@ -428,6 +630,7 @@ def plan_verify(root: Path, workdir: Path, batches: Sequence[Sequence[Mapping[st
     (workdir / "verdicts").mkdir(parents=True, exist_ok=True)
     cap = int(config.get("caps", {}).get("verify", DEFAULT_VERIFY_CAP))
     repo = root.resolve().as_posix()
+    index = _fact_index(_scanned_names(workdir))
     texts: dict[str, list[str] | None] = {}
     plan: list[PlanEntry] = []
     for number, batch in enumerate(batches[:cap], 1):
@@ -437,7 +640,7 @@ def plan_verify(root: Path, workdir: Path, batches: Sequence[Sequence[Mapping[st
         for edit in batch:
             if edit["doc"] not in texts:
                 texts[edit["doc"]] = _doc_lines(root, edit["doc"])
-            parts.append(_edit_value(edit, texts[edit["doc"]]))
+            parts.append(_edit_value(edit, texts[edit["doc"]], index))
         _write_prompt(entry, render("verify", {"repo": repo, "batch": entry["id"],
                                                "edits": "\n\n".join(parts),
                                                "output": entry["output"]}))
@@ -605,6 +808,12 @@ def validate_review(obj: Any) -> list[str]:
             problems += _fields(block, where, _RANGE)
             if isinstance(block, dict):
                 problems += _line_order(block, where)
+    opened = obj.get("opened") or []  # optional; absent means none
+    if not isinstance(opened, list):
+        problems.append("opened is not a list")
+    else:
+        for n, item in enumerate(opened):
+            problems += _fields(item, f"opened[{n}]", {"path": "str", "why": "str"})
     if isinstance(obj.get("edits"), list):
         problems += _edits(obj["edits"], obj.get("unit"), EDIT_TYPES["review"])
     for n, question in enumerate(obj.get("questions") or []):
