@@ -10,10 +10,11 @@ first column (which is then no value column). A row's name is its name cell's fi
 (else the cell's text), up to the first space, ``=`` or ``,``.
 
 A row is **checked** when its name matches, by ``dd_defindex.norm``, exactly one scanned name
-of a kind with facts (``flag``, ``env``, ``param``). A ``flag`` or ``param`` match is scoped
-to the parents the nearest heading above the table names (``dd_gaps.named_parents``); when
-none of the matches is in that scope, only global ones (no parent) count; when no heading
-names a parent, every match counts.
+of a kind with facts (``flag``, ``env``, ``param``); a shell ``$NAME`` or ``${NAME}`` is
+the name ``NAME``. A ``flag`` or ``param`` match is scoped to the parents the nearest
+heading above the table names (``dd_gaps.named_parents``); when none of the matches is in
+that scope, only global ones (no parent) count; when no heading names a parent, every match
+counts.
 Matches that agree on kind, parent and all three facts are one (an env read in several
 places). Several matches: the row is skipped. A row whose name matches no scanned name of
 any kind is a ``not-in-scan`` hint, naming the nearest scanned name of the same family
@@ -24,9 +25,10 @@ the code span that opens it (text after the span is kept on a rewrite), else the
 a cell of several words not opened by a code span (``see `config.py```) is never rewritten.
 Boolean words count in a ``required`` column, and in a ``default`` column only against a
 default of literally ``true`` or ``false``. A null fact never makes an edit (the scan does
-not know), and neither does a boolean fact against a cell whose word the vocabulary does not
-know (``see notes``) or a no-value cell against ``false``: the row is checked and the
-reader's convention left alone. ``\\|`` in a cell is a pipe; a written pipe is escaped. A
+not know), nor does an empty-string default (``os.getenv("PORT", "")``: no fact), and
+neither does a boolean fact against a cell whose word the vocabulary does not know (``see
+notes``) or a no-value cell against ``false``: the row is checked and the reader's
+convention left alone. ``\\|`` in a cell is a pipe; a written pipe is escaped. A
 mismatch rewrites only that value in the cell's own style (``_written``,
 ``_written_choices``), one ``fact`` edit per row (ids ``f001``... in doc then line order).
 Rows on protected lines (``drift-ignore``, never-edit sections, generated regions) are skipped
@@ -70,6 +72,7 @@ _SEP = re.compile(r"\s*(?:,|\\?\|)\s*")
 _PREFIX = re.compile(r"^[ \t]*(?:>[ \t]?)*")
 _NAME_END = re.compile(r"[\s=,]")
 _ENV = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_SHELL_VAR = re.compile(r"^\$\{([^{}:]*)[^{}]*\}|^\$(?=[A-Za-z_])")
 
 
 class Row(TypedDict):
@@ -113,8 +116,11 @@ def _spans(line: str) -> list[tuple[int, int]]:
 
 
 def _row_name(cell: str) -> str:
+    """A row's name (module docstring); a shell form's ``$`` or ``${...}`` wrapper (with any
+    ``:-default`` inside it) is dropped, so ``$PORT`` and ``${PORT}`` name ``PORT``."""
     match = _CODE.search(cell)
     text = match.group(2).strip() if match else cell.strip().strip("*").strip()
+    text = _SHELL_VAR.sub(lambda m: m.group(1) or "", text, count=1)
     return _NAME_END.split(text, maxsplit=1)[0]
 
 
@@ -276,7 +282,9 @@ def _fact(name: Mapping[str, Any], column: str) -> str | list[str] | None:
         required = name.get("required")
         return None if required is None else ("true" if required else "false")
     default = name.get("default")
-    return None if default is None else str(default)
+    if default is None or not str(default).strip():
+        return None  # an empty-string default (os.getenv("PORT", "")) says nothing
+    return str(default)
 
 
 def _shown(value: str | list[str]) -> str:

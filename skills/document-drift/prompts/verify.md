@@ -14,7 +14,7 @@ Open the evidence and whatever else in the source you need; the evidence is the 
 4. The old text is not about other software, intent or history (plans, opinions and historical sentences are true as written).
 5. It is not a contradicted guarantee: when the old text holds a guarantee word (`must`, `must not`, `shall`, `guarantee`, `guarantees`, `always`, `never`, `is required`) that the code does not keep, the doc is not the thing to change.
 
-An edit's `Facts` lines, when it has any, give what the code sets for a user-facing name its text mentions (its default, its choices, and whether it is required or optional), as a script read them from the code; new text that states one of these differently is wrong.
+An edit's `Facts` lines, when it has any, give what the code sets for a user-facing name its text mentions (its default, its choices, and whether it is required or optional), as a script read them from one definition in the code (the scan's reading, which can miss a value set elsewhere); new text that states one of these differently is suspect, not proven wrong: open the evidence and settle it there.
 
 Verdict `accept` only when all five hold. `reject` when any fails, with the reason. `unsure` when you cannot settle it.
 

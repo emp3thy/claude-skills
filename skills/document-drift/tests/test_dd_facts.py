@@ -352,3 +352,21 @@ def test_no_value_cell_against_boolean_false_is_left_alone(cell: str, default: s
     assert status == ("checked" if new is None else "corrected")
     if new is not None:
         assert edit is not None and edit["new"] == f"| `--x` | {new} |"
+
+
+@pytest.mark.parametrize("cell", ["`8080`", "8080", "-", ""])
+def test_empty_string_default_is_no_fact(cell: str) -> None:
+    # os.getenv("PORT", "") scans as default "": the scan knows no value, so no edit
+    table = _one(f"| Variable | Default |\n|---|---|\n| `PORT` | {cell} |\n")
+    names = [_n("PORT", "env", default="", file="app.py", line=7)]
+    assert check_row(table["rows"][0], table, names, []) == ("checked", None)
+
+
+@pytest.mark.parametrize("cell", ["`$PORT`", "`${PORT}`", "$PORT", "`${PORT:-8000}`"])
+def test_env_row_names_drop_the_shell_dollar(cell: str) -> None:
+    table = _one(f"| Variable | Default |\n|---|---|\n| {cell} | `8000` |\n")
+    assert table["rows"][0]["name"] == "PORT"
+    names = [_n("PORT", "env", default="8080", file="app.py", line=7)]
+    status, edit = check_row(table["rows"][0], table, names, [])
+    assert status == "corrected" and edit is not None
+    assert edit["new"] == f"| {cell} | `8080` |"
