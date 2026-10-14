@@ -52,7 +52,7 @@ unchecked gap docs: 0
 
 README
 areas: 4 (155 lines, area_lines 60)
-sheets: 4 valid, 0 unchecked (), 0 retried
+sheets: 4 valid, 0 unchecked, 0 retried
 hints: 10 accounted for, 0 filled from the scan
 writer: 1 attempt
 statements: 14 proposed, 13 accepted, 1 rejected, 0 unsure, 0 unverified

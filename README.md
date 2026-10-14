@@ -133,8 +133,9 @@ missing from a doc's list of such things, is added. The docs are the record of w
 the first run reviews every doc against the code it points at; later runs review only the
 statements whose code changed since the last drift run, and document only user-facing names
 added since then. A guarantee the code does not keep is listed for you, never edited, because
-the code may be the bug. It never pushes, never opens a pull request, never runs the project's
-code, never creates a doc file and never edits changelogs, licences, ADRs, plans and specs,
+the code may be the bug. A repository with no root `README.md` gets one written from the code,
+with every statement checked by a verifier agent. It never pushes, never opens a pull request,
+never runs the project's code, never creates a doc file other than that README and never edits changelogs, licences, ADRs, plans and specs,
 research or archive folders, vendored libraries, templates or generated files.
 
 Install it the same way:

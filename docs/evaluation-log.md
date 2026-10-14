@@ -234,6 +234,10 @@ row is never edited, with one exception: the owner fills in its `judged acceptab
   and writes included) and output tokens as the reply envelope reports them; `cost usd` sums
   the envelopes' `total_cost_usd`. `wall time` covers the stages and agent waves, not the
   fixture replay.
+- Phase B (a run on a repository with no root README) adds README figures: `areas`;
+  `sheets valid/unchecked`; `statements proposed/accepted/rejected/unsure/unverified`; and
+  `readme lines`, the length of the README written. Until the live run adds a row for them,
+  a phase B row carries them in its `notes` cell. The table header is unchanged.
 
 The phase 1 rows (`2026-10-09`, ralph and better-memory, from phase 1's deterministic
 `dd_run.py`) were removed with that section's columns: phase A replaced the pipeline they

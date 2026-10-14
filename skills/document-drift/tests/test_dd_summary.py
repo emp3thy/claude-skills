@@ -410,7 +410,7 @@ def test_readme_section_reasons_for_none(tmp_path: Path) -> None:
                                          "sheets.json": None, "areas.json": None, **none})
     body = _section(render(empty), "README")
     assert body[:4] == ["areas: 0 (0 lines, area_lines 0)",
-                        "sheets: 0 valid, 0 unchecked (), 0 retried",
+                        "sheets: 0 valid, 0 unchecked, 0 retried",
                         "hints: 0 accounted for, 0 filled from the scan", "writer: 0 attempts"]
 
 

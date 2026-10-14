@@ -292,8 +292,8 @@ def _readme_section(workdir: Path, pre: dict[str, Any]) -> list[str]:
     return ["README",
             f"areas: {len(areas)} ({sum(int(a.get('lines', 0)) for a in areas)} lines, "
             f"area_lines {int((_opt(workdir, 'areas.json') or {}).get('area_lines', 0))})",
-            f"sheets: {len((sheets or {}).get('sheets', {}))} valid, {len(unchecked)} unchecked "
-            f"({why}), {retried} retried",
+            f"sheets: {len((sheets or {}).get('sheets', {}))} valid, {len(unchecked)} unchecked"
+            f"{f' ({why})' if unchecked else ''}, {retried} retried",
             f"hints: {hints - int((sheets or {}).get('filled', 0))} accounted for, "
             f"{int((sheets or {}).get('filled', 0))} filled from the scan",
             f"writer: {_plural(_writer_attempts(workdir), 'attempt')}",

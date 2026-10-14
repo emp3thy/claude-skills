@@ -10,7 +10,7 @@ In scope: the trigger, the split of the source into areas, one fact sheet per ar
 
 ## 2. Trigger
 
-`start` sets `"readme": true` in `preflight.json` when the inventory (A §5.1) has no in-scope doc at `README.md` in the repository root, matched case-insensitively. A README that exists but is excluded, carries `drift-ignore-file`, or lies outside the root does not count: the skill may not edit it, so it writes none either. The config key `readme: false` turns phase B off.
+`start` sets `"readme": true` in `preflight.json` when the inventory (A §5.1) has no in-scope doc at `README.md` in the repository root, matched case-insensitively. A README that exists but is excluded, carries `drift-ignore-file`, or lies outside the root does not count: the skill may not edit it, so it writes none either. *Amended 2026-10-14: as built, the trigger is that no tracked file at the root is named `README.md`, matched case-insensitively, whether or not that file is in scope; the inventory's scope does not enter into it.* The config key `readme: false` turns phase B off.
 
 Other in-scope docs are reviewed by phase A in the same run. A later run on a repository whose README the skill wrote treats it as any doc (section 9); `readme` is true again only when the README is gone.
 
@@ -21,11 +21,11 @@ Phase A's stages keep their flags, exit codes and refusals (A §9, `SKILL.md`). 
 | Stage | Phase B work | Writes | Agents dispatched by the session |
 |---|---|---|---|
 | `start` | the area split (section 4); one plan entry per area with role `sheet` | `areas.json`, `prompts/sheet-aNN.md`, the entries in `plan-docs.json` | sheet agents, in the same wave as the review and gap agents |
-| `compose` (new) | validates the sheet outputs with the exit-3 retry, fills the hints still missing after it (section 5.4), writes the writer's prompt | `sheets.json`, `plan-readme.json`, `prompts/readme.md` | one writer agent (`plan-readme.json`) |
+| `compose` (new) | validates the sheet outputs with the exit-3 retry, fills the hints still missing after it (section 5.4), writes the writer's prompt | `sheets.json`, `plan-readme.json`, `prompts/readme-r001.md` | one writer agent (`plan-readme.json`) |
 | `verify` | validates the writer's output with the exit-3 retry, runs the citation check, splits the README into statements, adds them to the verify batches | `readme.json`, and the usual `edits.json`, `plan-verify.json`, `prompts/verify-vNN.md` | verifier agents, as in phase A |
 | `finish` | removes rejected statements, writes `README.md`, stages it in the additions commit | `applied.json`, `commits.json`, `summary.md`, as in phase A | none |
 
-`compose` takes the same flags as the other stages (`--retried`, `--full`, `--check`, `--workdir`, `--date`) and refuses with exit 2 when they differ from the ones recorded at `start`, when `start` has not run, or when `readme` is false ("nothing to compose"). The session runs it only when `start` printed `readme: yes`; the live harness (`tests/dd_live_run.py`) gains the step and `--resume compose`.
+`compose` takes the same flags as the other stages (`--retried`, `--full`, `--check`, `--workdir`, `--date`) and refuses with exit 2 when they differ from the ones recorded at `start`, when `start` has not run, or when `readme` is false ("nothing to compose"). The session runs it only when `start` printed `readme: yes`; the live harness (`tests/dd_live_run.py`) gains the step and `--resume compose`. *Amended 2026-10-14: the writer's prompt file is `prompts/readme-r001.md`, rendered from the template `prompts/readme.md`; with no valid sheet, `compose` writes `plan-readme.json` as `[]` rather than no file.*
 
 Order of a full run: `start`, wave (review, gap, sheet), `compose`, wave (writer), `verify`, wave (verifiers), `finish`. Under `--check`, `finish` reports the README it would have written (its statements, in the commit-bullet grammar) and writes nothing.
 
@@ -38,7 +38,7 @@ Order of a full run: `start`, wave (review, gap, sheet), `compose`, wave (writer
 3. Loose files over budget are cut into consecutive groups of whole files in path order, each within budget; a single file over budget is an area on its own.
 4. Sibling areas (same parent directory, the root included, so small top-level directories merge too) are merged in path order while the merged size stays within budget; `a01` takes part like any area.
 
-`areas.json` is `{"area_lines", "areas": [{"id", "files": [{"path", "lines"}], "lines", "hints": [...]}]}` with ids `a01`, `a02`, ... in path order and, per area, the pattern-scan hints whose `path` is in the area: `{"kind", "name", "parent", "path", "line", "hidden"}`. A hint whose file is in no area (a project file the scan read but the inventory did not index) goes to `a01`.
+`areas.json` is `{"area_lines", "areas": [{"id", "files": [{"path", "lines"}], "lines", "hints": [...]}]}` with ids `a01`, `a02`, ... in path order and, per area, the pattern-scan hints whose `path` is in the area: `{"kind", "name", "parent", "path", "line", "hidden"}`. *Amended 2026-10-14: a hint carries the pattern-scan record's keys, so its file is `file`, not `path`.* A hint whose file is in no area (a project file the scan read but the inventory did not index) goes to `a01`.
 
 ## 5. Fact sheets
 
@@ -76,7 +76,7 @@ Order of a full run: `start`, wave (review, gap, sheet), `compose`, wave (writer
 `dd_sheets.validate(sheet, area, ctx)` returns the problems of one output; any problem makes it invalid and it goes through the exit-3 retry of A §7.4:
 
 - shape: the three lists present, every key present with the right type;
-- each surface entry: `kind` in the list above; `name` not empty; `defined_at` a `path:line` whose file is in the area and tracked at HEAD, whose line is within the file, and whose name is **at** that place: some token of the name of three or more characters, other than an interpreter or package-manager word (`python`, `node`, `npm`, `npx`, `uv`, `pip`) or a leading directory, appears within 3 lines of it, or the name, with a leading `python -m ` dropped and dots read as slashes, is the file's own path without its extension (a script or module names its file, and its line 1 is a valid place); `summary` one line;
+- each surface entry: `kind` in the list above; `name` not empty; `defined_at` a `path:line` whose file is in the area and tracked at HEAD, whose line is within the file, and whose name is **at** that place: some token of the name of three or more characters, other than an interpreter or package-manager word (`python`, `node`, `npm`, `npx`, `uv`, `pip`) or a leading directory, appears within 3 lines of it, or the name, with a leading `python -m ` dropped and dots read as slashes, is the file's own path without its extension (a script or module names its file, and its line 1 is a valid place; *amended 2026-10-14: the three-character floor applies to picking tokens out of a multi-token name, and a name with no such token, such as `kv` or `gh`, is matched whole within 3 lines*); `summary` one line;
 - each behaviour: a one-line `statement` with at least one inline-code span and no guarantee word (A §7.2's list); `evidence` not empty, each entry resolving as `defined_at` does;
 - no two surface entries with the same `(kind, norm(name), parent)`, where a route's parent is its HTTP method (so `GET` and `POST` of one path are two entries);
 - every hint of the area is a surface entry (matched by `(kind, norm(name), parent)`, flags keeping their dashes) or a `dismissed` entry naming it.
@@ -85,7 +85,7 @@ One repair, not a problem: a surface entry that matches a hint takes the hint's 
 
 ### 5.4 Retry, fill and caps
 
-A sheet still invalid after the retry makes its area **unchecked**: its names reach no README and the summary lists the area. A valid sheet missing hints after the retry (only possible when the retry output is valid in every other way but still short) gets them **filled** by script: one surface entry per missing hint with the scan's kind, name, parent, `defined_at` and `hidden`, the summary `from the pattern scan`, `default` null, `user_facing` true. Filled entries are counted in the summary and carry `"filled": true` so the writer can tell them apart.
+*Amended 2026-10-14, the strict-then-fill rule as built: on the first `compose` pass a sheet missing hints is invalid and goes to the retry; on the `--retried` pass a sheet that is valid in every other way is accepted and the missing hints are filled by script.* A sheet still invalid after the retry makes its area **unchecked**: its names reach no README and the summary lists the area. A valid sheet missing hints after the retry (only possible when the retry output is valid in every other way but still short) gets them **filled** by script: one surface entry per missing hint with the scan's kind, name, parent, `defined_at` and `hidden`, the summary `from the pattern scan`, `default` null, `user_facing` true. Filled entries are counted in the summary and carry `"filled": true` so the writer can tell them apart.
 
 `caps.sheet_agents` (default 12) bounds the wave: areas past the cap, smallest first, are unchecked by the cap, as review units are in A §6.4. `sheets.json` is `{"sheets": {"a01": {...}, ...}, "unchecked": [{"area", "why"}], "filled": n}`, each entry carrying its id (`a03-s12` for the twelfth surface entry of `a03`, `a03-b04` for a behaviour) for the writer to cite.
 
@@ -121,6 +121,8 @@ A claim covers whole lines of `text` (1-based) and cites the entries those lines
 - repaired and counted: a claim's lines name (in an inline-code span, by A §8.2's normalisation) a surface entry the claim does not cite: the id is added to the claim (`cites added`); a claim cites a surface entry none of its lines name (the name without a `$` prefix, as a span or as text): counted as `cited unnamed`, nothing removed;
 - rejected before verification, as a Human-decision item `readme-rejected` with the check's reason, judged on the statement's own lines (section 6.5), never on the whole claim: a statement naming a hidden entry in a span; a statement with a guarantee word outside a fence.
 
+*Amended 2026-10-14: structural problems go through the exit-3 retry via `dd_dispatch._problems`. The hidden-name rule as built: a span pre-rejects its statement when the entries it resolves to that the statement's claim cited explicitly include a hidden one, or when every entry of that name is hidden. The guarantee check ignores inline-code spans, so a flag named `--always-x` does not pre-reject.*
+
 A writer may make one claim per table or section (the spike's second writer made 26 claims for 299 lines, the first 100), so every rule that removes text looks at statements, not claims; a statement's cited entries are the claim's surface entries its own lines name plus all the claim's behaviours.
 
 No line-length rule: the README is read rendered, and the commit grammar's 160-character cut applies to commit lines only.
@@ -145,7 +147,7 @@ The README is one proposed edit in `edits.json`: `{"id": "r001", "doc": "README.
 - README.md:1 create readme (<n> statements from <n> sheets, <n> removed)
 ```
 
-A `create` edit never goes in the corrections commit; a run with no other applied edit still makes the additions commit for it. Under `--check` the statements are listed instead and nothing is written.
+*Amended 2026-10-14: the bullet's statement count is the total at check time; `applied.json["readme"]["statements"]` is the kept count.* A `create` edit never goes in the corrections commit; a run with no other applied edit still makes the additions commit for it. Under `--check` the statements are listed instead and nothing is written.
 
 ## 9. Later runs
 
@@ -187,7 +189,7 @@ The verifier model stays `models.verify`.
 
 - `compose` with `readme` false, or before `start`, or with other flags than `start` recorded: exit 2, nothing written.
 - A missing stage output (`areas.json` at `compose`, `sheets.json` at `verify`): exit 5, naming the file and the step, as in phase A.
-- No valid sheet after the retry: `compose` writes `sheets.json` with every area unchecked and no `plan-readme.json`, and prints `readme: no sheet; nothing to compose`; `verify` and `finish` then run as in phase A and the summary says `written: none (no valid sheet)`.
+- No valid sheet after the retry: `compose` writes `sheets.json` with every area unchecked and `plan-readme.json` as `[]` (amended 2026-10-14; first written as no file), and prints `readme: no sheet; nothing to compose`; `verify` and `finish` then run as in phase A and the summary says `written: none (no valid sheet)`.
 - Writer output missing or invalid after the retry: no README, the reason in the summary; the rest of the run is unaffected.
 - A statement the verifier marks unsure goes to the owner, never into the README.
 
