@@ -1,0 +1,9 @@
+[
+ {
+  "id": "r001",
+  "model": "opus",
+  "output": "<workdir>/readme/r001.json",
+  "prompt": "<workdir>/prompts/readme-r001.md",
+  "role": "readme"
+ }
+]

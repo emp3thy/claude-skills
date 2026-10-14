@@ -324,3 +324,132 @@ def test_review_units_lists_retry_units_and_not_reviewed_ranges(tmp_path: Path) 
     assert _section(render(wd), "Review units") == [
         "checked 2, unchecked by cap 0, unchecked after retry 0, retry units 1, "
         "not reviewed 1 ranges", "- docs/a.md:4-9 (too long)"]
+
+
+# ---- the README section (phase B spec 10) -----------------------------------------------
+
+def _readme_wd(tmp_path: Path, **over: Any) -> Path:
+    stmts = [{"id": f"s{i:03d}", "start_line": i, "text": f"text {i}",
+              "prereject": "hidden" if i == 6 else None} for i in range(1, 9)]
+    files: dict[str, Any] = {
+        "areas.json": {"area_lines": 4000, "unplanned": [], "areas": [
+            {"id": "a01", "lines": 300, "hints": ["x", "y", "z"]},
+            {"id": "a02", "lines": 120, "hints": ["w"]},
+            {"id": "a03", "lines": 80, "hints": []}]},
+        "sheets.json": {"sheets": {"a01": {}, "a02": {}},
+                        "unchecked": [{"area": "a03", "why": "no output"}],
+                        "filled": 1, "hidden_corrected": 0, "retried": ["a02", "a03"]},
+        # a later stage's retry overwrites retry.json: the summary reads sheets.json and
+        # readme.json instead
+        "retry.json": [{"role": "verify", "id": "v01"}],
+        "plan-readme.json": [{"id": "r001", "role": "readme"}],
+        "readme.json": {"statements": stmts, "attempts": 2},
+        "verdicts.json": {"verdicts": {}, "unverified": [],
+                          "readme": {"s001": {"verdict": "accept"}, "s002": {"verdict": "accept"},
+                                     "s003": {"verdict": "accept"}, "s004": {"verdict": "reject"},
+                                     "s005": {"verdict": "unsure"}},
+                          "readme_unverified": ["s007"]},
+        "applied.json": {"applied": [], "reverted": [], "docs": [], "link_updates": [],
+                         "readme": {"lines": 42, "statements": 3, "removed": 5}},
+    }
+    files.update(over)
+    wd = _wd(tmp_path)
+    pre = read_json(wd / "preflight.json")
+    write_json(wd / "preflight.json", {**pre, "readme": True,
+                                       **({"check": True} if over.get("check") else {})})
+    files.pop("check", None)
+    for name, doc in files.items():
+        if doc is None:
+            (wd / name).unlink(missing_ok=True)
+        else:
+            write_json(wd / name, doc)
+    return wd
+
+
+def test_readme_section_counts(tmp_path: Path) -> None:
+    text = render(_readme_wd(tmp_path))
+    lines = text.split("\n")
+    assert lines.index("Gaps") < lines.index("README") < lines.index("Needs a human decision")
+    assert _section(text, "README") == [
+        "areas: 3 (500 lines, area_lines 4000)",
+        "sheets: 2 valid, 1 unchecked (a03: no output), 2 retried",
+        "hints: 3 accounted for, 1 filled from the scan",
+        "writer: 2 attempts",
+        "statements: 8 proposed, 3 accepted, 2 rejected, 1 unsure, 1 unverified",
+        "written: README.md, 42 lines"]
+    result = _section(text, "Result")
+    assert result[-1] == "README: README.md (42 lines)"
+    assert result[-2].startswith("Commits: ")
+
+
+def test_readme_section_reasons_for_none(tmp_path: Path) -> None:
+    count = iter(range(100))
+
+    def written(**over: Any) -> str:
+        wd = _readme_wd(tmp_path / f"c{next(count)}", **over)
+        body = _section(render(wd), "README")
+        return body[-1]
+
+    none = {"applied.json": {"applied": [], "reverted": [], "docs": [], "link_updates": [],
+                             "readme": None}}
+    assert written(**none, **{"sheets.json": {"sheets": {}, "unchecked": [], "filled": 0,
+                                               "hidden_corrected": 0}}
+                   ) == "written: none (no valid sheet)"
+    assert written(**none, **{"readme.json": None}) == "written: none (no writer output)"
+    assert written(**none, **{"readme.json": {"invalid": ["no writer output"]}}
+                   ) == "written: none (no writer output)"
+    secret = "ghp_" + "a" * 36
+    assert written(**none, **{"readme.json": {"invalid": [f"line 3 is in no claim: {secret}",
+                                                          "second"], "attempts": 2}}
+                   ) == "written: none (invalid writer output: line 3 is in no claim: ghp_***)"
+    assert written(**none, **{"verdicts.json": {"verdicts": {}, "unverified": [], "readme": {},
+                                                "readme_unverified": []}}
+                   ) == "written: none (no accepted statement)"
+    wd = _readme_wd(tmp_path / "chk", **none)
+    pre = read_json(wd / "preflight.json")
+    write_json(wd / "preflight.json", {**pre, "check": True})
+    assert _section(render(wd), "README")[-1] == "written: none (check mode)"
+    empty = _readme_wd(tmp_path / "e", **{"plan-readme.json": [], "retry.json": None,
+                                         "sheets.json": None, "areas.json": None,
+                                         "readme.json": {"invalid": ["no writer output"],
+                                                         "attempts": 0}, **none})
+    body = _section(render(empty), "README")
+    assert body[:4] == ["areas: 0 (0 lines, area_lines 0)",
+                        "sheets: 0 valid, 0 unchecked, 0 retried",
+                        "hints: 0 accounted for, 0 filled from the scan", "writer: 0 attempts"]
+
+
+def test_readme_section_absent_without_readme(tmp_path: Path) -> None:
+    assert "README" not in render(_wd(tmp_path)).split("\n")
+
+
+def test_check_mode_plans_the_readme_create_bullet(tmp_path: Path) -> None:
+    wd = _readme_wd(tmp_path, check=True)
+    create = {**_edit("r001", "README.md", 1, "create", "readme", claim="readme from 2 sheets"),
+              "statements": 8}
+    edits = read_json(wd / "edits.json")
+    write_json(wd / "edits.json", {**edits, "edits": [create]})
+    write_json(wd / "verdicts.json", {"verdicts": {}, "unverified": [],
+                                      "readme": {"s001": {"verdict": "accept"}},
+                                      "readme_unverified": []})
+    write_json(wd / "notices.json", {"decisions": [], "edits": [], "stale": [],
+                                     "nominations": []})
+    body = _section(render(wd), "Result")
+    assert body[body.index("Planned edits:") + 1:] == [
+        "- README.md:1 create readme (8 statements from 2 sheets, 7 removed)",
+        "Exit: 1 (accepted edits exist)"]
+    write_json(wd / "verdicts.json", {"verdicts": {}, "unverified": [], "readme": {},
+                                      "readme_unverified": []})
+    assert _section(render(wd), "Result")[-1] == "Exit: 0"
+
+
+def test_edits_proposed_counts_the_readme_in_readme_mode_only(tmp_path: Path) -> None:
+    wd = _readme_wd(tmp_path)
+    assert _section(render(wd), "Edits proposed")[-1] == "readme: 0"
+    create = {**_edit("r001", "README.md", 1, "create", "readme"), "statements": 8}
+    edits = read_json(wd / "edits.json")
+    write_json(wd / "edits.json", {**edits, "edits": [*edits["edits"], create]})
+    body = _section(render(wd), "Edits proposed")
+    assert body[-1] == "readme: 1" and body[0].startswith("review: ")
+    assert all(not line.startswith("readme") for line in
+               _section(render(_wd(tmp_path / "a")), "Edits proposed"))

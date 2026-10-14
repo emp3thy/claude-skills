@@ -21,6 +21,7 @@ from typing import Any
 from dd_apply import selected_edits
 from dd_commit import collect_human, gap_kind, human_line, render_bullet
 from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json
+from dd_readme import accepted as readme_accepted
 from dd_redaction import redact
 
 NOT_RUN = "not run"
@@ -195,12 +196,16 @@ def _claims_section(workdir: Path) -> list[str]:
             f"claims checked: {sum(int(read_json(f).get('claims_checked', 0)) for f in files)}"]
 
 
-def _edits_section(edits: dict[str, Any] | None) -> list[str]:
+def _edits_section(edits: dict[str, Any] | None, readme: bool) -> list[str]:
+    """The proposed edits by source; in README mode ``readme`` too (the ``create`` edit, 1 or
+    0), so the count matches ``Script checks`` and ``Applied``."""
     if edits is None:
         return ["Edits proposed", NOT_RUN]
     sources = Counter(str(e.get("source")) for e in edits["edits"])
     lines = ["Edits proposed"]
     lines += [f"{name}: {sources.get(name, 0)}" for name in ("review", "gap", "notice")]
+    if readme:
+        lines.append(f"readme: {sum(1 for e in edits['edits'] if e.get('type') == 'create')}")
     return lines
 
 
@@ -250,6 +255,53 @@ def _gaps_section(gaps: dict[str, Any] | None, edits: dict[str, Any] | None) -> 
     return lines
 
 
+def _written(pre: dict[str, Any], sheets: dict[str, Any] | None,
+             readme: dict[str, Any] | None, applied: dict[str, Any] | None) -> str:
+    record = (applied or {}).get("readme")
+    if record:
+        return f"written: README.md, {int(record['lines'])} lines"
+    if pre.get("check"):
+        reason = "check mode"
+    elif not (sheets or {}).get("sheets"):
+        reason = "no valid sheet"
+    elif readme is None or readme.get("invalid") == ["no writer output"]:
+        reason = "no writer output"
+    elif readme.get("invalid"):
+        reason = f"invalid writer output: {_r(readme['invalid'][0])}"
+    else:
+        reason = "no accepted statement"
+    return f"written: none ({reason})"
+
+
+def _readme_section(workdir: Path, pre: dict[str, Any]) -> list[str]:
+    areas = (_opt(workdir, "areas.json") or {}).get("areas", [])
+    sheets, readme = _opt(workdir, "sheets.json"), _opt(workdir, "readme.json")
+    verdicts = _opt(workdir, "verdicts.json")
+    unchecked = (sheets or {}).get("unchecked", [])
+    # recorded at compose and verify: retry.json holds only the latest stage's retry
+    retried = len((sheets or {}).get("retried") or [])
+    attempts = int((readme or {}).get("attempts") or 0)
+    hints = sum(len(a.get("hints", [])) for a in areas)
+    why = ", ".join(f"{_r(u['area'])}: {_r(u['why'])}" for u in unchecked)
+    statements = (readme or {}).get("statements", [])
+    found = (verdicts or {}).get("readme") or {}
+    kinds = {s["id"]: str((found.get(s["id"]) or {}).get("verdict")) for s in statements}
+    unverified = len((verdicts or {}).get("readme_unverified") or [])
+    rejected = sum(bool(s.get("prereject")) or kinds[s["id"]] == "reject" for s in statements)
+    return ["README",
+            f"areas: {len(areas)} ({sum(int(a.get('lines', 0)) for a in areas)} lines, "
+            f"area_lines {int((_opt(workdir, 'areas.json') or {}).get('area_lines', 0))})",
+            f"sheets: {len((sheets or {}).get('sheets', {}))} valid, {len(unchecked)} unchecked"
+            f"{f' ({why})' if unchecked else ''}, {retried} retried",
+            f"hints: {hints - int((sheets or {}).get('filled', 0))} accounted for, "
+            f"{int((sheets or {}).get('filled', 0))} filled from the scan",
+            f"writer: {_plural(attempts, 'attempt')}",
+            f"statements: {len(statements)} proposed, "
+            f"{len(readme_accepted(readme or {}, verdicts or {}))} accepted, {rejected} rejected, "
+            f"{sum(v == 'unsure' for v in kinds.values())} unsure, {unverified} unverified",
+            _written(pre, sheets, readme, _opt(workdir, "applied.json"))]
+
+
 def _human_section(workdir: Path, root: Path | None, edits: dict[str, Any] | None) -> list[str]:
     if edits is None:
         return ["Needs a human decision", NOT_RUN]
@@ -288,6 +340,19 @@ def _markers_section(tokens: dict[str, Any] | None, anchors: dict[str, Any] | No
     return lines
 
 
+def _create_edit(workdir: Path, edits: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The README's ``create`` edit when a run without ``--check`` would write the README."""
+    readme, verdicts = _opt(workdir, "readme.json"), _opt(workdir, "verdicts.json")
+    create = next((e for e in (edits or {}).get("edits", [])
+                   if e.get("type") == "create" and e.get("source") == "readme"), None)
+    kept = readme_accepted(readme or {}, verdicts or {})
+    if create is None or not kept:
+        return None
+    sheets = (_opt(workdir, "sheets.json") or {}).get("sheets", {})
+    proposed = len((readme or {}).get("statements", []))
+    return {**create, "sheets": len(sheets), "removed": proposed - len(kept)}
+
+
 def _result_section(workdir: Path, check: bool, edits: dict[str, Any] | None,
                     effect: set[str], gaps: dict[str, Any] | None) -> list[str]:
     lines = ["Result"]
@@ -295,10 +360,16 @@ def _result_section(workdir: Path, check: bool, edits: dict[str, Any] | None,
     if commits and commits.get("branch"):
         lines.append(f"Branch: {_r(commits['branch'])}")
         lines += [f"Commits: {_r(c['sha'])} ({_r(c['kind'])})" for c in commits.get("commits", [])]
+        record = (_opt(workdir, "applied.json") or {}).get("readme")
+        if record:
+            lines.append(f"README: README.md ({int(record['lines'])} lines)")
     else:
         lines.append("No branch created")
     if check:
-        planned = sorted((e for e in (edits or {}).get("edits", []) if str(e["id"]) in effect),
+        create = _create_edit(workdir, edits)
+        planned = sorted(([create] if create else [])
+                         + [e for e in (edits or {}).get("edits", [])
+                            if str(e["id"]) in effect and e.get("type") != "create"],
                          key=lambda e: (e["doc"], int(e["start_line"]), str(e["id"])))
         lines.append("Planned edits:")
         for edit in planned:
@@ -315,7 +386,8 @@ def render(workdir: Path, root: Path | None = None) -> str:
     Plain text: a heading line per section, in the spec's order (``Run``, ``Docs``,
     ``References and anchors``, ``Checkability``, ``Notice loop``, ``Change set`` on a later
     run, ``Review units``, ``Claims checked``, ``Edits proposed``, ``Script checks``,
-    ``Verdicts``, ``Applied``, ``Gaps``, ``Needs a human decision``, ``Markers``, ``Result``),
+    ``Verdicts``, ``Applied``, ``Gaps``, ``README`` (README mode only),
+    ``Needs a human decision``, ``Markers``, ``Result``),
     each followed by ``key: value`` lines and ``- item`` lists. Only ``preflight.json`` and
     ``inventory.json`` are required; an absent file is empty and its section says "not run".
     ``root`` (the repository) lets the human list read the first line of an escalated block."""
@@ -352,9 +424,12 @@ def render(workdir: Path, root: Path | None = None) -> str:
         sections.append(_change_set(changes))
     units = _opt(workdir, "units.json")
     sections += [_units_section(units, edits, changes, gaps, first), _claims_section(workdir),
-                 _edits_section(edits), _checks_section(edits), _verdicts_section(verdicts),
-                 _applied_section(applied_doc, check), _gaps_section(gaps, edits),
-                 _human_section(workdir, root, edits),
+                 _edits_section(edits, bool(pre.get("readme"))), _checks_section(edits),
+                 _verdicts_section(verdicts), _applied_section(applied_doc, check),
+                 _gaps_section(gaps, edits)]
+    if pre.get("readme"):
+        sections.append(_readme_section(workdir, pre))
+    sections += [_human_section(workdir, root, edits),
                  _markers_section(_opt(workdir, "tokens.json"), anchors, notices),
                  _result_section(workdir, check, edits, effect, gaps)]
     return "\n\n".join("\n".join(s) for s in sections) + "\n"

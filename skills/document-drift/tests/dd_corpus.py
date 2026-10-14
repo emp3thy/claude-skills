@@ -4,18 +4,25 @@ outputs, and judge each planted item of the fixture against the run's workdir fi
 A fixture under ``tests/fixtures/corpus/<name>/`` has one or two states: its history's commits
 up to the one tagged ``state1``, and the rest up to ``state2`` (``fixture_states``). Its canned
 agent outputs live under ``tests/canned/<name>/``: ``state1/`` and ``state2/`` hold
-``review/uNNN.json``, ``gaps/gNNN.json`` and ``verdicts/vNN.json`` named after the plan entries
-they answer, and ``state1-invalid/`` (in one fixture) holds review outputs that fail validation
-(the retry test); other directories serve tests that drive their own runs. Verdicts are
+``review/uNNN.json``, ``gaps/gNNN.json``, ``verdicts/vNN.json`` and in README mode
+``sheets/aNN.json`` and ``readme/r001.json`` named after the plan entries they answer, and
+``state1-invalid/`` holds outputs that fail validation (the retry tests): review outputs
+directly under it, sheet outputs under ``sheets/``; other directories serve tests that drive
+their own runs. Verdicts are
 matched to a verify entry by edit id, so a batch that loses edits (an unchecked unit) still
-gets the verdicts of the edits it holds.
+gets the verdicts of the edits it holds. A README batch's verdicts come from
+``verdicts/readme.json`` when it exists, ``{statement id: {"verdict", "reason"}}``; a
+statement it does not name is accepted.
 
-``run_fixture(name, state, tmp_path)`` replays state 1 and drives ``start``, ``verify`` and
-``finish``; for state 2 it then merges the drift branch into ``main`` with
-``git merge --no-ff`` (deleting the merged branch), replays the state-2 commits on top with
-``continue_fixture`` and drives a second, later run, so the first run's ``Drift-Base`` commit
-is an ancestor of HEAD. Git author and committer dates are pinned for the whole drive, so the
-drift commits, and with them every later sha and run id, are the same on every machine.
+``run_fixture(name, state, tmp_path)`` replays state 1 and drives ``start``, in README mode
+(``preflight.json`` ``readme``) ``compose``, then ``verify`` and ``finish``; a stage whose
+agent outputs came from ``state1-invalid/`` exits 3 and is rerun with ``--retried``, its retry
+entries answered from the same invalid outputs. For state 2 it then merges the drift branch
+into ``main`` with ``git merge --no-ff`` (deleting the merged branch), replays the state-2
+commits on top with ``continue_fixture`` and drives a second, later run, so the first run's
+``Drift-Base`` commit is an ancestor of HEAD. Git author and committer dates are pinned for
+the whole drive, so the drift commits, and with them every later sha and run id, are the same
+on every machine.
 
 ``planted.json`` is ``{"state1": [item...], "state2": [item...]}``; an item is ``{"id",
 "state", "doc" and/or "name", "line", "kind", "what", "expect"}`` and an optional
@@ -47,12 +54,18 @@ the live harness (``dd_live_run``) skips it and names it in its row's notes. The
 - ``notice:1st``: an applied 1st-notice edit over the block starting on the doc line;
   ``notice:2nd`` / ``notice:removed`` / ``notice:cleared:<anchored|changed|ignore>``: a
   ``notices.json`` decision (``escalate``, ``remove``, ``clear-<reason>``) on the block starting
-  on the doc line, with its notice edit applied.
+  on the doc line, with its notice edit applied;
+- ``readme:names:<name>``: ``README.md`` on the run's drift branch (README mode, phase B)
+  has an inline-code span naming ``<name>`` (whole span, or a dotted span's last segment);
+  ``readme:absent:<name>``: no inline-code span is exactly ``<name>`` (``Store.migrate`` is
+  not ``migrate``), or there is none. A README statement the verifier rejected is
+  ``human:readme-rejected`` on the statement's start line in the proposed README.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -64,13 +77,17 @@ import dd_run
 import yaml
 from dd_commit import collect_human
 from dd_common import read_json
+from dd_defindex import norm
 from dd_make_history import CORPUS_ROOT, continue_fixture, replay_fixture
 
-FIXTURES: tuple[str, ...] = ("py-service", "ts-web", "go-cli")  # the phase A fixtures
+# the phase A fixtures, then phase B's README-mode fixture
+FIXTURES: tuple[str, ...] = ("py-service", "ts-web", "go-cli", "py-cli-nodocs")
 CANNED_ROOT = Path(__file__).resolve().parent / "canned"
 DATES = {1: "2026-01-02", 2: "2026-01-09"}  # each state's run date (--date)
-ROLE_DIRS = {"review": "review", "gap": "gaps", "verify": "verdicts"}
+ROLE_DIRS = {"review": "review", "gap": "gaps", "verify": "verdicts", "sheet": "sheets",
+             "readme": "readme"}
 STATES = (1, 2)
+README_VERDICTS = "readme.json"  # canned README statement verdicts, by statement id
 
 
 def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
@@ -144,19 +161,35 @@ def pinned_dates(date: str) -> Iterator[None]:
 def _canned_verdicts(canned: Path) -> dict[str, dict[str, Any]]:
     found: dict[str, dict[str, Any]] = {}
     for path in sorted((canned / "verdicts").glob("*.json")):
+        if path.name == README_VERDICTS:
+            continue
         for verdict in read_json(path)["verdicts"]:
             found[verdict["edit"]] = verdict
     return found
 
 
-def answer(workdir: Path, plan_name: str, canned: Path, invalid: Path | None = None) -> None:
-    """Write the canned output of every entry of plan ``plan_name``: a review or gap entry gets
-    ``canned/<role dir>/<output name>`` (or ``invalid/<output name>`` when that exists); a
-    verify entry gets the canned verdicts of its batch's edits, found by edit id."""
+def answer(workdir: Path, plan_name: str, canned: Path,
+           invalid: Path | None = None) -> set[str]:
+    """Write the canned output of every entry of plan ``plan_name``: a review, gap, sheet or
+    readme entry gets ``canned/<role dir>/<output name>``, or the invalid one when ``invalid``
+    holds it (``invalid/<role dir>/<output name>`` or ``invalid/<output name>``); a verify
+    entry gets the canned verdicts of its batch's edits, found by edit id, and a README batch
+    (``statements``) the verdict ``verdicts/readme.json`` gives each statement, or an
+    ``accept``. Returns the ids of the entries answered from ``invalid``."""
     plan: list[dict[str, Any]] = read_json(workdir / plan_name)
     verdicts: dict[str, dict[str, Any]] | None = None
+    path = canned / "verdicts" / README_VERDICTS
+    readme: dict[str, dict[str, Any]] = read_json(path) if path.is_file() else {}
+    from_invalid: set[str] = set()
     for entry in plan:
         out = Path(entry["output"])
+        if entry["role"] == "verify" and "statements" in entry:  # a README batch
+            accept = {"verdict": "accept", "reason": "canned"}
+            batch = {"batch": entry["id"],
+                     "verdicts": [{"statement": s, **readme.get(s, accept)}
+                                  for s in entry["statements"]]}
+            out.write_text(json.dumps(batch, indent=1) + "\n", encoding="utf-8")
+            continue
         if entry["role"] == "verify":
             if verdicts is None:
                 verdicts = _canned_verdicts(canned)
@@ -164,12 +197,16 @@ def answer(workdir: Path, plan_name: str, canned: Path, invalid: Path | None = N
                      "verdicts": [verdicts[e] for e in entry["edits"] if e in verdicts]}
             out.write_text(json.dumps(batch, indent=1) + "\n", encoding="utf-8")
             continue
-        bad = invalid / out.name if invalid is not None else None
-        source = bad if bad is not None and bad.is_file() else (
-            canned / ROLE_DIRS[entry["role"]] / out.name)
+        role_dir = ROLE_DIRS[entry["role"]]
+        bad = next((p for p in (invalid / role_dir / out.name, invalid / out.name)
+                    if p.is_file()), None) if invalid is not None else None
+        source = bad if bad is not None else canned / role_dir / out.name
         if not source.is_file():
             raise FileNotFoundError(f"no canned output {source} for plan entry {entry['id']}")
+        if bad is not None:
+            from_invalid.add(str(entry["id"]))
         out.write_bytes(source.read_bytes())
+    return from_invalid
 
 
 def _stage(run: Workdir, label: str, argv: Sequence[str], expected: int) -> None:
@@ -180,19 +217,36 @@ def _stage(run: Workdir, label: str, argv: Sequence[str], expected: int) -> None
                              f"{run.exits}")
 
 
+def _stage_or_retry(run: Workdir, stage: str, retry: bool, canned: Path,
+                    invalid: Path | None) -> None:
+    """Run ``stage``; when ``retry`` (an output was answered from ``invalid``) it exits 3, the
+    retry entries get their canned outputs again (the invalid ones fail again) and the
+    ``--retried`` rerun exits 0."""
+    if not retry:
+        _stage(run, stage, ["--stage", stage], 0)
+        return
+    _stage(run, stage, ["--stage", stage], 3)
+    answer(run.path, "retry.json", canned, invalid)
+    _stage(run, f"{stage} --retried", ["--stage", stage, "--retried"], 0)
+
+
 def drive(run: Workdir, canned: Path, date: str, invalid: Path | None = None) -> None:
-    """``start``, the canned review and gap outputs, ``verify`` (then ``verify --retried`` when
-    ``invalid`` outputs make it exit 3), the canned verdicts and ``finish``."""
+    """``start``, the canned review, gap and sheet outputs, in README mode ``compose`` and the
+    canned writer output, ``verify``, the canned verdicts and ``finish``. A stage whose agent
+    outputs came partly from ``invalid`` exits 3 and is rerun with ``--retried``."""
     workdir = run.path
     with pinned_dates(date):
         _stage(run, "start", ["--stage", "start", "--date", date, "--branch", run.branch], 0)
-        answer(workdir, "plan-docs.json", canned, invalid)
-        if invalid is not None:
-            _stage(run, "verify", ["--stage", "verify"], 3)
-            answer(workdir, "retry.json", canned, invalid)  # the retry fails again
-            _stage(run, "verify --retried", ["--stage", "verify", "--retried"], 0)
-        else:
-            _stage(run, "verify", ["--stage", "verify"], 0)
+        bad = answer(workdir, "plan-docs.json", canned, invalid)
+        roles = {e["id"]: e["role"] for e in read_json(workdir / "plan-docs.json")}
+        writer_bad: set[str] = set()
+        if read_json(workdir / "preflight.json").get("readme"):
+            _stage_or_retry(run, "compose", any(roles[i] == "sheet" for i in bad), canned,
+                            invalid)
+            writer_bad = answer(workdir, "plan-readme.json", canned, invalid)
+        _stage_or_retry(run, "verify",
+                        bool(writer_bad) or any(roles[i] != "sheet" for i in bad), canned,
+                        invalid)
         answer(workdir, "plan-verify.json", canned)
         _stage(run, "finish", ["--stage", "finish"], 0)
 
@@ -386,6 +440,78 @@ def _expect_notice(item: dict[str, Any], workdir: Path, arg: str) -> str | None:
     return None
 
 
+_SPAN = re.compile(r"`([^`\n]+)`")
+
+
+def _drift_readme(workdir: Path) -> str | None:
+    """``README.md`` on the run's drift branch (``preflight.json`` ``branch``), or None."""
+    branch = _json(workdir, "preflight.json").get("branch")
+    if not branch:
+        return None
+    try:
+        return git(workdir, "show", f"{branch}:README.md")
+    except subprocess.CalledProcessError:
+        return None
+
+
+def span_names(span: str, name: str) -> bool:
+    """Whether one inline-code span names ``name``: its whole text equals the name by
+    ``dd_defindex.norm``, or it is dotted (``Store.migrate``) and its last segment equals the
+    name, the name itself holding no dot."""
+    if norm(span.strip()) == norm(name):
+        return True
+    return "." in span and "." not in name and norm(span.strip().rsplit(".", 1)[-1]) == norm(name)
+
+
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def _absent_hits(lines: list[str], name: str) -> list[tuple[int, str]]:
+    """The numbered lines that name ``name`` for ``readme:absent``: an inline-code span whose
+    whole text, or one of whose whitespace-split words, equals it by norm (`` `kv migrate` ``),
+    or a line inside a fence one of whose words does. A dotted word (``Store.migrate``) is one
+    word, so it does not trip ``migrate``."""
+    want = norm(name)
+    hits: list[tuple[int, str]] = []
+    fence = ""
+    for n, line in enumerate(lines, 1):
+        marker = _FENCE.match(line)
+        if fence:
+            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence):
+                fence = ""
+            elif any(norm(word) == want for word in line.split()):
+                hits.append((n, line))
+            continue
+        if marker:
+            fence = marker.group(1)
+            continue
+        spans = _SPAN.findall(line)
+        if any(norm(span.strip()) == want or any(norm(w) == want for w in span.split())
+               for span in spans):
+            hits.append((n, line))
+    return hits
+
+
+def _expect_readme(item: dict[str, Any], workdir: Path, arg: str) -> str | None:
+    """``readme:names:<name>``: some inline-code span of the drift README names ``<name>`` (see
+    ``span_names``). ``readme:absent:<name>``: no span's whole text nor any of its
+    whitespace-split words, nor a word of a fenced line, equals ``<name>`` by norm
+    (``_absent_hits``), so `` `kv migrate` `` trips the decoy ``migrate`` and
+    ``Store.migrate`` does not."""
+    how, _, name = arg.partition(":")
+    text = _drift_readme(workdir)
+    if how == "names":
+        if text is None:
+            return "the drift branch has no README.md"
+        if any(span_names(span, name) for span in _SPAN.findall(text)):
+            return None
+        return f"README.md has no inline-code span holding {name}"
+    if how == "absent":
+        found = [n for n, line in _absent_hits((text or "").splitlines(), name)]
+        return f"README.md names {name} on lines {found}" if found else None
+    return f"unknown readme expectation {how!r}"
+
+
 Judge = Callable[[dict[str, Any], Path, str], str | None]
 JUDGES: dict[str, Judge] = {
     "edit": _expect_edit,
@@ -401,6 +527,7 @@ JUDGES: dict[str, Judge] = {
     "unverifiable": _expect_unverifiable,
     "not-about-code": _expect_not_about_code,
     "notice": _expect_notice,
+    "readme": _expect_readme,
 }
 
 

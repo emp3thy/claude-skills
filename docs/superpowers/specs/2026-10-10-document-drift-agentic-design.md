@@ -27,7 +27,7 @@ The docs are the record of what to check. The first run reviews every doc agains
 ### 1.2 Non-goals
 
 - Pushing, opening pull requests, writing a PR body, or touching any remote.
-- Creating doc files (phase B's README is the one planned exception).
+- Creating doc files (phase B's README is the one exception; the phase B spec (`2026-10-13-document-drift-phase-b-design.md`) now defines that case).
 - Editing excluded files: CHANGELOG, HISTORY, LICENSE, NOTICE, CODE_OF_CONDUCT, ADRs and decision records, RFCs, superpowers plans and specs, research and archive folders, vendored and generated docs, templates (the phase 1 exclusion set, unchanged).
 - Changing code. When the doc states a guarantee the code does not keep, the doc is left alone and the case is listed for the owner, because the code may be the bug.
 - Executing project code, building, installing, or running examples or `--help`. All checking is by reading source.
@@ -45,14 +45,14 @@ Taken in the 2026-10-10 to 2026-10-12 brainstorm:
 |---|---|---|
 | N1 | What the skill checks | The docs against what the code does, by reading the code. Git history is not a gate |
 | N2 | Directions | Both: docs to code, and code to docs |
-| N3 | Missing docs | Add entries to existing lists and tables; where no list fits, write a new section in the best-fitting existing doc. Never create doc files (phase B excepted) |
+| N3 | Missing docs | Add entries to existing lists and tables; where no list fits, write a new section in the best-fitting existing doc. Never create doc files (phase B excepted; the phase B spec (`2026-10-13-document-drift-phase-b-design.md`) now defines the README case) |
 | N4 | Run size | Bounded by a configurable agent cap; the summary lists what the cap left unchecked |
 | N6 | Guarantees | A "must/never/always/guarantees" statement the code contradicts is not edited; it is listed for the owner with both sides quoted |
 | N7 | Commits | Two commits: corrections (docs to code), then additions (code to docs) |
 | N8 | Phase 1 code | Reused where it fits; the two-snapshot gate and the provable fix classes are dropped |
 | N9 | Baseline | The docs are the baseline: no separate inventory file. What a doc mentions is what is checked |
 | N10 | Change anchor | Later runs diff from the last drift run: the newest `Drift-Base` in history, or the local last-run record. None means a first run |
-| N11 | No docs | A full code scan writes a README (phase B) |
+| N11 | No docs | A full code scan writes a README (phase B; the phase B spec (`2026-10-13-document-drift-phase-b-design.md`) now defines the case) |
 | N12 | Repeat gaps | Later runs propose only user-facing names added since the last run |
 | N13 | Scope of this spec | Phase A: normal runs, first and later, both directions. Phase B (no-docs mode) is built later |
 | N14 | Fact sheets | Dropped from normal runs; agents read the anchored code directly. Kept for phase B |

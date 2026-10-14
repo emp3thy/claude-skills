@@ -17,6 +17,7 @@ from dd_corpus import (
     DATES,
     FIXTURES,
     Workdir,
+    _expect_readme,
     evaluate,
     fixture_states,
     git,
@@ -30,10 +31,16 @@ from dd_run import main
 XFAIL: dict[tuple[str, str], str] = {}
 
 CASES = [(name, item) for name in FIXTURES for item in planted_items(name)]
-# the later-run tests need a second state; the retry test needs an invalid canned output, which
-# one fixture carries (the retry path does not depend on the fixture)
+# the later-run tests need a second state; the retry tests need an invalid canned output, which
+# one fixture carries per role (the retry path does not depend on the fixture): review outputs
+# directly under state1-invalid/ (verify's retry, the unit unchecked), sheet outputs under
+# state1-invalid/sheets/ (compose's retry; a sheet short only of hints is filled, not unchecked,
+# so it has a test of its own)
 TWO_STATES = tuple(name for name in FIXTURES if 2 in fixture_states(name))
-WITH_INVALID = tuple(name for name in FIXTURES if (CANNED_ROOT / name / "state1-invalid").is_dir())
+WITH_INVALID = tuple(name for name in FIXTURES
+                     if any((CANNED_ROOT / name / "state1-invalid").glob("*.json")))
+WITH_INVALID_SHEETS = tuple(name for name in FIXTURES
+                            if (CANNED_ROOT / name / "state1-invalid" / "sheets").is_dir())
 
 
 def _id(name: str) -> str:
@@ -76,7 +83,8 @@ def test_every_item_has_an_expectation() -> None:
 
 
 def test_the_retry_path_is_exercised() -> None:
-    assert WITH_INVALID, "no fixture carries an invalid canned output"
+    assert WITH_INVALID, "no fixture carries an invalid canned review output"
+    assert WITH_INVALID_SHEETS, "no fixture carries an invalid canned sheet output"
 
 
 @pytest.mark.parametrize("name", TWO_STATES, ids=[_id(n) for n in TWO_STATES])
@@ -102,6 +110,25 @@ def test_invalid_output_exits_3_then_retried_marks_unchecked(name: str,
     assert not [e for e in edits["edits"] if e["id"].split("-")[0] in invalid]
 
 
+@pytest.mark.parametrize("name", WITH_INVALID_SHEETS, ids=[_id(n) for n in WITH_INVALID_SHEETS])
+def test_sheet_short_of_a_hint_exits_3_then_retried_fills_it(name: str, tmp_path: Path) -> None:
+    # phase B spec 5.4: the retry returns the same sheet, still short only of hints; the
+    # --retried compose accepts it and fills the missing hints from the pattern scan
+    invalid = sorted(p.stem for p in (CANNED_ROOT / name / "state1-invalid" / "sheets").glob(
+        "*.json"))
+    assert invalid, f"{name} has no invalid canned sheet"
+    run = run_fixture(name, 1, tmp_path, canned_invalid=True)
+    assert run.exits == [("start", 0), ("compose", 3), ("compose --retried", 0), ("verify", 0),
+                         ("finish", 0)]
+    assert [e["id"] for e in read_json(run.path / "retry.json")] == invalid
+    sheets = read_json(run.path / "sheets.json")
+    assert (sheets["unchecked"], sorted(sheets["sheets"])) == ([], sorted(
+        e["id"] for e in read_json(run.path / "plan-docs.json") if e["role"] == "sheet"))
+    filled = [e for area in invalid for e in sheets["sheets"][area]["surface"] if e.get("filled")]
+    assert len(filled) == sheets["filled"] > 0
+    assert all(e["summary"] == "from the pattern scan" for e in filled)
+
+
 @pytest.mark.parametrize("name", TWO_STATES, ids=[_id(n) for n in TWO_STATES])
 def test_no_agent_dispatched_when_nothing_changed(name: str, tmp_path: Path) -> None:
     run = run_fixture(name, 2, tmp_path)
@@ -115,3 +142,29 @@ def test_no_agent_dispatched_when_nothing_changed(name: str, tmp_path: Path) -> 
     assert (changes["mode"], changes["changed_files"], changes["affected"]) == ("later", [], {})
     assert read_json(run.path / "plan-docs.json") == []
     assert main([str(run.repo), "--stage", "finish"]) == 0
+
+
+def test_readme_judges_match_whole_spans(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import dd_corpus
+
+    text = "Call `Store.migrate` then `KV_TOKEN`; see `kv.cli.main`.\n"
+    monkeypatch.setattr(dd_corpus, "_drift_readme", lambda _w: text)
+    item: dict[str, Any] = {}
+    assert _expect_readme(item, tmp_path, "absent:migrate") is None
+    assert _expect_readme(item, tmp_path, "names:migrate") is None  # dotted span, last segment
+    assert _expect_readme(item, tmp_path, "names:KV_TOKEN") is None
+    assert _expect_readme(item, tmp_path, "names:Store") is not None
+    assert _expect_readme(item, tmp_path, "names:cli.main") is not None  # dotted name, no suffix
+    monkeypatch.setattr(dd_corpus, "_drift_readme", lambda _w: "Run `migrate` now.\n")
+    assert _expect_readme(item, tmp_path, "absent:migrate") is not None
+    # a span or a fence line whose whitespace-split words include the name trips it too
+    monkeypatch.setattr(dd_corpus, "_drift_readme", lambda _w: "Run `kv migrate --all`.\n")
+    assert _expect_readme(item, tmp_path, "absent:migrate") == (
+        "README.md names migrate on lines [1]")
+    fenced = "# kv\n\n```sh\nkv migrate\n```\n\nThen `Store.migrate` runs.\n"
+    monkeypatch.setattr(dd_corpus, "_drift_readme", lambda _w: fenced)
+    assert _expect_readme(item, tmp_path, "absent:migrate") == (
+        "README.md names migrate on lines [4]")
+    clean = "# kv\n\n```sh\nkv Store.migrate\n```\n\nmigrate is prose, `kv sync` a span.\n"
+    monkeypatch.setattr(dd_corpus, "_drift_readme", lambda _w: clean)
+    assert _expect_readme(item, tmp_path, "absent:migrate") is None

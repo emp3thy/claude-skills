@@ -1,0 +1,15 @@
+{
+ "text": "# kv\n\n`kv` is a small key-value store with a command line and an HTTP view.\n\n## Run\n\n```sh\npip install .\nkv init\nkv sync --dry-run\n```\n\n## Commands\n\n| Command or flag | Of | What it does | Default |\n|---|---|---|---|\n| `init` | | creates the store directory | |\n| `--force` | `init` | deletes an existing store first | off |\n| `sync` | | writes every stored key to the sync log | |\n| `--dry-run` | `sync` | prints each key and writes nothing | off |\n\n`sync` prints each stored key and, without `--dry-run`, appends it to the sync log through `Store.push`.\n\n`--dry-run` is on by default, so `sync` writes nothing unless it is turned off.\n\n## Configuration\n\n| Variable | What it holds | Default |\n|---|---|---|\n| `KV_HOME` | the store directory | `~/.kv` |\n| `KV_TOKEN` | the token `sync` writes to the sync log | empty |\n\n## Interfaces\n\n- `/items/<key>` returns the value stored under the key, or 404.\n- `Store` keeps each item as one file under `items/` in the store directory.\n\n## Files read and written\n\n- `load_settings` reads `settings.toml` from the store directory and returns no keys when the file is missing.\n- `Store.push` appends the key and the token's first four characters to `log/sync.log`.\n",
+ "claims": [
+  {"start_line": 3, "end_line": 3, "cites": ["a01-b01"]},
+  {"start_line": 8, "end_line": 10, "cites": ["a01-s01", "a02-s01", "a02-s03", "a02-s04"]},
+  {"start_line": 15, "end_line": 20, "cites": ["a02-s01", "a02-s02", "a02-s03", "a02-s04"]},
+  {"start_line": 22, "end_line": 22, "cites": ["a02-s03", "a02-s04", "a04-s01", "a02-b01"]},
+  {"start_line": 24, "end_line": 24, "cites": ["a02-s04", "a02-s03"]},
+  {"start_line": 28, "end_line": 31, "cites": ["a03-s01", "a03-s02", "a02-s03"]},
+  {"start_line": 35, "end_line": 35, "cites": ["a03-s03"]},
+  {"start_line": 36, "end_line": 36, "cites": ["a04-s01", "a04-b01"]},
+  {"start_line": 40, "end_line": 40, "cites": ["a03-s05", "a03-b01"]},
+  {"start_line": 41, "end_line": 41, "cites": ["a04-s01", "a04-b02"]}
+ ]
+}

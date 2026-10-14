@@ -5,6 +5,7 @@ change both together.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import subprocess
@@ -16,7 +17,8 @@ import dd_run
 import dd_summary
 import dd_units
 import pytest
-from dd_common import EXIT_MISSING, StepError, read_json
+from dd_common import EXIT_MISSING, StepError, read_json, write_json
+from dd_config import DEFAULTS
 from dd_corpus import answer
 from dd_helpers import make_repo
 from dd_run import main
@@ -109,7 +111,8 @@ def test_start_writes_plan_and_prompts(tmp_path: Path,
     workdir = repo / ".document-drift"
     plan = _plan(repo, "plan-docs.json")
     out = capsys.readouterr().out
-    assert out == f"plan-docs.json {(workdir / 'plan-docs.json').as_posix()} with 2 entries\n"
+    assert out == ("readme: no\n"
+                   f"plan-docs.json {(workdir / 'plan-docs.json').as_posix()} with 2 entries\n")
     assert [(e["id"], e["role"]) for e in plan] == [("u001", "review"), ("g001", "gap")]
     for entry in plan:
         assert Path(entry["prompt"]).is_file()
@@ -120,6 +123,8 @@ def test_start_writes_plan_and_prompts(tmp_path: Path,
     assert (pre["scope"], pre["stage"], pre["date"], pre["branch"]) == (
         "first", "start", DATE, BRANCH)
     assert (pre["base"], pre["full"], pre["check"], pre["dirty"]) == (None, False, False, {})
+    assert pre["readme"] is False
+    assert not (workdir / "areas.json").exists()
     for name in ("inventory.json", "tokens.json", "candidates.json", "defindex.json",
                  "anchors.json", "changes.json", "units.json", "patterns.json", "gaps.json",
                  "notices.json"):
@@ -129,14 +134,17 @@ def test_start_writes_plan_and_prompts(tmp_path: Path,
 def test_start_clears_every_pinned_output(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     workdir = repo / ".document-drift"
-    for stale in ("edits.json", "retry.json", "summary.md", "review/u009.json",
-                  "verdicts/v09.json", "prompts/verify-v09.md", "gaps/g009.json"):
+    stales = ("edits.json", "retry.json", "summary.md", "review/u009.json",
+              "verdicts/v09.json", "prompts/verify-v09.md", "gaps/g009.json",
+              "areas.json", "sheets.json", "plan-readme.json", "readme.json",
+              "sheets/a09.json", "readme/r001.json")
+    for stale in stales:
         (workdir / stale).parent.mkdir(parents=True, exist_ok=True)
         (workdir / stale).write_text("stale", encoding="utf-8")
-    assert _run(repo, "start") == 0
-    for stale in ("edits.json", "retry.json", "summary.md", "review/u009.json",
-                  "verdicts/v09.json", "prompts/verify-v09.md", "gaps/g009.json"):
+    assert _run(repo, "start") == 0  # the repository has a README: no phase B file is rewritten
+    for stale in stales:
         assert not (workdir / stale).exists(), stale
+    assert not (workdir / "sheets").exists() and not (workdir / "readme").exists()
 
 
 def test_verify_before_start_is_refused(tmp_path: Path,
@@ -245,10 +253,10 @@ def test_finish_commits_two_commits_and_records_last_run(
 
 def test_no_docs_stops_with_phase_b_message(tmp_path: Path,
                                             capsys: pytest.CaptureFixture[str]) -> None:
-    repo = _repo(tmp_path, {"src/app.py": APP})
+    repo = _repo(tmp_path, {"src/app.py": APP, ".document-drift.yaml": "readme: false\n"})
     assert _run(repo, "start") == 0
     assert capsys.readouterr().out == (
-        "no markdown docs in scope; no-docs mode arrives in phase B\n")
+        "readme: no\nno markdown docs in scope; no-docs mode arrives in phase B\n")
     workdir = repo / ".document-drift"
     assert read_json(workdir / "plan-docs.json") == []
     assert not (workdir / "tokens.json").exists()
@@ -342,7 +350,7 @@ def test_empty_plan_allows_finish_after_start(tmp_path: Path,
     assert _run(repo, "start", "--base", "HEAD") == 0
     workdir = repo / ".document-drift"
     assert capsys.readouterr().out == (
-        f"plan-docs.json {(workdir / 'plan-docs.json').as_posix()} with 0 entries\n")
+        f"readme: no\nplan-docs.json {(workdir / 'plan-docs.json').as_posix()} with 0 entries\n")
     assert _plan(repo, "plan-docs.json") == []
     assert _run(repo, "finish") == 0
     assert "No branch created" in capsys.readouterr().out
@@ -553,3 +561,332 @@ def test_not_reviewed_after_retry_is_listed(tmp_path: Path) -> None:
     summary = (workdir / "summary.md").read_text(encoding="utf-8")
     assert ("checked 2, unchecked by cap 0, unchecked after retry 0, retry units 1, "
             "not reviewed 1 ranges\n- docs/config.md:5-5 (still too much)") in summary
+
+
+# ---------------------------------------------------------------- phase B: README mode
+
+def _repo_no_readme(tmp_path: Path) -> Path:
+    return _repo(tmp_path, {k: v for k, v in FILES.items() if k != "README.md"})
+
+
+def _sheet_entry(repo: Path) -> dict[str, Any]:
+    return next(e for e in _plan(repo, "plan-docs.json") if e["role"] == "sheet")
+
+
+def test_readme_trigger_is_root_markdown_only(tmp_path: Path,
+                                              capsys: pytest.CaptureFixture[str]) -> None:
+    config = copy.deepcopy(DEFAULTS)
+    assert dd_run.readme_wanted({"docs": ["docs/README.md"]}, config)
+    assert dd_run.readme_wanted({"docs": []}, config)
+    assert not dd_run.readme_wanted({"docs": ["Readme.MD", "docs/guide.md"]}, config)
+    assert not dd_run.readme_wanted({"docs": ["README.md"]}, config)
+    assert not dd_run.readme_wanted({"docs": [], "files": ["README.md", "src/app.py"]}, config)
+    assert dd_run.readme_wanted({"docs": [], "files": ["docs/README.md"]}, config)
+    config["readme"] = False
+    assert not dd_run.readme_wanted({"docs": ["docs/README.md"]}, config)
+    repo = _repo(tmp_path, {"src/app.py": APP, "docs/README.md": CONFIG,
+                            ".document-drift.yaml": "readme: false\n"})
+    assert _run(repo, "start") == 0
+    assert capsys.readouterr().out.startswith("readme: no\n")
+    assert read_json(repo / ".document-drift" / "preflight.json")["readme"] is False
+
+
+def test_start_in_readme_mode_plans_sheets_and_prints_readme_yes(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo_no_readme(tmp_path)
+    assert _run(repo, "start") == 0
+    workdir = repo / ".document-drift"
+    plan = _plan(repo, "plan-docs.json")
+    assert capsys.readouterr().out == (
+        f"readme: yes\nplan-docs.json {(workdir / 'plan-docs.json').as_posix()} with "
+        f"{len(plan)} entries\n")
+    assert [e["role"] for e in plan][-1:] == ["sheet"] and "review" in {e["role"] for e in plan}
+    sheet = _sheet_entry(repo)
+    assert sheet["id"] == "a01" and sheet["output"].endswith("/sheets/a01.json")
+    assert "src/app.py" in Path(sheet["prompt"]).read_text(encoding="utf-8")
+    assert read_json(workdir / "preflight.json")["readme"] is True
+    assert [a["id"] for a in read_json(workdir / "areas.json")["areas"]] == ["a01"]
+
+
+def test_start_with_no_doc_and_readme_runs_the_full_steps(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path, {"src/app.py": APP})
+    assert _run(repo, "start") == 0
+    out = capsys.readouterr().out
+    assert out.startswith("readme: yes\n") and "no markdown docs" not in out
+    workdir = repo / ".document-drift"
+    assert (workdir / "patterns.json").is_file() and (workdir / "areas.json").is_file()
+    assert [(e["id"], e["role"]) for e in _plan(repo, "plan-docs.json")] == [("a01", "sheet")]
+    assert read_json(workdir / "preflight.json")["stage"] == "start"
+
+
+def test_compose_refuses_without_readme_and_before_start(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path)
+    assert _run(repo, "compose") == 2
+    assert "run --stage start first" in capsys.readouterr().err
+    assert _run(repo, "start") == 0
+    capsys.readouterr()
+    assert _run(repo, "compose") == 2
+    assert ("error: nothing to compose: this run writes no README"
+            in capsys.readouterr().err)
+    assert not (repo / ".document-drift" / "plan-readme.json").exists()
+    other = _repo_no_readme(tmp_path / "other")
+    assert _run(other, "start") == 0
+    capsys.readouterr()
+    assert main([str(other), "--stage", "compose", "--check"]) == 2
+    assert "--check" in capsys.readouterr().err
+    assert not (other / ".document-drift" / "sheets.json").exists()
+
+
+def test_compose_retries_a_bad_sheet_then_plans_the_writer(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo_no_readme(tmp_path)
+    _start_and_answer(repo)
+    workdir = repo / ".document-drift"
+    sheet = _sheet_entry(repo)
+    Path(sheet["output"]).unlink()
+    capsys.readouterr()
+    assert _run(repo, "compose") == 3
+    assert read_json(workdir / "retry.json") == [sheet]
+    assert capsys.readouterr().out == (
+        f"retry.json {(workdir / 'retry.json').as_posix()} with 1 entries\n")
+    assert not (workdir / "sheets.json").exists()
+    answer(workdir, "retry.json", CANNED)
+    assert _run(repo, "compose", "--retried") == 0
+    assert capsys.readouterr().out == (
+        f"plan-readme.json {(workdir / 'plan-readme.json').as_posix()} with 1 entries\n")
+    plan = _plan(repo, "plan-readme.json")
+    assert [(e["id"], e["role"]) for e in plan] == [("r001", "readme")]
+    prompt = Path(plan[0]["prompt"]).read_text(encoding="utf-8")
+    assert "a01-s01" in prompt and "`APP_HOST`" in prompt
+    sheets = read_json(workdir / "sheets.json")
+    assert list(sheets["sheets"]) == ["a01"] and sheets["unchecked"] == []
+    assert read_json(workdir / "preflight.json")["stage"] == "compose"
+
+
+def test_compose_fills_hints_missing_after_the_retry(tmp_path: Path) -> None:
+    repo = _repo_no_readme(tmp_path)
+    assert _run(repo, "start") == 0
+    workdir = repo / ".document-drift"
+    short = read_json(CANNED / "sheets" / "a01.json")
+    short["surface"] = [e for e in short["surface"] if e["name"] != "APP_TOKEN"]
+    write_json(Path(_sheet_entry(repo)["output"]), short)
+    assert _run(repo, "compose") == 3
+    assert [e["id"] for e in read_json(workdir / "retry.json")] == ["a01"]
+    assert _run(repo, "compose", "--retried") == 0
+    sheets = read_json(workdir / "sheets.json")
+    assert sheets["filled"] == 1 and sheets["unchecked"] == []
+    filled = [e for e in sheets["sheets"]["a01"]["surface"] if e.get("filled")]
+    assert [(e["kind"], e["name"]) for e in filled] == [("env", "APP_TOKEN")]
+
+
+def test_compose_with_no_valid_sheet_plans_nothing(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo_no_readme(tmp_path)
+    assert _run(repo, "start") == 0
+    workdir = repo / ".document-drift"
+    assert _run(repo, "compose") == 3
+    capsys.readouterr()
+    assert _run(repo, "compose", "--retried") == 0
+    assert capsys.readouterr().out == "readme: no sheet; nothing to compose\n"
+    assert _plan(repo, "plan-readme.json") == []
+    assert read_json(workdir / "sheets.json")["unchecked"] == [
+        {"area": "a01", "why": "invalid after retry"}]
+    assert read_json(workdir / "preflight.json")["stage"] == "compose"
+
+
+def test_verify_refuses_before_compose_in_readme_mode(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo_no_readme(tmp_path)
+    _start_and_answer(repo)
+    workdir = repo / ".document-drift"
+    capsys.readouterr()
+    assert _run(repo, "verify") == 2
+    assert "error: compose has not run; run --stage compose first" in capsys.readouterr().err
+    assert _run(repo, "finish") == 2
+    assert "compose has not run" in capsys.readouterr().err
+    assert not (workdir / "edits.json").exists()
+    assert _run(repo, "compose") == 0
+    assert _run(repo, "finish") == 2  # verify has not run
+    capsys.readouterr()
+    assert _run(repo, "verify") == 3  # the writer's output is missing
+    retry = read_json(workdir / "retry.json")
+    assert [(e["id"], e["role"]) for e in retry] == [("r001", "readme")]
+
+
+@pytest.mark.parametrize("files", [
+    {"README.md": README, ".document-drift.yaml": 'exclude: ["README.md"]\n'},
+    {"README.md": f"<!-- drift-ignore-file: kept by hand -->\n{README}"}],
+    ids=["config-exclude", "ignore-marker"])
+def test_excluded_root_readme_does_not_trigger(tmp_path: Path, files: dict[str, str],
+                                               capsys: pytest.CaptureFixture[str]) -> None:
+    # spec 2: the skill may not edit an excluded README, so it writes none either
+    repo = _repo(tmp_path, {"src/app.py": APP, "docs/config.md": CONFIG, **files})
+    assert _run(repo, "start") == 0
+    workdir = repo / ".document-drift"
+    inventory = read_json(workdir / "inventory.json")
+    assert "README.md" not in inventory["docs"]
+    assert "README.md" in [e["path"] for e in inventory["excluded"]]
+    assert capsys.readouterr().out.startswith("readme: no\n")
+    assert read_json(workdir / "preflight.json")["readme"] is False
+    assert not (workdir / "areas.json").exists()
+
+
+def test_readme_below_the_root_still_triggers(tmp_path: Path,
+                                              capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path, {"src/app.py": APP, "docs/README.md": CONFIG})
+    assert _run(repo, "start") == 0
+    assert capsys.readouterr().out.startswith("readme: yes\n")
+    assert read_json(repo / ".document-drift" / "preflight.json")["readme"] is True
+
+
+def test_verify_in_readme_mode_checks_the_writer_output_and_plans_batches(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo(tmp_path, {"src/app.py": APP})  # no doc at all: README mode past exit 3
+    workdir = repo / ".document-drift"
+    _start_and_answer(repo)
+    assert _run(repo, "compose") == 0
+    _answer(repo, "plan-readme.json")
+    capsys.readouterr()
+    assert _run(repo, "verify") == 0
+    plan = _plan(repo, "plan-verify.json")
+    assert capsys.readouterr().out == (
+        f"plan-verify.json {(workdir / 'plan-verify.json').as_posix()} with 3 entries\n")
+    assert [(e["id"], e["role"], e["statements"]) for e in plan] == [
+        ("v01", "verify", ["r-s001"]), ("v02", "verify", ["r-s002", "r-s003"]),
+        ("v03", "verify", ["r-s004", "r-s005"])]
+    assert all(Path(e["prompt"]).is_file() for e in plan)
+    readme = read_json(workdir / "readme.json")
+    assert readme["cites_added"] == 1 and readme["cited_unnamed"] == 0
+    assert [(s["kind"], s["section"]) for s in readme["statements"]] == [
+        ("paragraph", "demo"), ("row", "Environment variables"),
+        ("row", "Environment variables"), ("item", "Functions"), ("item", "Functions")]
+    edits = read_json(workdir / "edits.json")
+    assert [(e["id"], e["type"], e["source"], e["status"], e["statements"])
+            for e in edits["edits"]] == [("r001", "create", "readme", "kept", 5)]
+    assert edits["human"] == []
+    assert read_json(workdir / "preflight.json")["stage"] == "verify"
+    _answer(repo, "plan-verify.json")  # canned statement verdicts validate
+    assert all(not dd_run.dd_dispatch._problems(workdir, e) for e in plan)
+
+
+def test_invalid_writer_output_is_retried_then_no_readme(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = _repo_no_readme(tmp_path)
+    workdir = repo / ".document-drift"
+    _start_and_answer(repo)
+    assert _run(repo, "compose") == 0
+    writer = _plan(repo, "plan-readme.json")[0]
+    bad = read_json(CANNED / "readme" / "r001.json")
+    bad["text"] = bad["text"].replace("# demo", "## demo", 1)
+    write_json(Path(writer["output"]), bad)
+    capsys.readouterr()
+    assert _run(repo, "verify") == 3
+    assert read_json(workdir / "retry.json") == [writer]
+    assert not (workdir / "readme.json").exists()
+    assert _run(repo, "verify", "--retried") == 0  # the retry's output is still bad
+    assert read_json(workdir / "readme.json") == {
+        "invalid": ["the first line is not a level-one heading"], "attempts": 2}
+    edits = read_json(workdir / "edits.json")
+    assert all(e["type"] != "create" for e in edits["edits"])
+    assert all("statements" not in e for e in _plan(repo, "plan-verify.json"))
+    assert read_json(workdir / "preflight.json")["stage"] == "verify"
+
+
+def _through_readme_verify(repo: Path, *extra: str) -> None:
+    """``start`` (with ``extra``), the canned sheet, ``compose``, the canned writer output,
+    ``verify`` and the canned statement verdicts (``verdicts/readme.json`` rejects r-s003)."""
+    _start_and_answer(repo, *extra)
+    assert _run(repo, "compose") == 0
+    _answer(repo, "plan-readme.json")
+    assert _run(repo, "verify") == 0
+    _answer(repo, "plan-verify.json")
+
+
+def test_finish_writes_the_readme_and_commits_it(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"src/app.py": APP})  # no doc at all
+    workdir = repo / ".document-drift"
+    _through_readme_verify(repo)
+    assert _run(repo, "finish") == 0
+    rejected = "| `APP_TOKEN` | the token the app sends to the server |"
+    assert rejected in read_json(workdir / "readme.json")["text"]
+    on_branch = _git(repo, "show", f"{BRANCH}:README.md")
+    assert rejected not in on_branch and "| `APP_HOST` |" in on_branch
+    assert on_branch == (repo / "README.md").read_text(encoding="utf-8")
+    applied = read_json(workdir / "applied.json")
+    assert applied["applied"] == ["r001"]
+    assert applied["readme"] == {"lines": len(on_branch.splitlines()), "statements": 4,
+                                 "removed": 1}
+    commits = read_json(workdir / "commits.json")
+    assert commits["branch"] == BRANCH
+    assert [c["kind"] for c in commits["commits"]] == ["additions"]
+    sha = commits["commits"][0]["sha"]
+    assert "README.md" in _git(repo, "show", "--stat", "--format=", sha)
+    message = _git(repo, "log", "-1", "--format=%B", sha)
+    assert "\n- README.md:1 create readme (5 statements from 1 sheets, 1 removed)\n" in message
+    human = dd_commit.collect_human(workdir, repo)
+    assert [(h["doc"], h["line"], h["kind"], h["evidence"]) for h in human] == [
+        ("README.md", 10, "readme-rejected",
+         ["main reads APP_TOKEN but nothing sends it to the server"])]
+    assert "README.md:10 readme-rejected" in message
+    assert _git(repo, "status", "--porcelain") == ""
+
+
+def test_check_mode_lists_the_readme_and_writes_nothing(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"src/app.py": APP})
+    head = _git(repo, "rev-parse", "HEAD").strip()
+    workdir = repo / ".document-drift"
+    _through_readme_verify(repo, "--check")
+    assert _run(repo, "finish") == 1
+    assert not (repo / "README.md").exists()
+    assert _git(repo, "branch", "--list", BRANCH) == ""
+    assert _git(repo, "rev-parse", "HEAD").strip() == head
+    assert not (workdir / "applied.json").exists()
+    assert not (workdir / "commits.json").exists()
+
+
+def test_retry_counts_survive_a_later_stage_retry(tmp_path: Path) -> None:
+    # retry.json holds only the latest exit 3: compose records the retried sheets in
+    # sheets.json and verify the writer's attempts in readme.json, for the summary
+    repo = _repo(tmp_path, {"src/app.py": APP})
+    workdir = repo / ".document-drift"
+    _start_and_answer(repo)
+    Path(_sheet_entry(repo)["output"]).unlink()
+    assert _run(repo, "compose") == 3
+    answer(workdir, "retry.json", CANNED)
+    assert _run(repo, "compose", "--retried") == 0
+    assert read_json(workdir / "sheets.json")["retried"] == ["a01"]
+    writer = _plan(repo, "plan-readme.json")[0]
+    assert _run(repo, "verify") == 3  # no writer output yet
+    assert read_json(workdir / "retry.json") == [writer]
+    answer(workdir, "retry.json", CANNED)
+    assert _run(repo, "verify", "--retried") == 0
+    assert read_json(workdir / "readme.json")["attempts"] == 2
+    _answer(repo, "plan-verify.json")
+    assert _run(repo, "finish") == 0
+    summary = (workdir / "summary.md").read_text(encoding="utf-8")
+    assert "sheets: 1 valid, 0 unchecked, 1 retried\n" in summary
+    assert "writer: 2 attempts\n" in summary
+
+
+def test_first_pass_counts_one_attempt_and_no_retried_sheet(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"src/app.py": APP})
+    workdir = repo / ".document-drift"
+    _through_readme_verify(repo)
+    assert read_json(workdir / "sheets.json")["retried"] == []
+    assert read_json(workdir / "readme.json")["attempts"] == 1
+
+
+@pytest.mark.parametrize("name", ["README.md", "readme.MD"])
+def test_untracked_root_readme_on_disk_turns_readme_mode_off(
+        tmp_path: Path, name: str, capsys: pytest.CaptureFixture[str]) -> None:
+    # finish would overwrite an untracked draft README: README mode is off
+    repo = _repo(tmp_path, {"src/app.py": APP, "docs/config.md": CONFIG})
+    _git(repo, "config", "status.showUntrackedFiles", "no")  # preflight's clean check passes
+    (repo / name).write_text("# draft\n", encoding="utf-8")
+    assert dd_run.readme_wanted({"docs": [], "files": []}, copy.deepcopy(DEFAULTS), repo) is False
+    assert _run(repo, "start") == 0
+    assert capsys.readouterr().out.startswith("readme: no\n")
+    assert read_json(repo / ".document-drift" / "preflight.json")["readme"] is False
+    assert not (repo / ".document-drift" / "areas.json").exists()

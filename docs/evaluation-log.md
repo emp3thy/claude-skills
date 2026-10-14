@@ -229,11 +229,17 @@ row is never edited, with one exception: the owner fills in its `judged acceptab
   deliberate mistake of the canned agents, which a correct live agent never makes) is not
   scored and is named in `notes` as `canned-only: ...`. `notes` names each miss and touch; the
   run's task report explains them from the agents' outputs.
-- `agents` counts the plan entries dispatched per role, review / gap / verify (a `retry.json`
-  re-dispatch is in `notes`, not counted twice); `tokens` sums every call's input (cache reads
+- `agents` counts the plan entries dispatched per role, review / gap / verify, and on a
+  README-mode run (phase B) five figures, review / gap / verify / sheet / writer (a
+  `retry.json` re-dispatch is in `notes`, not counted twice); `tokens` sums every call's input (cache reads
   and writes included) and output tokens as the reply envelope reports them; `cost usd` sums
   the envelopes' `total_cost_usd`. `wall time` covers the stages and agent waves, not the
   fixture replay.
+- Phase B (a run on a repository with no root README) adds README figures, which the
+  harness appends to the `notes` cell of a README-mode row as `areas <n>; sheets
+  <valid>/<unchecked>; statements <proposed>/<accepted>/<rejected>/<unsure>/<unverified>;
+  readme <n> lines` (rejected counts the statements the citation check pre-rejected; `readme`
+  is the length of the README written, 0 when none was). The table header is unchanged.
 
 The phase 1 rows (`2026-10-09`, ralph and better-memory, from phase 1's deterministic
 `dd_run.py`) were removed with that section's columns: phase A replaced the pipeline they
@@ -258,6 +264,14 @@ rejected edits reached the human-decision list, so neither doc line was changed 
 | 2026-10-13 | py-service (state 1) | 09c42c0 | first | 8 | 8 | 1 | 7 (4/3/0) | 7 | 5/1/1/0 | 5 | - | 9 | 0 | 2/1 | 6/10 | 0/7 | 1/2/4 | 1m08s | 422201 | 0.71 | missed p2, p4, p8a, p10; canned-only: p14, d7 |
 | 2026-10-13 | better-memory | 9d5be26 | full | 38 | 38 | 2 | 29 (19/3/7) | 20 | 17/0/0/0 | 20 | - | 21 | 3 | 13/13 | - | - | 2/5/8 | 4m15s | 3597675 | 3.27 | run completed (2 commits on docs/drift-2026-10-13); the harness echo crashed afterwards on cp1252 stdout (fixed). u001 packed 27 linked docs at 10,757 lines against a 6,000 budget: the agent left 7 docs unreviewed and nominated them whole as unverified blocks; 3 whole-doc notices applied (read-spec, write-spec, synthesize-freeze), 4 refused by the never-edit heading check. 0 anchor edits proposed (A12) |
 | 2026-10-13 | better-memory | 9d5be26 | full | 38 | 38 | 4 | 91 (87/3/1) | 64 | 53/10/0/0 | 54 | - | 45 | 1 | 13/13 | - | - | 4/5/18 | 4m58s | 11420625 | 8.96 | second run, same head, with the fixed unit packer (3 units within budget); the first pass crashed in retry_units (fixed) and was resumed at verify with 8 earlier calls; wall time from the resume; 1 retried |
+| 2026-10-14 | py-cli-nodocs (state 1) | bdaa430 | first | 0 | 0 | 0 | 1 (0/0/0) | 1 | 0/0/0/0 | 1 | - | 3 | 0 | 8/0 | 9/9 | 0/3 | 0/0/8/4/1 | 2m33s | 734840 | 1.59 | 1 retried; canned-only: p9; areas 4; sheets 4/0; statements 41/38/3/0/0; readme 93 lines |
+| 2026-10-14 | claude-skills | 8b4decb | first | 26 | 26 | 16 | 23 (18/3/2) | 18 | 13/3/0/0 | 14 | - | 15 | 2 | 18/0 | - | - | 16/2/9 | 8m42s | 13077972 | 7.72 | 2 retried |
+
+**The `2026-10-14` `py-cli-nodocs (state 1)` row was re-scored** from the run's kept workdir
+(same files, no new agent call): first logged as `1/3` decoys touched (`touched d2`), it is
+`0/3`, since the `readme:absent` judge matched the decoy `migrate` in the span `Store.migrate`,
+a false positive fixed in 88f12b1, and its README figures in `notes` were filled in from the
+same workdir.
 
 Anchor check (2026-10-13, not a full run): one review agent re-run on the second run's unit
 u003, the unit holding better-memory's 11 docs with no anchor in their reviewed lines, with

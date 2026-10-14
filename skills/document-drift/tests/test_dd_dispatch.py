@@ -373,7 +373,7 @@ def test_collect_verdicts_marks_unchecked_batches_unverified(tmp_path: Path) -> 
     assert result == {
         "verdicts": {"u001-e01": {"verdict": "accept", "reason": "matches"},
                      "u001-e02": {"verdict": "reject", "reason": "still wrong"}},
-        "unverified": ["u002-e01", "g001-e01"]}
+        "unverified": ["u002-e01", "g001-e01"], "readme": {}, "readme_unverified": []}
     assert read_json(workdir / "verdicts.json") == result
 
 
@@ -423,3 +423,331 @@ def test_not_reviewed_ranges_become_retry_entries(tmp_path: Path) -> None:
     prompt = Path(entries[0]["prompt"]).read_text(encoding="utf-8")
     assert "README.md (3 lines): lines 2-3" in prompt and "u004" in prompt
     assert "docs/guide.md" not in prompt
+
+
+def _hint(kind: str, name: str, parent: str | None, file: str, line: int,
+          hidden: bool = False) -> dict[str, Any]:
+    return {"name": name, "kind": kind, "file": file, "line": line, "parent": parent,
+            "hidden": hidden}
+
+
+def _write_areas(workdir: Path) -> None:
+    def area(aid: str, lines: int, hints: list[dict[str, Any]]) -> dict[str, Any]:
+        return {"id": aid, "files": [{"path": f"src/{aid}/m.py", "lines": lines},
+                                     {"path": f"src/{aid}/n.py", "lines": 7}],
+                "lines": lines + 7, "hints": hints}
+    write_json(workdir / "areas.json", {"area_lines": 100, "areas": [
+        area("a01", 90, [_hint("flag", "--force", "sync", "src/a01/m.py", 88),
+                         _hint("env", "APP_X", None, "src/a01/m.py", 3, hidden=True)]),
+        area("a02", 50, []),
+        area("a03", 10, [])]})
+
+
+def test_plan_sheets_one_entry_per_area_within_cap(tmp_path: Path) -> None:
+    root, workdir = _tree(tmp_path)
+    _write_areas(workdir)
+    config = _config(sheet_agents=2)
+    docs_plan = dd_dispatch.plan_docs(root, workdir, config)
+    entries = dd_dispatch.plan_sheets(root, workdir, config)
+    assert [(e["id"], e["role"], e["model"]) for e in entries] == [
+        ("a01", "sheet", config["models"]["sheet"]), ("a02", "sheet", config["models"]["sheet"])]
+    assert entries[0]["prompt"].endswith("/prompts/sheet-a01.md")
+    assert entries[0]["output"].endswith("/sheets/a01.json")
+    prompt = Path(entries[0]["prompt"]).read_text(encoding="utf-8")
+    assert "- src/a01/m.py (90 lines)" in prompt and "- src/a01/n.py (7 lines)" in prompt
+    assert "- flag --force (parent sync) src/a01/m.py:88\n" in prompt
+    assert "- env APP_X src/a01/m.py:3 hidden" in prompt
+    assert "src/a03" not in Path(entries[1]["prompt"]).read_text(encoding="utf-8")
+    assert read_json(workdir / "areas.json")["unplanned"] == ["a03"]
+    plan = read_json(workdir / "plan-docs.json")
+    assert plan == [*docs_plan, *entries]
+    assert [e["role"] for e in plan] == ["review", "review", "gap", "gap", "sheet", "sheet"]
+
+
+def test_sheet_prompt_has_mandatory_lines_and_no_placeholder_left(tmp_path: Path) -> None:
+    root, workdir = _tree(tmp_path)
+    _write_areas(workdir)
+    dd_dispatch.plan_docs(root, workdir, _config())
+    entries = dd_dispatch.plan_sheets(root, workdir, _config())
+    assert [e["id"] for e in entries] == ["a01", "a02", "a03"]
+    for entry in entries:
+        text = Path(entry["prompt"]).read_text(encoding="utf-8")
+        assert all(line in text for line in MANDATORY)
+        assert "{{" not in text and entry["output"] in text
+        # a file too long for one read is read in ranges, and defined_at is a line it read
+        assert "in ranges, the hinted lines first" in text
+        assert "`defined_at` is still a line you read" in text
+    assert "(none)" in Path(entries[1]["prompt"]).read_text(encoding="utf-8")
+    assert read_json(workdir / "areas.json")["unplanned"] == []
+
+
+def _sheet(**over: Any) -> dict[str, Any]:
+    sheet: dict[str, Any] = {
+        "area": "a01",
+        "surface": [{"kind": "flag", "name": "--force", "parent": "sync", "summary": "x",
+                     "default": None, "defined_at": "src/a.py:1", "user_facing": True,
+                     "hidden": False}],
+        "behaviours": [{"statement": "the `f` reads", "evidence": ["src/a.py:2"]}],
+        "dismissed": [{"hint": "flag --old", "why": "internal"}]}
+    sheet.update(over)
+    return sheet
+
+
+def test_validate_sheet_shape(tmp_path: Path) -> None:
+    assert dd_dispatch.validate_sheet(_sheet()) == []
+    bare = _sheet()
+    del bare["dismissed"]
+    assert any("no dismissed" in p for p in dd_dispatch.validate_sheet(bare))
+    entry = _sheet()["surface"][0]
+    del entry["defined_at"]
+    problems = dd_dispatch.validate_sheet(_sheet(surface=[entry]))
+    assert any("surface[0] has no defined_at" in p for p in problems)
+    assert any("area is not a string" in p for p in dd_dispatch.validate_sheet(_sheet(area=3)))
+    flag = _sheet()["surface"][0] | {"hidden": "no"}
+    assert any("hidden is not a boolean" in p
+               for p in dd_dispatch.validate_sheet(_sheet(surface=[flag])))
+    assert any("evidence" in p for p in dd_dispatch.validate_sheet(
+        _sheet(behaviours=[{"statement": "s"}])))
+    assert dd_dispatch.validate_sheet([]) == ["output is not a JSON object"]
+    # the area must be the entry's id
+    root, workdir = _tree(tmp_path)
+    _write_areas(workdir)
+    entry_a02 = dd_dispatch.plan_sheets(root, workdir, _config())[1]
+    write_json(Path(entry_a02["output"]), _sheet())
+    assert dd_dispatch._problems(workdir, entry_a02) == ["area 'a01' is not 'a02'"]
+
+
+def _readme_workdir(tmp_path: Path, manifest: dict[str, str] | None) -> tuple[Path, Path]:
+    root = tmp_path / "my-repo"
+    workdir = root / ".document-drift"
+    workdir.mkdir(parents=True)
+    for name, text in (manifest or {}).items():
+        (root / name).write_text(text, encoding="utf-8")
+    write_json(workdir / "inventory.json", {"docs": [], "project_files": sorted(manifest or {})})
+    surface = [
+        {"id": "a01-s01", "kind": "command", "name": "sync", "parent": None,
+         "summary": "pulls the remote state", "default": None, "defined_at": "src/cli.py:4",
+         "user_facing": True, "hidden": False},
+        {"id": "a01-s02", "kind": "flag", "name": "--force", "parent": "sync",
+         "summary": "overwrites local rows", "default": "false",
+         "defined_at": "src/cli.py:7", "user_facing": True, "hidden": False},
+        {"id": "a01-s03", "kind": "flag", "name": "--legacy", "parent": "sync",
+         "summary": "old mode", "default": None, "defined_at": "src/cli.py:9",
+         "user_facing": True, "hidden": True},
+        {"id": "a01-s04", "kind": "env", "name": "APP_TOKEN", "parent": None,
+         "summary": "from the pattern scan", "default": None, "defined_at": "src/cfg.py:2",
+         "user_facing": True, "hidden": False, "filled": True}]
+    behaviours = [{"id": "a01-b01", "statement": "`sync` writes `state.db`",
+                   "evidence": ["src/cli.py:12", "src/db.py:3"]}]
+    second = {"area": "a03", "dismissed": [], "behaviours": [],
+              "surface": [{"id": "a03-s01", "kind": "route", "name": "/items", "parent": "GET",
+                           "summary": "lists items", "default": None,
+                           "defined_at": "web/app.py:5", "user_facing": True,
+                           "hidden": False}]}
+    write_json(workdir / "sheets.json", {
+        "sheets": {"a03": second,
+                   "a01": {"area": "a01", "surface": surface, "behaviours": behaviours,
+                           "dismissed": []}},
+        "unchecked": [{"area": "a02", "why": "invalid after retry"},
+                      {"area": "a04", "why": "over the cap"}],
+        "filled": 1, "hidden_corrected": 0})
+    return root, workdir
+
+
+def test_plan_readme_renders_sheets_and_name(tmp_path: Path) -> None:
+    pyproject = '[project]\nname = "myproject"\ndescription = "Syncs a store."\n'
+    root, workdir = _readme_workdir(tmp_path, {"pyproject.toml": pyproject})
+    config = _config()
+    plan = dd_dispatch.plan_readme(root, workdir, config)
+    assert [(e["id"], e["role"], e["model"]) for e in plan] == [
+        ("r001", "readme", config["models"]["readme"])]
+    assert plan[0]["prompt"].endswith("/prompts/readme-r001.md")
+    assert plan[0]["output"].endswith("/readme/r001.json")
+    assert (workdir / "readme").is_dir()
+    assert read_json(workdir / "plan-readme.json") == plan
+    text = Path(plan[0]["prompt"]).read_text(encoding="utf-8")
+    assert all(line in text for line in MANDATORY)
+    assert "{{" not in text and plan[0]["output"] in text
+    assert "`myproject`" in text and "Syncs a store." in text
+    assert root.resolve().as_posix() in text
+    assert f"At most {config['readme_lines']} lines" in text
+    expected = (
+        "- a01-s01 command `sync`: pulls the remote state; src/cli.py:4\n"
+        "- a01-s02 flag `--force`, parent `sync`: overwrites local rows; default `false`; "
+        "src/cli.py:7\n"
+        "- a01-s04 env `APP_TOKEN`: from the pattern scan; src/cfg.py:2 (filled from the scan)\n"
+        "- a01-b01: `sync` writes `state.db` (src/cli.py:12, src/db.py:3)\n"
+        "- a03-s01 route `/items`, parent `GET`: lists items; web/app.py:5\n")
+    assert expected in text
+    assert "--legacy" not in text and "a01-s03" not in text
+    assert "- a02\n- a04\n" in text
+    # no manifest: the directory's name; a manifest without a description says so
+    root2, workdir2 = _readme_workdir(tmp_path / "two", None)
+    text2 = Path(dd_dispatch.plan_readme(root2, workdir2, config)[0]["prompt"]).read_text(
+        encoding="utf-8")
+    assert "`my-repo`" in text2 and "(the manifest has no description)" in text2
+    root3, workdir3 = _readme_workdir(tmp_path / "three", {"package.json": '{"name": "web"}'})
+    text3 = Path(dd_dispatch.plan_readme(root3, workdir3, config)[0]["prompt"]).read_text(
+        encoding="utf-8")
+    assert "`web`" in text3 and "(the manifest has no description)" in text3
+
+
+def test_validate_readme_shape(tmp_path: Path) -> None:
+    good = {"text": "# x\n\nx does `y`.\n",
+            "claims": [{"start_line": 3, "end_line": 3, "cites": ["a01-b01"]}]}
+    assert dd_dispatch.validate_readme(good) == []
+    assert dd_dispatch.validate_readme([]) == ["output is not a JSON object"]
+    assert any("text" in p for p in dd_dispatch.validate_readme({"claims": []}))
+    assert any("claims is not a list" in p
+               for p in dd_dispatch.validate_readme({"text": "", "claims": {}}))
+    bad = {"text": "# x\n", "claims": [{"start_line": "3", "end_line": 3, "cites": "a01"},
+                                       "claim"]}
+    problems = dd_dispatch.validate_readme(bad)
+    assert any("claims[0]: start_line" in p for p in problems)
+    assert any("claims[0]: cites" in p for p in problems)
+    assert any("claims[1] is not a JSON object" in p for p in problems)
+    # _problems routes the role and has no id key to compare
+    workdir = tmp_path / "work"
+    (workdir / "readme").mkdir(parents=True)
+    write_json(workdir / "sheets.json", {"sheets": {"a01": {
+        "area": "a01", "surface": [], "dismissed": [],
+        "behaviours": [{"id": "a01-b01", "statement": "`y` is", "evidence": ["y.py:1"]}]}},
+        "unchecked": [], "filled": 0, "hidden_corrected": 0})
+    out = workdir / "readme" / "r001.json"
+    entry: dd_dispatch.PlanEntry = {"id": "r001", "role": "readme", "model": "opus",
+                                    "prompt": "p", "output": out.as_posix()}
+    assert dd_dispatch._problems(workdir, entry) == [f"{out.as_posix()} is missing"]
+    write_json(out, good)
+    assert dd_dispatch.check_outputs(workdir, [entry], "readme") == (["r001"], [])
+    write_json(out, bad)
+    assert dd_dispatch.check_outputs(workdir, [entry], "readme")[0] == []
+
+
+def test_problems_of_a_readme_output_include_the_citation_check(tmp_path: Path) -> None:
+    workdir = tmp_path / "work"
+    (workdir / "readme").mkdir(parents=True)
+    out = workdir / "readme" / "r001.json"
+    entry: dd_dispatch.PlanEntry = {"id": "r001", "role": "readme", "model": "opus",
+                                    "prompt": "p", "output": out.as_posix()}
+    write_json(out, {"text": "x\n\n`y` is.\n",
+                     "claims": [{"start_line": 3, "end_line": 3, "cites": ["a01-b09"]}]})
+    assert dd_dispatch._problems(workdir, entry) == ["sheets.json is missing"]
+    write_json(workdir / "sheets.json", {"sheets": {}, "unchecked": []})
+    assert dd_dispatch._problems(workdir, entry, readme_lines=2) == [
+        "the first line is not a level-one heading",
+        "the text has 3 lines, more than readme_lines 2",
+        "line 1 is in no claim: 'x'",
+        "claims[0] cites a01-b09, which is not in sheets.json"]
+    valid, failed = dd_dispatch.check_outputs(workdir, [entry], "readme", readme_lines=2)
+    assert (valid, failed) == ([], [entry])
+
+
+def _readme_statement(sid: str, line: int, section: str, *, cites: list[str] | None = None,
+                      prereject: str | None = None) -> dict[str, Any]:
+    return {"id": sid, "start_line": line, "end_line": line, "section": section,
+            "kind": "item", "text": f"- item {line}", "claims": [0],
+            "cites": cites or [], "prereject": prereject}
+
+
+def test_plan_verify_readme_batches_by_section_and_continues_ids(tmp_path: Path) -> None:
+    root, workdir = _readme_workdir(tmp_path, None)
+    (root / "docs").mkdir()
+    (root / "docs" / "guide.md").write_text("".join(f"guide line {n}\n" for n in range(1, 31)),
+                                            encoding="utf-8")
+    phase_a = dd_dispatch.plan_verify(root, workdir, [[_edit("u002-e01")], [_edit("u002-e02")]],
+                                      _config())
+    assert [e["id"] for e in phase_a] == ["v01", "v02"]
+    lines = ["# demo", "", "## Usage", "", *[f"- item {n}" for n in range(5, 9)], "",
+             "## Flags", "", "- item 12", "", "```sh", "sync --force", "```"]
+    text = "\n".join(lines) + "\n"
+    statements = [
+        _readme_statement("r-s001", 5, "Usage", cites=["a01-b01", "a01-s01"]),
+        _readme_statement("r-s002", 6, "Usage", prereject="guarantee word"),
+        _readme_statement("r-s003", 7, "Usage", cites=["a01-s02"]),
+        _readme_statement("r-s004", 8, "Usage"),
+        _readme_statement("r-s005", 12, "Flags")]
+    write_json(workdir / "readme.json", {"text": text, "claims": [], "statements": statements,
+                                         "cites_added": 0, "cited_unnamed": 0})
+    config = _config(readme_batch=2, verify=1)  # the verify cap is phase A's alone
+    plan = dd_dispatch.plan_verify_readme(root, workdir, statements, config)
+    assert [(e["id"], e["role"], e["model"], e["statements"]) for e in plan] == [
+        ("v03", "verify", config["models"]["verify"], ["r-s001", "r-s003"]),
+        ("v04", "verify", config["models"]["verify"], ["r-s004"]),
+        ("v05", "verify", config["models"]["verify"], ["r-s005"])]
+    assert "edits" not in plan[0]
+    assert read_json(workdir / "plan-verify.json") == [*phase_a, *plan]
+    assert plan[0]["prompt"].endswith("/prompts/verify-v03.md")
+    assert plan[0]["output"].endswith("/verdicts/v03.json")
+    prompt = Path(plan[0]["prompt"]).read_text(encoding="utf-8")
+    assert all(line in prompt for line in MANDATORY)
+    assert "{{" not in prompt and plan[0]["output"] in prompt and '"batch": "v03"' in prompt
+    assert root.resolve().as_posix() in prompt
+    assert "### Statement r-s001 (section Usage, lines 5-5)" in prompt
+    assert "```text\n- item 5\n```" in prompt
+    assert ("- a01-s01: command `sync`, pulls the remote state, src/cli.py:4\n" in prompt)
+    assert "- a01-b01: `sync` writes `state.db` (src/cli.py:12, src/db.py:3)\n" in prompt
+    assert "- a01-s02: flag `--force`, overwrites local rows, src/cli.py:7" in prompt
+    # 10 lines of README context either side, numbered, clipped at the start
+    assert "1: # demo\n" in prompt and "15: sync --force\n" in prompt
+    assert "The README around it (lines 1-15):" in prompt  # r-s001, clipped at the start
+    assert "The README around it (lines 1-16):" in prompt  # r-s003, clipped at both ends
+    assert "Statement r-s002" not in prompt and "Statement r-s005" not in prompt
+    assert '"statement"' in prompt and "size in bytes" in prompt
+    later = Path(plan[2]["prompt"]).read_text(encoding="utf-8")
+    assert "### Statement r-s005 (section Flags, lines 12-12)" in later
+    assert "(none)" in later  # r-s005 cites nothing
+    # no README statement left to verify: nothing is appended
+    assert dd_dispatch.plan_verify_readme(root, workdir, statements[1:2], config) == []
+    assert len(read_json(workdir / "plan-verify.json")) == 5
+
+
+def _statement_verdicts(batch: str, ids: list[str]) -> dict[str, Any]:
+    return {"batch": batch,
+            "verdicts": [{"statement": i, "verdict": "accept", "reason": "true"} for i in ids]}
+
+
+def test_validate_readme_verdicts() -> None:
+    expected = ["r-s001", "r-s002"]
+    assert dd_dispatch.validate_readme_verdicts(_statement_verdicts("v03", expected),
+                                                expected) == []
+    missing = dd_dispatch.validate_readme_verdicts(_statement_verdicts("v03", ["r-s001"]),
+                                                   expected)
+    assert missing == ["statement 'r-s002' has no verdict"]
+    twice = dd_dispatch.validate_readme_verdicts(
+        _statement_verdicts("v03", [*expected, "r-s001"]), expected)
+    assert twice == ["statement 'r-s001' has 2 verdicts"]
+    extra = dd_dispatch.validate_readme_verdicts(
+        _statement_verdicts("v03", [*expected, "r-s009"]), expected)
+    assert extra == ["verdicts[2]: statement 'r-s009' is not in this batch"]
+    edits = dd_dispatch.validate_readme_verdicts(_verdicts("v03", expected), expected)
+    assert "verdicts[0] has no statement" in edits
+    bad = _statement_verdicts("v03", expected)
+    bad["verdicts"][0]["verdict"] = "maybe"
+    assert dd_dispatch.validate_readme_verdicts(bad, expected) == [
+        "verdicts[0]: verdict 'maybe' is not one of accept, reject, unsure"]
+
+
+def test_collect_verdicts_routes_statement_batches(tmp_path: Path) -> None:
+    root, workdir = _tree(tmp_path)
+    plan = dd_dispatch.plan_verify(root, workdir, [[_edit("u001-e01")]], _config())
+    readme: list[dd_dispatch.PlanEntry] = []
+    for bid, ids in (("v02", ["r-s001", "r-s002"]), ("v03", ["r-s004"])):
+        entry = dd_dispatch._entry(workdir, bid, "verify", "opus")
+        entry["statements"] = ids
+        readme.append(entry)
+    plan += readme
+    write_json(workdir / "verdicts" / "v01.json", _verdicts("v01", ["u001-e01"]))
+    answers = _statement_verdicts("v02", ["r-s001", "r-s002"])
+    answers["verdicts"][1].update(verdict="reject", reason="no such default")
+    write_json(workdir / "verdicts" / "v02.json", answers)
+    # v03's output answers by edit, so the batch is invalid and its statements unverified
+    write_json(workdir / "verdicts" / "v03.json", _verdicts("v03", ["r-s004"]))
+    assert dd_dispatch.check_outputs(workdir, plan, "verify") == (["v01", "v02"], [readme[1]])
+    result = dd_dispatch.collect_verdicts(workdir, plan)
+    assert result == {
+        "verdicts": {"u001-e01": {"verdict": "accept", "reason": "matches"}},
+        "unverified": [],
+        "readme": {"r-s001": {"verdict": "accept", "reason": "true"},
+                   "r-s002": {"verdict": "reject", "reason": "no such default"}},
+        "readme_unverified": ["r-s004"]}
+    assert read_json(workdir / "verdicts.json") == result

@@ -20,8 +20,23 @@ DEFAULTS: dict[str, Any] = {
     "max_section_lines": 40,
     "min_anchor_ratio": 0.25,
     "undocumented_ok": [],
-    "caps": {"review": 40, "gaps": 15, "verify": 25},
-    "models": {"review": "sonnet", "gap": "sonnet", "verify": "opus"},
+    "readme": True,
+    "area_lines": 5000,
+    "readme_lines": 300,
+    "caps": {
+        "review": 40,
+        "gaps": 15,
+        "verify": 25,
+        "sheet_agents": 12,
+        "readme_batch": 15,
+    },
+    "models": {
+        "review": "sonnet",
+        "gap": "sonnet",
+        "verify": "opus",
+        "sheet": "sonnet",
+        "readme": "opus",
+    },
 }
 
 
@@ -62,11 +77,14 @@ def _is_non_empty_str(value: Any) -> bool:
 # Nested mappings: per sub-key (validator, expectation); unknown sub-keys are ignored.
 _NESTED_VALIDATORS: dict[str, dict[str, tuple[Any, str]]] = {
     "caps": {
-        name: (_is_non_negative_int, "a non-negative integer")
-        for name in ("review", "gaps", "verify")
+        **{name: (_is_non_negative_int, "a non-negative integer")
+           for name in ("review", "gaps", "verify", "sheet_agents")},
+        # the size of a README verifier batch: 0 would batch nothing
+        "readme_batch": (lambda v: _is_int(v) and v > 0, "a positive integer"),
     },
     "models": {
-        name: (_is_non_empty_str, "a non-empty string") for name in ("review", "gap", "verify")
+        name: (_is_non_empty_str, "a non-empty string")
+        for name in ("review", "gap", "verify", "sheet", "readme")
     },
 }
 
@@ -80,6 +98,9 @@ _VALIDATORS: dict[str, tuple[Any, str]] = {
     "max_section_lines": (_is_non_negative_int, "a non-negative integer"),
     "min_anchor_ratio": (_is_ratio, "a number between 0 and 1"),
     "undocumented_ok": (_is_str_list, "a list of strings"),
+    "readme": (lambda v: isinstance(v, bool), "a boolean"),
+    "area_lines": (lambda v: _is_int(v) and v > 0, "a positive integer"),
+    "readme_lines": (lambda v: _is_int(v) and v > 0, "a positive integer"),
 }
 
 

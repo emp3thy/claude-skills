@@ -1,0 +1,21 @@
+# py-cli-nodocs: a Python key-value CLI (argparse subcommands, env vars read through a helper,
+# a Flask route, a settings file) with no markdown doc at all, so the run is in README mode
+# (phase B). One state (tag state1). files/ is the final tree; .document-drift.yaml sets
+# area_lines 60 so the source splits into several areas.
+# planted.json lists what the written README must and must not name; the canned sheets and
+# writer output under tests/canned/py-cli-nodocs/ cite these files line for line, so change
+# them together.
+commits:
+  - author: "Grace Hopper <grace@example.com>"
+    date: "2025-06-02T09:00:00+00:00"
+    subject: "feat: kv store, command line and http view"
+    tag: state1
+    files:
+      .document-drift.yaml: "@final"
+      pyproject.toml: "@final"
+      settings.toml: "@final"
+      kv/__init__.py: "@final"
+      kv/cli.py: "@final"
+      kv/config.py: "@final"
+      kv/server.py: "@final"
+      kv/store.py: "@final"

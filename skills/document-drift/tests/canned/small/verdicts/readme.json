@@ -1,0 +1,4 @@
+{
+ "r-s003": {"verdict": "reject",
+            "reason": "main reads APP_TOKEN but nothing sends it to the server"}
+}

@@ -1,0 +1,3 @@
+# a sample of the settings kv reads from its store directory
+remote = "https://kv.example.com"
+timeout = 30

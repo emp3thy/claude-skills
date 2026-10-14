@@ -1,0 +1,1111 @@
+{
+ "definitions": [
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": ".document-drift.yaml",
+   "kind": "file",
+   "name": ".document-drift.yaml",
+   "norm": "_document_drift_yaml",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "kv/__init__.py",
+   "kind": "file",
+   "name": "__init__.py",
+   "norm": "__init___py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "kv/__init__.py",
+   "kind": "module",
+   "name": "kv",
+   "norm": "kv",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "kv/cli.py",
+   "kind": "file",
+   "name": "cli.py",
+   "norm": "cli_py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     46
+    ]
+   ],
+   "end": 46,
+   "file": "kv/cli.py",
+   "kind": "module",
+   "name": "cli",
+   "norm": "cli",
+   "owners": [],
+   "reading": [
+    1,
+    46
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     46
+    ]
+   ],
+   "end": 46,
+   "file": "kv/cli.py",
+   "kind": "module",
+   "name": "kv.cli",
+   "norm": "kv_cli",
+   "owners": [],
+   "reading": [
+    1,
+    46
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     11,
+     27
+    ]
+   ],
+   "end": 27,
+   "file": "kv/cli.py",
+   "kind": "function",
+   "name": "build_parser",
+   "norm": "build_parser",
+   "owners": [],
+   "reading": [
+    11,
+    27
+   ],
+   "start": 11
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     13
+    ]
+   ],
+   "end": 13,
+   "file": "kv/cli.py",
+   "kind": "literal",
+   "name": "command",
+   "norm": "command",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    13,
+    13
+   ],
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     15,
+     15
+    ]
+   ],
+   "end": 15,
+   "file": "kv/cli.py",
+   "kind": "reg",
+   "name": "init",
+   "norm": "init",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    15,
+    15
+   ],
+   "start": 15
+  },
+  {
+   "change_ranges": [
+    [
+     16,
+     17
+    ]
+   ],
+   "end": 17,
+   "file": "kv/cli.py",
+   "kind": "reg",
+   "name": "--force",
+   "norm": "--force",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    16,
+    17
+   ],
+   "start": 16
+  },
+  {
+   "change_ranges": [
+    [
+     16,
+     17
+    ]
+   ],
+   "end": 17,
+   "file": "kv/cli.py",
+   "kind": "reg",
+   "name": "store_true",
+   "norm": "store_true",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    16,
+    17
+   ],
+   "start": 16
+  },
+  {
+   "change_ranges": [
+    [
+     19,
+     19
+    ]
+   ],
+   "end": 19,
+   "file": "kv/cli.py",
+   "kind": "reg",
+   "name": "sync",
+   "norm": "sync",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    19,
+    19
+   ],
+   "start": 19
+  },
+  {
+   "change_ranges": [
+    [
+     20,
+     21
+    ]
+   ],
+   "end": 21,
+   "file": "kv/cli.py",
+   "kind": "reg",
+   "name": "--dry-run",
+   "norm": "--dry-run",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    20,
+    21
+   ],
+   "start": 20
+  },
+  {
+   "change_ranges": [
+    [
+     20,
+     21
+    ]
+   ],
+   "end": 21,
+   "file": "kv/cli.py",
+   "kind": "reg",
+   "name": "store_true",
+   "norm": "store_true",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    20,
+    21
+   ],
+   "start": 20
+  },
+  {
+   "change_ranges": [
+    [
+     22,
+     22
+    ]
+   ],
+   "end": 22,
+   "file": "kv/cli.py",
+   "kind": "reg",
+   "name": "--legacy",
+   "norm": "--legacy",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    22,
+    22
+   ],
+   "start": 22
+  },
+  {
+   "change_ranges": [
+    [
+     22,
+     22
+    ]
+   ],
+   "end": 22,
+   "file": "kv/cli.py",
+   "kind": "reg",
+   "name": "store_true",
+   "norm": "store_true",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    22,
+    22
+   ],
+   "start": 22
+  },
+  {
+   "change_ranges": [
+    [
+     26,
+     26
+    ]
+   ],
+   "end": 26,
+   "file": "kv/cli.py",
+   "kind": "reg",
+   "name": "migrate",
+   "norm": "migrate",
+   "owners": [
+    "build_parser"
+   ],
+   "reading": [
+    26,
+    26
+   ],
+   "start": 26
+  },
+  {
+   "change_ranges": [
+    [
+     30,
+     42
+    ]
+   ],
+   "end": 42,
+   "file": "kv/cli.py",
+   "kind": "function",
+   "name": "main",
+   "norm": "main",
+   "owners": [],
+   "reading": [
+    30,
+    42
+   ],
+   "start": 30
+  },
+  {
+   "change_ranges": [
+    [
+     30,
+     42
+    ]
+   ],
+   "end": 42,
+   "file": "kv/cli.py",
+   "kind": "literal",
+   "name": "init",
+   "norm": "init",
+   "owners": [
+    "main"
+   ],
+   "reading": [
+    30,
+    42
+   ],
+   "start": 30
+  },
+  {
+   "change_ranges": [
+    [
+     30,
+     42
+    ]
+   ],
+   "end": 42,
+   "file": "kv/cli.py",
+   "kind": "literal",
+   "name": "sync",
+   "norm": "sync",
+   "owners": [
+    "main"
+   ],
+   "reading": [
+    30,
+    42
+   ],
+   "start": 30
+  },
+  {
+   "change_ranges": [
+    [
+     45,
+     46
+    ]
+   ],
+   "end": 46,
+   "file": "kv/cli.py",
+   "kind": "literal",
+   "name": "__main__",
+   "norm": "__main__",
+   "owners": [],
+   "reading": [
+    45,
+    46
+   ],
+   "start": 45
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "kv/config.py",
+   "kind": "file",
+   "name": "config.py",
+   "norm": "config_py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     32
+    ]
+   ],
+   "end": 32,
+   "file": "kv/config.py",
+   "kind": "module",
+   "name": "config",
+   "norm": "config",
+   "owners": [],
+   "reading": [
+    1,
+    32
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     32
+    ]
+   ],
+   "end": 32,
+   "file": "kv/config.py",
+   "kind": "module",
+   "name": "kv.config",
+   "norm": "kv_config",
+   "owners": [],
+   "reading": [
+    1,
+    32
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     8,
+     8
+    ]
+   ],
+   "end": 8,
+   "file": "kv/config.py",
+   "kind": "literal",
+   "name": "settings.toml",
+   "norm": "settings_toml",
+   "owners": [],
+   "reading": [
+    8,
+    8
+   ],
+   "start": 8
+  },
+  {
+   "change_ranges": [
+    [
+     11,
+     13
+    ]
+   ],
+   "end": 13,
+   "file": "kv/config.py",
+   "kind": "function",
+   "name": "_env",
+   "norm": "_env",
+   "owners": [],
+   "reading": [
+    11,
+    13
+   ],
+   "start": 11
+  },
+  {
+   "change_ranges": [
+    [
+     16,
+     18
+    ]
+   ],
+   "end": 18,
+   "file": "kv/config.py",
+   "kind": "function",
+   "name": "home",
+   "norm": "home",
+   "owners": [],
+   "reading": [
+    16,
+    18
+   ],
+   "start": 16
+  },
+  {
+   "change_ranges": [
+    [
+     16,
+     18
+    ]
+   ],
+   "end": 18,
+   "file": "kv/config.py",
+   "kind": "reg",
+   "name": "KV_HOME",
+   "norm": "KV_HOME",
+   "owners": [
+    "home"
+   ],
+   "reading": [
+    16,
+    18
+   ],
+   "start": 16
+  },
+  {
+   "change_ranges": [
+    [
+     21,
+     23
+    ]
+   ],
+   "end": 23,
+   "file": "kv/config.py",
+   "kind": "function",
+   "name": "token",
+   "norm": "token",
+   "owners": [],
+   "reading": [
+    21,
+    23
+   ],
+   "start": 21
+  },
+  {
+   "change_ranges": [
+    [
+     21,
+     23
+    ]
+   ],
+   "end": 23,
+   "file": "kv/config.py",
+   "kind": "literal",
+   "name": "KV_TOKEN",
+   "norm": "KV_TOKEN",
+   "owners": [
+    "token"
+   ],
+   "reading": [
+    21,
+    23
+   ],
+   "start": 21
+  },
+  {
+   "change_ranges": [
+    [
+     26,
+     32
+    ]
+   ],
+   "end": 32,
+   "file": "kv/config.py",
+   "kind": "function",
+   "name": "load_settings",
+   "norm": "load_settings",
+   "owners": [],
+   "reading": [
+    26,
+    32
+   ],
+   "start": 26
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "kv/server.py",
+   "kind": "file",
+   "name": "server.py",
+   "norm": "server_py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     18
+    ]
+   ],
+   "end": 18,
+   "file": "kv/server.py",
+   "kind": "module",
+   "name": "kv.server",
+   "norm": "kv_server",
+   "owners": [],
+   "reading": [
+    1,
+    18
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     18
+    ]
+   ],
+   "end": 18,
+   "file": "kv/server.py",
+   "kind": "module",
+   "name": "server",
+   "norm": "server",
+   "owners": [],
+   "reading": [
+    1,
+    18
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     18
+    ]
+   ],
+   "end": 18,
+   "file": "kv/server.py",
+   "kind": "function",
+   "name": "get_item",
+   "norm": "get_item",
+   "owners": [],
+   "reading": [
+    13,
+    18
+   ],
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "kv/store.py",
+   "kind": "file",
+   "name": "store.py",
+   "norm": "store_py",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     49
+    ]
+   ],
+   "end": 49,
+   "file": "kv/store.py",
+   "kind": "module",
+   "name": "kv.store",
+   "norm": "kv_store",
+   "owners": [],
+   "reading": [
+    1,
+    49
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     49
+    ]
+   ],
+   "end": 49,
+   "file": "kv/store.py",
+   "kind": "module",
+   "name": "store",
+   "norm": "store",
+   "owners": [],
+   "reading": [
+    1,
+    49
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     10,
+     42
+    ]
+   ],
+   "end": 42,
+   "file": "kv/store.py",
+   "kind": "class",
+   "name": "Store",
+   "norm": "Store",
+   "owners": [],
+   "reading": [
+    10,
+    42
+   ],
+   "start": 10
+  },
+  {
+   "change_ranges": [
+    [
+     13,
+     14
+    ]
+   ],
+   "end": 14,
+   "file": "kv/store.py",
+   "kind": "function",
+   "name": "__init__",
+   "norm": "__init__",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    13,
+    14
+   ],
+   "start": 13
+  },
+  {
+   "change_ranges": [
+    [
+     16,
+     20
+    ]
+   ],
+   "end": 20,
+   "file": "kv/store.py",
+   "kind": "function",
+   "name": "create",
+   "norm": "create",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    16,
+    20
+   ],
+   "start": 16
+  },
+  {
+   "change_ranges": [
+    [
+     16,
+     20
+    ]
+   ],
+   "end": 20,
+   "file": "kv/store.py",
+   "kind": "literal",
+   "name": "items",
+   "norm": "items",
+   "owners": [
+    "create",
+    "Store"
+   ],
+   "reading": [
+    16,
+    20
+   ],
+   "start": 16
+  },
+  {
+   "change_ranges": [
+    [
+     22,
+     24
+    ]
+   ],
+   "end": 24,
+   "file": "kv/store.py",
+   "kind": "function",
+   "name": "keys",
+   "norm": "keys",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    22,
+    24
+   ],
+   "start": 22
+  },
+  {
+   "change_ranges": [
+    [
+     22,
+     24
+    ]
+   ],
+   "end": 24,
+   "file": "kv/store.py",
+   "kind": "literal",
+   "name": "items",
+   "norm": "items",
+   "owners": [
+    "keys",
+    "Store"
+   ],
+   "reading": [
+    22,
+    24
+   ],
+   "start": 22
+  },
+  {
+   "change_ranges": [
+    [
+     26,
+     29
+    ]
+   ],
+   "end": 29,
+   "file": "kv/store.py",
+   "kind": "function",
+   "name": "get",
+   "norm": "get",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    26,
+    29
+   ],
+   "start": 26
+  },
+  {
+   "change_ranges": [
+    [
+     26,
+     29
+    ]
+   ],
+   "end": 29,
+   "file": "kv/store.py",
+   "kind": "literal",
+   "name": "items",
+   "norm": "items",
+   "owners": [
+    "get",
+    "Store"
+   ],
+   "reading": [
+    26,
+    29
+   ],
+   "start": 26
+  },
+  {
+   "change_ranges": [
+    [
+     31,
+     37
+    ]
+   ],
+   "end": 37,
+   "file": "kv/store.py",
+   "kind": "function",
+   "name": "push",
+   "norm": "push",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    31,
+    37
+   ],
+   "start": 31
+  },
+  {
+   "change_ranges": [
+    [
+     31,
+     37
+    ]
+   ],
+   "end": 37,
+   "file": "kv/store.py",
+   "kind": "literal",
+   "name": "log",
+   "norm": "log",
+   "owners": [
+    "push",
+    "Store"
+   ],
+   "reading": [
+    31,
+    37
+   ],
+   "start": 31
+  },
+  {
+   "change_ranges": [
+    [
+     31,
+     37
+    ]
+   ],
+   "end": 37,
+   "file": "kv/store.py",
+   "kind": "literal",
+   "name": "sync.log",
+   "norm": "sync_log",
+   "owners": [
+    "push",
+    "Store"
+   ],
+   "reading": [
+    31,
+    37
+   ],
+   "start": 31
+  },
+  {
+   "change_ranges": [
+    [
+     31,
+     37
+    ]
+   ],
+   "end": 37,
+   "file": "kv/store.py",
+   "kind": "literal",
+   "name": "utf-8",
+   "norm": "utf_8",
+   "owners": [
+    "push",
+    "Store"
+   ],
+   "reading": [
+    31,
+    37
+   ],
+   "start": 31
+  },
+  {
+   "change_ranges": [
+    [
+     39,
+     42
+    ]
+   ],
+   "end": 42,
+   "file": "kv/store.py",
+   "kind": "function",
+   "name": "migrate",
+   "norm": "migrate",
+   "owners": [
+    "Store"
+   ],
+   "reading": [
+    39,
+    42
+   ],
+   "start": 39
+  },
+  {
+   "change_ranges": [
+    [
+     39,
+     42
+    ]
+   ],
+   "end": 42,
+   "file": "kv/store.py",
+   "kind": "literal",
+   "name": "items",
+   "norm": "items",
+   "owners": [
+    "migrate",
+    "Store"
+   ],
+   "reading": [
+    39,
+    42
+   ],
+   "start": 39
+  },
+  {
+   "change_ranges": [
+    [
+     45,
+     49
+    ]
+   ],
+   "end": 49,
+   "file": "kv/store.py",
+   "kind": "function",
+   "name": "_rotate",
+   "norm": "_rotate",
+   "owners": [],
+   "reading": [
+    45,
+    49
+   ],
+   "start": 45
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "pyproject.toml",
+   "kind": "file",
+   "name": "pyproject.toml",
+   "norm": "pyproject_toml",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  },
+  {
+   "change_ranges": [
+    [
+     1,
+     1
+    ]
+   ],
+   "end": 1,
+   "file": "settings.toml",
+   "kind": "file",
+   "name": "settings.toml",
+   "norm": "settings_toml",
+   "owners": [],
+   "reading": [
+    1,
+    1
+   ],
+   "start": 1
+  }
+ ],
+ "skipped": []
+}

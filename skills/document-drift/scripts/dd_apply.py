@@ -2,7 +2,8 @@
 
 ``apply_edits`` applies every ``edits.json`` edit whose status is ``kept`` and whose
 ``verdicts.json`` verdict is ``accept``, plus every kept notice-loop edit (``source ==
-"notice"``, no verdict needed); a missing ``verdicts.json`` means no verdicts.
+"notice"``, no verdict needed); a missing ``verdicts.json`` means no verdicts. The README's
+``create`` edit is never applied here: ``dd_readme.apply`` writes the README.
 
 Per doc (spec 7.3): the doc is read with ``newline=""`` and split on ``\\r\\n`` or ``\\n`` like
 the scanner (``_Text``); each line keeps its own ending, a new line takes the majority ending,
@@ -370,7 +371,8 @@ def apply_edits(root: Path, workdir: Path) -> dict[str, Any]:
     inventory = read_json(workdir / "inventory.json")
     verdicts_path = workdir / "verdicts.json"
     verdicts = read_json(verdicts_path)["verdicts"] if verdicts_path.is_file() else {}
-    edits = selected_edits(read_json(workdir / "edits.json")["edits"], verdicts)
+    edits = [e for e in selected_edits(read_json(workdir / "edits.json")["edits"], verdicts)
+             if e.get("type") != "create"]  # the README's create edit is dd_readme.apply's
     checker = _Checker(root, inventory.get("files", []), re.compile(inventory["never_edit_re"]))
     renames: Renames = {}
     texts: dict[str, str] = {}

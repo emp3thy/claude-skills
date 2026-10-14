@@ -19,7 +19,8 @@ edit, apply and commit; agents you dispatch from plan files do the reading. The
 result is commits on a new branch; the user's own process pushes it, reads the change and
 opens the pull request.
 
-Not for: pushing, opening pull requests or writing a PR body; creating doc files; editing
+Not for: pushing, opening pull requests or writing a PR body; creating doc files (but for the
+README of a repository that has none); editing
 excluded files (changelogs, licences, ADRs and decision records, RFCs, plans and specs,
 research and archive folders, vendored and generated docs, templates); changing code (a
 guarantee the code does not keep is listed for the user, not edited); running the project's
@@ -44,9 +45,9 @@ exist. A crash outside a step at `finish` names no step, but its message already
 ```
 
 Run every command from this skill's directory (`skills/document-drift/`), with `<repo>` as an
-absolute path. Give `start` the flags the user gave; give `verify` and `finish` none of them
-except `--workdir` (they read the others from the run's record, and a different value is
-refused).
+absolute path. Give `start` the flags the user gave; give `compose`, `verify` and `finish`
+none of them except `--workdir` (they read the others from the run's record, and a different
+value is refused).
 
 1. Start the run:
 
@@ -54,8 +55,10 @@ refused).
    python scripts/dd_run.py <repo> --stage start [--base <ref>] [--full] [--branch <name>] [--check]
    ```
 
-   It prints `plan-docs.json <path> with <n> entries` (or, for a repository with no doc in
-   scope, the message that no-docs mode arrives in phase B).
+   It first prints `readme: yes` or `readme: no`, then `plan-docs.json <path> with <n> entries`
+   (or, for a repository with no doc in scope and `readme: no`, the message that no-docs mode
+   arrives in phase B). `readme: yes` means the repository has no `README.md` at its root and
+   this run writes one.
 
 2. Read `plan-docs.json`, the file at the path printed on the stdout line. For each entry
    dispatch one general-purpose Agent with the entry's `model`; it must have Read, Grep, Glob
@@ -66,10 +69,31 @@ refused).
 
    with the entry's `prompt` and `output` paths filled in. Dispatch all entries in one message
    so they run in parallel. Never paste the prompt file's content, and never write an output
-   file yourself: each agent writes its own and replies with a receipt. When the file holds
-   `[]`, skip to step 5.
+   file yourself: each agent writes its own and replies with a receipt. When `start` printed
+   `readme: yes`, the entries include the sheet agents, one per area of the code. When the
+   file holds `[]` there is nothing to dispatch: go to step 3 after `readme: yes`, otherwise
+   to step 6.
 
-3. Verify the agents' outputs and check their edits:
+3. Only when `start` printed `readme: yes`: compose the README. Skip this step after
+   `readme: no`.
+
+   ```bash
+   python scripts/dd_run.py <repo> --stage compose
+   ```
+
+   On exit 3, the same rule as step 4: read `retry.json`, dispatch those entries once, then
+   rerun with `--retried`:
+
+   ```bash
+   python scripts/dd_run.py <repo> --stage compose --retried
+   ```
+
+   Otherwise it prints `plan-readme.json <path> with 1 entries`: read `plan-readme.json` at
+   that path, dispatch that one entry exactly as in step 2 (one writer agent), then go on to
+   step 4. Or it prints `readme: no sheet; nothing to compose`: no sheet was usable, there is
+   nothing to dispatch, go on to step 4.
+
+4. Verify the agents' outputs and check their edits:
 
    ```bash
    python scripts/dd_run.py <repo> --stage verify
@@ -77,7 +101,8 @@ refused).
 
    On exit 3 it prints `retry.json <path> with <n> entries`: read `retry.json` at that path,
    dispatch those entries once, exactly as in step 2, then rerun the same command with
-   `--retried`. The entries are the agents whose output was missing or invalid, plus new
+   `--retried`. After `readme: yes`, the entries also include the writer if its output was
+   missing or invalid. The entries are the agents whose output was missing or invalid, plus new
    review entries (fresh unit ids) for the ranges a review agent reported it did not get to:
 
    ```bash
@@ -86,16 +111,17 @@ refused).
 
    Otherwise it prints `plan-verify.json <path> with <n> entries`.
 
-4. Read `plan-verify.json`, the file at the path printed on the stdout line, and dispatch the verifier entries the same way as in step 2, all in
-   one message. When it holds `[]`, go to step 5.
+5. Read `plan-verify.json`, the file at the path printed on the stdout line, and dispatch the
+   verifier entries the same way as in step 2, all in one message. When it holds `[]`, go to
+   step 6.
 
-5. Finish the run:
+6. Finish the run:
 
    ```bash
    python scripts/dd_run.py <repo> --stage finish
    ```
 
-   On exit 3, the same rule as step 3: read `retry.json`, dispatch those entries once, then
+   On exit 3, the same rule as step 4: read `retry.json`, dispatch those entries once, then
    rerun with `--retried`:
 
    ```bash
@@ -109,13 +135,14 @@ refused).
 | `--base <ref>` | Compare against `<ref>` instead of the last drift run. An unknown ref is refused. |
 | `--full` | A first run (every doc reviewed in full) regardless of any previous run. |
 | `--branch <name>` | The branch to create. Default `docs/drift-<YYYY-MM-DD>`, or the `branch` pattern in `.document-drift.yaml`. |
-| `--check` | Run through verification and stop: no doc edit, no branch, no commit, no last-run record. The summary lists every edit that would apply as a commit bullet; `finish` exits 1 when an edit would apply (an accepted edit, or a kept notice edit, which needs no verdict). Runs from a detached HEAD or a dirty tree too; results are judged against the working tree, and a dirty indexed file can shift line ranges. |
+| `--check` | Run through verification and stop: no doc edit, no branch, no commit, no last-run record. The summary lists every edit that would apply as a commit bullet, the README that would be written among them; `finish` exits 1 when an edit would apply (an accepted edit, a kept notice edit, which needs no verdict, or a README that would be written because a statement of it was accepted). Runs from a detached HEAD or a dirty tree too; results are judged against the working tree, and a dirty indexed file can shift line ranges. |
 | `--workdir <dir>` | Where the run's files go. Default `<repo>/.document-drift`, added to `.git/info/exclude`, never committed. Pass it only when the user asks, and then to every stage. |
 | `--date <YYYY-MM-DD>` | Fixes the branch date and run id (for tests). Pass it only when the user asks. |
 | `--retried` | Only on the rerun of a stage that exited 3, after dispatching `retry.json`. An output still missing or invalid then leaves its unit or batch unchecked, and the run goes on. |
 
 `--base`, `--full`, `--branch`, `--check` and `--date` are given to `start`, which records
-them; `verify` and `finish` take them from that record and refuse a different value (exit 2).
+them; `compose`, `verify` and `finish` take them from that record and refuse a different
+value (exit 2).
 
 ## Preconditions the run checks
 
@@ -123,18 +150,19 @@ them; `verify` and `finish` take them from that record and refuse a different va
 working tree (a subdirectory, a bare repository or a `.git` directory: pass the repository's
 top level), has no commits, or when `--base` names an unknown ref. Outside `--check` it also
 refuses a detached HEAD, uncommitted changes, an existing target branch, a missing git author
-identity (`user.name` and `user.email`) and an invalid branch name. Any stage refuses when it
-is run out of order or with a flag that differs from the one `start` recorded, and `finish`
-refuses, before it applies anything, when HEAD moved during the run (naming both commits; a
-branch switch counts) or when files outside the workdir changed during the run (naming them).
+identity (`user.name` and `user.email`) and an invalid branch name. `compose` refuses when
+this run writes no README. Any stage refuses when it is run out of order or with a flag that
+differs from the one `start` recorded, and `finish` refuses, before it applies anything, when
+HEAD moved during the run (naming both commits; a branch switch counts) or when files outside
+the workdir changed during the run (naming them).
 
 ## Exit codes
 
 | Code | Meaning | What to tell the user |
 |-----:|---------|-----------------------|
-| 0 | The stage succeeded. From `finish`: with edits, the branch exists with its commits and the user is on it; without edits, no branch was created. | After `start` and `verify`, nothing: go on to the next step. After `finish`, the final message below. |
-| 1 | `finish` under `--check` only: an edit would apply (an accepted edit, or a kept notice edit). Nothing was changed. | The printed summary; a run without `--check` would commit those edits. |
-| 2 | Refused before any change. | The error line verbatim and what to fix (commit or stash, check out a branch, choose another `--branch`, set the git identity, run the stages in order with the same flags, leave the working tree and the checked-out branch alone during a run). |
+| 0 | The stage succeeded. From `finish`: with edits, the branch exists with its commits and the user is on it; without edits, no branch was created. | After `start`, `compose` and `verify`, nothing: go on to the next step. After `finish`, the final message below. |
+| 1 | `finish` under `--check` only: an edit would apply (an accepted edit, a kept notice edit, or a README that would be written). Nothing was changed. | The printed summary; a run without `--check` would commit those edits. |
+| 2 | Refused before any change. `compose` also refuses when the run writes no README (`readme: no`), when `start` has not run, and when a flag differs from the one `start` recorded. | The error line verbatim and what to fix (commit or stash, check out a branch, choose another `--branch`, set the git identity, run the stages in order with the same flags, leave the working tree and the checked-out branch alone during a run). |
 | 3 | The previous agent wave left missing or invalid output files; the stage wrote `retry.json` and changed nothing else. | Nothing: dispatch the `retry.json` entries once and rerun the same stage with `--retried`. |
 | 5 | A script step crashed or a script's own expected output is missing. The message names the step; a crash outside a step names none, and at `finish` its message already carries the `git status` and `git branch` pointer. | The error line verbatim. Stop: do not edit docs by hand. When the step is `apply`, `commit` or `summary`, docs may already be edited and the drift branch may exist: tell the user to check `git status` and `git branch`. |
 | 6 | The commit failed after the edits were applied to the working tree. | The error line verbatim: it says where the edits are. Do not retry; the user decides. |
@@ -153,6 +181,13 @@ branch switch counts) or when files outside the workdir changed during the run (
   protected region, overlapping edits, names with no home, refused targets, edits a verifier
   rejected and edits reverted by the re-check. Only in-scope markdown files change. The
   `Drift-Base` line is how the next run finds where to start.
+- When the repository root has no `README.md`, the run also writes one from the code, in the
+  additions commit, with the bullet
+  `- README.md:1 create readme (<n> statements from <n> sheets, <n> removed)`. Agents list what
+  each area of the code offers its users, one agent writes the README from those lists citing
+  them, and verifier agents judge every statement of it; a statement judged wrong or unsure is
+  left out and listed under "Needs a human decision" as `readme-rejected`. With no accepted
+  statement no README is written, and the summary says why.
 - `No branch created` when no edit was applied; the human-decision list is then in the
   summary only.
 - Markers the user can add to a doc: `<!-- drift-ignore: reason -->` (the next block),
@@ -180,8 +215,13 @@ branch switch counts) or when files outside the workdir changed during the run (
   | `max_section_lines` | `40` | Larger additions go to a human. |
   | `min_anchor_ratio` | `0.25` | Docs anchoring below this are listed as weakly anchored. |
   | `undocumented_ok` | `[]` | Globs of names that are never gaps. |
+  | `readme` | `true` | Write a README when the root has none; `false` turns that off. |
+  | `area_lines` | `5000` | Line budget per area of code, one sheet agent each. |
+  | `readme_lines` | `300` | The longest README the writer may produce. |
   | `caps.review` / `caps.gaps` / `caps.verify` | `40` / `15` / `25` | Agents per run per role; work beyond a cap is listed as unchecked. |
+  | `caps.sheet_agents` / `caps.readme_batch` | `12` / `15` | Areas given a sheet agent per run; README statements per verifier batch. |
   | `models.review` / `models.gap` / `models.verify` | `sonnet` / `sonnet` / `opus` | The model each role's agents run on. |
+  | `models.sheet` / `models.readme` | `sonnet` / `opus` | The model of the sheet agents and of the README writer. |
 
 ## Final message
 

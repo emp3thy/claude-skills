@@ -1,0 +1,4 @@
+{
+ "r-s008": {"verdict": "reject",
+            "reason": "--dry-run is store_true at kv/cli.py:20, so it is off unless given"}
+}

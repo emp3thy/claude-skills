@@ -1,12 +1,14 @@
 """Byte goldens for a full run over each corpus fixture and state (success criterion 6).
 
-``run_fixture`` drives start, verify and finish with the canned agent outputs; state 1 runs
-on 2026-01-02 and state 2 on the harness's pinned later date, on branch ``docs/drift-golden``.
-Compared byte for byte against ``golden/<fixture>/state<N>/``: the stage outputs, the commit
-messages and every doc the run edited (under ``docs/<doc path>``). Absolute paths in the
-outputs are rewritten to ``<workdir>``. A file a run does not produce is recorded by its
-absence from the golden directory. ``UPDATE_GOLDENS=1`` rewrites the golden directories
-instead of comparing; read every regenerated commit message and doc before committing them.
+``run_fixture`` drives start (in README mode compose), verify and finish with the canned agent
+outputs; state 1 runs on 2026-01-02 and state 2 on the harness's pinned later date, on branch
+``docs/drift-golden``. Compared byte for byte against ``golden/<fixture>/state<N>/``: the
+stage outputs, the commit messages and every doc the run edited (under ``docs/<doc path>``);
+a README-mode run (phase B) adds its own outputs, the summary and the README it wrote
+(``docs/README.md``). Absolute paths in the outputs are rewritten to ``<workdir>``. A file a
+run does not produce is recorded by its absence from the golden directory.
+``UPDATE_GOLDENS=1`` rewrites the golden directories instead of comparing; read every
+regenerated commit message and doc before committing them.
 """
 from __future__ import annotations
 
@@ -25,6 +27,8 @@ OUTPUTS = (
     "gaps.json", "notices.json", "edits.json", "plan-docs.json", "plan-verify.json",
     "applied.json", "commit-msg-corrections.txt", "commit-msg-additions.txt",
 )
+# compared only in README mode, so the phase A goldens stay as they were
+README_OUTPUTS = ("areas.json", "sheets.json", "plan-readme.json", "readme.json", "summary.md")
 PAIRS = [(name, state) for name in FIXTURES for state in fixture_states(name)]
 
 
@@ -33,7 +37,8 @@ def _actual(repo: Path, workdir: Path) -> dict[str, bytes]:
     native = str(workdir)
     posix = workdir.as_posix()
     out: dict[str, bytes] = {}
-    for name in OUTPUTS:
+    readme = bool(read_json(workdir / "preflight.json").get("readme"))
+    for name in OUTPUTS + (README_OUTPUTS if readme else ()):
         path = workdir / name
         if not path.is_file():
             continue
@@ -43,8 +48,11 @@ def _actual(repo: Path, workdir: Path) -> dict[str, bytes]:
         out[name] = data
     applied = workdir / "applied.json"
     if applied.is_file():
-        for doc in read_json(applied)["docs"]:
+        record = read_json(applied)
+        for doc in record["docs"]:
             out[f"docs/{doc}"] = (repo / doc).read_bytes()
+        if record.get("readme"):
+            out["docs/README.md"] = (repo / "README.md").read_bytes()
     return out
 
 
