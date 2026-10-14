@@ -10,7 +10,7 @@ In scope: the trigger, the split of the source into areas, one fact sheet per ar
 
 ## 2. Trigger
 
-`start` sets `"readme": true` in `preflight.json` when the inventory (A §5.1) has no in-scope doc at `README.md` in the repository root, matched case-insensitively. A README that exists but is excluded, carries `drift-ignore-file`, or lies outside the root does not count: the skill may not edit it, so it writes none either. *Amended 2026-10-14: as built, the trigger is that no tracked file at the root is named `README.md`, matched case-insensitively, whether or not that file is in scope; the inventory's scope does not enter into it.* The config key `readme: false` turns phase B off.
+`start` sets `"readme": true` in `preflight.json` when the inventory (A §5.1) has no in-scope doc at `README.md` in the repository root, matched case-insensitively. A README that exists but is excluded, carries `drift-ignore-file`, or lies outside the root does not count: the skill may not edit it, so it writes none either. *Amended 2026-10-14: as built, the trigger is that no tracked file at the root is named `README.md`, matched case-insensitively, whether or not that file is in scope; the inventory's scope does not enter into it. A `README.md` (in any case) on disk at the root also turns it off when it is untracked or ignored, since `finish` would overwrite that draft.* The config key `readme: false` turns phase B off.
 
 Other in-scope docs are reviewed by phase A in the same run. A later run on a repository whose README the skill wrote treats it as any doc (section 9); `readme` is true again only when the README is gone.
 
@@ -76,7 +76,7 @@ Order of a full run: `start`, wave (review, gap, sheet), `compose`, wave (writer
 `dd_sheets.validate(sheet, area, ctx)` returns the problems of one output; any problem makes it invalid and it goes through the exit-3 retry of A §7.4:
 
 - shape: the three lists present, every key present with the right type;
-- each surface entry: `kind` in the list above; `name` not empty; `defined_at` a `path:line` whose file is in the area and tracked at HEAD, whose line is within the file, and whose name is **at** that place: some token of the name of three or more characters, other than an interpreter or package-manager word (`python`, `node`, `npm`, `npx`, `uv`, `pip`) or a leading directory, appears within 3 lines of it, or the name, with a leading `python -m ` dropped and dots read as slashes, is the file's own path without its extension (a script or module names its file, and its line 1 is a valid place; *amended 2026-10-14: the three-character floor applies to picking tokens out of a multi-token name, and a name with no such token, such as `kv` or `gh`, is matched whole within 3 lines*); `summary` one line;
+- each surface entry: `kind` in the list above; `name` not empty; `defined_at` a `path:line` whose file is in the area and tracked at HEAD, whose line is within the file, and whose name is **at** that place: some token of the name of three or more characters, other than an interpreter or package-manager word (`python`, `node`, `npm`, `npx`, `uv`, `pip`) or a leading directory, appears within 3 lines of it, or the name, with a leading `python -m ` dropped and dots read as slashes, is the file's own path without its extension (a script or module names its file, and its line 1 is a valid place; *amended 2026-10-14: the three-character floor applies to picking tokens out of a multi-token name, and a name with no such token, such as `kv` or `gh`, is matched whole within 3 lines; the file rule holds only at line 1, and `defined_at` and evidence paths are repaired before these checks: `\` becomes `/`, and a leading `./` and the repository root's prefix of an absolute path are dropped*); `summary` one line;
 - each behaviour: a one-line `statement` with at least one inline-code span and no guarantee word (A §7.2's list); `evidence` not empty, each entry resolving as `defined_at` does;
 - no two surface entries with the same `(kind, norm(name), parent)`, where a route's parent is its HTTP method (so `GET` and `POST` of one path are two entries);
 - every hint of the area is a surface entry (matched by `(kind, norm(name), parent)`, flags keeping their dashes) or a `dismissed` entry naming it.
@@ -135,7 +135,7 @@ The check then splits the README into **statements**, the units the verifier jud
 
 Statements are grouped by section into batches of at most `caps.readme_batch` (default 15: a table row is a short judgement, and the spike's batches of 10 ran under 30 seconds) and appended to `plan-verify.json` with role `verify` and the prompt `prompts/verify-readme.md`: for each statement its text, its lines with 10 lines of context, the cited entries (kind, name, summary, `defined_at` or evidence), and read access to the repository. The verifier accepts a statement only when it is true of this repository's code, supported by the code at the cited places (not merely by the sheet), and not about intent, other software or history. It writes the batch's verdicts as in A §9.2 (`{"statement": id, "verdict": "accept" | "reject" | "unsure", "reason"}`); the verdicts land in `verdicts.json` under `readme`.
 
-A rejected or unsure statement is a Human-decision item of kind `readme-rejected` (`- README.md:<line> readme-rejected: <statement> (<reason>)`). A batch whose output is invalid after the retry leaves its statements **unverified**: they are removed as rejected ones are, and counted.
+A rejected or unsure statement is a Human-decision item of kind `readme-rejected` (`- README.md:<line> readme-rejected: <statement> (<reason>)`). *Amended 2026-10-14: `<line>` is the statement's line in the proposed README (`readme.json`), not in the committed file, which lacks the removed statements, so the item's text ends with `(proposed line)`; a pre-rejected statement's item reads the same.* A batch whose output is invalid after the retry leaves its statements **unverified**: they are removed as rejected ones are, and counted.
 
 The README is one proposed edit in `edits.json`: `{"id": "r001", "doc": "README.md", "type": "create", "source": "readme", "statements": n}`, so the proposed, verdict and applied counts of A §9.5 see it as one edit, and the `kept`/`dropped` grammar of A §9.1 does not apply to it (the citation check is its script check).
 
@@ -147,7 +147,7 @@ The README is one proposed edit in `edits.json`: `{"id": "r001", "doc": "README.
 - README.md:1 create readme (<n> statements from <n> sheets, <n> removed)
 ```
 
-*Amended 2026-10-14: the bullet's statement count is the total at check time; `applied.json["readme"]["statements"]` is the kept count.* A `create` edit never goes in the corrections commit; a run with no other applied edit still makes the additions commit for it. Under `--check` the statements are listed instead and nothing is written.
+*Amended 2026-10-14: the bullet's statement count is the total at check time; `applied.json["readme"]["statements"]` is the kept count.* A `create` edit never goes in the corrections commit; a run with no other applied edit still makes the additions commit for it. Under `--check` the statements are listed instead and nothing is written. *Amended 2026-10-14: once the README is written, a `no-home` Human-decision item (a name `dd_gaps` found no doc for) is dropped only when an inline-code span of the written README names it by `dd_defindex.norm`; every other `no-home` item stays on the owner's list.*
 
 ## 9. Later runs
 
@@ -167,7 +167,7 @@ statements: 61 proposed, 55 accepted, 3 rejected, 1 unsure, 2 unverified
 written: README.md, 142 lines
 ```
 
-or `written: none (<reason>)`. The `Result` section names `README.md` among the committed files.
+or `written: none (<reason>)`. The `Result` section names `README.md` among the committed files. *Amended 2026-10-14: `retried` reads the sheet ids `compose` records in `sheets.json` (`retried`) and `writer` the attempts `verify` records in `readme.json` (`attempts`), since `retry.json` holds only the latest stage's retry; an invalid writer output reads `written: none (invalid writer output: <first problem>)`; in README mode `Edits proposed` gains `readme: <n>` (1 with the `create` edit, else 0), so the proposed count matches `Script checks` and `Applied`.*
 
 ## 11. Configuration
 
@@ -175,11 +175,11 @@ New keys of `.document-drift.yaml` (A §10), with defaults:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `readme` | `true` | phase B runs when the root has no in-scope README |
+| `readme` | `true` | phase B runs when there is no tracked root README, in scope or not |
 | `area_lines` | `5000` | the area budget of section 4 |
 | `readme_lines` | `300` | the longest README the writer may produce |
 | `caps.sheet_agents` | `12` | areas given a sheet agent per run |
-| `caps.readme_batch` | `15` | README statements per verifier batch |
+| `caps.readme_batch` | `15` | README statements per verifier batch; a positive integer (0 or a non-integer warns and keeps 15, amended 2026-10-14) |
 | `models.sheet` | `sonnet` | the sheet agents |
 | `models.readme` | `opus` | the writer: one call, and composition is where quality shows |
 
@@ -204,7 +204,7 @@ The verifier model stays `models.verify`.
 
 | Point | Decision | Alternatives rejected |
 |---|---|---|
-| Trigger | no in-scope root README, other docs reviewed in the same run (section 2) | zero in-scope docs only; zero docs plus a `--write-readme` flag |
+| Trigger | no tracked root README, in scope or not, other docs reviewed in the same run (section 2) | zero in-scope docs only; zero docs plus a `--write-readme` flag |
 | Verifying a new file | script citation check, then a verifier per section with one verdict per statement (sections 6.4, 7) | script only; verifier only |
 | Citations | a side file with line-ranged claims; the README stays clean and names its definitions in spans (section 6.3) | inline HTML markers; markers stripped after verification |
 | Hint rule | strict with one retry, then filled by script (section 5.4) | strict and then unchecked; soft from the start |
@@ -242,10 +242,10 @@ First read of the README (B2, by the spike's author; the owner judges the live r
 
 | # | Assumption | Status | Cost if wrong |
 |---|---|---|---|
-| B1 | A Sonnet agent can write a sheet for a 5,000-line area that passes the validator, and account for every hint, within one call | Measured (section 15): 10 of 10 sheets parsed, 7 of 10 pass the amended validator, the rest for 7 missed hints, 1 guarantee word, 1 duplicate; 202 s and $0.96 for the largest area Fixture live run (2026-10-14): 4 of 4 sheets valid after one retry and one fill (11 to 16 s each, $0.21). | More retries and unchecked areas; `area_lines` comes down |
+| B1 | A Sonnet agent can write a sheet for a 5,000-line area that passes the validator, and account for every hint, within one call | Measured (section 15): 10 of 10 sheets parsed, 7 of 10 pass the amended validator, the rest for 7 missed hints, 1 guarantee word, 1 duplicate; 202 s and $0.96 for the largest area. Fixture live run (2026-10-14): 4 of 4 sheets valid after one retry and one fill (11 to 16 s each, $0.21). | More retries and unchecked areas; `area_lines` comes down |
 | B2 | Sheets carry enough to write a README a maintainer keeps: the sheet's summaries and behaviours, not the code, are what the writer composes from | Validated: the owner read the full run's README (section 15, 285 lines after removal) on 2026-10-13 and would keep it | The writer reads the code for facts after all, and the citation check cannot gate what it adds |
-| B3 | An Opus writer keeps to the sheets and cites what it names, so the citation check rejects few outputs | Measured twice: 100 then 26 claims, 3 then 16 citation faults (all repairable), 0 invented facts in 247 verified statements; 750 and 698 s, $3.47 and $3.24 a call, so the check repairs and rejects per statement instead of retrying the output Fixture live run (2026-10-14): 0 structural problems, 93 lines, 1 attempt (59 s, $0.27). | A second writer call per run, and a README not written when both fail |
-| B4 | Statements by list item, table row, paragraph and fence are units a verifier can judge and `finish` can remove without leaving broken prose | Measured: 15 statements removed from the full run's README with no broken prose; sentence removal failed in the first pass and was dropped in favour of one-sentence paragraphs Fixture live run (2026-10-14): 3 statements removed cleanly, 93 lines kept. | Rejected statements leave gaps a reader notices; the owner edits the README by hand once |
-| B5 | A verifier can judge a README statement from the cited places and the code without the sheet's reasoning | Measured on 247 statements over two passes: 235 accept, 12 reject, 0 unsure; every rejection read as right; $9.98 for the full run's 22 batches Fixture live run (2026-10-14): of 41 statements 38 accept, 3 right rejections (a wrong `KV_TOKEN` claim, a module constant listed as a config key, a paragraph naming the hidden `_rotate`), 0 unsure; $1.08 for 8 batches. | Verdicts drift towards `unsure`, and the README loses true statements to the owner's list |
+| B3 | An Opus writer keeps to the sheets and cites what it names, so the citation check rejects few outputs | Measured twice: 100 then 26 claims, 3 then 16 citation faults (all repairable), 0 invented facts in 247 verified statements; 750 and 698 s, $3.47 and $3.24 a call, so the check repairs and rejects per statement instead of retrying the output. Fixture live run (2026-10-14): 0 structural problems, 93 lines, 1 attempt (59 s, $0.27). | A second writer call per run, and a README not written when both fail |
+| B4 | Statements by list item, table row, paragraph and fence are units a verifier can judge and `finish` can remove without leaving broken prose | Measured: 15 statements removed from the full run's README with no broken prose; sentence removal failed in the first pass and was dropped in favour of one-sentence paragraphs. Fixture live run (2026-10-14): 3 statements removed cleanly, 93 lines kept. | Rejected statements leave gaps a reader notices; the owner edits the README by hand once |
+| B5 | A verifier can judge a README statement from the cited places and the code without the sheet's reasoning | Measured on 247 statements over two passes: 235 accept, 12 reject, 0 unsure; every rejection read as right; $9.98 for the full run's 22 batches. Fixture live run (2026-10-14): of 41 statements 38 accept, 3 right rejections (a wrong `KV_TOKEN` claim, a module constant listed as a config key, a paragraph naming the hidden `_rotate`), 0 unsure; $1.08 for 8 batches. | Verdicts drift towards `unsure`, and the README loses true statements to the owner's list |
 | B6 | `readme_lines` of 300 fits the surface of a 25,000-line project as tables and one sentence per behaviour | Measured once: 293 lines for 22,615 lines of code with 389 user-facing entries, so the default holds with no room; a larger project needs the cap raised or the writer told to drop behaviours first | A truncated README, or the writer drops behaviours to fit; the default moves |
 | B7 | Later runs treat the written README as any doc without a special case | Follows from A §5 and §7 by construction | A README that drifts unseen, the thing phase A exists to prevent |

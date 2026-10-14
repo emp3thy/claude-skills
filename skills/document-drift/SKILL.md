@@ -45,9 +45,9 @@ exist. A crash outside a step at `finish` names no step, but its message already
 ```
 
 Run every command from this skill's directory (`skills/document-drift/`), with `<repo>` as an
-absolute path. Give `start` the flags the user gave; give `compose`, `verify` and `finish` none of them
-except `--workdir` (they read the others from the run's record, and a different value is
-refused).
+absolute path. Give `start` the flags the user gave; give `compose`, `verify` and `finish`
+none of them except `--workdir` (they read the others from the run's record, and a different
+value is refused).
 
 1. Start the run:
 
@@ -111,8 +111,9 @@ refused).
 
    Otherwise it prints `plan-verify.json <path> with <n> entries`.
 
-5. Read `plan-verify.json`, the file at the path printed on the stdout line, and dispatch the verifier entries the same way as in step 2, all in
-   one message. When it holds `[]`, go to step 6.
+5. Read `plan-verify.json`, the file at the path printed on the stdout line, and dispatch the
+   verifier entries the same way as in step 2, all in one message. When it holds `[]`, go to
+   step 6.
 
 6. Finish the run:
 
@@ -134,13 +135,14 @@ refused).
 | `--base <ref>` | Compare against `<ref>` instead of the last drift run. An unknown ref is refused. |
 | `--full` | A first run (every doc reviewed in full) regardless of any previous run. |
 | `--branch <name>` | The branch to create. Default `docs/drift-<YYYY-MM-DD>`, or the `branch` pattern in `.document-drift.yaml`. |
-| `--check` | Run through verification and stop: no doc edit, no branch, no commit, no last-run record. The summary lists every edit that would apply as a commit bullet; `finish` exits 1 when an edit would apply (an accepted edit, or a kept notice edit, which needs no verdict). Runs from a detached HEAD or a dirty tree too; results are judged against the working tree, and a dirty indexed file can shift line ranges. |
+| `--check` | Run through verification and stop: no doc edit, no branch, no commit, no last-run record. The summary lists every edit that would apply as a commit bullet, the README that would be written among them; `finish` exits 1 when an edit would apply (an accepted edit, a kept notice edit, which needs no verdict, or a README that would be written because a statement of it was accepted). Runs from a detached HEAD or a dirty tree too; results are judged against the working tree, and a dirty indexed file can shift line ranges. |
 | `--workdir <dir>` | Where the run's files go. Default `<repo>/.document-drift`, added to `.git/info/exclude`, never committed. Pass it only when the user asks, and then to every stage. |
 | `--date <YYYY-MM-DD>` | Fixes the branch date and run id (for tests). Pass it only when the user asks. |
 | `--retried` | Only on the rerun of a stage that exited 3, after dispatching `retry.json`. An output still missing or invalid then leaves its unit or batch unchecked, and the run goes on. |
 
 `--base`, `--full`, `--branch`, `--check` and `--date` are given to `start`, which records
-them; `compose`, `verify` and `finish` take them from that record and refuse a different value (exit 2).
+them; `compose`, `verify` and `finish` take them from that record and refuse a different
+value (exit 2).
 
 ## Preconditions the run checks
 
@@ -148,17 +150,18 @@ them; `compose`, `verify` and `finish` take them from that record and refuse a d
 working tree (a subdirectory, a bare repository or a `.git` directory: pass the repository's
 top level), has no commits, or when `--base` names an unknown ref. Outside `--check` it also
 refuses a detached HEAD, uncommitted changes, an existing target branch, a missing git author
-identity (`user.name` and `user.email`) and an invalid branch name. `compose` refuses when this run writes no README. Any stage refuses when it
-is run out of order or with a flag that differs from the one `start` recorded, and `finish`
-refuses, before it applies anything, when HEAD moved during the run (naming both commits; a
-branch switch counts) or when files outside the workdir changed during the run (naming them).
+identity (`user.name` and `user.email`) and an invalid branch name. `compose` refuses when
+this run writes no README. Any stage refuses when it is run out of order or with a flag that
+differs from the one `start` recorded, and `finish` refuses, before it applies anything, when
+HEAD moved during the run (naming both commits; a branch switch counts) or when files outside
+the workdir changed during the run (naming them).
 
 ## Exit codes
 
 | Code | Meaning | What to tell the user |
 |-----:|---------|-----------------------|
-| 0 | The stage succeeded. From `finish`: with edits, the branch exists with its commits and the user is on it; without edits, no branch was created. | After `start` and `verify`, nothing: go on to the next step. After `finish`, the final message below. |
-| 1 | `finish` under `--check` only: an edit would apply (an accepted edit, or a kept notice edit). Nothing was changed. | The printed summary; a run without `--check` would commit those edits. |
+| 0 | The stage succeeded. From `finish`: with edits, the branch exists with its commits and the user is on it; without edits, no branch was created. | After `start`, `compose` and `verify`, nothing: go on to the next step. After `finish`, the final message below. |
+| 1 | `finish` under `--check` only: an edit would apply (an accepted edit, a kept notice edit, or a README that would be written). Nothing was changed. | The printed summary; a run without `--check` would commit those edits. |
 | 2 | Refused before any change. `compose` also refuses when the run writes no README (`readme: no`), when `start` has not run, and when a flag differs from the one `start` recorded. | The error line verbatim and what to fix (commit or stash, check out a branch, choose another `--branch`, set the git identity, run the stages in order with the same flags, leave the working tree and the checked-out branch alone during a run). |
 | 3 | The previous agent wave left missing or invalid output files; the stage wrote `retry.json` and changed nothing else. | Nothing: dispatch the `retry.json` entries once and rerun the same stage with `--retried`. |
 | 5 | A script step crashed or a script's own expected output is missing. The message names the step; a crash outside a step names none, and at `finish` its message already carries the `git status` and `git branch` pointer. | The error line verbatim. Stop: do not edit docs by hand. When the step is `apply`, `commit` or `summary`, docs may already be edited and the drift branch may exist: tell the user to check `git status` and `git branch`. |
