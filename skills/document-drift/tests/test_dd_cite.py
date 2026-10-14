@@ -42,7 +42,8 @@ def _token(path: str, start: int, end: int, text: str) -> dict[str, Any]:
 
 def _setup(tmp_path: Path, docs: Mapping[str, str], defs: Iterable[dict[str, Any]],
            names: Iterable[dict[str, Any]] = (), files: Mapping[str, int] | None = None,
-           never: str = NEVER.pattern) -> tuple[Path, Path]:
+           never: str = NEVER.pattern,
+           texts: Mapping[str, str] | None = None) -> tuple[Path, Path]:
     root, workdir = tmp_path / "repo", tmp_path / "work"
     root.mkdir(parents=True)
     for doc, text in docs.items():
@@ -51,7 +52,10 @@ def _setup(tmp_path: Path, docs: Mapping[str, str], defs: Iterable[dict[str, Any
     for path, count in (files or {}).items():
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         (root / path).write_text("x\n" * count, encoding="utf-8")
-    tracked = sorted({*docs, *(files or {})})
+    for path, text in (texts or {}).items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(text, encoding="utf-8")
+    tracked = sorted({*docs, *(files or {}), *(texts or {})})
     write_json(workdir / "inventory.json", {"docs": sorted(docs), "files": tracked,
                                             "excluded": [], "skipped": [],
                                             "never_edit_re": never})
@@ -390,3 +394,75 @@ def test_heading_citations_are_never_rewritten(tmp_path: Path) -> None:
         {"line": 1, "kind": "cite-unresolved", "text": "cite unresolved: a.py:3 (heading)"}]}
     assert result["counts"]["citations"] == {"checked": 2, "current": 0, "moved": 1,
                                              "ambiguous": 0, "use_site": 0, "unresolved": 1}
+
+
+def test_scanned_subject_is_current_in_its_line_or_its_enclosing_handler(
+        tmp_path: Path) -> None:
+    app = "better_memory/ui/app.py"
+    handler = _d("semantic", app, 470, 490)  # decorated: its span starts at the route line
+    route = _n("/semantic", "route", app, 470)
+    names = index_names([route])
+    line = "| `GET /semantic` | `app.py:470-490` |"
+    subject = subject_of(line, *_cite_at(line, "app.py:470-490"), _defs(handler), names)
+    assert subject is not None and subject["kind"] == "scanned"
+    files, lengths = frozenset({app}), {app: 600}
+    assert check(_token("app.py", 470, 490, "app.py:470-490"), subject, files,
+                 lengths) == ("current", None)
+    line = "| `GET /semantic` | `app.py:471` |"
+    subject = subject_of(line, *_cite_at(line, "app.py:471"), _defs(handler), names)
+    assert subject is not None
+    assert check(_token("app.py", 471, 471, "app.py:471"), subject, files,
+                 lengths) == ("current", None)
+    doc = ("| route | at |\n|---|---|\n| `GET /semantic` | `app.py:470-490` |\n"
+           "| `GET /semantic` | `app.py:471` |\n| `GET /semantic` | `app.py:495` |\n"
+           "| `GET /semantic` | `app.py:460-469` |\n")
+    root, workdir = _setup(tmp_path, {"docs/api.md": doc}, [handler], [route], {app: 600})
+    result = run(root, workdir)
+    assert [(e["start_line"], e["new_cite"]) for e in result["edits"]] == [
+        (5, "app.py:470"), (6, "app.py:470")]
+    assert result["counts"]["citations"]["current"] == 2
+    assert result["counts"]["citations"]["moved"] == 2
+
+
+def test_cited_line_naming_the_subject_in_its_own_file_is_a_use_site(tmp_path: Path) -> None:
+    source = ("x\n" * 49 + "    register_routes(app)\n" + "x\n" * 249
+              + "def register_routes(app):\n" + "x\n" * 20)
+    wiring = _d("register_routes", "app.py", 300, 320)
+    doc = ("Routes are wired when `register_routes()` is called at `app.py:50`.\n\n"
+           "Routes are wired by `register_routes()` (`app.py:48-52`).\n\n"
+           "`register_routes()` lives at `app.py:299`.\n")
+    root, workdir = _setup(tmp_path, {"docs/a.md": doc}, [wiring], [],
+                           texts={"app.py": source})
+    result = run(root, workdir)
+    assert [(e["start_line"], e["new_cite"]) for e in result["edits"]] == [(5, "app.py:300")]
+    hint = "cite use-site: register_routes is defined in app.py:300-320"
+    assert result["hints"] == {"docs/a.md": [
+        {"line": 1, "kind": "cite-use-site", "text": hint},
+        {"line": 3, "kind": "cite-use-site", "text": hint}]}
+    assert result["counts"]["citations"]["use_site"] == 2
+    lines = {"app.py": source.splitlines()}
+    subject = subject_of(doc.splitlines()[0], *_cite_at(doc.splitlines()[0], "app.py:50"),
+                         _defs(wiring), index_names([]))
+    assert check(_token("app.py", 50, 50, "app.py:50"), subject, frozenset({"app.py"}),
+                 {"app.py": 320}, lines=lines) == ("use site", None)
+
+
+def test_a_line_defining_another_owners_member_is_no_use_site(tmp_path: Path) -> None:
+    source = ("x\n" * 39 + "    def register_routes(self):\n" + "x\n" * 60
+              + "    def register_routes(self):\n" + "x\n" * 10)
+    defs = [_d("register_routes", "b.py", 40, 45, owners=["Other"]),
+            _d("register_routes", "b.py", 101, 105, owners=["Api"])]
+    doc = "`Api.register_routes` is at `b.py:40`\n"
+    root, workdir = _setup(tmp_path, {"docs/a.md": doc}, defs, [], texts={"b.py": source})
+    result = run(root, workdir)
+    assert [(e["start_line"], e["new_cite"]) for e in result["edits"]] == [(1, "b.py:101")]
+
+
+def test_cited_files_by_suffix_index() -> None:
+    from dd_cite import cited_files, suffix_index
+    files = ["a/app.py", "b/app.py", "a/b/app.py", "app.py", "c/myapp.py"]
+    index = suffix_index(files)
+    for path in ("app.py", "b/app.py", "a/b/app.py", "myapp.py", "pp.py", "x.py", "/app.py"):
+        for exact in (False, True):
+            assert cited_files(path, files, exact, index) == sorted(
+                cited_files(path, files, exact)), (path, exact)
