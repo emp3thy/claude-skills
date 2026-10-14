@@ -14,7 +14,12 @@ Quality bar: every script edit passes the same script checks as an agent edit, l
 
 ### 2.1 Citation tokens
 
-`dd_extract` recognises a path reference ending in `:N`, `:N-M` or `#LN` (`_LINE_SUFFIX`, `_LINE_FRAGMENT`) and today drops the line part. Phase C keeps it as a **citation** token beside the path token: `{"doc", "line", "col", "path", "start", "end", "subject"}`. `subject` is the nearest definition name on the same doc line before the citation (an inline-code span such as `` `promote_reflection` `` or `` `AgentCoreBackend.list_projects()` ``, or a bare dotted or snake_case word), or, when none precedes it, the first such name within 60 characters after it (`app.py:93 (EpisodeService)`); null when the line holds none. A name is a subject only when it resolves (A §5.3, specific match) to a definition of rank 0 (`module`, `function`, `class`, `sql`, `file`) whose file ends with the cited path; literals and SQL columns never are, so `memory.db` cannot claim a citation. Citations inside fences and under `drift-ignore` markers are skipped like any reference.
+`dd_extract` recognises a path reference ending in `:N`, `:N-M` or `#LN` (`_LINE_SUFFIX`, `_LINE_FRAGMENT`) and today drops the line part. Phase C keeps it as a **citation** token beside the path token: `{"doc", "line", "col", "path", "start", "end", "subject"}`. `subject` is the nearest **resolving name** on the same doc line before the citation or, when none precedes it, the first within 60 characters after it (`app.py:93 (EpisodeService)`, `` `storage/agentcore.py:89` - observe() wraps ``); null when the line holds none. A name resolves in one of two ways:
+
+- a definition subject: any identifier on the line, in an inline-code span or bare, with or without `()` and with or without an `Owner.` prefix, that resolves (A §5.3, specific match) to a definition of rank 0 (`module`, `function`, `class`, `sql`, `file`) in the repository; literals and SQL columns never do, so `memory.db` cannot claim a citation;
+- a scanned subject: a route path, MCP tool name, command, flag or env var the pattern scan found (A §8.1), such as `` `GET /semantic` `` in a table row; the scan's own `file` and `line` are its definition span (one line).
+
+A table row's name cell counts as "on the line" like any other cell. Amended 2026-10-14 after a probe on `better-memory` (section 2.2): the first draft took only backticked, dotted or snake_case names and only definitions in the cited file, which left the tech-debt PBI items (`path:line` then `observe() wraps ...`) and the route tables with no subject. Citations inside fences and under `drift-ignore` markers are skipped like any reference.
 
 ### 2.2 The check
 
@@ -25,12 +30,13 @@ Quality bar: every script edit passes the same script checks as an agent edit, l
 | current | the subject resolves to one definition in the cited file and the cited line or range lies inside its current span | counted, no edit |
 | moved | the subject resolves to one definition in the cited file and the citation lies outside its span | a `cite` edit: `N` becomes the definition's current start line; `N-M` becomes its current start and end; nothing else on the line changes |
 | several definitions, one covers | the subject has several definitions in the file and exactly one span holds the citation | counted as current |
-| ambiguous | the subject has several definitions in the file and none or several cover the citation, or its only definitions are in other files | no edit; a hint for the agent (`cite ambiguous: <subject> <path>:<n>`) |
+| ambiguous | the subject has several definitions in the file and none or several cover the citation | no edit; a hint for the agent (`cite ambiguous: <subject> <path>:<n>`) |
+| use site | the subject resolves only to definitions in other files than the cited one: the citation points at a call or instantiation, which no index of definitions can check (`` `ReflectionService` ... (`app.py:93-96`) ``) | no edit; a hint (`cite use-site: <subject> is defined in <file>:<start>-<end>`); counted |
 | unresolved | no subject on the line, or the cited file is not tracked, or the line is past the file's end | no edit; a hint (`cite unresolved: <path>:<n>`); counted |
 
 The edit record is the ordinary one (A plan, Shared contracts): `type: "cite"`, `source: "script"`, `status: "kept"`, `claim: "<subject> is at <file>:<start>-<end>"`, `evidence: ["<file>:<start>-<end>"]`, `subject: "<subject>"`, `old` and `new` the whole doc line, ids `c001`, `c002`, ... in doc then line order. A line holding several citations gets one edit per citation applied in order on the same line; `dd_apply`'s settle step merges edits on one line as it does for overlapping agent edits, or, when it cannot, the later ones are dropped as `overlap` and the summary counts them.
 
-Measured on `better-memory` at `9d5be26` (probe, 2026-10-14): 140 line citations in 38 docs; the same-line rule resolves 84 (60 moved, 8 current, 16 ambiguous) and 56 have no definition name on their line, most of them table cells holding only a range, which stay with the agent as unresolved hints.
+Measured on `better-memory` at `9d5be26` (probe, 2026-10-14): 140 line citations in 38 docs. With the first draft's narrow subject rule, 84 resolved (60 moved, 8 current, 16 ambiguous) and 56 did not. Reading the 56: 15 are tech-debt PBI items whose subject is a bare `observe()` after the citation, 18 are table rows whose subject is a route or method in another cell, 16 are the ambiguous ones above, 5 are use sites, 2 cite an untracked file or a line past its end. The amended rule recovers most of the first two groups, so the script's share is about 110 of 140 and about 25 stay with the agent on any design; the fixture and the live run of section 10 measure the real figure.
 
 ### 2.3 Later runs
 
@@ -85,7 +91,7 @@ The prompt size is bounded by `unit_lines` (A §6.4), which already counts the r
 ```json
 {"edits": [...cite and fact edit records...],
  "hints": {"docs/x.md": [{"line": 12, "kind": "cite-ambiguous" | "cite-unresolved" | "not-in-scan", "text": "..."}]},
- "counts": {"citations": {"checked", "current", "moved", "ambiguous", "unresolved"},
+ "counts": {"citations": {"checked", "current", "moved", "ambiguous", "use_site", "unresolved"},
             "facts": {"rows_checked", "corrected", "not_in_scan"}}}
 ```
 
@@ -117,7 +123,7 @@ A `Script edits` section after `Edits proposed`:
 
 ```
 Script edits
-citations: 140 checked, 8 current, 60 moved, 16 ambiguous, 56 unresolved
+citations: 140 checked, 8 current, 60 moved, 16 ambiguous, 5 use sites, 51 unresolved
 fact rows: 23 checked, 2 corrected, 1 not in scan
 agent edits dropped as overlap-script: 3
 ```
@@ -151,7 +157,7 @@ No new keys. A citation or a table the owner wants left alone takes a `drift-ign
 
 | # | Assumption | Status | Cost if wrong |
 |---|---|---|---|
-| C1 | The same-line nearest-name rule finds the right subject for most citations and never a wrong one | Measured on better-memory: 84 of 140 resolved, 56 left to the agent; the probe found one wrong subject (`memory.db`, a literal), excluded by the rank-0 rule | A wrong subject rewrites a citation to a wrong line, which the owner sees as a bullet and reverts |
+| C1 | The same-line nearest-name rule, with definitions and scanned names as subjects, finds the right subject for most citations and never a wrong one | Measured on better-memory with the narrow rule: 84 of 140 resolved; the amended rule's recovery of the PBI items and route tables (about 110 of 140) is estimated from reading the 56, not yet run; the probe found one wrong subject (`memory.db`, a literal), excluded by the rank-0 rule | A wrong subject rewrites a citation to a wrong line, which the owner sees as a bullet and reverts |
 | C2 | The scan can read defaults, choices and required from argparse, click, env reads and MCP schemas as literals | Unverified; the cross-line matcher is there, and better-memory's MCP schemas and better-memory's argparse are the test | Null facts for some names: fewer checks, no wrong edits |
 | C3 | Fact tables are recognisable by header and name column across real docs | Unverified; better-memory's `website/configuration.md` and `mcp-tools.md` tables and this repository's SKILL.md tables are the sample | Tables missed: fewer checks, no wrong edits |
 | C4 | Inlining the reading ranges halves review tokens per call | Unverified; measured by the two live runs of section 10 | The prompt rule alone stays; the inline blocks go |
