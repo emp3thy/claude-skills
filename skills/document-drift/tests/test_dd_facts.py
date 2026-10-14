@@ -114,7 +114,6 @@ def test_unknown_boolean_words_are_left_alone(column: str, cell: str, scan: Any,
 
 
 @pytest.mark.parametrize("cell", ["-", "None", "`null`", "n/a", "(none)", "none", ""])
-
 def test_no_default_spellings_are_equal(cell: str) -> None:
     assert normalise(cell, "Default") is None
     table = _one(f"| Flag | Default |\n|---|---|\n| `--name` | {cell} |\n")
@@ -254,7 +253,7 @@ def _setup(tmp_path: Path, docs: Mapping[str, str], names: Iterable[dict[str, An
 def test_run_appends_to_script_edits(tmp_path: Path) -> None:
     a = ("| Flag | Default |\n|---|---|\n| `--port` | 8000 |\n| `--host` | x |\n"
          "| `--gone` | 1 |\n\n<!-- drift-ignore: pinned -->\n| Flag | Default |\n|---|---|\n"
-         "| `--port` | 1 |\n<!-- /drift-ignore -->\n")
+         "| `--port` | 1 |\n")
     b = "# B\n\n| Flag | Default |\n|---|---|\n| `--host` | y |\n"
     names = [_n("--port", default="8080"), _n("--host", default="x")]
     root, workdir = _setup(tmp_path, {"docs/a.md": a, "docs/b.md": b}, names)
@@ -291,3 +290,65 @@ def test_missing_inputs_raise(tmp_path: Path, name: str, step: str) -> None:
         run(root, workdir, {})
     assert info.value.code == EXIT_MISSING and step in str(info.value)
     assert main([str(root), "--workdir", str(workdir)]) == EXIT_MISSING
+
+
+@pytest.mark.parametrize(("cell", "default", "new"), [
+    ("`30` seconds", "30", None), ("`8080` (dev)", "8080", None),
+    ("`8000` (dev)", "8080", "`8080` (dev)"), ("about 30 seconds", "60", None),
+    ("`None` (unset)", "5", "`5` (unset)")])
+def test_cell_text_around_the_value_is_kept(cell: str, default: str, new: str | None) -> None:
+    table = _one(f"| Flag | Default |\n|---|---|\n| `--timeout` | {cell} |\n")
+    status, edit = check_row(table["rows"][0], table, [_n("--timeout", default=default)], [])
+    assert status == ("checked" if new is None else "corrected")
+    assert (edit["new"] if edit else None) == (
+        None if new is None else f"| `--timeout` | {new} |")
+
+
+def test_pipes_are_unescaped_to_compare_and_escaped_to_write() -> None:
+    table = _one("| Flag | Default |\n|---|---|\n| `--sep` | `\\|` |\n| `--join` | `,` |\n")
+    assert [len(r["cells"]) for r in table["rows"]] == [2, 2]
+    names = [_n("--sep", default="|"), _n("--join", default="|")]
+    assert check_row(_row(table, "--sep"), table, names, []) == ("checked", None)
+    _, edit = check_row(_row(table, "--join"), table, names, [])
+    assert edit is not None and edit["new"] == "| `--join` | `\\|` |"
+    choices = _one("| Flag | Choices |\n|---|---|\n| `--sep` | `\\|`, `,` |\n")
+    assert check_row(choices["rows"][0], choices,
+                     [_n("--sep", choices=["|", ","])], []) == ("checked", None)
+    _, edit = check_row(choices["rows"][0], choices, [_n("--sep", choices=["|", ";"])], [])
+    assert edit is not None and edit["new"] == "| `--sep` | `\\|`, `;` |"
+
+
+def test_heading_scope_never_borrows_another_commands_flag() -> None:
+    table = _one("| Flag | Default |\n|---|---|\n| `--force` | off |\n")
+    sync_only = [INIT_SYNC[1]]
+    assert check_row(table["rows"][0], table, sync_only, ["init"]) == ("skipped", None)
+    global_flag = [*sync_only, _n("--force", default="true", line=20)]
+    status, edit = check_row(table["rows"][0], table, global_flag, ["init"])
+    assert status == "corrected" and edit is not None
+    assert edit["evidence"] == ["src/cli.py:20"] and edit["new"] == "| `--force` | on |"
+
+
+@pytest.mark.parametrize(("flag", "cell", "default", "new"), [
+    ("--axis", "`x`", "y", "`y`"), ("--color", "`auto`", "off", "`off`"),
+    ("--color", "`off`", "off", None), ("--mode", "on", "True", None)])
+def test_boolean_words_apply_only_to_boolean_defaults(flag: str, cell: str, default: str,
+                                                      new: str | None) -> None:
+    table = _one(f"| Flag | Default |\n|---|---|\n| `{flag}` | {cell} |\n")
+    status, edit = check_row(table["rows"][0], table, [_n(flag, default=default)], [])
+    assert status == ("checked" if new is None else "corrected")
+    if new is not None:
+        assert edit is not None and edit["new"] == f"| `{flag}` | {new} |"
+        assert edit["claim"] == f"{flag} Default is {default}"
+
+
+@pytest.mark.parametrize(("cell", "default", "new"), [
+    ("-", "false", None), ("", "False", None), ("`null`", "false", None),
+    ("n/a", "false", None), ("none", "false", None),
+    ("-", "8080", "`8080`"), ("", "auto", "`auto`"), ("-", "true", "`true`")])
+def test_no_value_cell_against_boolean_false_is_left_alone(cell: str, default: str,
+                                                          new: str | None) -> None:
+    table = _one(f"| Flag | Default |\n|---|---|\n| `--x` | {cell} |\n")
+    status, edit = check_row(table["rows"][0], table, [_n("--x", default=default)], [])
+    assert status == ("checked" if new is None else "corrected")
+    if new is not None:
+        assert edit is not None and edit["new"] == f"| `--x` | {new} |"

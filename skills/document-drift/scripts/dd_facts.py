@@ -12,16 +12,22 @@ first column (which is then no value column). A row's name is its name cell's fi
 A row is **checked** when its name matches, by ``dd_defindex.norm``, exactly one scanned name
 of a kind with facts (``flag``, ``env``, ``param``). A ``flag`` or ``param`` match is scoped
 to the parents the nearest heading above the table names (``dd_gaps.named_parents``); when
-none of the matches is in that scope, or no heading names a parent, every match counts.
+none of the matches is in that scope, only global ones (no parent) count; when no heading
+names a parent, every match counts.
 Matches that agree on kind, parent and all three facts are one (an env read in several
 places). Several matches: the row is skipped. A row whose name matches no scanned name of
 any kind is a ``not-in-scan`` hint, naming the nearest scanned name of the same family
 (``flag``: ``-``-led; ``env``: upper case; other names) within edit distance 2 by ``norm``.
 
-Cells and facts are compared through ``normalise``; a null fact never makes an edit (the scan
-does not know), and neither does a boolean fact against a cell whose word the vocabulary does
-not know (``see notes``, ``enabled by default``): the row is checked and the reader's
-convention left alone. A mismatch rewrites only that cell in its own style (``_written``), one
+Cells and facts are compared through ``normalise``: a scalar cell's value is its first code
+span's content (text around the span is kept on a rewrite), else the whole cell; a cell of
+several words and no code span is never rewritten. Boolean words count in a ``required``
+column, and in a ``default`` column only against a default of literally ``true`` or
+``false``. A null fact never makes an edit (the scan does not know), and neither does a
+boolean fact against a cell whose word the vocabulary does not know (``see notes``) or a
+no-value cell against ``false``: the row is checked and the reader's convention left alone.
+``\\|`` in a cell is a pipe; a written pipe is escaped. A mismatch rewrites only that value in
+the cell's own style (``_written``, ``_written_choices``), one
 ``fact`` edit per row (ids ``f001``... in doc then line order). Rows on protected lines
 (``drift-ignore``, never-edit sections, generated regions) are skipped and not counted.
 
@@ -36,7 +42,7 @@ import re
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, NamedTuple, TypedDict
 
 from dd_checks import _protected, _read
 from dd_common import EXIT_MISSING, EXIT_OK, StepError, read_json, write_json
@@ -154,6 +160,14 @@ def fact_tables(text: str) -> list[Table]:
     return tables
 
 
+def _unescape(text: str) -> str:
+    return text.replace("\\|", "|")
+
+
+def _escape(text: str) -> str:
+    return text.replace("|", "\\|")
+
+
 def _unwrap(cell: str) -> tuple[str, str, str]:
     """``(backticks, quote, inner text)`` of a cell's stripped text."""
     text, ticks, quote = cell.strip(), "", ""
@@ -166,6 +180,40 @@ def _unwrap(cell: str) -> tuple[str, str, str]:
     return ticks, quote, text
 
 
+class _Part(NamedTuple):
+    """The value of a scalar cell: ``cell[start:end]`` (quotes included) is what a rewrite
+    replaces, ``text`` the value without quotes, ``\\|`` unescaped; ``code`` when it is a code
+    span's content."""
+    start: int
+    end: int
+    quote: str
+    text: str
+    code: bool
+
+
+def _part(cell: str) -> _Part | None:
+    """The value of a stripped scalar cell: its first code span's content (the text around
+    the span is kept), else the whole cell; None for a cell of several words and no code span,
+    which is never read nor rewritten."""
+    cell = cell.strip()
+    match = _CODE.search(cell)
+    if match:
+        raw = match.group(2)
+        start = match.start(2) + len(raw) - len(raw.lstrip())
+        end = max(start, match.start(2) + len(raw.rstrip()))
+        code = True
+    else:
+        start, end, code = 0, len(cell), False
+    quote, text = "", cell[start:end]
+    quoted = _QUOTED.match(text)
+    if quoted:
+        quote, text = quoted.group(1), quoted.group(2).strip()
+    text = _unescape(text)
+    if not code and not quote and len(text.split()) > 1:
+        return None
+    return _Part(start, end, quote, text, code)
+
+
 def _separators(cell: str) -> list[tuple[int, int]]:
     """The item separators (``,``, ``|`` or ``\\|`` with their spacing) outside code spans."""
     code = [(m.start(), m.end()) for m in _CODE.finditer(cell)]
@@ -175,30 +223,40 @@ def _separators(cell: str) -> list[tuple[int, int]]:
 
 def _items(cell: str) -> list[str]:
     bounds = [(0, 0), *_separators(cell), (len(cell), len(cell))]
-    found = [_unwrap(cell[bounds[i][1]:bounds[i + 1][0]])[2] for i in range(len(bounds) - 1)]
+    found = [_unescape(_unwrap(cell[bounds[i][1]:bounds[i + 1][0]])[2])
+             for i in range(len(bounds) - 1)]
     return [item for item in found if item]
 
 
-def normalise(cell: str, column: str) -> str | None:
-    """The comparison form of a cell (or a scanned value) under ``column``'s header: backticks
-    and surrounding quotes stripped; an empty cell, ``-``, ``None``, ``null``, ``n/a`` and
-    ``(none)`` (any case) are None. A ``default`` column's boolean words (``off``,
-    ``disabled``, ``no``, ``false`` / ``on``, ``enabled``, ``yes``, ``true``) and a
-    ``required`` column's (``no``, ``false``, ``optional`` / ``yes``, ``true``,
-    ``required``) become ``"false"`` / ``"true"``, and so do the marks of both (``✗``,
-    ``✘``, ``n``, ``x`` / ``✓``, ``✔``, ``y``; a required column's ``-`` is
-    ``"false"``); a choices cell is its distinct items (split on ``,`` or ``|`` outside
-    backticks) sorted and joined by ``, ``."""
+def is_boolean(value: str) -> bool:
+    """Whether a scanned default is literally ``true`` or ``false`` (any case)."""
+    return value.lower() in BOOLEANS
+
+
+def normalise(cell: str, column: str, *, boolean: bool = True) -> str | None:
+    """The comparison form of a cell (or a scanned value) under ``column``'s header: the
+    first code span's content when the cell has one (else the cell), surrounding quotes
+    stripped, ``\\|`` unescaped; an empty cell, ``-``, ``None``, ``null``, ``n/a`` and
+    ``(none)`` (any case) are None. A ``required`` column's boolean words (``no``,
+    ``false``, ``optional``, ``-`` / ``yes``, ``true``, ``required``) and, when ``boolean``
+    (the scanned default is ``true`` or ``false``), a ``default`` column's (``off``,
+    ``disabled``, ``no``, ``false`` / ``on``, ``enabled``, ``yes``, ``true``), with the marks
+    ``✗``, ``✘``, ``n``, ``x`` / ``✓``, ``✔``, ``y``, become ``"false"`` / ``"true"``. A
+    choices cell is its distinct items (split on ``,`` or ``|`` outside backticks, ``\\|``
+    unescaped) sorted and joined by ``, ``."""
     fact = fact_of(column)
-    _, _, text = _unwrap(cell)
+    if fact == CHOICES:
+        if _unwrap(cell)[2].lower() in NO_VALUE:
+            return None
+        items = sorted(set(_items(cell)))
+        return ", ".join(items) if items else None
+    part = _part(cell)
+    text = part.text if part is not None else cell.strip()
     if fact == REQUIRED and text == "-":
         return "false"
     if text.lower() in NO_VALUE:
         return None
-    if fact == CHOICES:
-        items = sorted(set(_items(cell)))
-        return ", ".join(items) if items else None
-    if fact in VOCAB:
+    if fact == REQUIRED or (fact == DEFAULT and boolean):
         for false, true in VOCAB[fact]:
             if text.lower() == false:
                 return "false"
@@ -220,12 +278,11 @@ def _fact(name: Mapping[str, Any], column: str) -> str | list[str] | None:
     return None if default is None else str(default)
 
 
-def _shown(value: str | list[str], column: str) -> str:
-    """A scanned value as written in a claim: choices joined by ``, ``, booleans normalised."""
+def _shown(value: str | list[str]) -> str:
+    """A scanned value as written in a claim: choices joined by ``, ``, booleans lowercased."""
     if isinstance(value, list):
         return ", ".join(value)
-    norm_value = normalise(value, column)
-    return norm_value if norm_value in BOOLEANS else value
+    return value.lower() if is_boolean(value) else value
 
 
 def _case_like(old: str, word: str) -> str:
@@ -234,29 +291,35 @@ def _case_like(old: str, word: str) -> str:
     return word.capitalize() if old[:1].isupper() else word
 
 
-def _written(old: str, value: str | list[str], column: str) -> str:
-    """The new text of a cell holding ``old`` (stripped) for the scanned ``value``: a cell
-    meaning no value becomes the value in backticks (each choice in backticks, joined by
-    ``, ``); a choices cell keeps its first separator with its spacing and writes each item
-    in backticks when its first item had them; otherwise the old backticks and quotes are
-    kept, and a boolean is written in the old cell's vocabulary (its case kept) when the old
-    cell was a boolean word of the column, else as ``true`` or ``false``."""
-    fact = fact_of(column)
+def _written_choices(old: str, value: list[str], column: str) -> str:
+    """A choices cell for the scanned ``value``: a cell meaning no value gets each choice in
+    backticks joined by ``, ``; otherwise the first separator is kept with its spacing and
+    each item is in backticks when the first item was. ``|`` is escaped."""
     empty = normalise(old, column) is None
-    if isinstance(value, list):
-        seps = _separators(old)
-        sep = old[seps[0][0]:seps[0][1]] if seps and not empty else ", "
-        ticked = empty or old.lstrip().startswith("`")
-        return sep.join(f"`{item}`" if ticked else item for item in value)
-    word = _shown(value, column)
-    ticks, quote, inner = _unwrap(old)
-    if word in BOOLEANS and fact in VOCAB:
-        pair = next((p for p in VOCAB[fact] if inner.lower() in p), None)
+    seps = _separators(old)
+    sep = old[seps[0][0]:seps[0][1]] if seps and not empty else ", "
+    ticked = empty or old.lstrip().startswith("`")
+    return sep.join(f"`{_escape(item)}`" if ticked else _escape(item) for item in value)
+
+
+def _written(old: str, part: _Part, value: str, column: str, boolean: bool) -> str:
+    """The new text of a scalar cell holding ``old`` (stripped), whose value is ``part``, for
+    the scanned ``value``: only the value is replaced (the text around a code span and the
+    quotes are kept); a boolean is written in the old word's vocabulary (its case kept) when
+    the old value was a boolean word of the column, else as ``true`` or ``false``; a cell
+    meaning no value and holding no code span becomes the value in backticks. ``|`` is
+    escaped."""
+    old = old.strip()
+    word = _shown(value)
+    fact = fact_of(column)
+    if boolean and fact in VOCAB:
+        pair = next((p for p in VOCAB[fact] if part.text.lower() in p), None)
         if pair is not None:
-            word = _case_like(inner, pair[word == "true"])
-    if empty:
+            word = _case_like(part.text, pair[word == "true"])
+    word = _escape(word)
+    if normalise(old, column, boolean=boolean) is None and not part.code:
         return f"`{word}`"
-    return f"{ticks}{quote}{word}{quote}{ticks}"
+    return f"{old[:part.start]}{part.quote}{word}{part.quote}{old[part.end:]}"
 
 
 def _replace(line: str, span: tuple[int, int], new: str) -> str:
@@ -312,9 +375,10 @@ def _identity(name: Mapping[str, Any]) -> tuple[Any, ...]:
 def _matches(key: str, names: Sequence[Mapping[str, Any]],
              parent: Sequence[str | None]) -> list[Mapping[str, Any]]:
     found = [n for n in names if n["kind"] in FACT_KINDS and _norm_of(n) == key]
-    scoped = [n for n in found if n["kind"] in SCOPED_KINDS and n.get("parent") in parent]
-    if scoped:
-        found = scoped
+    if parent:
+        scoped = [n for n in found if n["kind"] in SCOPED_KINDS and n.get("parent") in parent]
+        found = scoped or [n for n in found
+                           if n["kind"] not in SCOPED_KINDS or n.get("parent") is None]
     distinct: dict[tuple[Any, ...], Mapping[str, Any]] = {}
     for name in sorted(found, key=lambda n: (str(n["file"]), int(n["line"]))):
         distinct.setdefault(_identity(name), name)
@@ -345,13 +409,22 @@ def check_row(row: Row, table: Table, names: Sequence[Mapping[str, Any]],
         if value is None:
             continue
         old = row["cells"][index]
-        want = normalise(", ".join(value) if isinstance(value, list) else value, column)
-        have = normalise(old, column)
-        if have == want or (want in BOOLEANS and have is not None and have not in BOOLEANS):
-            continue  # an unknown boolean word is the reader's convention: left alone
-        cell = _written(old, value, column)
+        if isinstance(value, list):
+            if normalise(old, column) == ", ".join(sorted(set(value))):
+                continue
+            cell = _written_choices(old, value, column)
+        else:
+            boolean = fact_of(column) == REQUIRED or is_boolean(value)
+            want = normalise(value, column, boolean=boolean)
+            have = normalise(old, column, boolean=boolean)
+            part = _part(old)
+            if have == want or part is None:
+                continue  # equal, or several words and no code span: never rewritten
+            if boolean and (have not in BOOLEANS if have is not None else want == "false"):
+                continue  # an unknown word, or no value for false: the reader's convention
+            cell = _written(old, part, value, column, boolean)
         new = _replace(new, row["spans"][index], cell)
-        changed.insert(0, (column, old, cell, _shown(value, column)))
+        changed.insert(0, (column, old, cell, _shown(value)))
     if not changed:
         return "checked", None
     name = str(match["name"])
