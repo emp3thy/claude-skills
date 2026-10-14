@@ -94,8 +94,8 @@ COLUMNS = ("date", "repository", "head", "mode", "docs", "affected", "units", "e
 HEADER = "| " + " | ".join(COLUMNS) + " |\n"
 ISOLATION = ("--setting-sources", "project", "--strict-mcp-config", "--disable-slash-commands")
 TOOLS = "Read,Grep,Glob,Write"
-ROLES = ("review", "gap", "verify")
-PLAN_LINE = re.compile(r"^(plan-docs|plan-verify|retry)\.json (.+) with (\d+) entries$")
+ROLES = ("review", "gap", "verify", "sheet", "readme")
+PLAN_LINE = re.compile(r"^(plan-docs|plan-readme|plan-verify|retry)\.json (.+) with (\d+) entries$")
 DISPATCH = "Read the file {prompt} in full and follow it. Write only {output}."
 EXIT_OK, EXIT_REFUSED, EXIT_STAGE = 0, 2, 4
 CANNED_BRANCH = "docs/drift-corpus"  # run_fixture's default branch
@@ -284,9 +284,10 @@ def _stage_with_retry(run: Run, stage: str, ok: tuple[int, ...]) -> tuple[int, s
 
 
 def drive(run: Run, check: bool, resume: str | None = None) -> None:
-    """start, the review and gap wave, verify, the verifier wave, finish; with ``resume``
-    (``verify`` or ``finish``) the stages before it are skipped and their waves' outputs,
-    already in the workdir, are reused."""
+    """start, the review, gap and sheet wave, in README mode compose and the writer wave,
+    verify, the verifier wave, finish; with ``resume`` (``compose``, ``verify`` or ``finish``)
+    the stages before it are skipped and their waves' outputs, already in the workdir, are
+    reused."""
     if resume is None:
         print(f"start: {run.repo}", flush=True)
         _, out = _stage(run, ["--stage", "start", *run.flags], (0,))
@@ -295,6 +296,10 @@ def drive(run: Run, check: bool, resume: str | None = None) -> None:
             resume = "finish"
         else:
             _wave(run, docs_plan)
+    if resume in (None, "compose") and (_json(run.workdir, "preflight.json") or {}).get("readme"):
+        print(f"compose: {run.repo}", flush=True)
+        _, out = _stage_with_retry(run, "compose", (0,))
+        _wave(run, _plan(out, run.workdir, "plan-readme"))
     if resume != "finish":
         print(f"verify: {run.repo}", flush=True)
         _, out = _stage_with_retry(run, "verify", (0,))
@@ -373,6 +378,12 @@ def render_row(workdir: Path, *, date: str, repository: str, calls: Sequence[Cal
         gap_kinds = Counter(str(g.get("gap_kind")) for g in gaps_doc.get("gaps", []))
         gaps = f"{gap_kinds['undocumented']}/{gap_kinds['missing-from-list']}"
     roles = {role: len({c.id for c in calls if c.role == role}) for role in ROLES}
+    agents = f"{roles['review']}/{roles['gap']}/{roles['verify']}"
+    if roles["sheet"] or roles["readme"]:
+        agents += f"/{roles['sheet']}/{roles['readme']}"
+    readme_applied = (applied_doc or {}).get("readme")
+    if readme_applied:
+        notes = "; ".join(n for n in (notes, f"readme: {readme_applied['lines']} lines") if n)
     tokens = [c.tokens for c in calls if c.tokens is not None]
     head = str(pre.get("head") or "")[:7] or "-"
     cells = [
@@ -381,7 +392,7 @@ def render_row(workdir: Path, *, date: str, repository: str, calls: Sequence[Cal
         affected, str(len(units.get("units", []))) if units is not None else "-",
         proposed, kept, verdicts, applied, "-",  # judged acceptable: the owner fills it in
         human, notices, gaps, _ratio(planted),
-        _ratio(decoys), f"{roles['review']}/{roles['gap']}/{roles['verify']}",
+        _ratio(decoys), agents,
         _wall(wall_seconds), str(sum(tokens)) if tokens else "-",
         f"{sum(c.cost for c in calls):.2f}", notes,
     ]
@@ -497,7 +508,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--full", action="store_true", help="passed to start")
     parser.add_argument("--check", action="store_true", help="passed to start")
     parser.add_argument("--keep", default=None, help="copy the workdir to this directory")
-    parser.add_argument("--resume", choices=("verify", "finish"), default=None,
+    parser.add_argument("--resume", choices=("compose", "verify", "finish"), default=None,
                         help="continue the run in the workdir from this stage, reusing the "
                              "agent outputs already there; its live-run.json's calls count")
     parser.add_argument("--budget", type=float, default=2.0, help="dollars per agent call")

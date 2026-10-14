@@ -254,3 +254,79 @@ def test_refuses_without_claude(monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setattr(dd_live_run, "live_run", boom)
     assert main(["py-service"]) == 2
     assert "claude" in capsys.readouterr().err
+
+
+def _fake_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, readme: bool,
+              ) -> tuple[Any, list[str], list[list[str]]]:
+    """A Run whose stages and waves are faked: the stage order and the ids dispatched."""
+    workdir = tmp_path / "wd"
+    workdir.mkdir(exist_ok=True)
+    _write(workdir, "preflight.json", {"readme": readme})
+    for name in ("docs", "readme", "verify"):
+        _write(workdir, f"plan-{name}.json",
+               [{"id": f"{name}-1", "role": name, "model": "m", "prompt": "p", "output": "o"}])
+    stages: list[str] = []
+    waves: list[list[str]] = []
+
+    def stage(run: Any, args: list[str], allowed: tuple[int, ...]) -> tuple[int, str]:
+        name = args[args.index("--stage") + 1]
+        stages.append(name)
+        lines = {"start": f"readme: {'yes' if readme else 'no'}\n"
+                          f"plan-docs.json {workdir / 'plan-docs.json'} with 1 entries\n",
+                 "compose": f"plan-readme.json {workdir / 'plan-readme.json'} with 1 entries\n",
+                 "verify": f"plan-verify.json {workdir / 'plan-verify.json'} with 1 entries\n",
+                 "finish": ""}
+        return 0, lines[name]
+
+    def wave(entries: Any, **kwargs: Any) -> None:
+        waves.append([e["id"] for e in entries])
+
+    monkeypatch.setattr(dd_live_run, "_stage", stage)
+    monkeypatch.setattr(dd_live_run, "dispatch_wave", wave)
+    run = dd_live_run.Run(tmp_path, workdir, [], {}, 1)
+    return run, stages, waves
+
+
+def test_drive_runs_compose_and_the_writer_wave_in_readme_mode(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    run, stages, waves = _fake_run(monkeypatch, tmp_path, True)
+    dd_live_run.drive(run, False)
+    assert stages == ["start", "compose", "verify", "finish"]
+    assert waves == [["docs-1"], ["readme-1"], ["verify-1"]]
+
+
+def test_drive_skips_compose_without_readme(monkeypatch: pytest.MonkeyPatch,
+                                            tmp_path: Path) -> None:
+    run, stages, waves = _fake_run(monkeypatch, tmp_path, False)
+    dd_live_run.drive(run, False)
+    assert stages == ["start", "verify", "finish"]
+    assert waves == [["docs-1"], ["verify-1"]]
+
+
+def test_resume_compose_reuses_the_sheet_wave(monkeypatch: pytest.MonkeyPatch,
+                                              tmp_path: Path) -> None:
+    run, stages, waves = _fake_run(monkeypatch, tmp_path, True)
+    dd_live_run.drive(run, False, "compose")
+    assert stages == ["compose", "verify", "finish"]
+    assert waves == [["readme-1"], ["verify-1"]]
+    assert parse_args(["x", "--resume", "compose"]).resume == "compose"
+
+
+def test_row_counts_sheet_and_readme_calls(workdir: Path) -> None:
+    base = [Call("review", "u001", "sonnet", 1.0, 1, 0.0, "ok"),
+            Call("verify", "v01", "opus", 1.0, 1, 0.0, "ok")]
+
+    def cells(calls: list[Call]) -> dict[str, str]:
+        return _cells(render_row(workdir, date="2026-10-13", repository="r", calls=calls,
+                                 wall_seconds=1, planted=None, decoys=None, notes="x"))
+
+    assert cells(base)["agents"] == "1/0/1"
+    assert cells(base)["notes"] == "x"
+    _write(workdir, "applied.json", {"applied": [], "reverted": [],
+                                     "readme": {"lines": 42, "statements": 5, "removed": 0}})
+    more = [*base, Call("sheet", "a01", "sonnet", 1.0, 1, 0.0, "ok"),
+            Call("sheet", "a02", "sonnet", 1.0, 1, 0.0, "ok"),
+            Call("readme", "r01", "opus", 1.0, 1, 0.0, "ok")]
+    got = cells(more)
+    assert got["agents"] == "1/0/1/2/1"
+    assert got["notes"] == "x; readme: 42 lines"
