@@ -240,6 +240,10 @@ row is never edited, with one exception: the owner fills in its `judged acceptab
   <valid>/<unchecked>; statements <proposed>/<accepted>/<rejected>/<unsure>/<unverified>;
   readme <n> lines` (rejected counts the statements the citation check pre-rejected; `readme`
   is the length of the README written, 0 when none was). The table header is unchanged.
+- Phase C adds `cite <moved>/<checked>; facts <corrected>/<checked>; opened <n>` to the `notes`
+  cell of every row the harness writes: citations rewritten of citations checked, fact rows
+  corrected of rows checked (both from `script-edits.json`), and `n`, the `opened` entries
+  summed over the review outputs, so the reading rule is measurable.
 
 The phase 1 rows (`2026-10-09`, ralph and better-memory, from phase 1's deterministic
 `dd_run.py`) were removed with that section's columns: phase A replaced the pipeline they

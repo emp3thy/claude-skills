@@ -21,6 +21,8 @@ Quality bar: every script edit passes the same script checks as an agent edit, l
 
 A table row's name cell counts as "on the line" like any other cell. Amended 2026-10-14 after a probe on `better-memory` (section 2.2): the first draft took only backticked, dotted or snake_case names and only definitions in the cited file, which left the tech-debt PBI items (`path:line` then `observe() wraps ...`) and the route tables with no subject. Citations inside fences and under `drift-ignore` markers are skipped like any reference.
 
+Amended 2026-10-14 after the subject-rule fixes of the first probe rounds: candidates on the line before the citation are taken within 120 characters of it (when the line is a table row, only those in the citation's own cell, plus the row's name cell at any distance), after it within 60. A bare word is a candidate only when it is specific (`EpisodeService`, `store.save`) or written as a call (`observe()`), so a plain word never claims a citation. A `file` or `module` definition of the cited file is never a subject: a citation naming its own file says nothing about the line. The cited path resolves against the doc's directory, then the repository root; a path matching several tracked files makes the citation ambiguous. Python definition spans start at the first decorator line, so a citation that includes the decorator is current. A bare prose citation (`storage.py:89` outside code spans and links) is a cite token like any other.
+
 ### 2.2 The check
 
 `dd_cite` runs at `start`, after `anchors`, over every in-scope doc, and writes its edits into `script-edits.json` (section 5):
@@ -29,14 +31,14 @@ A table row's name cell counts as "on the line" like any other cell. Amended 202
 |---|---|---|
 | current | the subject resolves to one definition in the cited file and the cited line or range lies inside its current span | counted, no edit |
 | moved | the subject resolves to one definition in the cited file and the citation lies outside its span | a `cite` edit: `N` becomes the definition's current start line; `N-M` becomes its current start and end; nothing else on the line changes |
-| several definitions, one covers | the subject has several definitions in the file and exactly one span holds the citation | counted as current |
-| ambiguous | the subject has several definitions in the file and none or several cover the citation | no edit; a hint for the agent (`cite ambiguous: <subject> <path>:<n>`) |
+| any candidate's span covers the citation | some candidate on the line has a definition in the cited file whose span holds the citation (amended 2026-10-14; replaces "several definitions, one covers") | counted as current |
+| ambiguous | the subject has several definitions in the file and none covers the citation, or the cited path matches several tracked files (amended 2026-10-14) | no edit; a hint for the agent (`cite ambiguous: <subject> <path>:<n>`) |
 | use site | the subject resolves only to definitions in other files than the cited one: the citation points at a call or instantiation, which no index of definitions can check (`` `ReflectionService` ... (`app.py:93-96`) ``) | no edit; a hint (`cite use-site: <subject> is defined in <file>:<start>-<end>`); counted |
 | unresolved | no subject on the line, or the cited file is not tracked, or the line is past the file's end | no edit; a hint (`cite unresolved: <path>:<n>`); counted |
 
-The edit record is the ordinary one (A plan, Shared contracts): `type: "cite"`, `source: "script"`, `status: "kept"`, `claim: "<subject> is at <file>:<start>-<end>"`, `evidence: ["<file>:<start>-<end>"]`, `subject: "<subject>"`, `old` and `new` the whole doc line, ids `c001`, `c002`, ... in doc then line order. A line holding several citations gets one edit per citation applied in order on the same line; `dd_apply`'s settle step merges edits on one line as it does for overlapping agent edits, or, when it cannot, the later ones are dropped as `overlap` and the summary counts them.
+The edit record is the ordinary one (A plan, Shared contracts): `type: "cite"`, `source: "script"`, `status: "kept"`, `claim: "<subject> is at <file>:<start>-<end>"`, `evidence: ["<file>:<start>-<end>"]`, `subject: "<subject>"`, `old` and `new` the whole doc line, ids `c001`, `c002`, ... in doc then line order. Amended 2026-10-14: a doc line holding moved citations gets one `cite` edit carrying every moved citation on it. A line holding both a `cite` and a `fact` edit keeps the first by id and drops the second as `overlap`. A citation on a heading line is never rewritten: it is unresolved, with the hint `(heading)`.
 
-Measured on `better-memory` at `9d5be26` (probe, 2026-10-14): 140 line citations in 38 docs. With the first draft's narrow subject rule, 84 resolved (60 moved, 8 current, 16 ambiguous) and 56 did not. Reading the 56: 15 are tech-debt PBI items whose subject is a bare `observe()` after the citation, 18 are table rows whose subject is a route or method in another cell, 16 are the ambiguous ones above, 5 are use sites, 2 cite an untracked file or a line past its end. The amended rule recovers most of the first two groups, so the script's share is about 110 of 140 and about 25 stay with the agent on any design; the fixture and the live run of section 10 measure the real figure.
+Measured on `better-memory` at `9d5be26` (probe, 2026-10-14): 140 line citations in 38 docs. With the first draft's narrow subject rule, 84 resolved (60 moved, 8 current, 16 ambiguous) and 56 did not. Reading the 56: 15 are tech-debt PBI items whose subject is a bare `observe()` after the citation, 18 are table rows whose subject is a route or method in another cell, 16 are the ambiguous ones above, 5 are use sites, 2 cite an untracked file or a line past its end. Amended 2026-10-14, measured at `better-memory` `9d5be26` with the implemented rule: 140 citations, 129 cite tokens (prose citations included), 51 skipped under never-edit headings, 78 checked: 6 current, 10 moved, 17 use sites, 45 unresolved, 0 wrong rewrites. This replaces the estimate of about 110 of 140 made before the rule was run.
 
 ### 2.3 Later runs
 
@@ -64,6 +66,8 @@ Values are the literal's text without quotes. The scan keeps its cross-line matc
 - A mismatch writes a `fact` edit: the row with only that cell replaced by the scan's value in the cell's own style (backticks kept if the old cell had them; a choices cell keeps its separator). `type: "fact"`, `source: "script"`, `claim: "<name> <column> is <value>"`, `evidence: ["<file>:<line>"]`, `subject: "<name>"`, ids `f001`, ...
 - A row whose name the scan does not have is never an edit: it becomes a hint (`not in scan: --worker; nearest --workers` when a scanned name is within edit distance 2 by `norm`, else `not in scan: --worker`), because without history nothing proves the row stale rather than the scan incomplete.
 
+Amended 2026-10-14: the boolean vocabulary (`off/disabled/no/false/✗/✘/n/x`, `on/enabled/yes/true/✓/✔/y`) applies to a default column only when the scanned default is literally `true` or `false`; a boolean word the vocabulary does not know is never rewritten. A cell's value is its leading code span only, and the rest of the cell is kept on a rewrite; a multi-word cell with no leading span counts as checked and is never rewritten, and so does a no-value cell against a boolean `false`. When the heading names a parent that no match has, only global (no-parent) matches count. `\|` in a cell is unescaped to compare and `|` is escaped to write. Several wrong cells in one row give one edit with `; `-joined fields.
+
 ### 3.3 Facts as hints
 
 Every agent that reasons about a scanned name gets its facts:
@@ -84,6 +88,8 @@ Every agent that reasons about a scanned name gets its facts:
 
 The prompt size is bounded by `unit_lines` (A §6.4), which already counts the reading ranges, so a unit at the cap puts about 80k tokens in the prompt. The sheet and writer prompts of phase B do not change.
 
+Amended 2026-10-14: on a later run the unit size counts the touched anchors' reading ranges, the code the prompt inlines. A file counts as opened when the agent Reads it; searches do not. An empty default renders as `default ""`, and a reading range past the file's end is noted in its block.
+
 ## 5. Pipeline
 
 `start` runs, between `anchors` and `changes`: `cite` (`dd_cite.run(root, workdir)`), `facts` (`dd_facts.run(root, workdir, config)` after `patterns`, which therefore moves before `units`), each appending to `script-edits.json`:
@@ -96,6 +102,8 @@ The prompt size is bounded by `unit_lines` (A §6.4), which already counts the r
 ```
 
 `dd_checks.run` adds `script` to `SOURCES`. Script edits pass `old-mismatch`, `protected` and `overlap` like any edit; `large-deletion`, `new-reference`, `guarantee` and `anchor-adds-name` do not apply to them (a `cite` edit changes digits, a `fact` edit one cell). The overlap rule prefers a script edit: an agent edit covering a line a script edit changes is dropped as `overlap-script` and counted; two script edits on one line are both kept and settled at apply (section 2.2). `dd_apply.selected_edits` applies a kept `script` edit without a verdict, as it does notice edits; `dd_checks.batches` never puts a script edit in a verifier batch.
+
+Amended 2026-10-14: `cite` runs after `patterns` (it reads `patterns.json`), `facts` after `cite`, both before `gaps` and `dispatch`. For agent sources `overlap-script` runs right after `old-mismatch`.
 
 Under `--check`, script edits appear in the planned list with their bullets and count towards exit 1.
 
@@ -157,7 +165,7 @@ No new keys. A citation or a table the owner wants left alone takes a `drift-ign
 
 | # | Assumption | Status | Cost if wrong |
 |---|---|---|---|
-| C1 | The same-line nearest-name rule, with definitions and scanned names as subjects, finds the right subject for most citations and never a wrong one | Measured on better-memory with the narrow rule: 84 of 140 resolved; the amended rule's recovery of the PBI items and route tables (about 110 of 140) is estimated from reading the 56, not yet run; the probe found one wrong subject (`memory.db`, a literal), excluded by the rank-0 rule | A wrong subject rewrites a citation to a wrong line, which the owner sees as a bullet and reverts |
+| C1 | The same-line nearest-name rule, with definitions and scanned names as subjects, finds the right subject for most citations and never a wrong one | Measured 2026-10-14 at better-memory `9d5be26`: 10 of 78 checked citations rewritten, 0 wrong, after three rounds of subject-rule fixes (the figures are in section 2.2); the first probe's wrong subject (`memory.db`, a literal) is excluded by the rank-0 rule | A wrong subject rewrites a citation to a wrong line, which the owner sees as a bullet and reverts |
 | C2 | The scan can read defaults, choices and required from argparse, click, env reads and MCP schemas as literals | Unverified; the cross-line matcher is there, and better-memory's MCP schemas and better-memory's argparse are the test | Null facts for some names: fewer checks, no wrong edits |
 | C3 | Fact tables are recognisable by header and name column across real docs | Unverified; better-memory's `website/configuration.md` and `mcp-tools.md` tables and this repository's SKILL.md tables are the sample | Tables missed: fewer checks, no wrong edits |
 | C4 | Inlining the reading ranges halves review tokens per call | Unverified; measured by the two live runs of section 10 | The prompt rule alone stays; the inline blocks go |

@@ -785,7 +785,7 @@ without review is a separate follow-on, deferred and out of scope.
 ## document-drift
 
 `skills/document-drift/` is a second skill in this repository: it keeps a repository's
-markdown docs matching what its code does, in both directions, and leaves at most two commits
+markdown docs matching what its code does, in both directions, and leaves at most three commits
 on a new branch. The canonical design is
 [`docs/superpowers/specs/2026-10-10-document-drift-agentic-design.md`](superpowers/specs/2026-10-10-document-drift-agentic-design.md)
 (phase A: normal runs on a repository that has docs) and
@@ -811,10 +811,10 @@ count (`plan-docs.json <path> with <n> entries`, `plan-readme.json <path> with 1
 
 | Stage | Steps (module) | Files written | Then the session dispatches |
 |---|---|---|---|
-| `start` | preflight (`dd_preflight`); inventory (`dd_inventory`); path and anchor tokens and their resolution at HEAD (`dd_extract`, `dd_resolve`; `dd_changes` reads the unresolved paths of `candidates.json`); definition index (`dd_defindex`); anchors and checkability (`dd_anchors`); run mode and change set (`dd_changes`); review units (`dd_units`); pattern scan (`dd_patterns`); gaps and targets (`dd_gaps`); notice decisions (`dd_unverified`); plan (`dd_dispatch`); in README mode also the area split (`dd_areas`) | `preflight.json`, `inventory.json`, `tokens.json`, `candidates.json`, `defindex.json`, `anchors.json`, `changes.json`, `units.json`, `patterns.json`, `gaps.json`, `notices.json`, `plan-docs.json`, `prompts/review-uNNN.md`, `prompts/gap-gNNN.md`; in README mode also `areas.json` and `prompts/sheet-aNN.md` | one review agent per unit (`review/uNNN.json`) and one gap agent per target doc (`gaps/gNNN.json`); in README mode also one sheet agent per area (`sheets/aNN.json`); when the plan is empty and `readme` is false, nothing, and the session goes straight to `finish` |
+| `start` | preflight (`dd_preflight`); inventory (`dd_inventory`); path and anchor tokens and their resolution at HEAD (`dd_extract`, `dd_resolve`; `dd_changes` reads the unresolved paths of `candidates.json`); definition index (`dd_defindex`); anchors and checkability (`dd_anchors`); run mode and change set (`dd_changes`); review units (`dd_units`); pattern scan (`dd_patterns`); citation checks (`dd_cite`, after `patterns`, whose `patterns.json` it reads); fact table checks (`dd_facts`, after `cite`); gaps and targets (`dd_gaps`); notice decisions (`dd_unverified`); plan (`dd_dispatch`); in README mode also the area split (`dd_areas`) | `preflight.json`, `inventory.json`, `tokens.json`, `candidates.json`, `defindex.json`, `anchors.json`, `changes.json`, `units.json`, `patterns.json`, `script-edits.json`, `gaps.json`, `notices.json`, `plan-docs.json`, `prompts/review-uNNN.md`, `prompts/gap-gNNN.md`; in README mode also `areas.json` and `prompts/sheet-aNN.md` | one review agent per unit (`review/uNNN.json`) and one gap agent per target doc (`gaps/gNNN.json`); in README mode also one sheet agent per area (`sheets/aNN.json`); when the plan is empty and `readme` is false, nothing, and the session goes straight to `finish` |
 | `compose` (README mode only) | sheet output validation (`dd_sheets.validate`, through `dd_dispatch`) with the exit-3 retry; on the `--retried` pass a sheet short only of hints is accepted and the hints filled by script (`dd_sheets.fill`); a `hidden` value the scan contradicts is corrected (`dd_sheets.correct_hidden`); the writer's prompt rendered from `prompts/readme.md` | `retry.json` (when needed), `sheets.json`, `plan-readme.json` (one entry, or `[]` when no sheet is valid), `prompts/readme-r001.md` | one writer agent (`readme/r001.json`); with no valid sheet, nothing |
 | `verify` | output validation (`dd_dispatch`); retry units for the ranges review agents reported as `not_reviewed` (`dd_units.retry_units`, `dd_dispatch.plan_retry`); the review agents' `unverified_blocks` as notice nominations (`dd_unverified`); script checks and verify batches (`dd_checks`); in README mode the writer's output is validated too (its structure through `dd_readme.structural_problems`, so a bad one takes the same retry) and the citation check splits the README into statements (`dd_readme.check_step`) | `retry.json` (when needed), `units.json` and `plan-docs.json` (appended retry units), `notices.json`, `edits.json`, `plan-verify.json`, `prompts/verify-vNN.md`; in README mode also `readme.json` and the README's `create` edit in `edits.json` | one verifier agent per batch of at most 10 edits, or of at most `caps.readme_batch` README statements (`verdicts/vNN.json`) |
-| `finish` | output validation and verdicts (`dd_dispatch`); tree check (HEAD no longer the preflight HEAD, a clean branch switch included, or any file outside the workdir that changed since preflight refuses the run, exit 2, before anything is applied); apply, re-scan and revert, heading link updates (`dd_apply`); commits (`dd_commit`); last-run record; summary (`dd_summary`); in README mode `dd_readme.apply` removes the statements not accepted and writes `README.md` | `verdicts.json`, `applied.json`, `commits.json`, `commit-msg-corrections.txt`, `commit-msg-additions.txt`, `last-run.json`, `summary.md` | nothing |
+| `finish` | output validation and verdicts (`dd_dispatch`); tree check (HEAD no longer the preflight HEAD, a clean branch switch included, or any file outside the workdir that changed since preflight refuses the run, exit 2, before anything is applied); apply, re-scan and revert, heading link updates (`dd_apply`); commits (`dd_commit`); last-run record; summary (`dd_summary`); in README mode `dd_readme.apply` removes the statements not accepted and writes `README.md` | `verdicts.json`, `applied.json`, `commits.json`, `commit-msg-corrections.txt`, `commit-msg-additions.txt`, `commit-msg-citations.txt`, `last-run.json`, `summary.md` | nothing |
 
 `start` deletes `preflight.json` first and, once preflight passes, every other pinned output of
 an earlier run except `last-run.json`, so a stale file is never read again and a refused start
@@ -940,6 +940,29 @@ its scope) lacks it. Each gap gets one target doc, or `no-home`. One gap agent p
 (`gap.md`) writes `add` edits, or refuses as `not-user-facing`, `already-documented` or
 `target-refused`.
 
+**Script edits** (`dd_cite`, `dd_facts`; phase C spec
+[`2026-10-14-document-drift-phase-c-design.md`](superpowers/specs/2026-10-14-document-drift-phase-c-design.md)).
+`dd_cite` checks every `path:line` citation token of `tokens.json` against the definition index:
+the citation's subject is a name on the same doc line (a definition, or a name the pattern scan
+found), and when that definition lies in the cited file but no longer covers the cited line, a
+`cite` edit rewrites the numbers to its current span. Citations whose subject is defined only
+elsewhere (use sites), is ambiguous or is missing become hints, not edits. `dd_facts` checks the
+default, choices and required cells of doc tables against the pattern scan's `default`,
+`choices` and `required` fields and writes a `fact` edit per wrong row; a row whose name the scan
+lacks is a hint. Both write `script-edits.json` (edits, hints per doc, counts). The edits carry
+`source: "script"` and go through `dd_checks` as a third source: `old-mismatch`, `protected` and
+`overlap` apply, an agent edit on a line a script edit changes is dropped as `overlap-script`,
+and no script edit goes to a verifier. `dd_apply` applies them without a verdict and `dd_commit`
+puts them in the third commit, `docs(drift): correct citations and facts`, with `cite` and `fact`
+bullets. The summary has a `Script edits` section and `Edits proposed` a `script:` line.
+
+The review prompt (`dd_dispatch`) inlines the code: the unit's reading ranges are merged per file
+and rendered as numbered blocks, with the changed hunks first on a later run. Anchor lines carry
+the scan's facts (default, choices, required), and `## Already settled by script` lists the
+`cite` and `fact` edits and the hints on the unit's lines, which the agent must not edit. The
+reading rule asks the agent to open a file only when a claim depends on code not shown, and to
+list each opened file in the output's `opened` key.
+
 ### Checks, verification, apply
 
 `dd_checks` (spec 9.1) runs on every edit, first failure decides: `old-mismatch`, `protected`,
@@ -977,7 +1000,8 @@ The indented `link` sub-bullet follows an edit whose heading change rewrote link
 heading slug, one per rewritten link.
 
 The second commit, `docs(drift): document missing surface`, has the same `Drift-` lines and
-`- <doc>:<line> add <kind> <name> (<path:line>)` bullets. A commit with no edits is not made.
+`- <doc>:<line> add <kind> <name> (<path:line>)` bullets. The third commit, `docs(drift): correct citations and facts`, has the same `Drift-` lines and `- <doc>:<line> cite <subject> <old> -> <new>` and
+`- <doc>:<line> fact <name> <column> <old> -> <new> (<file>:<line>)` bullets. A commit with no edits is not made.
 The last commit made ends with `Needs a human decision:` and one
 `- <doc>:<line> <kind>: <claim or item> (<evidence or reason>)` line per entry, the kinds being
 `guarantee-mismatch`, `unsure`, `unverified`, `large-deletion`, `large-section`, `protected`,
