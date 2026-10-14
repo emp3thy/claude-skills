@@ -78,7 +78,7 @@ def test_row_with_stale_default_is_corrected() -> None:
     ("off", "false", None), ("`disabled`", "False", None), ("no", "false", None),
     ("On", "true", None), ("enabled", "True", None), ("yes", "true", None),
     ("off", "true", "on"), ("Disabled", "true", "Enabled"), ("`no`", "true", "`yes`"),
-    ("`0`", "true", "`true`")])
+    ("`0`", "true", None), ("✗", "true", "✓"), ("Y", "false", "N")])
 def test_boolean_defaults_normalise_before_comparison(cell: str, scan: str,
                                                        new: str | None) -> None:
     assert normalise("off", "Default") == "false"
@@ -92,7 +92,29 @@ def test_boolean_defaults_normalise_before_comparison(cell: str, scan: str,
         assert edit["new"] == f"| `--debug` | {new} |"
 
 
+@pytest.mark.parametrize(("column", "cell", "scan", "status"), [
+    ("Required", "✓", True, "checked"), ("Required", "✔", True, "checked"),
+    ("Required", "y", True, "checked"), ("Required", "✗", False, "checked"),
+    ("Required", "✘", False, "checked"), ("Required", "n", False, "checked"),
+    ("Required", "x", False, "checked"), ("Required", "-", False, "checked"),
+    ("Required", "see notes", False, "checked"), ("Required", "✓", False, "corrected"),
+    ("Default", "✓", "true", "checked"), ("Default", "x", "false", "checked"),
+    ("Default", "see notes", "false", "checked"),
+    ("Default", "enabled by default", "false", "checked")])
+def test_unknown_boolean_words_are_left_alone(column: str, cell: str, scan: Any,
+                                              status: str) -> None:
+    fact = {"required": scan} if column == "Required" else {"default": scan}
+    table = _one(f"| Flag | {column} |\n|---|---|\n| `--debug` | {cell} |\n")
+    got, edit = check_row(table["rows"][0], table, [_n("--debug", **fact)], [])
+    assert got == status
+    if status == "checked":
+        assert edit is None
+    else:
+        assert edit is not None and edit["new"] == "| `--debug` | ✗ |"
+
+
 @pytest.mark.parametrize("cell", ["-", "None", "`null`", "n/a", "(none)", "none", ""])
+
 def test_no_default_spellings_are_equal(cell: str) -> None:
     assert normalise(cell, "Default") is None
     table = _one(f"| Flag | Default |\n|---|---|\n| `--name` | {cell} |\n")

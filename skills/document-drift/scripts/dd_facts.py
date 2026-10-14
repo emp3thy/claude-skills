@@ -19,7 +19,9 @@ any kind is a ``not-in-scan`` hint, naming the nearest scanned name of the same 
 (``flag``: ``-``-led; ``env``: upper case; other names) within edit distance 2 by ``norm``.
 
 Cells and facts are compared through ``normalise``; a null fact never makes an edit (the scan
-does not know). A mismatch rewrites only that cell in its own style (``_written``), one
+does not know), and neither does a boolean fact against a cell whose word the vocabulary does
+not know (``see notes``, ``enabled by default``): the row is checked and the reader's
+convention left alone. A mismatch rewrites only that cell in its own style (``_written``), one
 ``fact`` edit per row (ids ``f001``... in doc then line order). Rows on protected lines
 (``drift-ignore``, never-edit sections, generated regions) are skipped and not counted.
 
@@ -47,9 +49,12 @@ CHOICE_WORDS = ("values", "choices", "options", "one of")
 FACT_KINDS = frozenset({"flag", "env", "param"})
 NEAREST_DISTANCE = 2
 NO_VALUE = frozenset({"", "-", "none", "null", "n/a", "(none)"})
-# (false word, true word) pairs, in the order a cell's word is looked up.
-VOCAB = {DEFAULT: (("off", "on"), ("disabled", "enabled"), ("no", "yes"), ("false", "true")),
-         REQUIRED: (("optional", "required"), ("no", "yes"), ("false", "true"))}
+BOOLEANS = ("true", "false")
+# (false word, true word) pairs, in the order a cell's word is looked up when writing.
+_MARKS = (("✗", "✓"), ("✘", "✔"), ("n", "y"), ("x", "✓"))
+VOCAB = {DEFAULT: (("off", "on"), ("disabled", "enabled"), ("no", "yes"), ("false", "true"),
+                   *_MARKS),
+         REQUIRED: (("optional", "required"), ("no", "yes"), ("false", "true"), *_MARKS)}
 
 _CODE = re.compile(r"(`+)(.+?)\1")
 _TICKED = re.compile(r"^(`+)\s*([^`]*?)\s*\1$")
@@ -180,10 +185,14 @@ def normalise(cell: str, column: str) -> str | None:
     ``(none)`` (any case) are None. A ``default`` column's boolean words (``off``,
     ``disabled``, ``no``, ``false`` / ``on``, ``enabled``, ``yes``, ``true``) and a
     ``required`` column's (``no``, ``false``, ``optional`` / ``yes``, ``true``,
-    ``required``) become ``"false"`` / ``"true"``; a choices cell is its distinct items
-    (split on ``,`` or ``|`` outside backticks) sorted and joined by ``, ``."""
+    ``required``) become ``"false"`` / ``"true"``, and so do the marks of both (``✗``,
+    ``✘``, ``n``, ``x`` / ``✓``, ``✔``, ``y``; a required column's ``-`` is
+    ``"false"``); a choices cell is its distinct items (split on ``,`` or ``|`` outside
+    backticks) sorted and joined by ``, ``."""
     fact = fact_of(column)
     _, _, text = _unwrap(cell)
+    if fact == REQUIRED and text == "-":
+        return "false"
     if text.lower() in NO_VALUE:
         return None
     if fact == CHOICES:
@@ -216,7 +225,7 @@ def _shown(value: str | list[str], column: str) -> str:
     if isinstance(value, list):
         return ", ".join(value)
     norm_value = normalise(value, column)
-    return norm_value if norm_value in ("true", "false") else value
+    return norm_value if norm_value in BOOLEANS else value
 
 
 def _case_like(old: str, word: str) -> str:
@@ -241,7 +250,7 @@ def _written(old: str, value: str | list[str], column: str) -> str:
         return sep.join(f"`{item}`" if ticked else item for item in value)
     word = _shown(value, column)
     ticks, quote, inner = _unwrap(old)
-    if word in ("true", "false") and fact in VOCAB:
+    if word in BOOLEANS and fact in VOCAB:
         pair = next((p for p in VOCAB[fact] if inner.lower() in p), None)
         if pair is not None:
             word = _case_like(inner, pair[word == "true"])
@@ -337,8 +346,9 @@ def check_row(row: Row, table: Table, names: Sequence[Mapping[str, Any]],
             continue
         old = row["cells"][index]
         want = normalise(", ".join(value) if isinstance(value, list) else value, column)
-        if normalise(old, column) == want:
-            continue
+        have = normalise(old, column)
+        if have == want or (want in BOOLEANS and have is not None and have not in BOOLEANS):
+            continue  # an unknown boolean word is the reader's convention: left alone
         cell = _written(old, value, column)
         new = _replace(new, row["spans"][index], cell)
         changed.insert(0, (column, old, cell, _shown(value, column)))
