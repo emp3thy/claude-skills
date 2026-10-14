@@ -259,3 +259,30 @@ def test_tree_placeholder_label_is_stripped() -> None:
     files = frozenset({"src/app.py"})
     tok = _tok(kind="tree", text="<project>/src/app.py", tree_label="<project>", context="tree")
     assert resolve_token(tok, files, frozenset({"src"}), _reader({})) == "src/app.py"
+
+
+def test_cite_tokens_are_ignored_by_resolve_and_anchors(tmp_path: Path) -> None:
+    from dd_anchors import run as anchors_run
+    from dd_config import DEFAULTS
+    from dd_defindex import run as defindex_run
+    from dd_inventory import run as inventory_run
+
+    def candidates(doc: str) -> tuple[bytes, bytes]:
+        tag = "cite" if ":" in doc else "plain"
+        repo = make_repo(tmp_path / tag, [
+            _c("01", "one", files={"README.md": f"See `{doc}` here.\n", "src/app.py": "x = 1\n"}),
+        ])
+        work = tmp_path / f"w-{tag}"
+        inventory_run(repo, work, {**DEFAULTS})
+        defindex_run(repo, work)
+        anchors_run(repo, work, {**DEFAULTS})
+        before = (work / "anchors.json").read_bytes()
+        tokens = {"README.md": _tokens(repo, "README.md")}
+        assert any(t["kind"] == "cite" for t in tokens["README.md"]) == (":" in doc)
+        write_json(work / "tokens.json", {"docs": tokens, "markers": [], "skipped": []})
+        run(repo, work)
+        anchors_run(repo, work, {**DEFAULTS})
+        assert (work / "anchors.json").read_bytes() == before
+        return (work / "candidates.json").read_bytes(), before
+
+    assert candidates("src/app.py:12")[0] == candidates("src/app.py")[0]

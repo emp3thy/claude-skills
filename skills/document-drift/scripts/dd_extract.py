@@ -65,6 +65,8 @@ _TABLE_KINDS = frozenset({"table_row", "table_delim"})
 _URL = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*:(?!\d)|//|www\.")
 _LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
 _LINE_FRAGMENT = re.compile(r"L\d+")
+_CITE_FRAGMENT = re.compile(r"L(\d+)(?:-L?(\d+))?")
+_CITE_SUFFIX = re.compile(r":(\d+)(?:-(\d+))?$")
 _PLACEHOLDER = re.compile(r"(?i)\b(your|my)[-_]|\bexample\b|\b(foo|bar|baz|xxx|todo)\b")
 _PLACEHOLDER_PARTS = ("<", ">", "{{", "${", "*")
 _RATIO = re.compile(r"\d+/\d+|[A-Za-z]/[A-Za-z]")  # ruling R14: 3/5, X/Y
@@ -170,6 +172,27 @@ def _split_target(raw: str) -> tuple[str, str | None, int]:
     if m := _LINE_SUFFIX.search(path):
         path = path[: m.start()]
     return path, frag, frag_start
+
+
+def _cite_of(raw: str) -> tuple[str, int, int] | None:
+    """(text as written, start, end) of a ``path:N``, ``path:N-M`` or ``path#LN`` reference.
+
+    The text runs from the start of ``raw`` to the end of the line suffix or fragment; None when
+    ``raw`` carries no line (``start == end`` for a single line).
+    """
+    hash_at = raw.find("#")
+    if hash_at >= 0:
+        m = _CITE_FRAGMENT.match(raw, hash_at + 1)
+        if m is None or hash_at == 0:
+            return None
+        first = int(m[1])
+        return raw[: m.end()], first, int(m[2]) if m[2] else first
+    path = raw[: raw.find("?")] if "?" in raw else raw
+    m = _CITE_SUFFIX.search(path)
+    if m is None or m.start() == 0:
+        return None
+    first = int(m[1])
+    return path, first, int(m[2]) if m[2] else first
 
 
 def _command_starts(s: str) -> list[int]:
@@ -324,6 +347,10 @@ class _Extractor:
             line, col, end_col = self.code_span(inl, lead, lead + len(path))
             self.add("path", line, col, end_col, path, "inline-code", block, idx,
                      editable=editable)
+            if cite := _cite_of(text.strip()):
+                line, col, end_col = self.code_span(inl, lead, lead + len(cite[0]))
+                self.add("cite", line, col, end_col, cite[0], "inline-code", block, idx,
+                         editable=editable, path=path, start=cite[1], end=cite[2])
         for tool, name, a, b in _scripts(text):
             line, col, end_col = self.code_span(inl, a, b)
             self.add("script", line, col, end_col, name, "inline-code", block, idx,
@@ -343,6 +370,10 @@ class _Extractor:
         if has_path:
             self.add("path", inl.line, inl.col, inl.col + len(path), path, inl.kind, block, idx,
                      link=link, editable=editable)
+            if cite := _cite_of(raw):
+                self.add("cite", inl.line, inl.col, inl.col + len(cite[0]), cite[0], inl.kind,
+                         block, idx, link=link, editable=editable, path=path, start=cite[1],
+                         end=cite[2])
         markdown_target = not path or path.lower().endswith((".md", ".markdown"))
         if (frag and markdown_target and (has_path or not path)
                 and not any(p in frag for p in ("<", ">", "{", "$", "*", "#"))):
